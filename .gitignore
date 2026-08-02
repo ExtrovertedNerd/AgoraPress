@@ -1,0 +1,55 @@
+# AgoraPress .gitignore
+# Critical: Never include Hephaestus process state
+.hephaestus/
+**/.hephaestus/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# PHP / Composer
+/vendor/
+composer.lock
+.phpunit.result.cache
+.php-cs-fixer.cache
+.phpstan.cache
+
+# Environment & Config (generated)
+ap-config.php
+.env
+.env.local
+.env.*.local
+
+# Uploads & runtime
+/ap-content/uploads/
+/content/uploads/
+*.log
+
+# Node (if any frontend tooling later)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build / Cache
+/cache/
+/tmp/
+/temp/
+*.cache
+
+# Tests & coverage
+/coverage/
+.phpunit.cache/
+
+# Docker overrides
+docker-compose.override.yml
+
+# Misc
+*.bak
+*.tmp
+*.temp
