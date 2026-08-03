@@ -17,9 +17,10 @@ define('AP_VERSION', '0.1.0-dev');
  * Database schema version expected by this codebase.
  *
  * Integer (stored as string for historical/define symmetry). Bumped when a new
- * migration ships under ap-includes/schema/migrations/. Version 1 ships core
- * options / users / usermeta tables. {@see AP_Migrator} tracks applied versions
- * in schema_migrations. Installer / update path apply pending migrations until
- * the database matches this target.
+ * migration ships under ap-includes/schema/migrations/. Version 1: options /
+ * users / usermeta. Version 2: posts / postmeta. Version 3: terms /
+ * term_taxonomy / term_relationships. Version 4: comments / commentmeta.
+ * {@see AP_Migrator} tracks applied versions in schema_migrations. Installer /
+ * update path apply pending migrations until the database matches this target.
  */
-define('AP_DB_VERSION', '1');
+define('AP_DB_VERSION', '4');

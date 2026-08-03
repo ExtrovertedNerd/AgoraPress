@@ -51,7 +51,8 @@ final class CoreTablesMigrationTest extends TestCase
     {
         $path = AP_Migrator::defaultMigrationsPath() . '/0001_core_options_users.php';
         $this->assertFileIsReadable($path);
-        $this->assertSame(1, (int) AP_DB_VERSION);
+        // AP_DB_VERSION tracks the latest shipped schema (terms/taxonomies = 3).
+        $this->assertGreaterThanOrEqual(1, (int) AP_DB_VERSION);
         $this->assertGreaterThanOrEqual(1, AP_Migrator::codeTargetVersion());
     }
 
@@ -63,7 +64,8 @@ final class CoreTablesMigrationTest extends TestCase
         $applied = $this->migrator->migrate();
         $this->assertNotSame([], $applied);
         $this->assertSame(1, $applied[0]['version']);
-        $this->assertSame(1, $this->migrator->getCurrentVersion());
+        // Full migrate applies all shipped migrations (0001 + later).
+        $this->assertGreaterThanOrEqual(1, $this->migrator->getCurrentVersion());
         $this->assertFalse($this->migrator->needsMigration());
         $this->assertSame([], $this->migrator->migrate());
 

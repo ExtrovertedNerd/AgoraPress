@@ -66,7 +66,7 @@ def test_db_version_constant_is_integer_string() -> None:
     src = VERSION.read_text(encoding="utf-8")
     assert "AP_DB_VERSION" in src
     assert "define('AP_DB_VERSION'" in src
-    assert "define('AP_DB_VERSION', '1')" in src
+    assert "define('AP_DB_VERSION', '4')" in src
 
 
 def test_shipped_core_options_users_migration_exists() -> None:
@@ -89,8 +89,66 @@ def test_shipped_core_options_users_migration_exists() -> None:
         assert needle in src, f"Expected {needle} in core migration"
 
 
+def test_shipped_posts_postmeta_migration_exists() -> None:
+    mig = MIGRATIONS_DIR / "0002_core_posts_postmeta.php"
+    assert mig.is_file(), "Missing 0002_core_posts_postmeta.php"
+    src = mig.read_text(encoding="utf-8")
+    for needle in (
+        "AP_Migration_0002_Core_Posts_Postmeta",
+        "posts",
+        "postmeta",
+        "post_title",
+        "post_status",
+        "post_type",
+        "post_parent",
+        "meta_id",
+        "post_id",
+        "ENGINE=InnoDB",
+        "BIGSERIAL",
+        "AUTOINCREMENT",
+    ):
+        assert needle in src, f"Expected {needle} in posts/postmeta migration"
+
+
+def test_shipped_terms_taxonomies_migration_exists() -> None:
+    mig = MIGRATIONS_DIR / "0003_core_terms_taxonomies.php"
+    assert mig.is_file(), "Missing 0003_core_terms_taxonomies.php"
+    src = mig.read_text(encoding="utf-8")
+    for needle in (
+        "AP_Migration_0003_Core_Terms_Taxonomies",
+        "terms",
+        "term_taxonomy",
+        "term_relationships",
+        "term_id",
+        "object_id",
+        "ENGINE=InnoDB",
+        "BIGSERIAL",
+        "AUTOINCREMENT",
+    ):
+        assert needle in src, f"Expected {needle} in terms/taxonomies migration"
+
+
+def test_shipped_comments_commentmeta_migration_exists() -> None:
+    mig = MIGRATIONS_DIR / "0004_core_comments_commentmeta.php"
+    assert mig.is_file(), "Missing 0004_core_comments_commentmeta.php"
+    src = mig.read_text(encoding="utf-8")
+    for needle in (
+        "AP_Migration_0004_Core_Comments_Commentmeta",
+        "comments",
+        "commentmeta",
+        "comment_ID",
+        "comment_post_ID",
+        "comment_approved",
+        "meta_id",
+        "ENGINE=InnoDB",
+        "BIGSERIAL",
+        "AUTOINCREMENT",
+    ):
+        assert needle in src, f"Expected {needle} in comments/commentmeta migration"
+
+
 def test_shipped_core_migration_applies_via_php() -> None:
-    """Apply real shipped 0001 migration on in-memory SQLite."""
+    """Apply real shipped migrations (0001–0004) on in-memory SQLite."""
     script = textwrap.dedent(
         f"""
         declare(strict_types=1);
@@ -103,7 +161,7 @@ def test_shipped_core_migration_applies_via_php() -> None:
         ]);
         $db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
         $m = new AP_Migrator($db, AP_Migrator::defaultMigrationsPath());
-        if ((int) AP_DB_VERSION < 1) {{
+        if ((int) AP_DB_VERSION < 4) {{
             fwrite(STDERR, "AP_DB_VERSION too low\\n");
             exit(2);
         }}
@@ -116,7 +174,19 @@ def test_shipped_core_migration_applies_via_php() -> None:
             fwrite(STDERR, "version 1 not applied\\n");
             exit(4);
         }}
-        foreach (['ap_options', 'ap_users', 'ap_usermeta'] as $t) {{
+        if (count($applied) < 2 || (int) $applied[1]['version'] !== 2) {{
+            fwrite(STDERR, "version 2 not applied\\n");
+            exit(4);
+        }}
+        if (count($applied) < 3 || (int) $applied[2]['version'] !== 3) {{
+            fwrite(STDERR, "version 3 not applied\\n");
+            exit(4);
+        }}
+        if (count($applied) < 4 || (int) $applied[3]['version'] !== 4) {{
+            fwrite(STDERR, "version 4 not applied\\n");
+            exit(4);
+        }}
+        foreach (['ap_options', 'ap_users', 'ap_usermeta', 'ap_posts', 'ap_postmeta', 'ap_terms', 'ap_term_taxonomy', 'ap_term_relationships', 'ap_comments', 'ap_commentmeta'] as $t) {{
             $name = $db->getVar(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
                 [$t]
@@ -139,6 +209,106 @@ def test_shipped_core_migration_applies_via_php() -> None:
         if ($v !== 'CoreMig') {{
             fwrite(STDERR, "option value mismatch\\n");
             exit(6);
+        }}
+        $db->insert('posts', [
+            'post_author' => 1,
+            'post_content' => 'Body',
+            'post_title' => 'Hello',
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'comment_status' => 'open',
+            'ping_status' => 'open',
+            'post_password' => '',
+            'post_name' => 'hello',
+            'to_ping' => '',
+            'pinged' => '',
+            'post_content_filtered' => '',
+            'post_parent' => 0,
+            'guid' => '',
+            'menu_order' => 0,
+            'post_type' => 'post',
+            'post_mime_type' => '',
+            'comment_count' => 0,
+        ]);
+        $title = $db->getVar(
+            'SELECT post_title FROM ' . $db->quoteIdentifier($db->posts)
+            . ' WHERE post_name = ?',
+            ['hello']
+        );
+        if ($title !== 'Hello') {{
+            fwrite(STDERR, "post title mismatch\\n");
+            exit(8);
+        }}
+        $db->insert('terms', [
+            'name' => 'News',
+            'slug' => 'news',
+            'term_group' => 0,
+        ]);
+        $termId = (int) $db->lastInsertId();
+        if ($termId < 1) {{
+            fwrite(STDERR, "term insert failed\\n");
+            exit(10);
+        }}
+        $db->insert('term_taxonomy', [
+            'term_id' => $termId,
+            'taxonomy' => 'category',
+            'description' => '',
+            'parent' => 0,
+            'count' => 0,
+        ]);
+        $ttId = (int) $db->lastInsertId();
+        $db->insert('term_relationships', [
+            'object_id' => 1,
+            'term_taxonomy_id' => $ttId,
+            'term_order' => 0,
+        ]);
+        $slug = $db->getVar(
+            'SELECT slug FROM ' . $db->quoteIdentifier($db->terms)
+            . ' WHERE term_id = ?',
+            [$termId]
+        );
+        if ($slug !== 'news') {{
+            fwrite(STDERR, "term slug mismatch\\n");
+            exit(11);
+        }}
+        $db->insert('comments', [
+            'comment_post_ID' => 1,
+            'comment_author' => 'Tester',
+            'comment_author_email' => 't@example.com',
+            'comment_author_url' => '',
+            'comment_author_IP' => '127.0.0.1',
+            'comment_date' => '2026-08-03 12:00:00',
+            'comment_date_gmt' => '2026-08-03 12:00:00',
+            'comment_content' => 'Hi',
+            'comment_karma' => 0,
+            'comment_approved' => '1',
+            'comment_agent' => '',
+            'comment_type' => 'comment',
+            'comment_parent' => 0,
+            'user_id' => 0,
+        ]);
+        $cid = (int) $db->lastInsertId();
+        if ($cid < 1) {{
+            fwrite(STDERR, "comment insert failed\\n");
+            exit(12);
+        }}
+        $db->insert('commentmeta', [
+            'comment_id' => $cid,
+            'meta_key' => 'source',
+            'meta_value' => 'migtest',
+        ]);
+        $cauthor = $db->getVar(
+            'SELECT comment_author FROM ' . $db->quoteIdentifier($db->comments)
+            . ' WHERE ' . $db->quoteIdentifier('comment_ID') . ' = ?',
+            [$cid]
+        );
+        if ($cauthor !== 'Tester') {{
+            fwrite(STDERR, "comment author mismatch\\n");
+            exit(13);
+        }}
+        if ($m->getCurrentVersion() !== 4) {{
+            fwrite(STDERR, "current version not 4\\n");
+            exit(9);
         }}
         if ($m->migrate() !== []) {{
             fwrite(STDERR, "not idempotent\\n");

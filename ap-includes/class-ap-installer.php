@@ -506,6 +506,13 @@ PHP;
         try {
             self::seedOptions($connection, $site, $admin);
             $result['admin_id'] = self::seedAdminUser($connection, $admin, $site);
+            // Default Uncategorized category (taxonomy tables from migration 0003+).
+            if (!class_exists('AP_Taxonomy', false)) {
+                require_once __DIR__ . '/class-ap-post.php';
+                require_once __DIR__ . '/class-ap-taxonomy.php';
+            }
+            AP_Taxonomy::ensureBuiltins();
+            AP_Taxonomy::ensureDefaultCategory($connection);
         } catch (Throwable $e) {
             $result['errors'][] = 'Could not create initial site data: ' . $e->getMessage();
 
@@ -563,7 +570,26 @@ PHP;
             'date_format' => 'Y-m-d',
             'time_format' => 'H:i',
             'start_of_week' => '1',
+            // Empty structure = plain ?p= / ?page_id= links (pretty permalinks optional).
             'permalink_structure' => '',
+            'category_base' => '',
+            'tag_base' => '',
+            'rewrite_rules' => '',
+            // Default theme (Agora) — stylesheet may become a child later.
+            'stylesheet' => 'agora',
+            'template' => 'agora',
+            // Agora color scheme: marble|parchment|cloud|obsidian|midnight|charcoal.
+            'agora_color_scheme' => 'marble',
+            // Reading / front-page settings (options-reading.php).
+            'show_on_front' => 'posts',
+            'page_on_front' => '0',
+            'page_for_posts' => '0',
+            'posts_per_page' => '10',
+            'posts_per_rss' => '10',
+            'rss_use_excerpt' => '0',
+            // Navigation menus (empty until admin creates them).
+            'ap_nav_menus' => '',
+            'nav_menu_locations' => '',
         ];
 
         foreach ($options as $name => $value) {

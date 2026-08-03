@@ -4,8 +4,9 @@
  * AgoraPress front controller.
  *
  * Loads the bootstrap. If the site is not installed (no ap-config.php),
- * bootstrap exits with a friendly 503 page. Full routing and themes land
- * in later phases.
+ * bootstrap exits with a friendly 503 page. When installed, parses the
+ * request path into query vars (pretty permalinks / rewrite rules), builds
+ * the main AP_Query, and renders via the theme template hierarchy.
  *
  * @package AgoraPress
  */
@@ -21,5 +22,54 @@ require AP_ABSPATH . 'ap-includes/bootstrap.php';
 
 ap_bootstrap();
 
-// Installed and core loaded. Front-end template loader arrives in Phase 2.
-// Keep the successful path quiet and error-free until then.
+// Installed and core loaded — resolve the public request into the main query.
+$apRewriteVars = [];
+if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
+    $apRewriteVars = ap_parse_request();
+    // Syndication feeds (RSS/Atom) short-circuit before the theme.
+    if (
+        class_exists('AP_Feed', false)
+        && AP_Feed::isFeedRequest($apRewriteVars)
+    ) {
+        try {
+            AP_Feed::serve($apRewriteVars);
+        } catch (Throwable) {
+            if (!headers_sent()) {
+                http_response_code(503);
+                header('Content-Type: text/plain; charset=utf-8');
+            }
+            echo 'Feed temporarily unavailable.';
+            exit(0);
+        }
+    }
+    if (function_exists('ap_set_query') && class_exists('AP_Query', false)) {
+        try {
+            $apMainQuery = AP_Rewrite::queryFromVars($apRewriteVars);
+            ap_set_query($apMainQuery);
+        } catch (Throwable) {
+            // DB may be unavailable in partial installs; empty main query (no SQL).
+            if (!isset($GLOBALS['ap_query']) || !$GLOBALS['ap_query'] instanceof AP_Query) {
+                ap_set_query(new AP_Query());
+            }
+        }
+    }
+}
+
+// Front-end template loader + classic hierarchy.
+if (class_exists('AP_Theme', false)) {
+    try {
+        if (function_exists('ap_template_loader')) {
+            ap_template_loader();
+        } else {
+            AP_Theme::render();
+        }
+    } catch (Throwable) {
+        // Partial install / DB down: avoid fatal on public front controller.
+        if (!headers_sent()) {
+            http_response_code(503);
+            header('Content-Type: text/html; charset=utf-8');
+        }
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>AgoraPress</title></head>'
+            . '<body><p>AgoraPress is temporarily unable to display this page.</p></body></html>';
+    }
+}

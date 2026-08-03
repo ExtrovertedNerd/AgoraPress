@@ -1,4 +1,6 @@
-# AgoraPress — example Nginx server block (scaffold).
+# AgoraPress — example Nginx server block.
+# Pretty permalinks: try_files sends unknown paths to index.php; AP_Rewrite
+# (ap-includes/class-ap-rewrite.php) maps the path to posts, pages, archives.
 # Adjust root, server_name, and PHP-FPM socket for your environment.
 
 server {
@@ -9,6 +11,7 @@ server {
 
     client_max_body_size 64m;
 
+    # Front controller (required for pretty permalinks)
     location / {
         try_files $uri $uri/ /index.php?$args;
     }

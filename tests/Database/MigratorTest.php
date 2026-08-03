@@ -352,9 +352,15 @@ PHP;
         $m = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $found = $m->discover();
         $this->assertNotSame([], $found);
-        $this->assertGreaterThanOrEqual(1, $m->getAvailableTargetVersion());
-        $this->assertSame(1, (int) AP_DB_VERSION);
+        $this->assertGreaterThanOrEqual(4, $m->getAvailableTargetVersion());
+        $this->assertSame(4, (int) AP_DB_VERSION);
         $this->assertSame(1, $found[0]->version());
         $this->assertStringContainsString('options', $found[0]->description());
+        $this->assertSame(2, $found[1]->version());
+        $this->assertStringContainsString('posts', $found[1]->description());
+        $this->assertSame(3, $found[2]->version());
+        $this->assertStringContainsString('term', $found[2]->description());
+        $this->assertSame(4, $found[3]->version());
+        $this->assertStringContainsString('comment', $found[3]->description());
     }
 }

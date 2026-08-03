@@ -275,8 +275,40 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-user.php';
     // Signed auth cookies + session tokens (login / logout / current user).
     require_once AP_ABSPATH . 'ap-includes/class-ap-session.php';
-    // Procedural helpers (ap_hash_password, ap_login, …) after core classes.
+    // Posts: statuses, types, CRUD, hierarchical pages.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-post.php';
+    // Taxonomies: categories, tags, custom taxonomies, term relationships.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-taxonomy.php';
+    // Comments: nested threads, moderation, pluggable spam hooks.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-comment.php';
+    // Media library: secure uploads + attachment posts.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-media.php';
+    // Content query (WP_Query-inspired main loop + secondary queries).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-query.php';
+    // Permalinks + rewrite rules (pretty URLs → query vars, link builders).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-rewrite.php';
+    // Theme loader + classic template hierarchy.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-theme.php';
+    // Options API + Reading settings helpers.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-options.php';
+    // Navigation menus (locations, items, render).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-nav-menu.php';
+    // RSS / Atom syndication feeds.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-feed.php';
+    // Nonces for state-changing forms (admin + front-end).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-nonce.php';
+    // Procedural helpers (ap_hash_password, ap_login, ap_insert_post, …) after core classes.
     require_once AP_ABSPATH . 'ap-includes/functions.php';
+    // Front-end template tags (the_title, body_class, …).
+    require_once AP_ABSPATH . 'ap-includes/template-tags.php';
+
+    // Register built-in post statuses/types and taxonomies once core is loaded.
+    if (class_exists('AP_Post', false)) {
+        AP_Post::ensureBuiltins();
+    }
+    if (class_exists('AP_Taxonomy', false)) {
+        AP_Taxonomy::ensureBuiltins();
+    }
 
     /**
      * Fires after core bootstrap completes (config + base includes loaded).

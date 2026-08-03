@@ -1,5 +1,7 @@
-# AgoraPress Apache rewrite rules (scaffold).
-# Full permalink routing is implemented with the installer / rewrite layer.
+# AgoraPress Apache rewrite rules.
+# Pretty permalinks: every non-file path is routed to index.php; AP_Rewrite
+# parses the path into query vars (see ap-includes/class-ap-rewrite.php).
+# Plain structure (?p=123) works without mod_rewrite.
 
 # Deny access to sensitive files
 <FilesMatch "^(ap-config\.php|composer\.(json|lock)|\.env)">
@@ -15,6 +17,6 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
 
-    # Front controller
+    # Front controller — PHP rewrite layer matches post/page/archive paths
     RewriteRule . /index.php [L]
 </IfModule>
