@@ -96,6 +96,8 @@ final class BootstrapTest extends TestCase
         $this->assertStringContainsString('ap-config.php', $html);
         $this->assertStringContainsString('ap-config-sample.php', $html);
         $this->assertStringContainsString('charset="utf-8"', $html);
+        $this->assertStringContainsString('install/', $html);
+        $this->assertStringContainsString('Run the web installer', $html);
         // No raw PHP leakage.
         $this->assertStringNotContainsString('<?php', $html);
     }

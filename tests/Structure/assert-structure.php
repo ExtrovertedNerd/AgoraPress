@@ -34,10 +34,21 @@ $requiredPaths = [
 
     // Admin
     'ap-admin',
+    // Web installer (requirements → DB → site/admin → tables + config)
+    'install/index.php',
+    // CLI installer (non-interactive; shares AP_Installer with web path)
+    'install/cli.php',
+    'ap-includes/class-ap-requirements.php',
+    'ap-includes/class-ap-installer.php',
+    'ap-includes/class-ap-cli-install.php',
     // Core includes
     'ap-includes/class-ap-db.php',
+    'ap-includes/class-ap-migrator.php',
+    'ap-includes/class-ap-migration.php',
+    'ap-includes/schema/migrations',
     'ap-includes/class-ap-query.php',
     'ap-includes/class-ap-user.php',
+    'ap-includes/class-ap-session.php',
     'ap-includes/class-ap-roles.php',
     'ap-includes/class-ap-theme.php',
     'ap-includes/class-ap-plugin.php',

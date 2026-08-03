@@ -1,0 +1,3 @@
+# Schema migrations directory
+# Files: NNNN_slug.php returning AP_Migration
+# Version 0 = empty DB; first product migration will be 0001_*.php

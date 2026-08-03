@@ -55,6 +55,8 @@ def test_index_not_installed_is_graceful() -> None:
     assert result.returncode == 0, f"expected graceful exit 0, got {result.returncode}:\n{combined}"
     assert "AgoraPress is not installed" in combined
     assert "ap-config.php" in combined
+    assert "install/" in combined
+    assert "Run the web installer" in combined
     assert "Fatal error" not in combined
     assert "Parse error" not in combined
     assert "Uncaught" not in combined
@@ -68,6 +70,7 @@ def test_bootstrap_defines_install_helpers() -> None:
         "function ap_get_not_installed_html",
         "function ap_bootstrap",
         "function ap_php_version_is_supported",
+        "function ap_install_url_path",
     ):
         assert needle in src, f"Expected {needle} in bootstrap.php"
 

@@ -38,8 +38,17 @@ REQUIRED_PATHS: list[str] = [
 
     # Admin
     "ap-admin",
+    # Web + CLI installer
+    "install/index.php",
+    "install/cli.php",
+    "ap-includes/class-ap-requirements.php",
+    "ap-includes/class-ap-installer.php",
+    "ap-includes/class-ap-cli-install.php",
     # Core includes
     "ap-includes/class-ap-db.php",
+    "ap-includes/class-ap-migrator.php",
+    "ap-includes/class-ap-migration.php",
+    "ap-includes/schema/migrations",
     "ap-includes/class-ap-query.php",
     "ap-includes/class-ap-user.php",
     "ap-includes/class-ap-roles.php",

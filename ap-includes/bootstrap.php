@@ -16,6 +16,7 @@ if (!defined('AP_ABSPATH')) {
 }
 
 require_once AP_ABSPATH . 'ap-includes/version.php';
+require_once AP_ABSPATH . 'ap-includes/load-config.php';
 
 /**
  * Absolute path to the site configuration file.
@@ -28,8 +29,8 @@ function ap_config_path(): string
 /**
  * Whether AgoraPress appears installed (readable ap-config.php present).
  *
- * Presence of the generated config file is the install signal until the
- * installer writes a stronger marker in Phase 1.
+ * Presence of the generated config file is the install signal. The web and CLI
+ * installers refuse to run when this returns true (see AP_Installer::configExists).
  *
  * @param string|null $configPath Optional explicit path (for tests); defaults
  *                                to ap_config_path().
@@ -50,6 +51,14 @@ function ap_php_version_is_supported(): bool
 }
 
 /**
+ * Relative URL path to the web installer (from site root).
+ */
+function ap_install_url_path(): string
+{
+    return 'install/';
+}
+
+/**
  * HTML document shown when the site is not installed.
  *
  * Pure string builder — no headers or output. Safe for unit tests.
@@ -60,6 +69,7 @@ function ap_get_not_installed_html(): string
     $versionNote = $version !== ''
         ? ' <span class="meta">(' . htmlspecialchars($version, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ')</span>'
         : '';
+    $installHref = htmlspecialchars(ap_install_url_path(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
     return <<<HTML
 <!DOCTYPE html>
@@ -86,6 +96,7 @@ function ap_get_not_installed_html(): string
             body { background: #12141a; color: #e8eaed; }
             main { background: #1c1f28; border-color: #2a2f3a; }
             code { background: #2a2f3a; }
+            a.button { background: #62a0ea; color: #0b1a2b; }
         }
         main {
             max-width: 36rem;
@@ -107,6 +118,17 @@ function ap_get_not_installed_html(): string
             background: #eef0f3;
         }
         .meta { font-weight: 400; opacity: 0.65; font-size: 0.85em; }
+        a.button {
+            display: inline-block;
+            margin: 0.25rem 0 0.75rem;
+            padding: 0.55rem 1rem;
+            border-radius: 6px;
+            background: #1a5fb4;
+            color: #fff;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        a.button:focus-visible { outline: 2px solid #1a5fb4; outline-offset: 2px; }
     </style>
 </head>
 <body>
@@ -117,11 +139,14 @@ function ap_get_not_installed_html(): string
             <code>ap-config.php</code> in the site root.
         </p>
         <p>
-            Copy <code>ap-config-sample.php</code> to <code>ap-config.php</code>
-            and complete installation (web installer, CLI, or Docker Compose),
-            or follow the project README quick-start.
+            <a class="button" href="{$installHref}">Run the web installer</a>
         </p>
-        <p class="meta">This is a temporary bootstrap screen until the installer is available.</p>
+        <p>
+            Or copy <code>ap-config-sample.php</code> to <code>ap-config.php</code>
+            and configure manually (CLI installer and Docker Compose are also supported).
+            See the project README for details.
+        </p>
+        <p class="meta">Web installer: requirements → database → site &amp; admin → tables + config.</p>
     </main>
 </body>
 </html>
@@ -237,11 +262,21 @@ function ap_bootstrap(): void
         ap_graceful_exit(503, ap_get_not_installed_html());
     }
 
-    // Site has a config file — load it, then core procedural includes.
-    require_once ap_config_path();
+    // Site has a config file — validate, apply defaults/paths, then core includes.
+    // ap_load_config() exits with a friendly 503 page if the file is incomplete.
+    ap_load_config(null, true);
 
-    require_once AP_ABSPATH . 'ap-includes/functions.php';
     require_once AP_ABSPATH . 'ap-includes/hooks.php';
+    // Database layer: class + ap_db() helper. Connection is lazy (first ap_db()).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-db.php';
+    // Versioned schema migrations (runner only — does not auto-apply on bootstrap).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-migrator.php';
+    // Users + Argon2id password authentication.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-user.php';
+    // Signed auth cookies + session tokens (login / logout / current user).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-session.php';
+    // Procedural helpers (ap_hash_password, ap_login, …) after core classes.
+    require_once AP_ABSPATH . 'ap-includes/functions.php';
 
     /**
      * Fires after core bootstrap completes (config + base includes loaded).

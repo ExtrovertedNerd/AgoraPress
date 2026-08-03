@@ -4,7 +4,7 @@
 
 Spiritual successor to classic WordPress + phpBB: easy to self-host, theme, and maintain. No bloat, no paywalls, no telemetry by default.
 
-> **Status:** Early development (Phase 0 scaffold). The installer and full CMS/forum features are not shipped yet. Docker Compose brings up a clean stack; the site responds with a friendly “not installed” page until Phase 1 lands.
+> **Status:** Early development (Phase 1). Web installer at `/install/` and CLI installer (`php install/cli.php`). Full CMS/forum features continue to land incrementally.
 
 ---
 
@@ -18,7 +18,7 @@ AgoraPress restores the spirit of early WordPress while adding first-class commu
 |-----------|----------------|
 | **Free forever** | Core features, starter theme(s), and essential modules under GPLv2-or-later. No official paywalls or freemium tiers for core functionality. Optional unobtrusive donation link in admin only. |
 | **Lightweight by design** | Minimal core footprint, optional modules, fast on shared hosting, modern PHP 8.2+ with no legacy cruft. |
-| **Easy self-host & maintain** | 5-minute web installer (coming), Docker Compose one-liner, clear updates, familiar mental model for classic WP users. |
+| **Easy self-host & maintain** | 5-minute web installer, CLI install path, Docker Compose one-liner, clear updates, familiar mental model for classic WP users. |
 | **Easy to theme** | Pure PHP template hierarchy and child themes. **Classic WordPress Theme Compatibility Layer** so many pre-block WP themes can run with minimal changes. |
 | **Powerful & extensible** | Action/filter hooks, plugins, settings API, shortcodes, custom post types & taxonomies. |
 | **Integrated community** | Forums, topics, groups, moderation, PMs, and attachments share users, roles, and capabilities with the CMS. |
@@ -70,7 +70,10 @@ Open **http://localhost:8080**
 - MySQL is published on **127.0.0.1:3307** by default (avoids clashing with a host MySQL on 3306)
 - Default DB credentials (dev only): user/password/database `agorapress`, root password `root`
 
-Until the installer exists, you should see a friendly **not installed** page (HTTP 503). That means the stack is healthy.
+Open the site: you should see a friendly **not installed** page (HTTP 503) with a link to the web installer, or go directly to **http://localhost:8080/install/**.
+
+Installer flow: **requirements → database → site info & admin → tables + config**.  
+Docker DB defaults: host `db`, database/user/password `agorapress`, table prefix `ap_`.
 
 Stop the stack:
 
@@ -78,21 +81,60 @@ Stop the stack:
 docker compose down
 ```
 
-### Option B — Manual / shared hosting sketch
+### Option B — Web installer (recommended)
 
 1. Place the project document root where your web server can serve it (or point the vhost at this directory).
-2. Ensure PHP 8.2+ and the extensions above are available.
-3. Create a MySQL/MariaDB database (or plan to use SQLite).
-4. Copy the sample config and edit values for your environment:
+2. Ensure PHP 8.2+ and the extensions above are available; make the site root and `ap-content/` (including `uploads/`) writable by the web server.
+3. Create a MySQL/MariaDB database (or use SQLite for a local demo).
+4. Open `/install/` in the browser and complete the steps:
+   - **Requirements** — PHP version, extensions, filesystem
+   - **Database** — driver, credentials, table prefix (default `ap_`)
+   - **Site & admin** — title, URL, administrator account (Argon2id password hash)
+   - **Install** — runs versioned migrations, seeds options/admin, writes `ap-config.php`
+5. **Never commit `ap-config.php`** — it is gitignored.
 
-   ```bash
-   cp ap-config-sample.php ap-config.php
-   ```
+### Option C — CLI installer
 
-   Set `AP_DB_*`, `$table_prefix` (default `ap_`), and unique auth keys/salts.  
-   **Never commit `ap-config.php`** — it is gitignored.
+Non-interactive install for servers, automation, and Docker. Same core path as the web installer (migrations, salts, admin seed, `ap-config.php`).
 
-5. Point the browser at the site. Without a completed install, bootstrap serves a “not installed” response. Full web/CLI installer arrives in Phase 1.
+```bash
+# Help
+php install/cli.php --help
+
+# SQLite zero-config demo
+php install/cli.php \
+  --db-driver=sqlite \
+  --site-title="My AgoraPress Site" \
+  --site-url=http://localhost:8080 \
+  --admin-user=admin \
+  --admin-email=admin@example.com \
+  --admin-password=changeme123
+
+# MySQL (e.g. Docker Compose service host "db")
+php install/cli.php \
+  --db-driver=mysql \
+  --db-host=db \
+  --db-name=agorapress \
+  --db-user=agorapress \
+  --db-password=agorapress \
+  --site-title="My AgoraPress Site" \
+  --site-url=http://localhost:8080 \
+  --admin-user=admin \
+  --admin-email=admin@example.com \
+  --admin-password=changeme123
+```
+
+Useful flags: `--table-prefix=ap_`, `--config-path=/path/to/ap-config.php`, `--skip-requirements`.  
+Passwords may also come from env: `AP_ADMIN_PASSWORD`, `AP_DB_PASSWORD` (avoids argv history).  
+Exit codes: `0` success, `1` usage, `2` requirements, `3` install failure. Refuses to overwrite an existing `ap-config.php`.
+
+### Option D — Manual config (advanced)
+
+```bash
+cp ap-config-sample.php ap-config.php
+```
+
+Set `AP_DB_*`, `$table_prefix` (default `ap_`), and unique auth keys/salts. Schema migrations still need to be applied (web or CLI installer).
 
 Docker Compose defaults for reference (when the web container talks to the `db` service):
 
@@ -118,6 +160,7 @@ An example reverse-proxy / rewrite config lives at [`docker/nginx.conf.example`]
 /
 ├── index.php                 # Front controller
 ├── ap-config-sample.php      # Sample config (copy → ap-config.php)
+├── install/                  # Web (index.php) + CLI (cli.php) installer
 ├── ap-admin/                 # Administration UI
 ├── ap-includes/              # Core libraries, hooks, WP theme compatibility/
 ├── ap-content/
@@ -167,7 +210,7 @@ See [`CODING_STANDARDS.md`](CODING_STANDARDS.md), [`phpunit.xml.dist`](phpunit.x
 
 - PDO **prepared statements** only for database access  
 - Nonces / capability checks on privileged actions (as features land)  
-- Password hashing with Argon2id (auth phase)  
+- Password hashing with Argon2id (installer + auth)  
 - **`AP_TELEMETRY` is false by default** — no site identification is sent for version checks by default  
 
 Optional “Hall of Fame” domain registration (fully voluntary, withdrawable) is the only planned install-counting path — never automatic pings.
