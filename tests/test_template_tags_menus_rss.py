@@ -80,9 +80,16 @@ def test_nav_menu_api() -> None:
         "function render",
         "function itemUrl",
         "function itemTitle",
+        "function isItemVisible",
+        "function getPublishedPages",
+        "function fallbackPrimary",
+        "function locationsFromAdminPost",
+        "function mergeMenuLocationCheckboxes",
+        "function getLocationsForMenu",
         "OPTION_MENUS",
         "OPTION_LOCATIONS",
         "theme_location",
+        "menu-item-type-page",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-nav-menu.php"
 
@@ -92,9 +99,25 @@ def test_nav_menu_api() -> None:
         "function ap_register_nav_menus",
         "function ap_has_nav_menu",
         "function ap_nav_menu",
+        "function ap_nav_menu_fallback_primary",
         "function ap_save_nav_menu",
+        "function ap_set_nav_menu_locations",
     ):
         assert needle in fn, f"Expected {needle!r} in functions.php"
+
+    admin = NAV_ADMIN.read_text(encoding="utf-8")
+    for needle in (
+        "save_locations",
+        "Manage Locations",
+        "menu_location",
+        "Display location",
+        "tab",
+        "locations",
+        "add_page",
+        "post_type' => 'page'",
+        "post_status' => 'publish'",
+    ):
+        assert needle in admin, f"Expected {needle!r} in nav-menus.php"
 
 
 def test_feed_api() -> None:
@@ -154,8 +177,8 @@ def test_bootstrap_and_front_controller_wire_features() -> None:
 
 def test_theme_uses_menus_and_feeds() -> None:
     header = HEADER.read_text(encoding="utf-8")
-    assert "ap_has_nav_menu" in header
     assert "ap_nav_menu" in header
+    assert "fallback_cb" in header or "fallbackPrimary" in header
     assert "application/rss+xml" in header
     assert "primary" in header
 
@@ -190,7 +213,7 @@ def test_phpunit_new_suites_pass() -> None:
         [
             str(phpunit),
             "--filter",
-            "TemplateTagsTest|NavMenuTest|FeedTest|ReadingSettingsTest",
+            "TemplateTagsTest|NavMenuTest|FeedTest|ReadingSettingsTest|AgoraThemeTest",
         ],
         cwd=ROOT,
         capture_output=True,

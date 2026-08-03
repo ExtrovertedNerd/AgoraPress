@@ -82,6 +82,19 @@ final class ChangelogTest extends TestCase
             'includes' => ['ap-includes'],
             'license' => ['GPLv2'],
             'version const' => ['AP_VERSION'],
+            // Final Review completeness: major Phase 4–6 systems must stay documented.
+            'i18n class' => ['AP_L10n'],
+            'gettext' => ['gettext'],
+            'object cache' => ['AP_Object_Cache'],
+            'object-cache drop-in' => ['object-cache.php'],
+            'forum moderation' => ['AP_Forum_Moderation'],
+            'shortcode API' => ['AP_Shortcode'],
+            'cron API' => ['AP_Cron'],
+            'transients API' => ['AP_Transient'],
+            'must-use plugins' => ['mu-plugins'],
+            'content query' => ['AP_Query'],
+            'options API' => ['AP_Options'],
+            'admin color modes' => ['prefers-color-scheme'],
         ];
     }
 

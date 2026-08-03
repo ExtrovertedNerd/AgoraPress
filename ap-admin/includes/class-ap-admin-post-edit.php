@@ -96,6 +96,16 @@ class AP_Admin_Post_Edit
         $menuOrder = (int) ($input['menu_order'] ?? 0);
         $pageTemplate = ap_sanitize_text_field((string) ($input['page_template'] ?? 'default'));
         $sticky = !empty($input['sticky']);
+        // Pages: “Show in navigation” (form always posts the field via hidden+checkbox).
+        $showInNav = null;
+        if ($postType === 'page' && array_key_exists('show_in_nav', $input)) {
+            $raw = $input['show_in_nav'];
+            // Support last-wins checkbox (scalar) or accidental multi-value arrays.
+            if (is_array($raw)) {
+                $raw = end($raw);
+            }
+            $showInNav = $raw === true || $raw === 1 || $raw === '1' || $raw === 'on';
+        }
 
         // Publish box button overrides.
         $submit = (string) ($input['save_action'] ?? $input['original_publish'] ?? '');
@@ -186,6 +196,10 @@ class AP_Admin_Post_Edit
 
         if ($postType === 'post') {
             $data['sticky'] = $sticky;
+        }
+
+        if ($postType === 'page' && $showInNav !== null) {
+            $data['show_in_nav'] = $showInNav;
         }
 
         // Scheduled date.
@@ -643,12 +657,15 @@ class AP_Admin_Post_Edit
         $menuOrder = $isNew ? 0 : $post->menu_order;
         $pageTemplate = 'default';
         $sticky = false;
+        $showInNav = true;
         if (!$isNew && $db instanceof AP_DB) {
             $pageTemplate = AP_Post::getPageTemplate($id, $db);
             $sticky = AP_Post::getMeta($id, AP_Post::STICKY_META, true, $db) === '1';
+            $showInNav = AP_Post::showsInNav($id, $db);
         } elseif (!$isNew) {
             $pageTemplate = AP_Post::getPageTemplate($id);
             $sticky = $post->isSticky();
+            $showInNav = AP_Post::showsInNav($id);
         }
 
         $visibility = 'public';
@@ -804,6 +821,20 @@ class AP_Admin_Post_Edit
                     . ap_esc_html($pageTemplate) . '</option>';
             }
             $html .= '</select></p>';
+            if ($postType === 'page') {
+                // Hidden + checkbox so an unchecked state still posts a value.
+                $html .= '<p class="ap-field-show-in-nav">';
+                $html .= '<input type="hidden" name="show_in_nav" value="0" />';
+                $html .= '<label for="show_in_nav">'
+                    . '<input type="checkbox" name="show_in_nav" id="show_in_nav" value="1"'
+                    . ($showInNav ? ' checked' : '') . ' /> '
+                    . 'Show in navigation</label>';
+                $html .= '<br /><span class="description">Include this page in the automatic '
+                    . 'primary navigation (when no custom menu is assigned), the Pages widget, '
+                    . 'and the Pages list under Appearance → Menus. Uncheck to keep the page '
+                    . 'published but out of those lists.</span>';
+                $html .= '</p>';
+            }
             $html .= '</div></div>';
         }
 

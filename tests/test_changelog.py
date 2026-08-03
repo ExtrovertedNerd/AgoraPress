@@ -34,6 +34,19 @@ REQUIRED_PHRASES = (
     "ap-includes",
     "GPLv2",
     "AP_VERSION",
+    # Final Review completeness: major Phase 4–6 systems must stay documented.
+    "AP_L10n",
+    "gettext",
+    "AP_Object_Cache",
+    "object-cache.php",
+    "AP_Forum_Moderation",
+    "AP_Shortcode",
+    "AP_Cron",
+    "AP_Transient",
+    "mu-plugins",
+    "AP_Query",
+    "AP_Options",
+    "prefers-color-scheme",
 )
 
 

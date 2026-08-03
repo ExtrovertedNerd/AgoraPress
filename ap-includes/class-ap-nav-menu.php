@@ -114,6 +114,112 @@ class AP_Nav_Menu
     }
 
     /**
+     * Build a full location => menu map from the Manage Locations admin form.
+     *
+     * Expects POST fields `menu_location[{location_slug}]` with menu slugs
+     * (empty string = unassigned). Only registered location keys are kept.
+     *
+     * @param array<string, mixed>  $post                Typically $_POST
+     * @param array<string, string> $registeredLocations slug => description
+     *
+     * @return array<string, string> location => menu slug (omits empty)
+     */
+    public static function locationsFromAdminPost(array $post, array $registeredLocations): array
+    {
+        $raw = $post['menu_location'] ?? [];
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        $map = [];
+        foreach ($registeredLocations as $loc => $_desc) {
+            if (!is_string($loc)) {
+                continue;
+            }
+            $loc = self::sanitizeSlug($loc);
+            if ($loc === '') {
+                continue;
+            }
+            $menu = '';
+            if (isset($raw[$loc])) {
+                $menu = is_string($raw[$loc]) ? self::sanitizeSlug($raw[$loc]) : '';
+            }
+            if ($menu !== '') {
+                $map[$loc] = $menu;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Theme location slugs currently assigned to a given menu.
+     *
+     * @return list<string>
+     */
+    public static function getLocationsForMenu(string $menuSlug, ?AP_DB $db = null): array
+    {
+        $menuSlug = self::sanitizeSlug($menuSlug);
+        if ($menuSlug === '') {
+            return [];
+        }
+        $out = [];
+        foreach (self::getLocationAssignments($db) as $loc => $assigned) {
+            if ($assigned === $menuSlug) {
+                $out[] = $loc;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Merge per-menu location checkboxes into the global assignment map.
+     *
+     * When editing one menu, checked locations are set to that menu; locations
+     * that were assigned to it and are now unchecked are cleared. Assignments
+     * for other menus are left intact.
+     *
+     * @param array<string, string> $current      Existing location => menu map
+     * @param array<string, string> $registered   Registered locations (slug => desc)
+     * @param string                $menuSlug     Menu being edited
+     * @param array<string, mixed>  $post         Typically $_POST (location_{slug}=1)
+     *
+     * @return array<string, string>
+     */
+    public static function mergeMenuLocationCheckboxes(
+        array $current,
+        array $registered,
+        string $menuSlug,
+        array $post
+    ): array {
+        $menuSlug = self::sanitizeSlug($menuSlug);
+        if ($menuSlug === '') {
+            return $current;
+        }
+
+        $map = $current;
+        foreach ($registered as $loc => $_desc) {
+            if (!is_string($loc)) {
+                continue;
+            }
+            $loc = self::sanitizeSlug($loc);
+            if ($loc === '') {
+                continue;
+            }
+            $field = 'location_' . $loc;
+            $checked = !empty($post[$field]) && (string) $post[$field] === '1';
+            if ($checked) {
+                $map[$loc] = $menuSlug;
+            } elseif (isset($map[$loc]) && $map[$loc] === $menuSlug) {
+                unset($map[$loc]);
+            }
+        }
+
+        return $map;
+    }
+
+    /**
      * All menus (slug => data).
      *
      * @return array<string, array{name: string, items: list<array<string, mixed>>}>
@@ -156,6 +262,16 @@ class AP_Nav_Menu
     }
 
     /**
+     * Item types accepted by the menu editor and storage layer.
+     *
+     * @return list<string>
+     */
+    public static function allowedItemTypes(): array
+    {
+        return ['custom', 'page', 'post', 'category', 'post_tag', 'tag', 'forum'];
+    }
+
+    /**
      * Create or update a menu.
      *
      * @param list<array<string, mixed>> $items
@@ -179,6 +295,128 @@ class AP_Nav_Menu
         ], $slug);
 
         return AP_Options::update(self::OPTION_MENUS, $menus, $db);
+    }
+
+    /**
+     * Build a raw items list from admin POST data (existing rows + add pickers).
+     *
+     * Existing rows use item_title / item_type / item_url / item_object_id keyed by index.
+     * Checked item_remove[i] drops that row. New content comes from add_page[], add_post[],
+     * add_category[], add_forum[] (IDs) and optional new_item_* custom-link fields.
+     *
+     * @param array<string, mixed> $post Typically $_POST
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function itemsFromAdminPost(array $post): array
+    {
+        $items = [];
+        $titles = $post['item_title'] ?? [];
+        $types = $post['item_type'] ?? [];
+        $urls = $post['item_url'] ?? [];
+        $objectIds = $post['item_object_id'] ?? [];
+        $remove = $post['item_remove'] ?? [];
+
+        if (is_array($titles)) {
+            foreach ($titles as $idx => $title) {
+                if (is_array($remove) && !empty($remove[$idx])) {
+                    continue;
+                }
+                $type = is_array($types) ? (string) ($types[$idx] ?? 'custom') : 'custom';
+                $url = is_array($urls) ? (string) ($urls[$idx] ?? '') : '';
+                $oid = is_array($objectIds) ? (int) ($objectIds[$idx] ?? 0) : 0;
+                $items[] = [
+                    'type' => $type,
+                    'title' => is_string($title) ? $title : (string) $title,
+                    'url' => $url,
+                    'object_id' => $oid,
+                ];
+            }
+        }
+
+        $pickerMap = [
+            'page' => 'add_page',
+            'post' => 'add_post',
+            'category' => 'add_category',
+            'forum' => 'add_forum',
+            'post_tag' => 'add_tag',
+        ];
+        foreach ($pickerMap as $type => $field) {
+            $ids = $post[$field] ?? [];
+            if (!is_array($ids)) {
+                continue;
+            }
+            foreach ($ids as $id) {
+                $oid = (int) $id;
+                if ($oid < 1) {
+                    continue;
+                }
+                $items[] = [
+                    'type' => $type,
+                    'title' => '',
+                    'url' => '',
+                    'object_id' => $oid,
+                ];
+            }
+        }
+
+        $newTitle = isset($post['new_item_title']) ? trim((string) $post['new_item_title']) : '';
+        $newUrl = isset($post['new_item_url']) ? trim((string) $post['new_item_url']) : '';
+        $newType = isset($post['new_item_type']) ? trim((string) $post['new_item_type']) : 'custom';
+        $newOid = (int) ($post['new_item_object_id'] ?? 0);
+        if ($newTitle !== '' || $newUrl !== '' || $newOid > 0) {
+            $items[] = [
+                'type' => $newType !== '' ? $newType : 'custom',
+                'title' => $newTitle,
+                'url' => $newUrl,
+                'object_id' => $newOid,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * Reorder a single item within a menu (up or down). Returns false if nothing moved.
+     */
+    public static function moveItem(string $slug, int $index, string $direction, ?AP_DB $db = null): bool
+    {
+        $menu = self::getMenu($slug, $db);
+        if ($menu === null) {
+            return false;
+        }
+        $items = $menu['items'];
+        $count = count($items);
+        if ($index < 0 || $index >= $count) {
+            return false;
+        }
+        $swap = $direction === 'up' ? $index - 1 : $index + 1;
+        if ($swap < 0 || $swap >= $count) {
+            return false;
+        }
+        $tmp = $items[$swap];
+        $items[$swap] = $items[$index];
+        $items[$index] = $tmp;
+
+        return self::saveMenu($slug, $menu['name'], $items, $db);
+    }
+
+    /**
+     * Remove a single item by index.
+     */
+    public static function removeItem(string $slug, int $index, ?AP_DB $db = null): bool
+    {
+        $menu = self::getMenu($slug, $db);
+        if ($menu === null) {
+            return false;
+        }
+        if (!isset($menu['items'][$index])) {
+            return false;
+        }
+        $items = $menu['items'];
+        array_splice($items, $index, 1);
+
+        return self::saveMenu($slug, $menu['name'], $items, $db);
     }
 
     /**
@@ -275,7 +513,12 @@ class AP_Nav_Menu
         }
 
         $menu = $slug !== '' ? self::getMenu($slug, $db) : null;
-        if ($menu === null || $menu['items'] === []) {
+        $itemsHtml = ($menu !== null && $menu['items'] !== [])
+            ? self::renderItems($menu['items'], $db)
+            : '';
+
+        // Empty menu, or only unpublished/invalid items → optional fallback.
+        if ($itemsHtml === '') {
             $html = '';
             if (is_callable($args['fallback_cb'])) {
                 $html = (string) call_user_func($args['fallback_cb'], $args, $db);
@@ -287,7 +530,6 @@ class AP_Nav_Menu
             return $html;
         }
 
-        $itemsHtml = self::renderItems($menu['items'], $db);
         $ulId = (string) $args['menu_id'];
         $ulClass = (string) $args['menu_class'];
         $ul = '<ul'
@@ -336,6 +578,7 @@ class AP_Nav_Menu
             'page', 'post' => self::objectPermalink($objectId, $type, $db),
             'category' => self::termLink($objectId, 'category', $db),
             'post_tag', 'tag' => self::termLink($objectId, 'post_tag', $db),
+            'forum' => self::forumLink($objectId, $db),
             default => (string) ($item['url'] ?? ''),
         };
     }
@@ -367,8 +610,209 @@ class AP_Nav_Menu
                 return (string) $term->name;
             }
         }
+        if ($objectId > 0 && $type === 'forum' && class_exists('AP_Forum', false)) {
+            $forum = AP_Forum::getForum($objectId, $db);
+            if (is_object($forum) && isset($forum->forum_name)) {
+                return (string) $forum->forum_name;
+            }
+        }
 
-        return (string) ($item['url'] ?? 'Link');
+        $fallback = trim((string) ($item['url'] ?? ''));
+        if ($fallback !== '') {
+            return $fallback;
+        }
+        if ($objectId > 0) {
+            return ucfirst($type) . ' #' . $objectId;
+        }
+
+        return 'Link';
+    }
+
+    /**
+     * Whether a stored menu item should appear on the public site.
+     *
+     * Page and post items only render when the object exists, matches the
+     * expected type, and has a public (published) status. Custom links and
+     * taxonomy/forum items stay visible when they resolve a label.
+     *
+     * @param array<string, mixed> $item
+     */
+    public static function isItemVisible(array $item, ?AP_DB $db = null): bool
+    {
+        $type = (string) ($item['type'] ?? 'custom');
+        $objectId = (int) ($item['object_id'] ?? 0);
+
+        if (in_array($type, ['page', 'post'], true)) {
+            if ($objectId < 1 || !class_exists('AP_Post', false)) {
+                return false;
+            }
+            $post = AP_Post::get($objectId, $db);
+            if (!$post instanceof AP_Post) {
+                return false;
+            }
+            if ($post->post_type !== $type) {
+                return false;
+            }
+            if (method_exists($post, 'isPubliclyViewable')) {
+                return $post->isPubliclyViewable();
+            }
+
+            return AP_Post::isPublicStatus((string) $post->post_status);
+        }
+
+        // Non-content items: visible when they can produce a title.
+        return self::itemTitle($item, $db) !== '';
+    }
+
+    /**
+     * Published pages available for menus / fallback navigation.
+     *
+     * @return list<AP_Post>
+     */
+    public static function getPublishedPages(?AP_DB $db = null, int $limit = 100): array
+    {
+        if (!class_exists('AP_Post', false)) {
+            return [];
+        }
+        if (function_exists('ap_is_module_enabled') && !ap_is_module_enabled('static_pages', $db)) {
+            return [];
+        }
+
+        $limit = max(0, min(200, $limit));
+        if ($limit === 0) {
+            return [];
+        }
+
+        // Fetch a bit extra so we can still fill $limit after show_in_nav filtering.
+        $fetchLimit = min(200, max($limit, $limit * 2));
+        $pages = AP_Post::query([
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'limit' => $fetchLimit,
+            'orderby' => 'menu_order',
+            'order' => 'ASC',
+        ], $db);
+
+        $out = [];
+        foreach ($pages as $page) {
+            if (!$page instanceof AP_Post) {
+                continue;
+            }
+            // Per-page “Show in navigation” control (default on when meta missing).
+            if (!AP_Post::showsInNav((int) $page->ID, $db)) {
+                continue;
+            }
+            $out[] = $page;
+            if (count($out) >= $limit) {
+                break;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Default primary-location fallback: Home, published pages, optional Forums.
+     *
+     * Used when no custom menu is assigned (or the assigned menu has no items).
+     * Ensures published static pages can appear in the navigation bar without
+     * requiring a hand-built menu. Themes may pass this as fallback_cb.
+     *
+     * @param array<string, mixed> $args Same shape as render() args when used as callback
+     */
+    public static function fallbackPrimary(array $args = [], ?AP_DB $db = null): string
+    {
+        $container = strtolower(trim((string) ($args['container'] ?? 'nav')));
+        if (!in_array($container, ['nav', 'div', ''], true)) {
+            $container = 'nav';
+        }
+        $containerClass = (string) ($args['container_class'] ?? 'ap-nav ap-nav--primary');
+        $containerId = (string) ($args['container_id'] ?? '');
+        $menuClass = (string) ($args['menu_class'] ?? 'ap-menu');
+        $menuId = (string) ($args['menu_id'] ?? '');
+        $ariaLabel = (string) ($args['aria_label'] ?? $args['container_aria_label'] ?? 'Primary');
+        if ($ariaLabel === '') {
+            $ariaLabel = 'Primary';
+        }
+        $includeHome = !array_key_exists('include_home', $args) || !empty($args['include_home']);
+        $includeForums = !array_key_exists('include_forums', $args) || !empty($args['include_forums']);
+        $pageLimit = isset($args['page_limit']) ? (int) $args['page_limit'] : 50;
+
+        $home = '/';
+        if (function_exists('ap_home_url') && class_exists('AP_Rewrite', false)) {
+            try {
+                $home = ap_home_url('/');
+            } catch (Throwable) {
+                $home = '/';
+            }
+        }
+
+        $itemsHtml = '';
+        if ($includeHome) {
+            $itemsHtml .= '<li class="menu-item menu-item-type-custom menu-item-home">'
+                . '<a href="' . ap_esc_url($home) . '">' . ap_esc_html('Home') . '</a></li>';
+        }
+
+        foreach (self::getPublishedPages($db, $pageLimit) as $page) {
+            $url = self::objectPermalink((int) $page->ID, 'page', $db);
+            $title = trim((string) $page->post_title);
+            if ($title === '') {
+                $title = 'Page #' . (int) $page->ID;
+            }
+            $itemsHtml .= '<li class="menu-item menu-item-type-page">'
+                . '<a href="' . ap_esc_url($url !== '' ? $url : '#') . '">'
+                . ap_esc_html($title) . '</a></li>';
+        }
+
+        if ($includeForums) {
+            $forumNav = class_exists('AP_Forum', false);
+            if ($forumNav && function_exists('ap_is_module_enabled')) {
+                try {
+                    $forumNav = ap_is_module_enabled('forum', $db);
+                } catch (Throwable) {
+                    $forumNav = class_exists('AP_Forum', false);
+                }
+            }
+            if ($forumNav) {
+                $forumsHref = rtrim($home, '/') . '/forums/';
+                if (function_exists('ap_forums_url') && class_exists('AP_Forum', false)) {
+                    try {
+                        $forumsHref = ap_forums_url();
+                    } catch (Throwable) {
+                        // keep path fallback
+                    }
+                }
+                $itemsHtml .= '<li class="menu-item menu-item-type-forum">'
+                    . '<a href="' . ap_esc_url($forumsHref) . '">'
+                    . ap_esc_html('Forums') . '</a></li>';
+            }
+        }
+
+        if ($itemsHtml === '') {
+            return '';
+        }
+
+        $ul = '<ul'
+            . ($menuId !== '' ? ' id="' . ap_esc_attr($menuId) . '"' : '')
+            . ($menuClass !== '' ? ' class="' . ap_esc_attr($menuClass) . '"' : '')
+            . '>' . $itemsHtml . '</ul>';
+
+        if ($container === '') {
+            $html = $ul;
+        } else {
+            $html = '<' . $container
+                . ($containerId !== '' ? ' id="' . ap_esc_attr($containerId) . '"' : '')
+                . ($containerClass !== '' ? ' class="' . ap_esc_attr($containerClass) . '"' : '')
+                . ' aria-label="' . ap_esc_attr($ariaLabel) . '">'
+                . $ul
+                . '</' . $container . '>';
+        }
+
+        if (!empty($args['echo'])) {
+            echo $html;
+        }
+
+        return $html;
     }
 
     /**
@@ -393,14 +837,22 @@ class AP_Nav_Menu
             if (!is_array($item)) {
                 continue;
             }
+            // Hide draft / missing / wrong-type pages & posts from the public bar.
+            if (!self::isItemVisible($item, $db)) {
+                continue;
+            }
             $url = self::itemUrl($item, $db);
             $title = self::itemTitle($item, $db);
             if ($title === '') {
                 continue;
             }
+            // Object items without a resolvable URL (e.g. unpublished) must not surface.
+            $type = (string) ($item['type'] ?? 'custom');
+            if (in_array($type, ['page', 'post'], true) && $url === '') {
+                continue;
+            }
             $target = !empty($item['target']) ? (string) $item['target'] : '';
             $classes = ['menu-item'];
-            $type = (string) ($item['type'] ?? 'custom');
             $classes[] = 'menu-item-type-' . self::sanitizeSlug($type);
             if (!empty($item['classes']) && is_array($item['classes'])) {
                 foreach ($item['classes'] as $c) {
@@ -460,8 +912,7 @@ class AP_Nav_Menu
         if ($type === '') {
             $type = 'custom';
         }
-        $allowed = ['custom', 'page', 'post', 'category', 'post_tag', 'tag'];
-        if (!in_array($type, $allowed, true)) {
+        if (!in_array($type, self::allowedItemTypes(), true)) {
             $type = 'custom';
         }
 
@@ -473,7 +924,7 @@ class AP_Nav_Menu
         if ($type === 'custom' && $url === '' && $title === '') {
             return null;
         }
-        if (in_array($type, ['page', 'post', 'category', 'post_tag', 'tag'], true) && $objectId < 1) {
+        if (in_array($type, ['page', 'post', 'category', 'post_tag', 'tag', 'forum'], true) && $objectId < 1) {
             return null;
         }
 
@@ -487,6 +938,22 @@ class AP_Nav_Menu
         ];
     }
 
+    private static function forumLink(int $id, ?AP_DB $db): string
+    {
+        if ($id < 1 || !class_exists('AP_Forum', false)) {
+            return '';
+        }
+        $forum = AP_Forum::getForum($id, $db);
+        if (!is_object($forum)) {
+            return '';
+        }
+        if (method_exists('AP_Forum', 'forumUrl')) {
+            return (string) AP_Forum::forumUrl($forum);
+        }
+
+        return '?ap_forum_view=forum&forum_id=' . $id;
+    }
+
     private static function objectPermalink(int $id, string $type, ?AP_DB $db): string
     {
         if ($id < 1 || !class_exists('AP_Post', false)) {
@@ -494,6 +961,16 @@ class AP_Nav_Menu
         }
         $post = AP_Post::get($id, $db);
         if (!$post instanceof AP_Post) {
+            return '';
+        }
+        if ($post->post_type !== $type) {
+            return '';
+        }
+        // Only published (public) content gets a public menu link.
+        $public = method_exists($post, 'isPubliclyViewable')
+            ? $post->isPubliclyViewable()
+            : AP_Post::isPublicStatus((string) $post->post_status);
+        if (!$public) {
             return '';
         }
         if (function_exists('ap_get_permalink') && class_exists('AP_Rewrite', false)) {

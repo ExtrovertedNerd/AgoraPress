@@ -481,6 +481,73 @@ final class AdminPostsTest extends TestCase
         $this->assertStringContainsString('name="post_parent"', $pageHtml);
         $this->assertStringContainsString('name="menu_order"', $pageHtml);
         $this->assertStringContainsString('Page Attributes', $pageHtml);
+        $this->assertStringContainsString('name="show_in_nav"', $pageHtml);
+        $this->assertStringContainsString('Show in navigation', $pageHtml);
+        $this->assertStringContainsString('id="show_in_nav"', $pageHtml);
+        // New pages default to shown (checkbox checked).
+        $this->assertMatchesRegularExpression(
+            '/id="show_in_nav"[^>]*checked|checked[^>]*id="show_in_nav"/',
+            $pageHtml
+        );
+    }
+
+    public function testSavePageShowInNavigationControl(): void
+    {
+        $nonce = ap_create_nonce('new-post', $this->actorId);
+        $result = AP_Admin_Post_Edit::save([
+            'post_title' => 'Nav Page',
+            'post_content' => 'Hello',
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'save_action' => 'publish',
+            'visibility' => 'public',
+            'show_in_nav' => '1',
+            '_ap_nonce' => $nonce,
+        ], $this->actorId, $this->db);
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $id = $result['id'];
+        $this->assertTrue(AP_Post::showsInNav($id, $this->db));
+
+        $nonce2 = ap_create_nonce('update-post-' . $id, $this->actorId);
+        $result2 = AP_Admin_Post_Edit::save([
+            'post_ID' => $id,
+            'post_title' => 'Nav Page',
+            'post_content' => 'Hello',
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'save_action' => 'publish',
+            'visibility' => 'public',
+            'show_in_nav' => '0',
+            '_ap_nonce' => $nonce2,
+        ], $this->actorId, $this->db);
+        $this->assertTrue($result2['ok'], implode('; ', $result2['errors']));
+        $this->assertFalse(AP_Post::showsInNav($id, $this->db));
+        $this->assertSame('0', (string) AP_Post::getMeta($id, AP_Post::SHOW_IN_NAV_META, true, $this->db));
+
+        // Form re-render reflects unchecked state.
+        $page = AP_Post::get($id, $this->db);
+        $html = AP_Admin_Post_Edit::renderForm($page, 'page', $this->actorId, $this->db);
+        $this->assertStringContainsString('Show in navigation', $html);
+        $this->assertDoesNotMatchRegularExpression(
+            '/id="show_in_nav"[^>]*\bchecked\b/',
+            $html
+        );
+
+        // Re-enable via form field.
+        $nonce3 = ap_create_nonce('update-post-' . $id, $this->actorId);
+        $result3 = AP_Admin_Post_Edit::save([
+            'post_ID' => $id,
+            'post_title' => 'Nav Page',
+            'post_content' => 'Hello',
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'save_action' => 'publish',
+            'visibility' => 'public',
+            'show_in_nav' => '1',
+            '_ap_nonce' => $nonce3,
+        ], $this->actorId, $this->db);
+        $this->assertTrue($result3['ok']);
+        $this->assertTrue(AP_Post::showsInNav($id, $this->db));
     }
 
     public function testPageListTableColumns(): void

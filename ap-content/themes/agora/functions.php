@@ -21,46 +21,55 @@ const AGORA_DEFAULT_COLOR_SCHEME = 'marble';
 /** Stylesheet version (fallback when style.css header is unavailable). */
 const AGORA_THEME_VERSION = '0.3.0';
 
-// Theme menu locations (Primary + Footer).
-if (function_exists('ap_register_nav_menus')) {
-    ap_register_nav_menus([
-        'primary' => 'Primary',
-        'footer' => 'Footer',
-    ]);
-} elseif (class_exists('AP_Nav_Menu', false)) {
-    AP_Nav_Menu::registerLocations([
-        'primary' => 'Primary',
-        'footer' => 'Footer',
-    ]);
-}
+/**
+ * Register theme chrome: nav locations + modular sidebars (idempotent).
+ *
+ * Called at load and again from {@see agora_register_theme_hooks()} so locations
+ * survive AP_Nav_Menu::reset() / mid-request hook resets in tests and admin.
+ */
+function agora_register_theme_chrome(): void
+{
+    // Theme menu locations (Primary + Footer) — fully controllable from Appearance → Menus.
+    if (function_exists('ap_register_nav_menus')) {
+        ap_register_nav_menus([
+            'primary' => 'Primary',
+            'footer' => 'Footer',
+        ]);
+    } elseif (class_exists('AP_Nav_Menu', false)) {
+        AP_Nav_Menu::registerLocations([
+            'primary' => 'Primary',
+            'footer' => 'Footer',
+        ]);
+    }
 
-// Modular widget areas (Primary Sidebar + Footer).
-if (function_exists('ap_register_sidebar')) {
-    ap_register_sidebar('sidebar-1', [
-        'name' => 'Primary Sidebar',
-        'description' => 'Widgets beside main content on blog and archive views.',
-        'before_widget' => '<section id="%1$s" class="widget %2$s">',
-        'after_widget' => '</section>',
-        'before_title' => '<h2 class="widget-title">',
-        'after_title' => '</h2>',
-    ]);
-    ap_register_sidebar('footer-1', [
-        'name' => 'Footer',
-        'description' => 'Widgets in the site footer.',
-        'before_widget' => '<section id="%1$s" class="widget widget--footer %2$s">',
-        'after_widget' => '</section>',
-        'before_title' => '<h2 class="widget-title">',
-        'after_title' => '</h2>',
-    ]);
-} elseif (class_exists('AP_Widgets', false)) {
-    AP_Widgets::registerSidebar('sidebar-1', [
-        'name' => 'Primary Sidebar',
-        'description' => 'Widgets beside main content on blog and archive views.',
-    ]);
-    AP_Widgets::registerSidebar('footer-1', [
-        'name' => 'Footer',
-        'description' => 'Widgets in the site footer.',
-    ]);
+    // Modular widget areas (Primary Sidebar + Footer).
+    if (function_exists('ap_register_sidebar')) {
+        ap_register_sidebar('sidebar-1', [
+            'name' => 'Primary Sidebar',
+            'description' => 'Widgets beside main content on blog and archive views.',
+            'before_widget' => '<section id="%1$s" class="widget %2$s">',
+            'after_widget' => '</section>',
+            'before_title' => '<h2 class="widget-title">',
+            'after_title' => '</h2>',
+        ]);
+        ap_register_sidebar('footer-1', [
+            'name' => 'Footer',
+            'description' => 'Widgets in the site footer.',
+            'before_widget' => '<section id="%1$s" class="widget widget--footer %2$s">',
+            'after_widget' => '</section>',
+            'before_title' => '<h2 class="widget-title">',
+            'after_title' => '</h2>',
+        ]);
+    } elseif (class_exists('AP_Widgets', false)) {
+        AP_Widgets::registerSidebar('sidebar-1', [
+            'name' => 'Primary Sidebar',
+            'description' => 'Widgets beside main content on blog and archive views.',
+        ]);
+        AP_Widgets::registerSidebar('footer-1', [
+            'name' => 'Footer',
+            'description' => 'Widgets in the site footer.',
+        ]);
+    }
 }
 
 /**
@@ -68,6 +77,8 @@ if (function_exists('ap_register_sidebar')) {
  */
 function agora_register_theme_hooks(): void
 {
+    agora_register_theme_chrome();
+
     if (!function_exists('ap_add_action')) {
         return;
     }

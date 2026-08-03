@@ -31,6 +31,13 @@ class AP_Post
     public const STICKY_META = '_ap_sticky';
 
     /**
+     * Meta key: whether a published page may appear in automatic navigation
+     * (fallback primary bar, Pages widget, Menus “Pages” picker).
+     * Stored as '1' / '0'. Missing meta means show (default on).
+     */
+    public const SHOW_IN_NAV_META = '_ap_show_in_nav';
+
+    /**
      * Fields stored on each revision / autosave snapshot (WP-aligned).
      *
      * @var list<string>
@@ -784,6 +791,10 @@ class AP_Post
             self::setSticky($id, true, $db);
         }
 
+        if (array_key_exists('show_in_nav', $data) && $type === 'page') {
+            self::setShowInNav($id, (bool) $data['show_in_nav'], $db);
+        }
+
         if (function_exists('ap_do_action')) {
             ap_do_action('ap_post_inserted', $id, self::get($id, $db));
         }
@@ -968,6 +979,10 @@ class AP_Post
 
         if (array_key_exists('sticky', $data)) {
             self::setSticky($id, !empty($data['sticky']), $db);
+        }
+
+        if (array_key_exists('show_in_nav', $data)) {
+            self::setShowInNav($id, (bool) $data['show_in_nav'], $db);
         }
 
         if (function_exists('ap_do_action')) {
@@ -1984,6 +1999,44 @@ class AP_Post
         }
 
         return self::deleteMeta($postId, self::STICKY_META, $db);
+    }
+
+    /**
+     * Whether a page should appear in automatic navigation lists.
+     *
+     * Default is true when meta is missing (backward compatible for existing pages).
+     * Explicit '0' / empty hides the page from fallback nav, Pages widget, and the
+     * Appearance → Menus “Pages” picker. Custom menu items already assigned stay
+     * until the admin removes them.
+     */
+    public static function showsInNav(int $postId, ?AP_DB $db = null): bool
+    {
+        if ($postId < 1) {
+            return true;
+        }
+        $value = self::getMeta($postId, self::SHOW_IN_NAV_META, true, $db);
+        if ($value === null || $value === false || $value === '') {
+            return true;
+        }
+
+        return (string) $value !== '0' && (string) $value !== 'false';
+    }
+
+    /**
+     * Persist the “Show in navigation” flag for a page.
+     *
+     * When true, meta is deleted (default-on). When false, stores '0'.
+     */
+    public static function setShowInNav(int $postId, bool $show, ?AP_DB $db = null): bool
+    {
+        if ($postId < 1) {
+            return false;
+        }
+        if ($show) {
+            return self::deleteMeta($postId, self::SHOW_IN_NAV_META, $db);
+        }
+
+        return self::updateMeta($postId, self::SHOW_IN_NAV_META, '0', $db);
     }
 
     // -------------------------------------------------------------------------

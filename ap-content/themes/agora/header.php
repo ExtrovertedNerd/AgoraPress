@@ -79,39 +79,22 @@ if (function_exists('ap_head')) {
 <?php endif; ?>
         </div>
 <?php
-if (function_exists('ap_has_nav_menu') && ap_has_nav_menu('primary')) {
+// Primary nav: assigned menu when set; otherwise Home + published Pages (+ Forums).
+if (function_exists('ap_nav_menu')) {
     ap_nav_menu([
         'theme_location' => 'primary',
         'container' => 'nav',
         'container_class' => 'ap-nav ap-nav--primary',
         'menu_class' => 'ap-menu',
         'echo' => true,
-    ]);
-} else {
-    // Fallback when no custom primary menu: expose Forums when the module is on.
-    $forumNav = class_exists('AP_Forum', false);
-    if ($forumNav && function_exists('ap_is_module_enabled')) {
-        try {
-            $forumNav = ap_is_module_enabled('forum');
-        } catch (Throwable) {
-            $forumNav = class_exists('AP_Forum', false);
-        }
-    }
-    if ($forumNav) {
-        $forumsHref = rtrim($home, '/') . '/forums/';
-        if (function_exists('ap_forums_url') && class_exists('AP_Forum', false)) {
-            try {
-                $forumsHref = ap_forums_url();
-            } catch (Throwable) {
-                // keep path fallback
+        'fallback_cb' => static function (array $args, $db = null): string {
+            if (class_exists('AP_Nav_Menu', false)) {
+                return AP_Nav_Menu::fallbackPrimary($args, $db instanceof AP_DB ? $db : null);
             }
-        }
-        echo '<nav class="ap-nav ap-nav--primary" aria-label="Primary">';
-        echo '<ul class="ap-menu">';
-        echo '<li class="menu-item"><a href="' . $escUrl($home) . '">Home</a></li>';
-        echo '<li class="menu-item"><a href="' . $escUrl($forumsHref) . '">Forums</a></li>';
-        echo '</ul></nav>';
-    }
+
+            return '';
+        },
+    ]);
 }
 ?>
     </div>

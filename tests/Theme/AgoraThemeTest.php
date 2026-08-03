@@ -250,6 +250,128 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('Theme Options', $src);
     }
 
+    public function testPrimaryNavLocationIsControllableFromMenus(): void
+    {
+        $locs = AP_Nav_Menu::getRegisteredLocations();
+        $this->assertArrayHasKey('primary', $locs);
+        $this->assertArrayHasKey('footer', $locs);
+
+        AP_Nav_Menu::saveMenu('site-main', 'Site Main', [
+            ['type' => 'custom', 'title' => 'Custom Primary Link', 'url' => '/custom-primary'],
+        ], $this->db);
+        AP_Nav_Menu::setLocationAssignments(['primary' => 'site-main'], $this->db);
+
+        $this->assertTrue(ap_has_nav_menu('primary', $this->db));
+
+        AP_Post::insert([
+            'post_title' => 'Nav Probe Post',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Content',
+        ], $this->db);
+
+        $query = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Custom Primary Link', $html);
+        $this->assertStringContainsString('ap-nav--primary', $html);
+        $this->assertStringContainsString('/custom-primary', $html);
+        // Fallback Home/Pages nav must not override the assigned menu.
+        $this->assertStringNotContainsString('menu-item-home', $html);
+    }
+
+    public function testPublishedPageAppearsInPrimaryNavBar(): void
+    {
+        $pageId = AP_Post::insert([
+            'post_title' => 'About Our Site',
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'post_content' => 'About content',
+            'post_name' => 'about-our-site',
+        ], $this->db);
+        $this->assertGreaterThan(0, $pageId);
+
+        AP_Nav_Menu::saveMenu('with-pages', 'With Pages', [
+            ['type' => 'page', 'title' => '', 'object_id' => $pageId],
+            ['type' => 'custom', 'title' => 'Extra', 'url' => '/extra'],
+        ], $this->db);
+        AP_Nav_Menu::setLocationAssignments(['primary' => 'with-pages'], $this->db);
+
+        AP_Post::insert([
+            'post_title' => 'Nav Probe Post',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Content',
+        ], $this->db);
+
+        $query = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('About Our Site', $html);
+        $this->assertStringContainsString('menu-item-type-page', $html);
+        $this->assertStringContainsString('Extra', $html);
+        $this->assertStringContainsString('ap-nav--primary', $html);
+    }
+
+    public function testFallbackPrimaryNavListsPublishedPages(): void
+    {
+        // No custom primary menu → theme fallback must list published pages.
+        AP_Nav_Menu::setLocationAssignments([], $this->db);
+
+        AP_Post::insert([
+            'post_title' => 'Fallback About',
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'post_content' => 'About',
+            'post_name' => 'fallback-about',
+            'menu_order' => 1,
+        ], $this->db);
+        AP_Post::insert([
+            'post_title' => 'Fallback Draft',
+            'post_type' => 'page',
+            'post_status' => 'draft',
+            'post_content' => 'Nope',
+            'post_name' => 'fallback-draft',
+        ], $this->db);
+
+        AP_Post::insert([
+            'post_title' => 'Nav Probe Post',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Content',
+        ], $this->db);
+
+        $query = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('ap-nav--primary', $html);
+        $this->assertStringContainsString('Fallback About', $html);
+        $this->assertStringContainsString('menu-item-type-page', $html);
+        $this->assertStringNotContainsString('Fallback Draft', $html);
+        $this->assertStringContainsString('Home', $html);
+    }
+
     public function testAdminMenuListsThemeOptions(): void
     {
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';

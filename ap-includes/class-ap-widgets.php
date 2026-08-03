@@ -993,7 +993,10 @@ class AP_Widgets
         $title = trim((string) ($instance['title'] ?? 'Pages'));
 
         $pages = [];
-        if (class_exists('AP_Post', false)) {
+        // Prefer nav-aware list (respects “Show in navigation” per page).
+        if (class_exists('AP_Nav_Menu', false) && method_exists('AP_Nav_Menu', 'getPublishedPages')) {
+            $pages = AP_Nav_Menu::getPublishedPages($db, 50);
+        } elseif (class_exists('AP_Post', false)) {
             $pages = AP_Post::query([
                 'post_type' => 'page',
                 'post_status' => 'publish',

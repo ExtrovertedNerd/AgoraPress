@@ -3705,6 +3705,25 @@ function ap_nav_menu(array $args = [], ?AP_DB $db = null): string
 }
 
 /**
+ * Default primary-nav fallback: Home, published pages, optional Forums.
+ *
+ * Suitable as ap_nav_menu() fallback_cb so published static pages appear in
+ * the navigation bar when no custom menu is assigned.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Nav_Menu::fallbackPrimary()
+ */
+function ap_nav_menu_fallback_primary(array $args = [], ?AP_DB $db = null): string
+{
+    if (!class_exists('AP_Nav_Menu', false)) {
+        return '';
+    }
+
+    return AP_Nav_Menu::fallbackPrimary($args, $db);
+}
+
+/**
  * Save a navigation menu (name + items).
  *
  * @param list<array<string, mixed>> $items
