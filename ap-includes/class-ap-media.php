@@ -476,6 +476,21 @@ HTACCESS;
             return $empty('File exceeds the maximum upload size of ' . self::formatBytes($max) . '.');
         }
 
+        // Upload flood control (per user when known, else per IP).
+        $author = (int) ($args['post_author'] ?? 0);
+        if (class_exists('AP_Rate_Limit', false) && empty($args['skip_rate_limit'])) {
+            $bucket = $author > 0
+                ? AP_Rate_Limit::userBucket($author)
+                : AP_Rate_Limit::ipBucket();
+            $gate = AP_Rate_Limit::check(AP_Rate_Limit::ACTION_UPLOAD, $bucket, $db);
+            if (!$gate['allowed']) {
+                return $empty(AP_Rate_Limit::lockoutMessage(
+                    (int) $gate['retry_after'],
+                    'try uploading again'
+                ));
+            }
+        }
+
         $check = self::checkFileType($origName, $tmpName);
         if (!$check['ok']) {
             return $empty($check['error'] !== '' ? $check['error'] : 'File type is not allowed.');
@@ -507,13 +522,31 @@ HTACCESS;
         // Restrict permissions on the stored file (owner rw, group/other r).
         @chmod($destPath, 0644);
 
+        // Re-validate the stored file (defense in depth against race / swap).
+        $recheck = self::checkFileType($filename, $destPath);
+        if (!$recheck['ok']) {
+            @unlink($destPath);
+
+            return $empty(
+                $recheck['error'] !== ''
+                    ? $recheck['error']
+                    : 'Stored file failed the security scan.'
+            );
+        }
+
+        if (class_exists('AP_Rate_Limit', false) && empty($args['skip_rate_limit'])) {
+            $bucket = $author > 0
+                ? AP_Rate_Limit::userBucket($author)
+                : AP_Rate_Limit::ipBucket();
+            AP_Rate_Limit::hit(AP_Rate_Limit::ACTION_UPLOAD, $bucket, $db);
+        }
+
         $relative = ltrim($uploads['subdir'] . '/' . $filename, '/');
 
         $title = isset($args['post_title']) && is_string($args['post_title']) && $args['post_title'] !== ''
             ? $args['post_title']
             : self::titleFromFilename($filename);
 
-        $author = (int) ($args['post_author'] ?? 0);
         $parent = (int) ($args['post_parent'] ?? 0);
 
         $id = self::insertAttachment([
@@ -1051,10 +1084,17 @@ HTACCESS;
             return $fail('Invalid file name.');
         }
 
-        // Reject double extensions that commonly mask executables.
+        // Reject double extensions / embedded names that commonly mask executables.
         $lower = strtolower($filename);
-        if (preg_match('/\.(php|phtml|php\d*|phar|cgi|pl|py|asp|aspx|jsp|htaccess|htpasswd)(\.|$)/i', $lower) === 1) {
+        $blockedExt = 'php|phtml|php\d*|phar|cgi|pl|py|rb|asp|aspx|jsp|shtml|'
+            . 'htaccess|htpasswd|exe|bat|cmd|com|scr|dll|sh|bash|ps1|vbs|wsf|msi|jar';
+        if (preg_match('/\.(' . $blockedExt . ')(\.|$)/i', $lower) === 1) {
             return $fail('Executable or server script files are not allowed.');
+        }
+
+        // Null bytes and control characters in names are always hostile.
+        if (str_contains($filename, "\0") || preg_match('/[\x00-\x1F\x7F]/', $filename) === 1) {
+            return $fail('Invalid file name.');
         }
 
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
@@ -1073,12 +1113,34 @@ HTACCESS;
                 );
             }
 
-            // Extra guard: reject PHP open tags inside “text” uploads.
+            // Raster images must decode as images (blocks polyglot / renamed binaries).
+            if (self::isRasterImageExt($ext)) {
+                $info = @getimagesize($realPath);
+                if (!is_array($info) || !isset($info[0], $info[1]) || (int) $info[0] < 1 || (int) $info[1] < 1) {
+                    return $fail('Image file is corrupt or not a valid image.');
+                }
+                if (!empty($info['mime']) && !self::mimeMatches($expected, (string) $info['mime'], $ext)) {
+                    return $fail(
+                        'Image content does not match its extension (detected '
+                        . $info['mime'] . ').'
+                    );
+                }
+            }
+
+            // Text + SVG: reject PHP tags and obvious shell payloads.
             if (str_starts_with($expected, 'text/') || $expected === 'image/svg+xml') {
-                $snippet = (string) @file_get_contents($realPath, false, null, 0, 8192);
-                $dangerous = '/<\?(php|=)?|\b(?:eval|system|exec|passthru)\s*\(/i';
+                $snippet = (string) @file_get_contents($realPath, false, null, 0, 16384);
+                $dangerous = '/<\?(php|=)?|\b(?:eval|system|exec|passthru|shell_exec|proc_open)\s*\(/i';
                 if ($snippet !== '' && preg_match($dangerous, $snippet) === 1) {
                     return $fail('File content failed the security scan.');
+                }
+            }
+
+            // SVG: block scripts, event handlers, and external/script URLs (XSS vector).
+            if ($expected === 'image/svg+xml') {
+                $svgError = self::scanSvgSafety($realPath);
+                if ($svgError !== '') {
+                    return $fail($svgError);
                 }
             }
         }
@@ -1089,6 +1151,72 @@ HTACCESS;
             'type' => $expected,
             'error' => '',
         ];
+    }
+
+    /**
+     * Whether an extension is a raster image that must pass getimagesize().
+     */
+    public static function isRasterImageExt(string $ext): bool
+    {
+        return in_array(strtolower($ext), ['jpg', 'jpeg', 'jpe', 'png', 'gif', 'webp', 'bmp', 'avif'], true);
+    }
+
+    /**
+     * Scan an SVG file for common XSS / script-injection patterns.
+     *
+     * Returns an empty string when safe enough to store; otherwise an error message.
+     * This is intentionally strict: SVG is XML and can embed active content.
+     */
+    public static function scanSvgSafety(string $path): string
+    {
+        if (!is_readable($path)) {
+            return 'SVG file is not readable.';
+        }
+
+        $size = @filesize($path);
+        if (!is_int($size) || $size < 1) {
+            return 'SVG file is empty.';
+        }
+        // Soft cap for scan + storage of “images”.
+        if ($size > 2 * 1024 * 1024) {
+            return 'SVG file exceeds the 2 MiB security limit.';
+        }
+
+        $content = (string) @file_get_contents($path);
+        if ($content === '') {
+            return 'SVG file is empty.';
+        }
+
+        // Must look like SVG/XML.
+        if (
+            !preg_match('/<svg[\s>]/i', $content)
+            && !preg_match('/<\?xml/i', $content)
+        ) {
+            return 'File does not appear to be a valid SVG.';
+        }
+
+        $patterns = [
+            '/<script[\s>]/i' => 'SVG must not contain <script> elements.',
+            '/<\/script>/i' => 'SVG must not contain <script> elements.',
+            '/\bon[a-z]+\s*=/i' => 'SVG must not contain event handler attributes.',
+            '/javascript\s*:/i' => 'SVG must not contain javascript: URLs.',
+            '/vbscript\s*:/i' => 'SVG must not contain vbscript: URLs.',
+            '/data\s*:\s*text\/html/i' => 'SVG must not embed HTML data URLs.',
+            '/<foreignObject[\s>]/i' => 'SVG must not contain foreignObject elements.',
+            '/xlink:href\s*=\s*["\']\s*javascript:/i' => 'SVG must not use javascript xlink:href.',
+            '/href\s*=\s*["\']\s*javascript:/i' => 'SVG must not use javascript href values.',
+            '/<iframe[\s>]/i' => 'SVG must not contain iframes.',
+            '/<embed[\s>]/i' => 'SVG must not contain embed elements.',
+            '/<object[\s>]/i' => 'SVG must not contain object elements.',
+            '/<\?(php|=)/i' => 'SVG must not contain PHP tags.',
+        ];
+        foreach ($patterns as $pattern => $message) {
+            if (preg_match($pattern, $content) === 1) {
+                return $message;
+            }
+        }
+
+        return '';
     }
 
     /**

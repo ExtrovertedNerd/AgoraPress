@@ -267,6 +267,14 @@ function ap_bootstrap(): void
     ap_load_config(null, true);
 
     require_once AP_ABSPATH . 'ap-includes/hooks.php';
+    // Object cache: content-dir drop-in (object-cache.php) first, else in-memory.
+    // Started early so Options / Transients / plugins can use ap_cache_* immediately.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-object-cache.php';
+    ap_start_object_cache();
+    // Page cache hooks: advanced-cache.php drop-in when AP_CACHE is true, plus
+    // purge API. Drop-in may serve a cached page and exit before the rest loads.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-page-cache.php';
+    ap_start_page_cache();
     // Database layer: class + ap_db() helper. Connection is lazy (first ap_db()).
     require_once AP_ABSPATH . 'ap-includes/class-ap-db.php';
     // Versioned schema migrations (runner only — does not auto-apply on bootstrap).
@@ -341,20 +349,59 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-widgets.php';
     // RSS / Atom syndication feeds.
     require_once AP_ABSPATH . 'ap-includes/class-ap-feed.php';
+    // XML sitemaps + robots.txt.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-sitemap.php';
+    // Canonical URLs + Open Graph meta (printed on ap_head).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-seo.php';
     // Nonces for state-changing forms (admin + front-end).
     require_once AP_ABSPATH . 'ap-includes/class-ap-nonce.php';
+    // Rate limiting + login protection (brute-force / flood).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-rate-limit.php';
+    // Escaping / sanitization (ap_esc_* / ap_sanitize_* implementation).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-formatting.php';
+    // Internationalization (gettext MO catalogs) + RTL locale helpers.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-l10n.php';
     // Hall of Fame: voluntary domain registration only (no installer pings / telemetry).
     require_once AP_ABSPATH . 'ap-includes/class-ap-hall-of-fame.php';
     // Version checker: public version.json only (cached, admin notice, no site identity).
     require_once AP_ABSPATH . 'ap-includes/class-ap-version-check.php';
     // One-click core auto-update (download package, apply files, migrate).
     require_once AP_ABSPATH . 'ap-includes/class-ap-core-updater.php';
+    // WordPress WXR (WordPress eXtended RSS) content importer.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-wxr-importer.php';
+    // phpBB board importer (users, forums, topics, posts).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-phpbb-importer.php';
+    // GDPR-style personal data export / erase + privacy policy page.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-privacy.php';
+    // Installer/runtime requirements checker (also used by Site Health).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-requirements.php';
+    // Site Health status checks + system information (Tools → Site Health).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-site-health.php';
     // Procedural helpers (ap_hash_password, ap_login, ap_insert_post, …) after core classes.
     require_once AP_ABSPATH . 'ap-includes/functions.php';
     // Front-end template tags (the_title, body_class, …).
     require_once AP_ABSPATH . 'ap-includes/template-tags.php';
     // Classic WordPress Theme Compatibility Layer (shims load lazily per theme).
     require_once AP_ABSPATH . 'ap-includes/compatibility/load.php';
+
+    // Performance: one SELECT for all autoload=yes options so hot paths avoid N+1.
+    if (class_exists('AP_Options', false)) {
+        try {
+            AP_Options::loadAutoloaded();
+        } catch (Throwable) {
+            // Options table may be missing mid-install; never break bootstrap.
+        }
+    }
+
+    // Resolve site locale (WPLANG) and load default text domain when a pack is present.
+    if (class_exists('AP_L10n', false)) {
+        try {
+            AP_L10n::getLocale();
+            AP_L10n::loadDefaultTextdomain();
+        } catch (Throwable) {
+            // Locale / catalog load must never break bootstrap.
+        }
+    }
 
     // Maintenance mode during core auto-update: front-end 503; admin + CLI still load.
     if (
@@ -406,6 +453,17 @@ function ap_bootstrap(): void
     // Built-in widget types (Text, Recent Posts, Categories, Search, Pages, Nav Menu).
     if (class_exists('AP_Widgets', false)) {
         AP_Widgets::registerCore();
+    }
+
+    // Page-cache invalidation listeners (posts/comments/forums → purge actions).
+    // Registered before plugins so cache backends can also attach on ap_loaded.
+    if (class_exists('AP_Page_Cache', false)) {
+        AP_Page_Cache::registerInvalidationHooks();
+    }
+
+    // Canonical + Open Graph printers on ap_head (themes call ap_head() in header).
+    if (class_exists('AP_Seo', false)) {
+        AP_Seo::register();
     }
 
     // Must-use plugins load before regular plugins (always-on).

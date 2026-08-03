@@ -174,7 +174,12 @@ class AP_Theme
         self::$templateOverride = null;
         self::$setupDone = false;
 
-        return $ok1 && $ok2;
+        $ok = $ok1 && $ok2;
+        if ($ok && function_exists('ap_do_action')) {
+            ap_do_action('ap_switch_theme', $stylesheet, $template);
+        }
+
+        return $ok;
     }
 
     /**

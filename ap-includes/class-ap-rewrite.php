@@ -275,6 +275,12 @@ class AP_Rewrite
         $rules['feed/?$'] = 'feed=rss2';
         $rules['(feed|rdf|rss|rss2|atom)/?$'] = 'feed=$matches[1]';
 
+        // XML sitemaps + robots.txt (before structure / page catch-all).
+        $rules['sitemap\.xml$'] = 'sitemap=index';
+        $rules['sitemap-([a-z0-9_\-]+)-([0-9]+)\.xml$'] = 'sitemap=$matches[1]&sitemap_page=$matches[2]';
+        $rules['sitemap-([a-z0-9_\-]+)\.xml$'] = 'sitemap=$matches[1]';
+        $rules['robots\.txt$'] = 'robots=1';
+
         // Forum front-end (before structure / page catch-all).
         // Matches AP_Forum::forumUrl / topicUrl / searchUrl:
         // /forums/, /forums/search/, /forums/{slug}/, /topic/{slug}/.
@@ -399,6 +405,21 @@ class AP_Rewrite
         self::$requestPath = $path;
 
         $vars = [];
+
+        // SEO endpoints (sitemap / robots) are recognized even when pretty
+        // permalinks are off — crawlers expect /sitemap.xml and /robots.txt.
+        $seoVars = self::matchSeoPath($path);
+        if ($seoVars !== null) {
+            foreach (self::mapPublicGetVars($get) as $key => $value) {
+                if (!array_key_exists($key, $seoVars) || $seoVars[$key] === '' || $seoVars[$key] === 0) {
+                    $seoVars[$key] = $value;
+                }
+            }
+            self::$queryVars = $seoVars;
+            self::$didMatch = true;
+
+            return $seoVars;
+        }
 
         if (!self::usingPermalinks($db) || $path === '') {
             // Plain mode or front page: query string only.
@@ -538,11 +559,12 @@ class AP_Rewrite
         $args = [];
         $intKeys = [
             'p', 'page_id', 'author', 'year', 'monthnum', 'day', 'paged', 'page', 'cat', 'tag_id',
-            'forum_id', 'topic_id',
+            'forum_id', 'topic_id', 'sitemap_page',
         ];
         $stringKeys = [
             'name', 'pagename', 'author_name', 's', 'category_name', 'tag', 'post_type', 'post_status', 'feed',
             'ap_forum_view', 'forum_slug', 'topic_slug', 'ap_forum', 'forum_s',
+            'sitemap', 'robots',
         ];
 
         foreach ($intKeys as $key) {
@@ -903,6 +925,57 @@ class AP_Rewrite
         return self::homeUrl('/feed/' . ($feed === 'rss2' ? '' : $feed . '/'), $db);
     }
 
+    /**
+     * Public sitemap URL (index or provider).
+     *
+     * @see AP_Sitemap::getSitemapLink()
+     */
+    public static function getSitemapLink(string $type = 'index', int $page = 1, ?AP_DB $db = null): string
+    {
+        if (class_exists('AP_Sitemap', false)) {
+            return AP_Sitemap::getSitemapLink($type, $page, $db);
+        }
+        if ($type === '' || $type === 'index') {
+            return self::usingPermalinks($db)
+                ? self::homeUrl('/sitemap.xml', $db)
+                : self::homeUrl('?sitemap=index', $db);
+        }
+
+        return self::usingPermalinks($db)
+            ? self::homeUrl('/sitemap-' . self::sanitizeSlug($type) . '.xml', $db)
+            : self::homeUrl('?sitemap=' . rawurlencode(self::sanitizeSlug($type)), $db);
+    }
+
+    /**
+     * Match sitemap / robots path segments (always on, even without pretty permalinks).
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function matchSeoPath(string $path): ?array
+    {
+        $path = trim($path, '/');
+        if ($path === '') {
+            return null;
+        }
+        if (strcasecmp($path, 'robots.txt') === 0) {
+            return ['robots' => '1'];
+        }
+        if (strcasecmp($path, 'sitemap.xml') === 0) {
+            return ['sitemap' => 'index'];
+        }
+        if (preg_match('#^sitemap-([a-z0-9_\-]+)-([0-9]+)\.xml$#i', $path, $m) === 1) {
+            return [
+                'sitemap' => strtolower($m[1]),
+                'sitemap_page' => (int) $m[2],
+            ];
+        }
+        if (preg_match('#^sitemap-([a-z0-9_\-]+)\.xml$#i', $path, $m) === 1) {
+            return ['sitemap' => strtolower($m[1])];
+        }
+
+        return null;
+    }
+
     // -------------------------------------------------------------------------
     // Server config snippets
     // -------------------------------------------------------------------------
@@ -1085,6 +1158,10 @@ NGINX;
             'tag_id' => 'int',
             'feed' => 'string',
             'preview' => 'string',
+            // XML sitemaps + robots.txt.
+            'sitemap' => 'string',
+            'sitemap_page' => 'int',
+            'robots' => 'string',
             // Forum front-end (plain + pretty).
             'ap_forum' => 'string',
             'ap_forum_view' => 'string',

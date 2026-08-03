@@ -129,7 +129,17 @@ class AP_Session
     }
 
     /**
+     * Last login failure details (rate limit / invalid credentials).
+     *
+     * @var array{code: string, message: string, retry_after: int}|null
+     */
+    private static ?array $lastLoginError = null;
+
+    /**
      * Authenticate credentials and establish a session cookie on success.
+     *
+     * Applies rate limiting (IP + identity) when {@see AP_Rate_Limit} is loaded.
+     * On failure, inspect {@see getLastLoginError()} for lockout messages.
      *
      * @return AP_User|null Authenticated user, or null on failure.
      */
@@ -139,16 +149,86 @@ class AP_Session
         bool $remember = false,
         ?AP_DB $db = null
     ): ?AP_User {
+        self::$lastLoginError = null;
+
+        if (class_exists('AP_Rate_Limit', false)) {
+            $gate = AP_Rate_Limit::checkLogin($loginOrEmail, '', $db);
+            if (!$gate['allowed']) {
+                self::$lastLoginError = [
+                    'code' => 'rate_limited',
+                    'message' => $gate['message'] !== ''
+                        ? $gate['message']
+                        : 'Too many failed login attempts. Please try again later.',
+                    'retry_after' => (int) $gate['retry_after'],
+                ];
+
+                return null;
+            }
+        }
+
         $user = AP_User::authenticate($loginOrEmail, $password, $db);
         if ($user === null) {
+            if (class_exists('AP_Rate_Limit', false)) {
+                $after = AP_Rate_Limit::recordFailedLogin($loginOrEmail, '', $db);
+                if (!$after['allowed']) {
+                    self::$lastLoginError = [
+                        'code' => 'rate_limited',
+                        'message' => $after['message'] !== ''
+                            ? $after['message']
+                            : 'Too many failed login attempts. Please try again later.',
+                        'retry_after' => (int) $after['retry_after'],
+                    ];
+                } else {
+                    self::$lastLoginError = [
+                        'code' => 'invalid',
+                        'message' => 'Invalid username or password.',
+                        'retry_after' => 0,
+                    ];
+                }
+            } else {
+                self::$lastLoginError = [
+                    'code' => 'invalid',
+                    'message' => 'Invalid username or password.',
+                    'retry_after' => 0,
+                ];
+            }
+
             return null;
         }
 
+        if (class_exists('AP_Rate_Limit', false)) {
+            AP_Rate_Limit::clearLogin($loginOrEmail, '', $db);
+        }
+
         if (!self::setAuthCookie($user->ID, $remember, $db, $user)) {
+            self::$lastLoginError = [
+                'code' => 'session',
+                'message' => 'Could not establish a session. Please try again.',
+                'retry_after' => 0,
+            ];
+
             return null;
         }
 
         return $user;
+    }
+
+    /**
+     * Details of the most recent failed {@see login()} call, or null on success.
+     *
+     * @return array{code: string, message: string, retry_after: int}|null
+     */
+    public static function getLastLoginError(): ?array
+    {
+        return self::$lastLoginError;
+    }
+
+    /**
+     * Clear stored login error (tests).
+     */
+    public static function clearLastLoginError(): void
+    {
+        self::$lastLoginError = null;
     }
 
     /**

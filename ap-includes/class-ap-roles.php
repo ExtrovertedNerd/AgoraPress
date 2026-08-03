@@ -189,6 +189,15 @@ class AP_Roles
             'delete_plugins',
             // Updates
             'update_core',
+            // Tools (import / export)
+            'import',
+            'export',
+            // Privacy (GDPR-style personal data tools; administrators only by default)
+            'manage_privacy_options',
+            'export_others_personal_data',
+            'erase_others_personal_data',
+            // Tools — Site Health (status checks + system info)
+            'view_site_health',
             // Forum stubs (extendable; granted only to administrator for now)
             'moderate_forums',
             'manage_forums',
@@ -220,7 +229,20 @@ class AP_Roles
         $db = self::resolveDb($db);
         $existing = self::readRolesOption($db);
         if ($existing !== []) {
-            // Still warm cache from DB.
+            // Merge any newly introduced primitive caps into administrator so
+            // upgrades (e.g. privacy tools) do not leave admin without them.
+            $dirty = false;
+            if (isset($existing['administrator']['capabilities']) && is_array($existing['administrator']['capabilities'])) {
+                foreach (self::allPrimitiveCapabilities() as $cap) {
+                    if (empty($existing['administrator']['capabilities'][$cap])) {
+                        $existing['administrator']['capabilities'][$cap] = true;
+                        $dirty = true;
+                    }
+                }
+            }
+            if ($dirty) {
+                self::writeRolesOption($existing, $db);
+            }
             self::$rolesCache = $existing;
 
             return;

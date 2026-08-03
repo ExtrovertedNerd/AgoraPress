@@ -1692,6 +1692,25 @@ body.agora-forum .site-footer__inner {
   }
 }
 
+/* Prefer higher contrast when the user requests it (WCAG 1.4.11 / user prefs). */
+@media (prefers-contrast: more) {
+  body.agora-theme {
+    --ap-border: color-mix(in srgb, var(--ap-fg) 28%, var(--ap-bg));
+    --ap-card-border: color-mix(in srgb, var(--ap-fg) 22%, var(--ap-bg));
+    --ap-muted: color-mix(in srgb, var(--ap-fg) 72%, var(--ap-bg));
+  }
+
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  summary:focus-visible,
+  [tabindex]:focus-visible {
+    outline-width: 3px;
+  }
+}
+
 /* --------------------------------------------------------------------------
    Print — clean paper output, no decorative gradients
    -------------------------------------------------------------------------- */
@@ -1732,4 +1751,31 @@ body.agora-forum .site-footer__inner {
   .ap-forum-form {
     display: none !important;
   }
+}
+
+/* --------------------------------------------------------------------------
+   RTL (html[dir="rtl"] / body.rtl) — directional mirrors
+   Layout already uses flex + margin-inline heavily; flip remaining LTR cues.
+   -------------------------------------------------------------------------- */
+
+html[dir="rtl"] body.agora-theme,
+body.agora-theme.rtl {
+  direction: rtl;
+}
+
+html[dir="rtl"] .skip-link,
+body.agora-theme.rtl .skip-link {
+  left: auto;
+  right: 0.75rem;
+}
+
+html[dir="rtl"] .ap-forum-stat,
+body.agora-theme.rtl .ap-forum-stat {
+  align-items: flex-start;
+  text-align: left;
+}
+
+html[dir="rtl"] .site-nav,
+body.agora-theme.rtl .site-nav {
+  text-align: right;
 }

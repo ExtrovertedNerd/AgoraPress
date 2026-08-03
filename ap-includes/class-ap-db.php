@@ -96,6 +96,28 @@ class AP_DB
     private string $lastInsertId = '0';
 
     /**
+     * Number of statements executed via {@see query()} this request (always counted).
+     *
+     * Lightweight performance signal for Site Health / debug footers. Public for
+     * WP-style `$apdb->num_queries` introspection.
+     */
+    public int $num_queries = 0;
+
+    /**
+     * Cumulative wall time (seconds) spent inside {@see query()}.
+     */
+    private float $totalQueryTime = 0.0;
+
+    /**
+     * Optional SQL log when {@see shouldSaveQueries()} is true.
+     *
+     * Each entry: sql, time (seconds), optional caller.
+     *
+     * @var list<array{sql: string, time: float, caller: string}>
+     */
+    private array $queryLog = [];
+
+    /**
      * @param PDO    $pdo    Live connection (ERRMODE_EXCEPTION recommended).
      * @param string $driver Normalized driver: mysql|sqlite|pgsql.
      * @param string $prefix Table prefix (normalized on construct; default ap_).
@@ -424,6 +446,10 @@ class AP_DB
      * Use placeholders (`?` or `:name`) for every value. Never interpolate
      * untrusted data into `$sql`.
      *
+     * Always increments {@see $num_queries} and accumulates query time. When
+     * `AP_SAVEQUERIES` is true (or `AP_DEBUG` + `AP_DEBUG_QUERIES`), appends a
+     * log entry available via {@see getQueries()}.
+     *
      * @param string       $sql    SQL with placeholders.
      * @param array<mixed> $params Positional list or named map.
      *
@@ -433,11 +459,14 @@ class AP_DB
     {
         $this->lastError = null;
         $this->rowsAffected = 0;
+        $started = hrtime(true);
 
         try {
             $stmt = $this->pdo->prepare($sql);
             if ($stmt === false) {
                 $this->lastError = 'Failed to prepare statement.';
+                $this->recordQuery($sql, $started);
+
                 return false;
             }
 
@@ -445,16 +474,104 @@ class AP_DB
             if ($ok === false) {
                 $info = $stmt->errorInfo();
                 $this->lastError = $info[2] ?? 'Statement execution failed.';
+                $this->recordQuery($sql, $started);
+
                 return false;
             }
 
             $this->rowsAffected = $stmt->rowCount();
+            $this->recordQuery($sql, $started);
 
             return $stmt;
         } catch (PDOException $e) {
             $this->lastError = $e->getMessage();
+            $this->recordQuery($sql, $started);
+
             return false;
         }
+    }
+
+    /**
+     * Number of {@see query()} calls this request.
+     */
+    public function getNumQueries(): int
+    {
+        return $this->num_queries;
+    }
+
+    /**
+     * Cumulative query wall time in seconds.
+     */
+    public function getTotalQueryTime(): float
+    {
+        return $this->totalQueryTime;
+    }
+
+    /**
+     * Saved query log (empty unless SAVEQUERIES / DEBUG_QUERIES is enabled).
+     *
+     * @return list<array{sql: string, time: float, caller: string}>
+     */
+    public function getQueries(): array
+    {
+        return $this->queryLog;
+    }
+
+    /**
+     * Reset counters and the optional SQL log (tests / long-running workers).
+     */
+    public function resetQueryLog(): void
+    {
+        $this->num_queries = 0;
+        $this->totalQueryTime = 0.0;
+        $this->queryLog = [];
+    }
+
+    /**
+     * Whether full SQL logging is enabled for this request.
+     */
+    public static function shouldSaveQueries(): bool
+    {
+        if (defined('AP_SAVEQUERIES') && AP_SAVEQUERIES) {
+            return true;
+        }
+
+        return defined('AP_DEBUG')
+            && AP_DEBUG
+            && defined('AP_DEBUG_QUERIES')
+            && AP_DEBUG_QUERIES;
+    }
+
+    /**
+     * @param int|float $startedHrtime Result of hrtime(true) before the query.
+     */
+    private function recordQuery(string $sql, int|float $startedHrtime): void
+    {
+        $elapsed = (hrtime(true) - (float) $startedHrtime) / 1e9;
+        $this->num_queries++;
+        $this->totalQueryTime += $elapsed;
+
+        if (!self::shouldSaveQueries()) {
+            return;
+        }
+
+        $caller = '';
+        $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 6);
+        foreach ($trace as $frame) {
+            $file = (string) ($frame['file'] ?? '');
+            if ($file === '' || str_contains($file, 'class-ap-db.php')) {
+                continue;
+            }
+            $line = (int) ($frame['line'] ?? 0);
+            $caller = basename($file) . ':' . $line;
+            break;
+        }
+
+        $this->queryLog[] = [
+            'sql' => $sql,
+            'time' => $elapsed,
+            'caller' => $caller,
+        ];
     }
 
     /**

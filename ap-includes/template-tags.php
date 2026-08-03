@@ -333,7 +333,12 @@ function ap_get_bloginfo(string $show = 'name', ?AP_DB $db = null): string
             ? ap_home_url('/', $db)
             : '/',
         'charset' => 'UTF-8',
-        'language', 'html_lang' => 'en',
+        'language', 'html_lang' => function_exists('ap_get_html_lang')
+            ? ap_get_html_lang()
+            : (class_exists('AP_L10n', false) ? AP_L10n::localeToHtmlLang() : 'en'),
+        'text_direction' => function_exists('ap_get_text_direction')
+            ? ap_get_text_direction()
+            : (class_exists('AP_L10n', false) ? AP_L10n::textDirection() : 'ltr'),
         'version' => defined('AP_VERSION') ? (string) AP_VERSION : '',
         'rss2_url' => class_exists('AP_Rewrite', false)
             ? AP_Rewrite::getFeedLink('rss2', $db)
@@ -374,6 +379,13 @@ function ap_bloginfo(string $show = 'name', ?AP_DB $db = null): void
 function ap_get_body_class(string|array $extra = [], ?AP_Query $query = null): array
 {
     $classes = ['agorapress'];
+
+    // Text direction class for RTL/LTR styling hooks.
+    if (function_exists('ap_is_rtl') && ap_is_rtl()) {
+        $classes[] = 'rtl';
+    } else {
+        $classes[] = 'ltr';
+    }
 
     $q = $query;
     if (!$q instanceof AP_Query && isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
@@ -479,9 +491,15 @@ function ap_body_class(string|array $extra = [], ?AP_Query $query = null): void
 
 /**
  * Sanitize a single HTML class token.
+ *
+ * @see AP_Formatting::sanitizeHtmlClass()
  */
 function ap_sanitize_html_class(string $class): string
 {
+    if (class_exists('AP_Formatting', false)) {
+        return AP_Formatting::sanitizeHtmlClass($class);
+    }
+
     $class = strtolower(trim($class));
     $class = preg_replace('/[^a-z0-9_\-]/', '', $class) ?? '';
 

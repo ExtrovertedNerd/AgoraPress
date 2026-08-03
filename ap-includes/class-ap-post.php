@@ -784,6 +784,10 @@ class AP_Post
             self::setSticky($id, true, $db);
         }
 
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_post_inserted', $id, self::get($id, $db));
+        }
+
         return $id;
     }
 
@@ -966,6 +970,10 @@ class AP_Post
             self::setSticky($id, !empty($data['sticky']), $db);
         }
 
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_post_updated', $id, self::get($id, $db), $existing);
+        }
+
         return true;
     }
 
@@ -992,7 +1000,15 @@ class AP_Post
             ['ID' => $id]
         );
 
-        return $result !== false;
+        if ($result === false) {
+            return false;
+        }
+
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_post_trashed', $id, $post);
+        }
+
+        return true;
     }
 
     /**
@@ -1026,6 +1042,10 @@ class AP_Post
         }
 
         self::deleteMeta($id, self::TRASH_STATUS_META, $db);
+
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_post_untrashed', $id, self::get($id, $db));
+        }
 
         return true;
     }
@@ -1088,7 +1108,15 @@ class AP_Post
         $db->delete('postmeta', ['post_id' => $id]);
         $result = $db->delete('posts', ['ID' => $id]);
 
-        return $result !== false && $result > 0;
+        if ($result !== false && $result > 0) {
+            if (function_exists('ap_do_action')) {
+                ap_do_action('ap_post_deleted', $id, $post);
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     // -------------------------------------------------------------------------

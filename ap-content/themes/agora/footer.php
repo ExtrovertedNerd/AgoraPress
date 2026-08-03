@@ -27,7 +27,7 @@ if (function_exists('ap_get_sidebar')) {
 ?>
 </div><!-- .site-content -->
 </main>
-<footer class="site-footer">
+<footer class="site-footer" role="contentinfo">
     <div class="site-footer__inner">
 <?php
 if (function_exists('ap_is_active_sidebar') && ap_is_active_sidebar('footer-1')) :

@@ -612,10 +612,10 @@ class AP_Posts_List_Table
     private function renderPagination(): string
     {
         if ($this->totalPages <= 1) {
-            return '<div class="ap-pagination"><span class="displaying-num">'
+            return '<nav class="ap-pagination" aria-label="Posts pagination"><span class="displaying-num">'
                 . (int) $this->totalItems . ' item'
                 . ($this->totalItems === 1 ? '' : 's')
-                . '</span></div>';
+                . '</span></nav>';
         }
 
         $baseQuery = ['post_type' => $this->postType];
@@ -629,31 +629,33 @@ class AP_Posts_List_Table
             $baseQuery['cat'] = $this->catId;
         }
 
-        $html = '<div class="ap-pagination">';
+        $html = '<nav class="ap-pagination" aria-label="Posts pagination">';
         $html .= '<span class="displaying-num">' . (int) $this->totalItems . ' items</span> ';
         $html .= '<span class="pagination-links">';
 
         if ($this->currentPage > 1) {
             $prev = $baseQuery;
             $prev['paged'] = $this->currentPage - 1;
-            $html .= '<a class="prev-page button" href="' . ap_esc_url(AP_Admin::url('edit.php', $prev)) . '">‹</a> ';
+            $html .= '<a class="prev-page button" href="' . ap_esc_url(AP_Admin::url('edit.php', $prev))
+                . '" aria-label="Previous page">‹</a> ';
         } else {
-            $html .= '<span class="tablenav-pages-navspan button disabled">‹</span> ';
+            $html .= '<span class="tablenav-pages-navspan button disabled" aria-disabled="true">‹</span> ';
         }
 
-        $html .= '<span class="paging-input">'
+        $html .= '<span class="paging-input" aria-current="page">'
             . (int) $this->currentPage . ' of <span class="total-pages">'
             . (int) $this->totalPages . '</span></span> ';
 
         if ($this->currentPage < $this->totalPages) {
             $next = $baseQuery;
             $next['paged'] = $this->currentPage + 1;
-            $html .= '<a class="next-page button" href="' . ap_esc_url(AP_Admin::url('edit.php', $next)) . '">›</a>';
+            $html .= '<a class="next-page button" href="' . ap_esc_url(AP_Admin::url('edit.php', $next))
+                . '" aria-label="Next page">›</a>';
         } else {
-            $html .= '<span class="tablenav-pages-navspan button disabled">›</span>';
+            $html .= '<span class="tablenav-pages-navspan button disabled" aria-disabled="true">›</span>';
         }
 
-        $html .= '</span></div>';
+        $html .= '</span></nav>';
 
         return $html;
     }

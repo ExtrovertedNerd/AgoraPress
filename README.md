@@ -23,7 +23,7 @@ AgoraPress restores the spirit of early WordPress while adding first-class commu
 | **Powerful & extensible** | Action/filter hooks, plugins, settings API, shortcodes, custom post types & taxonomies. |
 | **Integrated community** | Forums, topics, groups, moderation, PMs, and attachments share users, roles, and capabilities with the CMS. |
 | **Secure & private by default** | Prepared statements, modern hashing, CSRF/XSS protections, **no telemetry**. |
-| **Migration friendly** | Planned high-quality importers from WordPress (WXR) and phpBB. |
+| **Migration friendly** | WordPress WXR + phpBB importers under Tools → Import (JSON export or live phpBB database). |
 
 ### Three independent modules
 
@@ -214,6 +214,7 @@ See [`CODING_STANDARDS.md`](CODING_STANDARDS.md), [`phpunit.xml.dist`](phpunit.x
 - **`AP_TELEMETRY` is false by default** — no site identification is sent for version checks by default  
 - **Version check** (admin-only): GET of the public `version.json` endpoint; transient-cached; fails silently; **never** sends domain or other site identity. Option `version_check_enabled` (default on) can disable checks for offline installs.  
 - **One-click auto-update** (Dashboard → **Update Core**, cap `update_core`): downloads the published package URL from `version.json` (optional SHA-256 verification), applies core files while preserving `ap-config.php` and user content under `ap-content/` (uploads, plugins, mu-plugins, custom themes; default `agora` theme may update), runs pending DB migrations, and uses a brief front-end maintenance page. No site identity is sent on the package GET.
+- **Privacy tools (GDPR-style):** Settings → **Privacy** (policy page selector); Tools → **Export Personal Data** / **Erase Personal Data** — portable JSON export of a user’s personal data, and erase (anonymize content ownership + delete account). Caps `manage_privacy_options`, `export_others_personal_data`, `erase_others_personal_data`.
 
 Optional “Hall of Fame” domain registration (fully voluntary, withdrawable) is the only install-counting path — never automatic pings. Admins can join or leave under **Settings → Hall of Fame**; the dashboard may show a one-time prompt. Registration sends only the site domain (no telemetry).
 

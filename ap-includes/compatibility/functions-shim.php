@@ -228,6 +228,15 @@ if (!function_exists('esc_url')) {
     }
 }
 
+if (!function_exists('esc_url_raw')) {
+    function esc_url_raw(string $url): string
+    {
+        return function_exists('ap_esc_url_raw')
+            ? ap_esc_url_raw($url)
+            : trim($url);
+    }
+}
+
 if (!function_exists('esc_textarea')) {
     function esc_textarea(string $text): string
     {
@@ -237,12 +246,105 @@ if (!function_exists('esc_textarea')) {
     }
 }
 
+if (!function_exists('esc_js')) {
+    function esc_js(string $text): string
+    {
+        return function_exists('ap_esc_js')
+            ? ap_esc_js($text)
+            : addslashes($text);
+    }
+}
+
+if (!function_exists('esc_xml')) {
+    function esc_xml(string $text): string
+    {
+        return function_exists('ap_esc_xml')
+            ? ap_esc_xml($text)
+            : htmlspecialchars($text, ENT_XML1 | ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+}
+
 if (!function_exists('sanitize_text_field')) {
     function sanitize_text_field(string $str): string
     {
         return function_exists('ap_sanitize_text_field')
             ? ap_sanitize_text_field($str)
             : trim(strip_tags($str));
+    }
+}
+
+if (!function_exists('sanitize_textarea_field')) {
+    function sanitize_textarea_field(string $str): string
+    {
+        return function_exists('ap_sanitize_textarea_field')
+            ? ap_sanitize_textarea_field($str)
+            : trim(strip_tags($str));
+    }
+}
+
+if (!function_exists('sanitize_email')) {
+    function sanitize_email(string $email): string
+    {
+        if (function_exists('ap_sanitize_email')) {
+            return ap_sanitize_email($email);
+        }
+        $filtered = filter_var(trim($email), FILTER_SANITIZE_EMAIL);
+
+        return is_string($filtered) ? $filtered : '';
+    }
+}
+
+if (!function_exists('sanitize_key')) {
+    function sanitize_key(string $key): string
+    {
+        return function_exists('ap_sanitize_key')
+            ? ap_sanitize_key($key)
+            : preg_replace('/[^a-z0-9_\-]/', '', strtolower($key)) ?? '';
+    }
+}
+
+if (!function_exists('sanitize_file_name')) {
+    function sanitize_file_name(string $filename): string
+    {
+        return function_exists('ap_sanitize_file_name')
+            ? ap_sanitize_file_name($filename)
+            : basename(str_replace(['\\', "\0"], ['/', ''], $filename));
+    }
+}
+
+if (!function_exists('sanitize_hex_color')) {
+    function sanitize_hex_color(string $color): string
+    {
+        return function_exists('ap_sanitize_hex_color')
+            ? ap_sanitize_hex_color($color)
+            : '';
+    }
+}
+
+if (!function_exists('sanitize_user')) {
+    function sanitize_user(string $username, bool $strict = false): string
+    {
+        return function_exists('ap_sanitize_user')
+            ? ap_sanitize_user($username, $strict)
+            : trim(strip_tags($username));
+    }
+}
+
+if (!function_exists('absint')) {
+    function absint(mixed $value): int
+    {
+        return function_exists('ap_absint')
+            ? ap_absint($value)
+            : max(0, (int) $value);
+    }
+}
+
+if (!function_exists('wp_strip_all_tags')) {
+    function wp_strip_all_tags(string $value, bool $removeBreaks = false): string
+    {
+        return function_exists('ap_strip_all_tags')
+            ? ap_strip_all_tags($value, $removeBreaks)
+            : strip_tags($value);
     }
 }
 
@@ -786,10 +888,17 @@ if (!function_exists('sanitize_title')) {
 
 if (!function_exists('__')) {
     /**
-     * i18n stub — returns the string unchanged until full gettext lands.
+     * Translate $text (delegates to AP_L10n when loaded).
      */
     function __(string $text, string $domain = 'default'): string
     {
+        if (class_exists('AP_L10n', false)) {
+            return AP_L10n::translate($text, $domain);
+        }
+        if (function_exists('ap__')) {
+            return ap__($text, $domain);
+        }
+
         return $text;
     }
 }
@@ -798,6 +907,34 @@ if (!function_exists('_e')) {
     function _e(string $text, string $domain = 'default'): void
     {
         echo __($text, $domain);
+    }
+}
+
+if (!function_exists('_x')) {
+    function _x(string $text, string $context, string $domain = 'default'): string
+    {
+        if (class_exists('AP_L10n', false)) {
+            return AP_L10n::translateWithContext($text, $context, $domain);
+        }
+        if (function_exists('ap_x')) {
+            return ap_x($text, $context, $domain);
+        }
+
+        return $text;
+    }
+}
+
+if (!function_exists('_n')) {
+    function _n(string $single, string $plural, int $number, string $domain = 'default'): string
+    {
+        if (class_exists('AP_L10n', false)) {
+            return AP_L10n::translatePlural($single, $plural, $number, $domain);
+        }
+        if (function_exists('ap_n')) {
+            return ap_n($single, $plural, $number, $domain);
+        }
+
+        return $number === 1 ? $single : $plural;
     }
 }
 
@@ -829,9 +966,61 @@ if (!function_exists('esc_attr_e')) {
     }
 }
 
+if (!function_exists('is_rtl')) {
+    function is_rtl(string $locale = ''): bool
+    {
+        if (function_exists('ap_is_rtl')) {
+            return ap_is_rtl($locale);
+        }
+        if (class_exists('AP_L10n', false)) {
+            return AP_L10n::isRtl($locale);
+        }
+
+        return false;
+    }
+}
+
+if (!function_exists('get_locale')) {
+    function get_locale(): string
+    {
+        if (function_exists('ap_get_locale')) {
+            return ap_get_locale();
+        }
+        if (class_exists('AP_L10n', false)) {
+            return AP_L10n::getLocale();
+        }
+
+        return 'en_US';
+    }
+}
+
+if (!function_exists('load_textdomain')) {
+    function load_textdomain(string $domain, string $mofile): bool
+    {
+        if (function_exists('ap_load_textdomain')) {
+            return ap_load_textdomain($domain, $mofile);
+        }
+        if (class_exists('AP_L10n', false)) {
+            return AP_L10n::loadTextdomain($domain, $mofile);
+        }
+
+        return false;
+    }
+}
+
 if (!function_exists('language_attributes')) {
     function language_attributes(string $doctype = 'html'): void
     {
+        if (function_exists('ap_language_attributes')) {
+            ap_language_attributes($doctype);
+
+            return;
+        }
+        if (class_exists('AP_L10n', false)) {
+            echo AP_L10n::languageAttributes($doctype);
+
+            return;
+        }
         $lang = function_exists('ap_get_bloginfo') ? ap_get_bloginfo('language') : 'en';
         if ($lang === '') {
             $lang = 'en';

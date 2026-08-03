@@ -332,10 +332,13 @@ define('AP_DEBUG_DISPLAY', false);
 define('AP_DEBUG_LOG', false);
 
 // =============================================================================
-// Privacy & optional paths
+// Privacy, cache & optional paths
 // =============================================================================
 
 define('AP_TELEMETRY', false);
+
+// Full-page cache drop-in (ap-content/advanced-cache.php) when true.
+define('AP_CACHE', false);
 
 // =============================================================================
 // Absolute path — do not edit below this line
@@ -591,6 +594,10 @@ PHP;
             'posts_per_page' => '10',
             'posts_per_rss' => '10',
             'rss_use_excerpt' => '0',
+            // SEO: allow indexing, XML sitemaps, Open Graph (FEATURES “SEO basics”).
+            'blog_public' => '1',
+            'sitemap_enabled' => '1',
+            'open_graph_enabled' => '1',
             // Writing settings.
             'default_category' => '0',
             'use_smilies' => '1',
@@ -654,6 +661,19 @@ PHP;
             'show_donation_button' => '1',
             // Version check: admin-only, cached GET of public version.json (no site id).
             'version_check_enabled' => '1',
+            // Rate limiting / login protection (AP_Rate_Limit; overridable per action).
+            'rate_limit_login_max' => '5',
+            'rate_limit_login_window' => '900',
+            'rate_limit_login_lockout' => '900',
+            'rate_limit_register_max' => '5',
+            'rate_limit_register_window' => '3600',
+            'rate_limit_register_lockout' => '3600',
+            'rate_limit_password_reset_max' => '5',
+            'rate_limit_password_reset_window' => '3600',
+            'rate_limit_password_reset_lockout' => '1800',
+            'rate_limit_upload_max' => '40',
+            'rate_limit_upload_window' => '600',
+            'rate_limit_upload_lockout' => '300',
         ];
 
         foreach ($options as $name => $value) {

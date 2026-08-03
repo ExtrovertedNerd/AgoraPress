@@ -519,6 +519,20 @@ class AP_Comment
             }
         }
 
+        $updated = self::get($id, $db);
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_comment_updated', $id, $updated);
+            if (isset($update['comment_approved'])) {
+                ap_do_action(
+                    'ap_comment_status_changed',
+                    $id,
+                    $updated,
+                    (string) $existing->comment_approved,
+                    (string) $update['comment_approved']
+                );
+            }
+        }
+
         return true;
     }
 
@@ -652,6 +666,10 @@ class AP_Comment
         }
 
         self::updateCommentCount($comment->comment_post_ID, $db);
+
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_comment_deleted', $id, $comment->comment_post_ID, $comment);
+        }
 
         return true;
     }

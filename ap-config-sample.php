@@ -96,6 +96,17 @@ define('AP_DEBUG_DISPLAY', false);
 /** When true and AP_DEBUG is true, write errors to a log file under ap-content. */
 define('AP_DEBUG_LOG', false);
 
+/**
+ * When true, AP_DB records each SQL statement + timing in getQueries()
+ * (performance debugging). Leave false in production — adds memory overhead.
+ */
+define('AP_SAVEQUERIES', false);
+
+/**
+ * When true with AP_DEBUG, also enables query logging (same as AP_SAVEQUERIES).
+ */
+define('AP_DEBUG_QUERIES', false);
+
 // =============================================================================
 // Privacy & optional paths
 // =============================================================================
@@ -106,6 +117,15 @@ define('AP_DEBUG_LOG', false);
  * explicitly documents an opt-in (e.g. Hall of Fame domain registration).
  */
 define('AP_TELEMETRY', false);
+
+/**
+ * Full-page cache support. When true, AgoraPress loads
+ * `ap-content/advanced-cache.php` early (if present) so a page-cache drop-in
+ * or reverse-proxy helper can serve/store HTML. Core provides purge hooks
+ * (`ap_clean_page_cache`, `ap_clean_post_cache`, …) — it does not ship a
+ * disk page-cache engine. Leave false unless you install a compatible drop-in.
+ */
+define('AP_CACHE', false);
 
 /**
  * Optional absolute path overrides. Leave undefined to use defaults next to

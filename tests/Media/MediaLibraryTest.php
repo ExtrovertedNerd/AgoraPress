@@ -159,6 +159,33 @@ final class MediaLibraryTest extends TestCase
 
         $unknown = AP_Media::checkFileType('payload.exe');
         $this->assertFalse($unknown['ok']);
+
+        $bat = AP_Media::checkFileType('run.cmd');
+        $this->assertFalse($bat['ok']);
+    }
+
+    public function testRejectsCorruptRasterImage(): void
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'apf');
+        $this->assertNotFalse($tmp);
+        file_put_contents($tmp, 'definitely-not-png-bytes');
+
+        $check = AP_Media::checkFileType('photo.png', $tmp);
+        $this->assertFalse($check['ok']);
+        @unlink($tmp);
+    }
+
+    public function testRejectsSvgWithScript(): void
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'aps');
+        $this->assertNotFalse($tmp);
+        file_put_contents(
+            $tmp,
+            '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        );
+        $check = AP_Media::checkFileType('icon.svg', $tmp);
+        $this->assertFalse($check['ok']);
+        @unlink($tmp);
     }
 
     public function testUploadDirUsesConfiguredBasedir(): void

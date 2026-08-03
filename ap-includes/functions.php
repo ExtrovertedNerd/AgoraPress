@@ -426,6 +426,9 @@ function ap_mail(
 /**
  * Authenticate and establish a signed session cookie on success.
  *
+ * Applies rate limiting when {@see AP_Rate_Limit} is loaded. On failure see
+ * {@see ap_get_last_login_error()}.
+ *
  * @see AP_Session::login()
  */
 function ap_login(
@@ -435,6 +438,22 @@ function ap_login(
     ?AP_DB $db = null
 ): ?AP_User {
     return AP_Session::login($loginOrEmail, $password, $remember, $db);
+}
+
+/**
+ * Details of the most recent failed {@see ap_login()} attempt.
+ *
+ * @return array{code: string, message: string, retry_after: int}|null
+ *
+ * @see AP_Session::getLastLoginError()
+ */
+function ap_get_last_login_error(): ?array
+{
+    if (!class_exists('AP_Session', false)) {
+        return null;
+    }
+
+    return AP_Session::getLastLoginError();
 }
 
 /**
@@ -1632,6 +1651,144 @@ function ap_is_mu_plugin_loaded(string $plugin): bool
 }
 
 // -----------------------------------------------------------------------------
+// Object Cache API (wrappers; primary definitions live in class-ap-object-cache.php)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether an external object-cache drop-in is active.
+ *
+ * @see ap_using_ext_object_cache()
+ */
+function ap_using_object_cache(): bool
+{
+    return function_exists('ap_using_ext_object_cache') && ap_using_ext_object_cache();
+}
+
+// -----------------------------------------------------------------------------
+// Page Cache API (wrappers; primary definitions live in class-ap-page-cache.php)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether page caching is enabled (AP_CACHE + filter).
+ *
+ * @see AP_Page_Cache::isEnabled()
+ */
+function ap_page_cache_enabled(): bool
+{
+    if (!class_exists('AP_Page_Cache', false)) {
+        return defined('AP_CACHE') && AP_CACHE;
+    }
+
+    return AP_Page_Cache::isEnabled();
+}
+
+/**
+ * Whether the advanced-cache drop-in was loaded this request.
+ *
+ * @see AP_Page_Cache::usingDropin()
+ */
+function ap_using_page_cache(): bool
+{
+    return class_exists('AP_Page_Cache', false) && AP_Page_Cache::usingDropin();
+}
+
+/**
+ * Whether the current request is a candidate for full-page caching.
+ *
+ * @see AP_Page_Cache::shouldCacheRequest()
+ */
+function ap_should_cache_request(): bool
+{
+    if (!class_exists('AP_Page_Cache', false)) {
+        return false;
+    }
+
+    return AP_Page_Cache::shouldCacheRequest();
+}
+
+/**
+ * Mark the current request as non-cacheable.
+ *
+ * @see AP_Page_Cache::skipRequest()
+ */
+function ap_skip_page_cache(): void
+{
+    if (class_exists('AP_Page_Cache', false)) {
+        AP_Page_Cache::skipRequest();
+    }
+}
+
+/**
+ * Whether ap_skip_page_cache() was called this request.
+ *
+ * @see AP_Page_Cache::requestSkipped()
+ */
+function ap_page_cache_skipped(): bool
+{
+    return class_exists('AP_Page_Cache', false) && AP_Page_Cache::requestSkipped();
+}
+
+/**
+ * Flush the page cache, or purge one URL when given.
+ *
+ * @see AP_Page_Cache::clean()
+ */
+function ap_clean_page_cache(?string $url = null): void
+{
+    if (class_exists('AP_Page_Cache', false)) {
+        AP_Page_Cache::clean($url);
+    }
+}
+
+/**
+ * Invalidate page cache entries related to a post/page.
+ *
+ * @see AP_Page_Cache::cleanPost()
+ */
+function ap_clean_post_cache(int $postId): void
+{
+    if (class_exists('AP_Page_Cache', false)) {
+        AP_Page_Cache::cleanPost($postId);
+    }
+}
+
+/**
+ * Invalidate page cache entries related to a forum topic.
+ *
+ * @see AP_Page_Cache::cleanTopic()
+ */
+function ap_clean_topic_cache(int $topicId, ?int $forumId = null): void
+{
+    if (class_exists('AP_Page_Cache', false)) {
+        AP_Page_Cache::cleanTopic($topicId, $forumId);
+    }
+}
+
+/**
+ * Invalidate page cache entries related to a forum.
+ *
+ * @see AP_Page_Cache::cleanForum()
+ */
+function ap_clean_forum_cache(int $forumId): void
+{
+    if (class_exists('AP_Page_Cache', false)) {
+        AP_Page_Cache::cleanForum($forumId);
+    }
+}
+
+/**
+ * Send headers that discourage caching of the current response.
+ *
+ * @see AP_Page_Cache::nocacheHeaders()
+ */
+function ap_nocache_headers(): void
+{
+    if (class_exists('AP_Page_Cache', false)) {
+        AP_Page_Cache::nocacheHeaders();
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Transients API
 // -----------------------------------------------------------------------------
 
@@ -2026,16 +2183,19 @@ function ap_register_script(
     string $src = '',
     array $deps = [],
     string|bool|null $ver = false,
-    bool $inFooter = false
+    bool|array $args = false
 ): bool {
-    return AP_Assets::registerScript($handle, $src, $deps, $ver, $inFooter);
+    return AP_Assets::registerScript($handle, $src, $deps, $ver, $args);
 }
 
 /**
  * Enqueue a script (registers when $src is non-empty).
  *
+ * Fifth argument: bool for footer, or `['in_footer' => bool, 'strategy' => 'defer'|'async']`.
+ *
  * @param list<string> $deps
  * @param string|false|null $ver
+ * @param bool|array{in_footer?: bool, strategy?: string} $args
  *
  * @see AP_Assets::enqueueScript()
  */
@@ -2044,9 +2204,31 @@ function ap_enqueue_script(
     string $src = '',
     array $deps = [],
     string|bool|null $ver = false,
-    bool $inFooter = false
+    bool|array $args = false
 ): bool {
-    return AP_Assets::enqueueScript($handle, $src, $deps, $ver, $inFooter);
+    return AP_Assets::enqueueScript($handle, $src, $deps, $ver, $args);
+}
+
+/**
+ * Set script loading strategy (`defer` / `async` / empty).
+ *
+ * @see AP_Assets::setScriptStrategy()
+ */
+function ap_script_add_data(string $handle, string $key, mixed $value): bool
+{
+    if ($key === 'strategy' && is_string($value)) {
+        return AP_Assets::setScriptStrategy($handle, $value);
+    }
+
+    return false;
+}
+
+/**
+ * @see AP_Assets::getScriptStrategy()
+ */
+function ap_get_script_strategy(string $handle): string
+{
+    return AP_Assets::getScriptStrategy($handle);
 }
 
 /**
@@ -2134,9 +2316,48 @@ function ap_head(): void
          */
         ap_do_action('ap_head');
     }
+    // Early connection hints (dns-prefetch / preconnect / prefetch / prerender).
+    ap_print_resource_hints();
     if (class_exists('AP_Assets', false)) {
         AP_Assets::printStyles();
         AP_Assets::printScripts(false);
+    }
+}
+
+/**
+ * Print resource hint link tags (performance).
+ *
+ * Plugins/themes filter `ap_resource_hints` with a list of URLs for a relation
+ * type. Empty by default — core stays free of third-party network calls.
+ *
+ * @param string $relation_type dns-prefetch|preconnect|prefetch|prerender|preload
+ */
+function ap_print_resource_hints(): void
+{
+    $types = ['dns-prefetch', 'preconnect', 'prefetch', 'prerender', 'preload'];
+    foreach ($types as $relation) {
+        $urls = [];
+        if (function_exists('ap_apply_filters')) {
+            $filtered = ap_apply_filters('ap_resource_hints', $urls, $relation);
+            if (is_array($filtered)) {
+                $urls = $filtered;
+            }
+        }
+        foreach ($urls as $url) {
+            if (!is_string($url) || $url === '') {
+                continue;
+            }
+            $href = function_exists('ap_esc_url')
+                ? ap_esc_url($url)
+                : htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $rel = function_exists('ap_esc_attr')
+                ? ap_esc_attr($relation)
+                : htmlspecialchars($relation, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            if ($href === '') {
+                continue;
+            }
+            echo '<link rel="' . $rel . '" href="' . $href . '">' . "\n";
+        }
     }
 }
 
@@ -2421,6 +2642,75 @@ function ap_get_feed_link(string $feed = 'rss2', ?AP_DB $db = null): string
     return '/?feed=' . rawurlencode($feed);
 }
 
+/**
+ * Public XML sitemap URL (index or provider slug).
+ *
+ * @see AP_Sitemap::getSitemapLink()
+ */
+function ap_get_sitemap_link(string $type = 'index', int $page = 1, ?AP_DB $db = null): string
+{
+    if (class_exists('AP_Sitemap', false)) {
+        return AP_Sitemap::getSitemapLink($type, $page, $db);
+    }
+
+    return '/sitemap.xml';
+}
+
+/**
+ * Whether XML sitemaps are enabled.
+ *
+ * @see AP_Sitemap::isEnabled()
+ */
+function ap_sitemaps_enabled(?AP_DB $db = null): bool
+{
+    return class_exists('AP_Sitemap', false) && AP_Sitemap::isEnabled($db);
+}
+
+/**
+ * Canonical URL for the main query (or given query).
+ *
+ * @see AP_Seo::getCanonicalUrl()
+ */
+function ap_get_canonical_url(?AP_Query $query = null, ?AP_DB $db = null): string
+{
+    if (class_exists('AP_Seo', false)) {
+        return AP_Seo::getCanonicalUrl($query, $db);
+    }
+
+    return '';
+}
+
+/**
+ * Open Graph meta map for the main query.
+ *
+ * @return array<string, string>
+ *
+ * @see AP_Seo::getOpenGraphMeta()
+ */
+function ap_get_open_graph_meta(?AP_Query $query = null, ?AP_DB $db = null): array
+{
+    if (class_exists('AP_Seo', false)) {
+        return AP_Seo::getOpenGraphMeta($query, $db);
+    }
+
+    return [];
+}
+
+/**
+ * Whether the site encourages search-engine indexing (blog_public).
+ */
+function ap_is_blog_public(?AP_DB $db = null): bool
+{
+    if (class_exists('AP_Sitemap', false)) {
+        return AP_Sitemap::isPublic($db);
+    }
+    if (class_exists('AP_Options', false)) {
+        return (string) AP_Options::get('blog_public', '1', $db) !== '0';
+    }
+
+    return true;
+}
+
 // -----------------------------------------------------------------------------
 // Options API
 // -----------------------------------------------------------------------------
@@ -2437,6 +2727,28 @@ function ap_get_feed_link(string $feed = 'rss2', ?AP_DB $db = null): string
 function ap_get_option(string $name, mixed $default = false, ?AP_DB $db = null): mixed
 {
     return AP_Options::get($name, $default, $db);
+}
+
+/**
+ * Prime the options cache with all autoload=yes rows (one SELECT).
+ *
+ * @see AP_Options::loadAutoloaded()
+ */
+function ap_load_autoloaded_options(?AP_DB $db = null): int
+{
+    return AP_Options::loadAutoloaded($db);
+}
+
+/**
+ * Autoload option count and payload size for performance budgets.
+ *
+ * @return array{count: int, bytes: int}
+ *
+ * @see AP_Options::getAutoloadStats()
+ */
+function ap_get_autoload_option_stats(?AP_DB $db = null): array
+{
+    return AP_Options::getAutoloadStats($db);
 }
 
 /**
@@ -2712,6 +3024,497 @@ function ap_is_maintenance_mode(?string $abspath = null): bool
     }
 
     return AP_Core_Updater::isMaintenanceMode($abspath);
+}
+
+// -----------------------------------------------------------------------------
+// WordPress WXR importer
+// -----------------------------------------------------------------------------
+
+/**
+ * Import a WordPress WXR export from a filesystem path.
+ *
+ * @param array<string, mixed> $args See {@see AP_Wxr_Importer::importFromFile()}.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Wxr_Importer::importFromFile()
+ */
+function ap_import_wxr(string $path, ?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Wxr_Importer', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['WXR importer is not loaded.'],
+            'warnings' => [],
+            'authors' => 0,
+            'posts' => 0,
+            'pages' => 0,
+            'comments' => 0,
+            'skipped' => 0,
+        ];
+    }
+
+    return AP_Wxr_Importer::importFromFile($path, $db, $args);
+}
+
+/**
+ * Import a WordPress WXR export from an XML string.
+ *
+ * @param array<string, mixed> $args See {@see AP_Wxr_Importer::importFromString()}.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Wxr_Importer::importFromString()
+ */
+function ap_import_wxr_string(string $xml, ?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Wxr_Importer', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['WXR importer is not loaded.'],
+            'warnings' => [],
+            'authors' => 0,
+            'posts' => 0,
+            'pages' => 0,
+            'comments' => 0,
+            'skipped' => 0,
+        ];
+    }
+
+    return AP_Wxr_Importer::importFromString($xml, $db, $args);
+}
+
+/**
+ * Handle a multipart WXR upload (typically $_FILES['wxr']).
+ *
+ * @param array<string, mixed> $file
+ * @param array<string, mixed> $args
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Wxr_Importer::handleUpload()
+ */
+function ap_import_wxr_upload(array $file, ?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Wxr_Importer', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['WXR importer is not loaded.'],
+            'warnings' => [],
+        ];
+    }
+
+    return AP_Wxr_Importer::handleUpload($file, $db, $args);
+}
+
+/**
+ * Whether a string looks like a WordPress WXR export.
+ *
+ * @see AP_Wxr_Importer::isWxr()
+ */
+function ap_is_wxr(string $xml): bool
+{
+    if (!class_exists('AP_Wxr_Importer', false)) {
+        return false;
+    }
+
+    return AP_Wxr_Importer::isWxr($xml);
+}
+
+// -----------------------------------------------------------------------------
+// Privacy tools (personal data export / erase)
+// -----------------------------------------------------------------------------
+
+/**
+ * Privacy policy page ID (0 = none).
+ *
+ * @see AP_Privacy::getPrivacyPolicyPageId()
+ */
+function ap_get_privacy_policy_page_id(?AP_DB $db = null): int
+{
+    if (!class_exists('AP_Privacy', false)) {
+        return 0;
+    }
+
+    return AP_Privacy::getPrivacyPolicyPageId($db);
+}
+
+/**
+ * Set the privacy policy page ID (0 clears).
+ *
+ * @see AP_Privacy::setPrivacyPolicyPageId()
+ */
+function ap_set_privacy_policy_page_id(int $pageId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Privacy', false)) {
+        return false;
+    }
+
+    return AP_Privacy::setPrivacyPolicyPageId($pageId, $db);
+}
+
+/**
+ * Public URL of the privacy policy page when configured.
+ *
+ * @see AP_Privacy::getPrivacyPolicyUrl()
+ */
+function ap_get_privacy_policy_url(?AP_DB $db = null): string
+{
+    if (!class_exists('AP_Privacy', false)) {
+        return '';
+    }
+
+    return AP_Privacy::getPrivacyPolicyUrl($db);
+}
+
+/**
+ * Export personal data for a user (structured package).
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Privacy::exportPersonalData()
+ */
+function ap_export_personal_data(int $userId, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Privacy', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['Privacy tools are not loaded.'],
+            'user_id' => $userId,
+            'groups' => [],
+        ];
+    }
+
+    return AP_Privacy::exportPersonalData($userId, $db);
+}
+
+/**
+ * Export personal data as a downloadable JSON document.
+ *
+ * @return array{ok: bool, errors: list<string>, json: string, filename: string, user_id: int}
+ *
+ * @see AP_Privacy::exportPersonalDataJson()
+ */
+function ap_export_personal_data_json(int $userId, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Privacy', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['Privacy tools are not loaded.'],
+            'json' => '',
+            'filename' => '',
+            'user_id' => $userId,
+        ];
+    }
+
+    return AP_Privacy::exportPersonalDataJson($userId, $db);
+}
+
+/**
+ * Erase personal data for a user (anonymize content + delete account).
+ *
+ * @param array<string, mixed> $args reassign (int) optional content owner.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Privacy::erasePersonalData()
+ */
+function ap_erase_personal_data(int $userId, array $args = [], ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Privacy', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['Privacy tools are not loaded.'],
+            'warnings' => [],
+            'user_id' => $userId,
+            'counts' => [],
+        ];
+    }
+
+    return AP_Privacy::erasePersonalData($userId, $args, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Site Health (status checks + system info)
+// -----------------------------------------------------------------------------
+
+/**
+ * Run Site Health checks.
+ *
+ * @return list<array{id: string, label: string, status: string, message: string, badge?: string}>
+ *
+ * @see AP_Site_Health::getChecks()
+ */
+function ap_get_site_health_checks(?AP_DB $db = null, ?string $abspath = null): array
+{
+    if (!class_exists('AP_Site_Health', false)) {
+        return [];
+    }
+
+    return AP_Site_Health::getChecks($db, $abspath);
+}
+
+/**
+ * Site Health status summary (good / recommended / critical counts).
+ *
+ * @param list<array{status?: string}>|null $checks
+ *
+ * @return array{good: int, recommended: int, critical: int, total: int}
+ *
+ * @see AP_Site_Health::getSummary()
+ */
+function ap_get_site_health_summary(?array $checks = null, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Site_Health', false)) {
+        return ['good' => 0, 'recommended' => 0, 'critical' => 0, 'total' => 0];
+    }
+
+    return AP_Site_Health::getSummary($checks, $db);
+}
+
+/**
+ * Overall Site Health status: good | recommended | critical.
+ *
+ * @param list<array{status?: string}>|null $checks
+ *
+ * @see AP_Site_Health::getOverallStatus()
+ */
+function ap_get_site_health_status(?array $checks = null, ?AP_DB $db = null): string
+{
+    if (!class_exists('AP_Site_Health', false)) {
+        return 'good';
+    }
+
+    return AP_Site_Health::getOverallStatus($checks, $db);
+}
+
+/**
+ * Structured system information for Site Health → Info.
+ *
+ * @return array<string, array{label: string, fields: list<array{label: string, value: string}>}>
+ *
+ * @see AP_Site_Health::getInfo()
+ */
+function ap_get_site_health_info(?AP_DB $db = null, ?string $abspath = null): array
+{
+    if (!class_exists('AP_Site_Health', false)) {
+        return [];
+    }
+
+    return AP_Site_Health::getInfo($db, $abspath);
+}
+
+/**
+ * Plain-text system information dump (support copy box).
+ *
+ * @see AP_Site_Health::getInfoText()
+ */
+function ap_get_site_health_info_text(?AP_DB $db = null, ?string $abspath = null): string
+{
+    if (!class_exists('AP_Site_Health', false)) {
+        return '';
+    }
+
+    return AP_Site_Health::getInfoText($db, $abspath);
+}
+
+/**
+ * Clear object cache + expired option-backed transients.
+ *
+ * @return array{ok: bool, object_cache: bool, expired_transients: int, message: string}
+ *
+ * @see AP_Site_Health::clearCaches()
+ */
+function ap_clear_site_health_caches(?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Site_Health', false)) {
+        return [
+            'ok' => false,
+            'object_cache' => false,
+            'expired_transients' => 0,
+            'message' => 'Site Health is not loaded.',
+        ];
+    }
+
+    return AP_Site_Health::clearCaches($db);
+}
+
+/**
+ * Resolve a user by ID, login, or email for privacy tools.
+ *
+ * @see AP_Privacy::resolveUser()
+ */
+function ap_privacy_resolve_user(string|int $identifier, ?AP_DB $db = null): ?AP_User
+{
+    if (!class_exists('AP_Privacy', false)) {
+        return null;
+    }
+
+    return AP_Privacy::resolveUser($identifier, $db);
+}
+
+/**
+ * Parse a WXR document without writing to the database.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Wxr_Importer::parse()
+ */
+function ap_parse_wxr(string $xml): array
+{
+    if (!class_exists('AP_Wxr_Importer', false)) {
+        return ['errors' => ['WXR importer is not loaded.'], 'items' => []];
+    }
+
+    return AP_Wxr_Importer::parse($xml);
+}
+
+// -----------------------------------------------------------------------------
+// phpBB importer
+// -----------------------------------------------------------------------------
+
+/**
+ * Import a phpBB portable JSON export from a filesystem path.
+ *
+ * @param array<string, mixed> $args See {@see AP_Phpbb_Importer::importFromFile()}.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Phpbb_Importer::importFromFile()
+ */
+function ap_import_phpbb(string $path, ?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Phpbb_Importer', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['phpBB importer is not loaded.'],
+            'warnings' => [],
+            'users' => 0,
+            'forums' => 0,
+            'topics' => 0,
+            'posts' => 0,
+            'skipped' => 0,
+        ];
+    }
+
+    return AP_Phpbb_Importer::importFromFile($path, $db, $args);
+}
+
+/**
+ * Import a phpBB portable JSON export from a string.
+ *
+ * @param array<string, mixed> $args See {@see AP_Phpbb_Importer::importFromString()}.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Phpbb_Importer::importFromString()
+ */
+function ap_import_phpbb_string(string $json, ?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Phpbb_Importer', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['phpBB importer is not loaded.'],
+            'warnings' => [],
+            'users' => 0,
+            'forums' => 0,
+            'topics' => 0,
+            'posts' => 0,
+            'skipped' => 0,
+        ];
+    }
+
+    return AP_Phpbb_Importer::importFromString($json, $db, $args);
+}
+
+/**
+ * Import from a live phpBB database.
+ *
+ * @param array<string, mixed> $connection driver, host, name, user, password, table_prefix
+ * @param array<string, mixed> $args
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Phpbb_Importer::importFromDatabase()
+ */
+function ap_import_phpbb_database(array $connection, ?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Phpbb_Importer', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['phpBB importer is not loaded.'],
+            'warnings' => [],
+        ];
+    }
+
+    return AP_Phpbb_Importer::importFromDatabase($connection, $db, $args);
+}
+
+/**
+ * Handle a multipart phpBB JSON upload (typically $_FILES['phpbb']).
+ *
+ * @param array<string, mixed> $file
+ * @param array<string, mixed> $args
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Phpbb_Importer::handleUpload()
+ */
+function ap_import_phpbb_upload(array $file, ?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Phpbb_Importer', false)) {
+        return [
+            'ok' => false,
+            'errors' => ['phpBB importer is not loaded.'],
+            'warnings' => [],
+        ];
+    }
+
+    return AP_Phpbb_Importer::handleUpload($file, $db, $args);
+}
+
+/**
+ * Whether a string looks like an AgoraPress phpBB JSON export.
+ *
+ * @see AP_Phpbb_Importer::isPhpbbJson()
+ */
+function ap_is_phpbb_json(string $json): bool
+{
+    if (!class_exists('AP_Phpbb_Importer', false)) {
+        return false;
+    }
+
+    return AP_Phpbb_Importer::isPhpbbJson($json);
+}
+
+/**
+ * Parse a phpBB JSON export without writing to the database.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Phpbb_Importer::parseJson()
+ */
+function ap_parse_phpbb_json(string $json): array
+{
+    if (!class_exists('AP_Phpbb_Importer', false)) {
+        return ['errors' => ['phpBB importer is not loaded.'], 'users' => [], 'forums' => []];
+    }
+
+    return AP_Phpbb_Importer::parseJson($json);
+}
+
+/**
+ * Clean phpBB post_text (strip BBCode UIDs, smiley comments).
+ *
+ * @see AP_Phpbb_Importer::cleanPostText()
+ */
+function ap_clean_phpbb_post_text(string $text, string $bbcodeUid = ''): string
+{
+    if (!class_exists('AP_Phpbb_Importer', false)) {
+        return $text;
+    }
+
+    return AP_Phpbb_Importer::cleanPostText($text, $bbcodeUid);
 }
 
 // -----------------------------------------------------------------------------
@@ -5650,92 +6453,306 @@ function ap_is_safe_url(string $url): bool
 // Escaping & sanitization (output / input helpers)
 // -----------------------------------------------------------------------------
 
+// Ensure AP_Formatting is available when functions.php is loaded without full bootstrap.
+if (!class_exists('AP_Formatting', false)) {
+    require_once __DIR__ . '/class-ap-formatting.php';
+}
+
 /**
  * Escape for HTML body text.
+ *
+ * @see AP_Formatting::escHtml()
  */
 function ap_esc_html(string $text): string
 {
-    return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    return AP_Formatting::escHtml($text);
 }
 
 /**
  * Escape for HTML attribute values.
+ *
+ * @see AP_Formatting::escAttr()
  */
 function ap_esc_attr(string $text): string
 {
-    return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    return AP_Formatting::escAttr($text);
 }
 
 /**
- * Escape for use in a URL (query args / path segments after encoding).
+ * Escape a URL for use in href/src (rejects javascript:/data:/etc.).
+ *
+ * @param list<string>|null $protocols Allowed schemes; null = defaults
+ *
+ * @see AP_Formatting::escUrl()
  */
-function ap_esc_url(string $url): string
+function ap_esc_url(string $url, ?array $protocols = null): string
 {
-    $url = trim($url);
-    if ($url === '') {
-        return '';
-    }
+    return AP_Formatting::escUrl($url, $protocols, true);
+}
 
-    // Allow relative admin paths and absolute http(s).
-    if (preg_match('#^(?:https?:)?//#i', $url) === 1) {
-        $filtered = filter_var($url, FILTER_SANITIZE_URL);
-        if (!is_string($filtered) || $filtered === '') {
-            return '';
-        }
-        if (preg_match('#^https?://#i', $filtered) !== 1) {
-            return '';
-        }
-
-        return htmlspecialchars($filtered, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    }
-
-    // Relative path: strip control chars / quotes.
-    $url = str_replace(["\r", "\n", "\0", '"', "'", '<', '>'], '', $url);
-
-    return htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+/**
+ * Sanitize a URL for storage / redirects (no HTML entity encoding).
+ *
+ * @param list<string>|null $protocols
+ *
+ * @see AP_Formatting::escUrlRaw()
+ */
+function ap_esc_url_raw(string $url, ?array $protocols = null): string
+{
+    return AP_Formatting::escUrlRaw($url, $protocols);
 }
 
 /**
  * Escape for HTML textarea content (same as esc_html; named for intent).
+ *
+ * @see AP_Formatting::escTextarea()
  */
 function ap_esc_textarea(string $text): string
 {
-    return ap_esc_html($text);
+    return AP_Formatting::escTextarea($text);
+}
+
+/**
+ * Escape text for embedding inside a JavaScript string literal.
+ *
+ * @see AP_Formatting::escJs()
+ */
+function ap_esc_js(string $text): string
+{
+    return AP_Formatting::escJs($text);
+}
+
+/**
+ * Escape text for XML / RSS / Atom.
+ *
+ * @see AP_Formatting::escXml()
+ */
+function ap_esc_xml(string $text): string
+{
+    return AP_Formatting::escXml($text);
 }
 
 /**
  * Sanitize a single-line text field (strip tags, normalize whitespace).
+ *
+ * @see AP_Formatting::sanitizeTextField()
  */
 function ap_sanitize_text_field(string $value): string
 {
-    $value = ap_strip_all_tags($value);
-    $value = preg_replace('/[\r\n\t]+/', ' ', $value) ?? $value;
-    $value = preg_replace('/[ ]{2,}/', ' ', $value) ?? $value;
-    $value = trim($value);
-
-    return $value;
+    return AP_Formatting::sanitizeTextField($value);
 }
 
 /**
  * Sanitize multiline text (strip tags, keep newlines).
+ *
+ * @see AP_Formatting::sanitizeTextareaField()
  */
 function ap_sanitize_textarea_field(string $value): string
 {
-    $value = ap_strip_all_tags($value);
-    $value = str_replace("\0", '', $value);
+    return AP_Formatting::sanitizeTextareaField($value);
+}
 
-    return trim($value);
+/**
+ * Sanitize an email address (empty string when invalid).
+ *
+ * @see AP_Formatting::sanitizeEmail()
+ */
+function ap_sanitize_email(string $email): string
+{
+    return AP_Formatting::sanitizeEmail($email);
+}
+
+/**
+ * Sanitize a key: lowercase alphanumeric, underscores, hyphens.
+ *
+ * @see AP_Formatting::sanitizeKey()
+ */
+function ap_sanitize_key(string $key): string
+{
+    return AP_Formatting::sanitizeKey($key);
+}
+
+/**
+ * Sanitize a client filename to a safe basename.
+ *
+ * @see AP_Formatting::sanitizeFileName()
+ */
+function ap_sanitize_file_name(string $filename): string
+{
+    return AP_Formatting::sanitizeFileName($filename);
+}
+
+/**
+ * Sanitize a hex color (#rgb / #rrggbb); empty when invalid.
+ *
+ * @see AP_Formatting::sanitizeHexColor()
+ */
+function ap_sanitize_hex_color(string $color): string
+{
+    return AP_Formatting::sanitizeHexColor($color);
+}
+
+/**
+ * Sanitize a username / login.
+ *
+ * @see AP_Formatting::sanitizeUser()
+ */
+function ap_sanitize_user(string $username, bool $strict = false): string
+{
+    return AP_Formatting::sanitizeUser($username, $strict);
+}
+
+/**
+ * Non-negative integer (0 when not a valid non-negative number).
+ *
+ * @see AP_Formatting::absint()
+ */
+function ap_absint(mixed $value): int
+{
+    return AP_Formatting::absint($value);
 }
 
 /**
  * Strip HTML tags (and script/style blocks) for sanitization.
+ *
+ * @see AP_Formatting::stripAllTags()
  */
-function ap_strip_all_tags(string $value): string
+function ap_strip_all_tags(string $value, bool $removeBreaks = false): string
 {
-    $value = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $value) ?? $value;
-    $value = strip_tags($value);
+    return AP_Formatting::stripAllTags($value, $removeBreaks);
+}
 
-    return $value;
+/**
+ * Allowed URL schemes for {@see ap_esc_url()}.
+ *
+ * @return list<string>
+ *
+ * @see AP_Formatting::allowedProtocols()
+ */
+function ap_allowed_protocols(): array
+{
+    return AP_Formatting::allowedProtocols();
+}
+
+// -----------------------------------------------------------------------------
+// Rate limiting & login protection
+// -----------------------------------------------------------------------------
+
+/**
+ * Best-effort client IP for rate buckets (REMOTE_ADDR; optional trusted proxy).
+ *
+ * @see AP_Rate_Limit::clientIp()
+ */
+function ap_client_ip(): string
+{
+    if (!class_exists('AP_Rate_Limit', false)) {
+        if (!empty($_SERVER['REMOTE_ADDR']) && is_string($_SERVER['REMOTE_ADDR'])) {
+            $ip = trim($_SERVER['REMOTE_ADDR']);
+
+            return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
+        }
+
+        return '';
+    }
+
+    return AP_Rate_Limit::clientIp();
+}
+
+/**
+ * Whether a rate-limit bucket is currently blocked.
+ *
+ * @see AP_Rate_Limit::isLimited()
+ */
+function ap_rate_limit_is_limited(string $action, string $bucket = '', ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Rate_Limit', false)) {
+        return false;
+    }
+
+    return AP_Rate_Limit::isLimited($action, $bucket, $db);
+}
+
+/**
+ * Inspect a rate-limit bucket without recording a hit.
+ *
+ * @return array{
+ *   action: string,
+ *   bucket: string,
+ *   allowed: bool,
+ *   attempts: int,
+ *   limit: int,
+ *   remaining: int,
+ *   retry_after: int,
+ *   locked: bool
+ * }
+ *
+ * @see AP_Rate_Limit::check()
+ */
+function ap_rate_limit_check(string $action, string $bucket = '', ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Rate_Limit', false)) {
+        return [
+            'action' => $action,
+            'bucket' => $bucket,
+            'allowed' => true,
+            'attempts' => 0,
+            'limit' => 0,
+            'remaining' => 0,
+            'retry_after' => 0,
+            'locked' => false,
+        ];
+    }
+
+    return AP_Rate_Limit::check($action, $bucket, $db);
+}
+
+/**
+ * Record one attempt against a rate-limit bucket.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Rate_Limit::hit()
+ */
+function ap_rate_limit_hit(string $action, string $bucket = '', ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Rate_Limit', false)) {
+        return ap_rate_limit_check($action, $bucket, $db);
+    }
+
+    return AP_Rate_Limit::hit($action, $bucket, $db);
+}
+
+/**
+ * Clear a rate-limit bucket (e.g. after successful login).
+ *
+ * @see AP_Rate_Limit::clear()
+ */
+function ap_rate_limit_clear(string $action, string $bucket = '', ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Rate_Limit', false)) {
+        return true;
+    }
+
+    return AP_Rate_Limit::clear($action, $bucket, $db);
+}
+
+/**
+ * Whether login is currently rate-limited for this IP / identity.
+ *
+ * @return array{allowed: bool, retry_after: int, message: string}
+ *
+ * @see AP_Rate_Limit::checkLogin()
+ */
+function ap_check_login_rate_limit(
+    string $loginOrEmail = '',
+    string $ip = '',
+    ?AP_DB $db = null
+): array {
+    if (!class_exists('AP_Rate_Limit', false)) {
+        return ['allowed' => true, 'retry_after' => 0, 'message' => ''];
+    }
+
+    return AP_Rate_Limit::checkLogin($loginOrEmail, $ip, $db);
 }
 
 // -----------------------------------------------------------------------------
@@ -5834,4 +6851,414 @@ function ap_check_request_nonce(
     ?int $userId = null
 ): bool {
     return AP_Nonce::verifyRequest($request, $action, $name, $userId) !== false;
+}
+
+// -----------------------------------------------------------------------------
+// Internationalization (gettext) + RTL
+// -----------------------------------------------------------------------------
+
+// Ensure AP_L10n is available when functions.php is loaded without full bootstrap.
+if (!class_exists('AP_L10n', false)) {
+    require_once __DIR__ . '/class-ap-l10n.php';
+}
+
+/**
+ * Retrieve the current locale.
+ *
+ * @see AP_L10n::getLocale()
+ */
+function ap_get_locale(?AP_DB $db = null): string
+{
+    return AP_L10n::getLocale($db);
+}
+
+/**
+ * Alias of {@see ap_get_locale()} (WordPress-compatible name).
+ */
+if (!function_exists('get_locale')) {
+    function get_locale(?AP_DB $db = null): string
+    {
+        return ap_get_locale($db);
+    }
+}
+
+/**
+ * Set or clear the request locale override.
+ *
+ * @see AP_L10n::setLocale()
+ */
+function ap_set_locale(?string $locale): void
+{
+    AP_L10n::setLocale($locale);
+}
+
+/**
+ * Whether the current (or given) locale is right-to-left.
+ *
+ * @see AP_L10n::isRtl()
+ */
+function ap_is_rtl(string $locale = ''): bool
+{
+    return AP_L10n::isRtl($locale);
+}
+
+/**
+ * WordPress-compatible alias of {@see ap_is_rtl()}.
+ */
+if (!function_exists('is_rtl')) {
+    function is_rtl(string $locale = ''): bool
+    {
+        return ap_is_rtl($locale);
+    }
+}
+
+/**
+ * Text direction for the current locale: "rtl" or "ltr".
+ */
+function ap_get_text_direction(string $locale = ''): string
+{
+    return AP_L10n::textDirection($locale);
+}
+
+/**
+ * HTML lang attribute value (BCP 47), e.g. en-US.
+ */
+function ap_get_html_lang(string $locale = ''): string
+{
+    return AP_L10n::localeToHtmlLang($locale);
+}
+
+/**
+ * Open Graph og:locale value, e.g. en_US.
+ */
+function ap_get_og_locale(string $locale = ''): string
+{
+    return AP_L10n::localeToOgLocale($locale);
+}
+
+/**
+ * Attribute string for the root HTML element (lang + dir).
+ *
+ * @see AP_L10n::languageAttributes()
+ */
+function ap_get_language_attributes(string $doctype = 'html'): string
+{
+    return AP_L10n::languageAttributes($doctype);
+}
+
+/**
+ * Echo language attributes for the root HTML element.
+ */
+function ap_language_attributes(string $doctype = 'html'): void
+{
+    echo AP_L10n::languageAttributes($doctype);
+}
+
+/**
+ * Load a .mo file into a text domain.
+ *
+ * @see AP_L10n::loadTextdomain()
+ */
+function ap_load_textdomain(string $domain, string $mofile): bool
+{
+    return AP_L10n::loadTextdomain($domain, $mofile);
+}
+
+/**
+ * WordPress-compatible alias of {@see ap_load_textdomain()}.
+ */
+if (!function_exists('load_textdomain')) {
+    function load_textdomain(string $domain, string $mofile): bool
+    {
+        return ap_load_textdomain($domain, $mofile);
+    }
+}
+
+/**
+ * Unload a text domain (or all when empty).
+ */
+function ap_unload_textdomain(string $domain = ''): void
+{
+    AP_L10n::unloadTextdomain($domain);
+}
+
+/**
+ * Load the default core text domain for the active locale.
+ */
+function ap_load_default_textdomain(): bool
+{
+    return AP_L10n::loadDefaultTextdomain();
+}
+
+/**
+ * Load a plugin text domain.
+ *
+ * @see AP_L10n::loadPluginTextdomain()
+ */
+function ap_load_plugin_textdomain(string $domain, string $pluginRelPath = ''): bool
+{
+    return AP_L10n::loadPluginTextdomain($domain, $pluginRelPath);
+}
+
+/**
+ * WordPress-compatible alias of {@see ap_load_plugin_textdomain()}.
+ */
+if (!function_exists('load_plugin_textdomain')) {
+    function load_plugin_textdomain(string $domain, string|false $deprecated = false, string $pluginRelPath = ''): bool
+    {
+        // WP signature: ($domain, $deprecated, $plugin_rel_path)
+        if (is_string($deprecated) && $deprecated !== '' && $pluginRelPath === '') {
+            $pluginRelPath = $deprecated;
+        }
+
+        return ap_load_plugin_textdomain($domain, $pluginRelPath);
+    }
+}
+
+/**
+ * Load a theme text domain.
+ *
+ * @see AP_L10n::loadThemeTextdomain()
+ */
+function ap_load_theme_textdomain(string $domain, string $path = ''): bool
+{
+    return AP_L10n::loadThemeTextdomain($domain, $path);
+}
+
+/**
+ * WordPress-compatible alias of {@see ap_load_theme_textdomain()}.
+ */
+if (!function_exists('load_theme_textdomain')) {
+    function load_theme_textdomain(string $domain, string $path = ''): bool
+    {
+        return ap_load_theme_textdomain($domain, $path);
+    }
+}
+
+/**
+ * Retrieve the translation of $text.
+ *
+ * @see AP_L10n::translate()
+ */
+function ap__(string $text, string $domain = 'default'): string
+{
+    return AP_L10n::translate($text, $domain);
+}
+
+/**
+ * Echo the translation of $text.
+ */
+function ap_e(string $text, string $domain = 'default'): void
+{
+    echo AP_L10n::translate($text, $domain);
+}
+
+/**
+ * Retrieve the translation of $text (WordPress-compatible).
+ */
+if (!function_exists('__')) {
+    function __(string $text, string $domain = 'default'): string
+    {
+        return AP_L10n::translate($text, $domain);
+    }
+}
+
+/**
+ * Echo the translation of $text (WordPress-compatible).
+ */
+if (!function_exists('_e')) {
+    function _e(string $text, string $domain = 'default'): void
+    {
+        echo AP_L10n::translate($text, $domain);
+    }
+}
+
+/**
+ * Translate with context.
+ */
+function ap_x(string $text, string $context, string $domain = 'default'): string
+{
+    return AP_L10n::translateWithContext($text, $context, $domain);
+}
+
+/**
+ * Translate with context (WordPress-compatible).
+ */
+if (!function_exists('_x')) {
+    function _x(string $text, string $context, string $domain = 'default'): string
+    {
+        return AP_L10n::translateWithContext($text, $context, $domain);
+    }
+}
+
+/**
+ * Echo translation with context.
+ */
+function ap_ex(string $text, string $context, string $domain = 'default'): void
+{
+    echo AP_L10n::translateWithContext($text, $context, $domain);
+}
+
+/**
+ * Echo translation with context (WordPress-compatible).
+ */
+if (!function_exists('_ex')) {
+    function _ex(string $text, string $context, string $domain = 'default'): void
+    {
+        echo AP_L10n::translateWithContext($text, $context, $domain);
+    }
+}
+
+/**
+ * Plural translation.
+ */
+function ap_n(string $single, string $plural, int $number, string $domain = 'default'): string
+{
+    return AP_L10n::translatePlural($single, $plural, $number, $domain);
+}
+
+/**
+ * Plural translation (WordPress-compatible).
+ */
+if (!function_exists('_n')) {
+    function _n(string $single, string $plural, int $number, string $domain = 'default'): string
+    {
+        return AP_L10n::translatePlural($single, $plural, $number, $domain);
+    }
+}
+
+/**
+ * Plural translation with context.
+ */
+function ap_nx(
+    string $single,
+    string $plural,
+    int $number,
+    string $context,
+    string $domain = 'default'
+): string {
+    return AP_L10n::translatePluralWithContext($single, $plural, $number, $context, $domain);
+}
+
+/**
+ * Plural translation with context (WordPress-compatible).
+ */
+if (!function_exists('_nx')) {
+    function _nx(
+        string $single,
+        string $plural,
+        int $number,
+        string $context,
+        string $domain = 'default'
+    ): string {
+        return AP_L10n::translatePluralWithContext($single, $plural, $number, $context, $domain);
+    }
+}
+
+/**
+ * Translate and escape for HTML body.
+ */
+function ap_esc_html__(string $text, string $domain = 'default'): string
+{
+    return ap_esc_html(AP_L10n::translate($text, $domain));
+}
+
+/**
+ * Translate and escape for HTML body (WordPress-compatible).
+ */
+if (!function_exists('esc_html__')) {
+    function esc_html__(string $text, string $domain = 'default'): string
+    {
+        return ap_esc_html__($text, $domain);
+    }
+}
+
+/**
+ * Translate, escape for HTML, and echo.
+ */
+function ap_esc_html_e(string $text, string $domain = 'default'): void
+{
+    echo ap_esc_html__($text, $domain);
+}
+
+/**
+ * Translate, escape for HTML, and echo (WordPress-compatible).
+ */
+if (!function_exists('esc_html_e')) {
+    function esc_html_e(string $text, string $domain = 'default'): void
+    {
+        echo ap_esc_html__($text, $domain);
+    }
+}
+
+/**
+ * Translate and escape for HTML attributes.
+ */
+function ap_esc_attr__(string $text, string $domain = 'default'): string
+{
+    return ap_esc_attr(AP_L10n::translate($text, $domain));
+}
+
+/**
+ * Translate and escape for HTML attributes (WordPress-compatible).
+ */
+if (!function_exists('esc_attr__')) {
+    function esc_attr__(string $text, string $domain = 'default'): string
+    {
+        return ap_esc_attr__($text, $domain);
+    }
+}
+
+/**
+ * Translate, escape for attributes, and echo.
+ */
+function ap_esc_attr_e(string $text, string $domain = 'default'): void
+{
+    echo ap_esc_attr__($text, $domain);
+}
+
+/**
+ * Translate, escape for attributes, and echo (WordPress-compatible).
+ */
+if (!function_exists('esc_attr_e')) {
+    function esc_attr_e(string $text, string $domain = 'default'): void
+    {
+        echo ap_esc_attr__($text, $domain);
+    }
+}
+
+/**
+ * Translate with context and escape for HTML.
+ */
+function ap_esc_html_x(string $text, string $context, string $domain = 'default'): string
+{
+    return ap_esc_html(AP_L10n::translateWithContext($text, $context, $domain));
+}
+
+/**
+ * Translate with context and escape for HTML (WordPress-compatible).
+ */
+if (!function_exists('esc_html_x')) {
+    function esc_html_x(string $text, string $context, string $domain = 'default'): string
+    {
+        return ap_esc_html_x($text, $context, $domain);
+    }
+}
+
+/**
+ * Translate with context and escape for attributes.
+ */
+function ap_esc_attr_x(string $text, string $context, string $domain = 'default'): string
+{
+    return ap_esc_attr(AP_L10n::translateWithContext($text, $context, $domain));
+}
+
+/**
+ * Translate with context and escape for attributes (WordPress-compatible).
+ */
+if (!function_exists('esc_attr_x')) {
+    function esc_attr_x(string $text, string $context, string $domain = 'default'): string
+    {
+        return ap_esc_attr_x($text, $context, $domain);
+    }
 }

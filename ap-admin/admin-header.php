@@ -34,9 +34,21 @@ $menuItems = AP_Admin::menuItems($ap_admin_screen);
 $colorModePref = AP_Admin::getColorMode();
 $colorModeLabels = AP_Admin::colorModeLabels();
 $colorModeLabel = $colorModeLabels[$colorModePref] ?? 'System';
+$htmlLang = function_exists('ap_get_html_lang') ? ap_get_html_lang() : 'en';
+$textDir = function_exists('ap_get_text_direction') ? ap_get_text_direction() : 'ltr';
+$isRtl = $textDir === 'rtl';
+if ($isRtl) {
+    $ap_admin_body_class = trim($ap_admin_body_class . ' rtl');
+} else {
+    $ap_admin_body_class = trim($ap_admin_body_class . ' ltr');
+}
 
 ?><!DOCTYPE html>
-<html lang="en" data-ap-color-mode-pref="<?php echo ap_esc_attr($colorModePref); ?>">
+<html
+    lang="<?php echo ap_esc_attr($htmlLang); ?>"
+    dir="<?php echo ap_esc_attr($textDir); ?>"
+    data-ap-color-mode-pref="<?php echo ap_esc_attr($colorModePref); ?>"
+>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -160,5 +172,5 @@ $colorModeLabel = $colorModeLabels[$colorModePref] ?? 'System';
                 <?php endforeach; ?>
             </ul>
         </nav>
-        <main id="ap-admin-content" class="ap-admin-content" tabindex="-1">
+        <main id="ap-admin-content" class="ap-admin-content" tabindex="-1" role="main">
             <?php echo AP_Admin::renderNotices(); ?>

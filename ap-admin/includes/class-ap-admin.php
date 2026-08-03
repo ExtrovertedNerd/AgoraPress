@@ -234,6 +234,10 @@ class AP_Admin
             'widgets.php' => 'edit_theme_options',
             'plugins.php' => 'activate_plugins',
             'update-core.php' => 'update_core',
+            'import.php' => 'import',
+            'site-health.php' => 'view_site_health',
+            'export-personal-data.php' => 'export_others_personal_data',
+            'erase-personal-data.php' => 'erase_others_personal_data',
             'options-general.php' => 'manage_options',
             'options-modules.php' => 'manage_options',
             'options-writing.php' => 'manage_options',
@@ -241,6 +245,7 @@ class AP_Admin
             'options-discussion.php' => 'manage_options',
             'options-media.php' => 'manage_options',
             'options-permalink.php' => 'manage_options',
+            'options-privacy.php' => 'manage_privacy_options',
             'options-hall-of-fame.php' => 'manage_options',
             'options-forums.php' => 'manage_options',
             // Forums (module-gated in screens)
@@ -407,14 +412,16 @@ class AP_Admin
             return '';
         }
 
-        $html = '<div class="ap-notices" role="status">' . "\n";
+        $html = '<div class="ap-notices">' . "\n";
         foreach (self::$notices as $notice) {
             $type = ap_esc_attr($notice['type']);
             $escape = $notice['escape'] ?? true;
             $msg = $escape
                 ? ap_esc_html($notice['message'])
                 : (string) $notice['message'];
-            $html .= '  <div class="ap-notice ap-notice--' . $type . '">' . $msg . '</div>' . "\n";
+            // Errors/warnings interrupt; success/info are polite status updates (WCAG live regions).
+            $role = in_array((string) $notice['type'], ['error', 'warning'], true) ? 'alert' : 'status';
+            $html .= '  <div class="ap-notice ap-notice--' . $type . '" role="' . $role . '">' . $msg . '</div>' . "\n";
         }
         $html .= '</div>' . "\n";
 
@@ -593,6 +600,42 @@ class AP_Admin
                 'url' => self::url('update-core.php'),
                 'active' => $current === 'update-core',
                 'cap' => 'update_core',
+                'module' => '',
+                'section' => 'tools',
+            ],
+            [
+                'id' => 'import',
+                'label' => 'Import',
+                'url' => self::url('import.php'),
+                'active' => $current === 'import',
+                'cap' => 'import',
+                'module' => '',
+                'section' => 'tools',
+            ],
+            [
+                'id' => 'site-health',
+                'label' => 'Site Health',
+                'url' => self::url('site-health.php'),
+                'active' => $current === 'site-health',
+                'cap' => 'view_site_health',
+                'module' => '',
+                'section' => 'tools',
+            ],
+            [
+                'id' => 'export-personal-data',
+                'label' => 'Export Personal Data',
+                'url' => self::url('export-personal-data.php'),
+                'active' => $current === 'export-personal-data',
+                'cap' => 'export_others_personal_data',
+                'module' => '',
+                'section' => 'tools',
+            ],
+            [
+                'id' => 'erase-personal-data',
+                'label' => 'Erase Personal Data',
+                'url' => self::url('erase-personal-data.php'),
+                'active' => $current === 'erase-personal-data',
+                'cap' => 'erase_others_personal_data',
                 'module' => '',
                 'section' => 'tools',
             ],
@@ -813,6 +856,15 @@ class AP_Admin
                 'section' => 'settings',
             ],
             [
+                'id' => 'options-privacy',
+                'label' => 'Privacy',
+                'url' => self::url('options-privacy.php'),
+                'active' => $current === 'options-privacy',
+                'cap' => 'manage_privacy_options',
+                'module' => '',
+                'section' => 'settings',
+            ],
+            [
                 'id' => 'options-forums',
                 'label' => 'Forums',
                 'url' => self::url('options-forums.php'),
@@ -927,6 +979,7 @@ class AP_Admin
             'discussion_saved' => ['Discussion settings saved.', 'success'],
             'media_saved' => ['Media settings saved.', 'success'],
             'permalink_saved' => ['Permalink settings saved.', 'success'],
+            'privacy_saved' => ['Privacy settings saved.', 'success'],
             'menu_created' => ['Menu created.', 'success'],
             'menu_saved' => ['Menu saved.', 'success'],
             'menu_deleted' => ['Menu deleted.', 'success'],

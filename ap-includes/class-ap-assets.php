@@ -173,27 +173,37 @@ class AP_Assets
     /**
      * Register a script.
      *
+     * The fifth argument accepts a boolean (`true` = print in footer) or an
+     * args array: `in_footer` (bool) and `strategy` (`''|defer|async`).
+     * Defer/async let non-critical front-end scripts leave the main thread free
+     * (performance audit: reduce parser-blocking JS).
+     *
      * @param list<string> $deps
      * @param string|false|null $ver
+     * @param bool|array{in_footer?: bool, strategy?: string} $args
      */
     public static function registerScript(
         string $handle,
         string $src = '',
         array $deps = [],
         string|bool|null $ver = false,
-        bool $inFooter = false
+        bool|array $args = false
     ): bool {
         $handle = self::sanitizeHandle($handle);
         if ($handle === '') {
             return false;
         }
 
+        $parsed = self::parseScriptArgs($args);
+
         self::$registeredScripts[$handle] = [
             'src' => $src,
             'deps' => self::sanitizeDeps($deps),
             'ver' => $ver,
-            'in_footer' => $inFooter,
-            'args' => [],
+            'in_footer' => $parsed['in_footer'],
+            'args' => [
+                'strategy' => $parsed['strategy'],
+            ],
         ];
 
         return true;
@@ -204,13 +214,14 @@ class AP_Assets
      *
      * @param list<string> $deps
      * @param string|false|null $ver
+     * @param bool|array{in_footer?: bool, strategy?: string} $args
      */
     public static function enqueueScript(
         string $handle,
         string $src = '',
         array $deps = [],
         string|bool|null $ver = false,
-        bool $inFooter = false
+        bool|array $args = false
     ): bool {
         $handle = self::sanitizeHandle($handle);
         if ($handle === '') {
@@ -222,8 +233,13 @@ class AP_Assets
                 return false;
             }
             if ($src !== '') {
-                self::registerScript($handle, $src, $deps, $ver, $inFooter);
+                self::registerScript($handle, $src, $deps, $ver, $args);
             }
+        } elseif (is_array($args)) {
+            // Allow updating strategy / footer placement on already-registered handles.
+            $parsed = self::parseScriptArgs($args);
+            self::$registeredScripts[$handle]['in_footer'] = $parsed['in_footer'];
+            self::$registeredScripts[$handle]['args']['strategy'] = $parsed['strategy'];
         }
 
         if (!isset(self::$registeredScripts[$handle])) {
@@ -233,6 +249,38 @@ class AP_Assets
         self::$queueScripts[$handle] = true;
 
         return true;
+    }
+
+    /**
+     * Set loading strategy for a registered script (`''`, `defer`, or `async`).
+     */
+    public static function setScriptStrategy(string $handle, string $strategy): bool
+    {
+        $handle = self::sanitizeHandle($handle);
+        if ($handle === '' || !isset(self::$registeredScripts[$handle])) {
+            return false;
+        }
+        $strategy = self::sanitizeStrategy($strategy);
+        if (!isset(self::$registeredScripts[$handle]['args']) || !is_array(self::$registeredScripts[$handle]['args'])) {
+            self::$registeredScripts[$handle]['args'] = [];
+        }
+        self::$registeredScripts[$handle]['args']['strategy'] = $strategy;
+
+        return true;
+    }
+
+    /**
+     * Current loading strategy for a registered script (empty string when none).
+     */
+    public static function getScriptStrategy(string $handle): string
+    {
+        $handle = self::sanitizeHandle($handle);
+        if ($handle === '' || !isset(self::$registeredScripts[$handle])) {
+            return '';
+        }
+        $args = self::$registeredScripts[$handle]['args'] ?? [];
+
+        return is_array($args) ? self::sanitizeStrategy((string) ($args['strategy'] ?? '')) : '';
     }
 
     public static function dequeueScript(string $handle): void
@@ -430,8 +478,14 @@ class AP_Assets
         $src = (string) $item['src'];
         if ($src !== '') {
             $href = self::withVersion($src, $item['ver']);
+            $strategy = '';
+            $args = $item['args'] ?? [];
+            if (is_array($args)) {
+                $strategy = self::sanitizeStrategy((string) ($args['strategy'] ?? ''));
+            }
+            $strategyAttr = $strategy !== '' ? ' ' . $strategy : '';
             echo '<script id="' . self::escAttr($handle . '-js')
-                . '" src="' . self::escUrl($href) . '"></script>' . "\n";
+                . '" src="' . self::escUrl($href) . '"' . $strategyAttr . '></script>' . "\n";
         }
 
         foreach ($after as $js) {
@@ -520,6 +574,36 @@ class AP_Assets
         $handle = preg_replace('/[^a-z0-9._\\-]+/', '', $handle) ?? '';
 
         return $handle;
+    }
+
+    /**
+     * @param bool|array{in_footer?: bool, strategy?: string} $args
+     *
+     * @return array{in_footer: bool, strategy: string}
+     */
+    private static function parseScriptArgs(bool|array $args): array
+    {
+        if (is_bool($args)) {
+            return [
+                'in_footer' => $args,
+                'strategy' => '',
+            ];
+        }
+
+        $inFooter = !empty($args['in_footer']);
+        $strategy = self::sanitizeStrategy((string) ($args['strategy'] ?? ''));
+
+        return [
+            'in_footer' => $inFooter,
+            'strategy' => $strategy,
+        ];
+    }
+
+    private static function sanitizeStrategy(string $strategy): string
+    {
+        $strategy = strtolower(trim($strategy));
+
+        return in_array($strategy, ['defer', 'async'], true) ? $strategy : '';
     }
 
     private static function withVersion(string $src, string|bool|null $ver): string

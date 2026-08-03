@@ -69,20 +69,34 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             } else {
                 $user = ap_login($login, $password, $remember);
                 if ($user === null) {
-                    // Distinguish pending verification when possible (same generic otherwise).
-                    $pending = AP_User::getByLogin($login);
-                    if ($pending === null && str_contains($login, '@')) {
-                        $pending = AP_User::getByEmail($login);
-                    }
+                    // Prefer rate-limit / session messages from the login layer.
+                    $loginError = class_exists('AP_Session', false)
+                        ? AP_Session::getLastLoginError()
+                        : null;
                     if (
-                        $pending !== null
-                        && $pending->user_status === AP_Registration::STATUS_PENDING
-                        && AP_User::checkPassword($password, $pending->user_pass)
+                        is_array($loginError)
+                        && ($loginError['code'] ?? '') === 'rate_limited'
+                        && ($loginError['message'] ?? '') !== ''
                     ) {
-                        $errors[] = 'Please verify your email address before logging in.'
-                            . ' Check your inbox for the confirmation link.';
+                        $errors[] = (string) $loginError['message'];
                     } else {
-                        $errors[] = 'Invalid username or password.';
+                        // Distinguish pending verification when possible (same generic otherwise).
+                        $pending = AP_User::getByLogin($login);
+                        if ($pending === null && str_contains($login, '@')) {
+                            $pending = AP_User::getByEmail($login);
+                        }
+                        if (
+                            $pending !== null
+                            && $pending->user_status === AP_Registration::STATUS_PENDING
+                            && AP_User::checkPassword($password, $pending->user_pass)
+                        ) {
+                            $errors[] = 'Please verify your email address before logging in.'
+                                . ' Check your inbox for the confirmation link.';
+                        } else {
+                            $errors[] = is_array($loginError) && ($loginError['message'] ?? '') !== ''
+                                ? (string) $loginError['message']
+                                : 'Invalid username or password.';
+                        }
                     }
                 } else {
                     AP_Admin::redirect($redirectTo);
@@ -224,8 +238,15 @@ $pageTitle = match ($action) {
     default => 'Log In',
 };
 
+$loginHtmlLang = function_exists('ap_get_html_lang') ? ap_get_html_lang() : 'en';
+$loginTextDir = function_exists('ap_get_text_direction') ? ap_get_text_direction() : 'ltr';
+$loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' : 'ltr');
 ?><!DOCTYPE html>
-<html lang="en" data-ap-color-mode-pref="auto">
+<html
+    lang="<?php echo ap_esc_attr($loginHtmlLang); ?>"
+    dir="<?php echo ap_esc_attr($loginTextDir); ?>"
+    data-ap-color-mode-pref="auto"
+>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -249,7 +270,7 @@ $pageTitle = match ($action) {
     })();
     </script>
 </head>
-<body class="ap-admin ap-admin-login">
+<body class="<?php echo ap_esc_attr($loginBodyClass); ?>">
     <button
         type="button"
         class="ap-color-mode-toggle ap-login-color-toggle"

@@ -20,6 +20,9 @@ class AP_Options
     /** @var array<string, mixed> Request-local cache (name => value|null sentinel). */
     private static array $cache = [];
 
+    /** Whether {@see loadAutoloaded()} has run this request. */
+    private static bool $autoloaded = false;
+
     /** Sentinel for "not found" vs cached false/null. */
     private const MISS = "\0ap_opt_miss";
 
@@ -70,6 +73,105 @@ class AP_Options
         self::$cache[$name] = $value;
 
         return $value;
+    }
+
+    /**
+     * Prime the request-local cache with every `autoload = yes` option in one query.
+     *
+     * Call once early in bootstrap so hot paths (site name, modules, permalinks)
+     * avoid per-option SELECT round-trips. Safe to call multiple times — second
+     * call is a no-op unless {@see flushCache()} ran.
+     *
+     * @return int Number of options loaded into cache (0 when already primed or no DB).
+     */
+    public static function loadAutoloaded(?AP_DB $db = null): int
+    {
+        if (self::$autoloaded) {
+            return 0;
+        }
+
+        $db = self::resolveDb($db);
+        if ($db === null) {
+            return 0;
+        }
+
+        try {
+            $rows = $db->getResults(
+                'SELECT option_name, option_value FROM ' . $db->quoteIdentifier($db->table('options'))
+                . ' WHERE autoload = ?',
+                ['yes']
+            );
+        } catch (Throwable) {
+            // Table may not exist yet (install / migration). Mark primed to avoid hammering.
+            self::$autoloaded = true;
+
+            return 0;
+        }
+
+        self::$autoloaded = true;
+        if (!is_array($rows) || $rows === []) {
+            return 0;
+        }
+
+        $loaded = 0;
+        foreach ($rows as $row) {
+            $data = is_array($row) ? $row : get_object_vars($row);
+            $name = self::normalizeName((string) ($data['option_name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            // Do not overwrite values already set this request (e.g. tests / early writes).
+            if (array_key_exists($name, self::$cache)) {
+                continue;
+            }
+            self::$cache[$name] = self::maybeDecode((string) ($data['option_value'] ?? ''));
+            $loaded++;
+        }
+
+        return $loaded;
+    }
+
+    /**
+     * Whether autoload priming has run this request.
+     */
+    public static function isAutoloaded(): bool
+    {
+        return self::$autoloaded;
+    }
+
+    /**
+     * Aggregate size of autoloaded options (performance budget).
+     *
+     * @return array{count: int, bytes: int}
+     */
+    public static function getAutoloadStats(?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+        if ($db === null) {
+            return ['count' => 0, 'bytes' => 0];
+        }
+
+        try {
+            $table = $db->quoteIdentifier($db->table('options'));
+            // LENGTH works on MySQL/MariaDB/SQLite/PostgreSQL for byte-ish size of text.
+            $row = $db->getRow(
+                'SELECT COUNT(*) AS cnt, COALESCE(SUM(LENGTH(option_value)), 0) AS bytes'
+                . ' FROM ' . $table . ' WHERE autoload = ?',
+                ['yes'],
+                PDO::FETCH_ASSOC
+            );
+        } catch (Throwable) {
+            return ['count' => 0, 'bytes' => 0];
+        }
+
+        if (!is_array($row)) {
+            return ['count' => 0, 'bytes' => 0];
+        }
+
+        return [
+            'count' => max(0, (int) ($row['cnt'] ?? 0)),
+            'bytes' => max(0, (int) ($row['bytes'] ?? 0)),
+        ];
     }
 
     /**
@@ -200,6 +302,7 @@ class AP_Options
     public static function flushCache(): void
     {
         self::$cache = [];
+        self::$autoloaded = false;
     }
 
     // -------------------------------------------------------------------------
@@ -399,7 +502,7 @@ class AP_Options
             $map = [
                 'blogname', 'blogdescription', 'siteurl', 'home', 'admin_email',
                 'users_can_register', 'require_email_verification', 'default_role',
-                'timezone_string', 'date_format', 'time_format', 'start_of_week',
+                'timezone_string', 'WPLANG', 'date_format', 'time_format', 'start_of_week',
             ];
             $input = [];
             foreach ($map as $key) {
@@ -458,6 +561,18 @@ class AP_Options
         if (isset($settings['timezone_string'])) {
             $tz = trim((string) $settings['timezone_string']);
             $ok = self::update('timezone_string', $tz !== '' ? $tz : 'UTC', $db) && $ok;
+        }
+        if (array_key_exists('WPLANG', $settings)) {
+            $locale = trim((string) $settings['WPLANG']);
+            if ($locale !== '' && class_exists('AP_L10n', false)) {
+                $locale = AP_L10n::sanitizeLocale($locale);
+            } elseif ($locale !== '') {
+                $locale = str_replace('-', '_', $locale);
+                if (preg_match('/^[a-zA-Z]{2,3}(?:_[a-zA-Z]{2}|_[0-9]{3})?$/', $locale) !== 1) {
+                    $locale = '';
+                }
+            }
+            $ok = self::update('WPLANG', $locale, $db) && $ok;
         }
         if (isset($settings['date_format'])) {
             $f = trim((string) $settings['date_format']);

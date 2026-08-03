@@ -92,6 +92,23 @@ class AP_Registration
             return $empty;
         }
 
+        // IP rate limit (registration floods / bot sign-ups).
+        if (class_exists('AP_Rate_Limit', false)) {
+            $gate = AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_REGISTER,
+                AP_Rate_Limit::ipBucket(),
+                $db
+            );
+            if (!$gate['allowed']) {
+                $empty['errors'][] = AP_Rate_Limit::lockoutMessage(
+                    (int) $gate['retry_after'],
+                    'try registering again'
+                );
+
+                return $empty;
+            }
+        }
+
         $needsVerification = self::requireEmailVerification($db);
         $payload = $data;
         // Public registration always uses default_role (ignore client-supplied role).
@@ -100,6 +117,15 @@ class AP_Registration
 
         $result = AP_User::create($payload, $db);
         if (!$result['ok'] || $result['user'] === null) {
+            // Count failed attempts too (enumeration / spam of taken logins).
+            if (class_exists('AP_Rate_Limit', false)) {
+                AP_Rate_Limit::hit(
+                    AP_Rate_Limit::ACTION_REGISTER,
+                    AP_Rate_Limit::ipBucket(),
+                    $db
+                );
+            }
+
             return [
                 'ok' => false,
                 'id' => 0,
@@ -108,6 +134,14 @@ class AP_Registration
                 'needs_verification' => false,
                 'plain_key' => '',
             ];
+        }
+
+        if (class_exists('AP_Rate_Limit', false)) {
+            AP_Rate_Limit::hit(
+                AP_Rate_Limit::ACTION_REGISTER,
+                AP_Rate_Limit::ipBucket(),
+                $db
+            );
         }
 
         /** @var AP_User $user */
@@ -230,6 +264,24 @@ class AP_Registration
                 'plain_key' => '',
                 'user' => null,
             ];
+        }
+
+        // IP throttle for reset form abuse (still returns generic success after).
+        if (class_exists('AP_Rate_Limit', false)) {
+            $gate = AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_PASSWORD_RESET,
+                AP_Rate_Limit::ipBucket(),
+                $db
+            );
+            if (!$gate['allowed']) {
+                // Same generic success path so lockouts do not leak account state.
+                return $generic;
+            }
+            AP_Rate_Limit::hit(
+                AP_Rate_Limit::ACTION_PASSWORD_RESET,
+                AP_Rate_Limit::ipBucket(),
+                $db
+            );
         }
 
         $user = AP_User::getByLogin($loginOrEmail, $db);

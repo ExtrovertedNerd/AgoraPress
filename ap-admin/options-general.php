@@ -39,9 +39,19 @@ $canRegister = (string) AP_Options::get('users_can_register', '0', $db) === '1';
 $requireVerify = (string) AP_Options::get('require_email_verification', '1', $db) === '1';
 $defaultRole = (string) AP_Options::get('default_role', 'subscriber', $db);
 $timezone = (string) AP_Options::get('timezone_string', 'UTC', $db);
+$wplang = (string) AP_Options::get('WPLANG', '', $db);
 $dateFormat = (string) AP_Options::get('date_format', 'Y-m-d', $db);
 $timeFormat = (string) AP_Options::get('time_format', 'H:i', $db);
 $startOfWeek = (int) AP_Options::get('start_of_week', '1', $db);
+$localeChoices = class_exists('AP_L10n', false)
+    ? AP_L10n::availableLocales()
+    : ['' => 'English (United States) — default'];
+// Ensure the currently saved locale appears even if not in the curated list.
+if ($wplang !== '' && !array_key_exists($wplang, $localeChoices)) {
+    $localeChoices[$wplang] = class_exists('AP_L10n', false)
+        ? AP_L10n::localeDisplayName($wplang)
+        : $wplang;
+}
 
 $roles = class_exists('AP_Roles', false) ? AP_Roles::getRoleNames($db) : [
     'subscriber' => 'Subscriber',
@@ -162,6 +172,32 @@ require __DIR__ . '/admin-header.php';
                     </option>
                 <?php endforeach; ?>
             </select>
+        </p>
+    </fieldset>
+
+    <fieldset class="ap-fieldset">
+        <legend>Language &amp; locale</legend>
+        <p class="ap-field">
+            <label for="WPLANG">Site Language</label>
+            <select name="WPLANG" id="WPLANG">
+                <?php foreach ($localeChoices as $code => $label) : ?>
+                    <option value="<?php echo ap_esc_attr((string) $code); ?>"
+                        <?php echo $wplang === (string) $code ? 'selected' : ''; ?>>
+                        <?php echo ap_esc_html((string) $label); ?>
+                        <?php
+                        if ((string) $code !== '' && class_exists('AP_L10n', false) && AP_L10n::isRtl((string) $code)) {
+                            echo ' — RTL';
+                        }
+                        ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <span class="ap-help">
+                Install language packs as <code>.mo</code> files under
+                <code>ap-content/languages/</code>
+                (e.g. <code>agorapress-ar.mo</code> or <code>ar.mo</code>).
+                Right-to-left languages set <code>dir=&quot;rtl&quot;</code> automatically.
+            </span>
         </p>
     </fieldset>
 

@@ -610,6 +610,25 @@ class AP_Settings
                 }
             },
         ]);
+        self::registerSetting('general', 'WPLANG', [
+            'type' => 'string',
+            'default' => '',
+            'sanitize_callback' => static function (mixed $v): string {
+                $locale = trim((string) ($v ?? ''));
+                if ($locale === '') {
+                    return '';
+                }
+                if (class_exists('AP_L10n', false)) {
+                    return AP_L10n::sanitizeLocale($locale);
+                }
+                $locale = str_replace('-', '_', $locale);
+                if (preg_match('/^[a-zA-Z]{2,3}(?:_[a-zA-Z]{2}|_[0-9]{3})?$/', $locale) !== 1) {
+                    return '';
+                }
+
+                return $locale;
+            },
+        ]);
         self::registerSetting('general', 'date_format', [
             'type' => 'string',
             'default' => 'Y-m-d',

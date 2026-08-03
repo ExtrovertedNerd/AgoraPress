@@ -19,9 +19,16 @@ $bodyClass = function_exists('ap_get_body_class')
     : $agoraBody;
 $schemeMode = function_exists('agora_get_color_scheme_mode') ? agora_get_color_scheme_mode() : 'light';
 $feedRss = function_exists('ap_get_feed_link') ? ap_get_feed_link('rss2') : '';
+// Canonical + Open Graph are emitted by AP_Seo on ap_head(); no duplicate tags here.
 $htmlLang = function_exists('ap_get_bloginfo') ? ap_get_bloginfo('language') : 'en';
 if ($htmlLang === '') {
-    $htmlLang = 'en';
+    $htmlLang = function_exists('ap_get_html_lang') ? ap_get_html_lang() : 'en';
+}
+$textDir = function_exists('ap_get_text_direction')
+    ? ap_get_text_direction()
+    : (function_exists('ap_get_bloginfo') ? ap_get_bloginfo('text_direction') : 'ltr');
+if ($textDir !== 'rtl') {
+    $textDir = 'ltr';
 }
 $esc = static function (string $text): string {
     return function_exists('ap_esc_html')
@@ -40,7 +47,7 @@ $escUrl = static function (string $url): string {
 };
 
 ?><!DOCTYPE html>
-<html lang="<?php echo $escAttr($htmlLang); ?>" data-agora-scheme-mode="<?php echo $escAttr($schemeMode); ?>">
+<html lang="<?php echo $escAttr($htmlLang); ?>" dir="<?php echo $escAttr($textDir); ?>" data-agora-scheme-mode="<?php echo $escAttr($schemeMode); ?>">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -59,7 +66,7 @@ if (function_exists('ap_head')) {
 </head>
 <body class="<?php echo $escAttr($bodyClass); ?>">
 <a class="skip-link" href="#main">Skip to content</a>
-<header class="site-header">
+<header class="site-header" role="banner">
     <div class="site-header__inner">
         <div class="site-branding">
             <p class="site-title">
@@ -109,7 +116,7 @@ if (function_exists('ap_has_nav_menu') && ap_has_nav_menu('primary')) {
 ?>
     </div>
 </header>
-<main class="site-main" id="main" tabindex="-1">
+<main class="site-main" id="main" tabindex="-1" role="main">
 <div class="site-content<?php
 echo (function_exists('ap_is_active_sidebar') && ap_is_active_sidebar('sidebar-1'))
     ? ' site-content--has-sidebar'

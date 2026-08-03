@@ -42,6 +42,25 @@ if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
             exit(0);
         }
     }
+    // XML sitemaps + robots.txt short-circuit before the theme.
+    if (
+        class_exists('AP_Sitemap', false)
+        && (
+            AP_Sitemap::isSitemapRequest($apRewriteVars)
+            || AP_Sitemap::isRobotsRequest($apRewriteVars)
+        )
+    ) {
+        try {
+            AP_Sitemap::serve($apRewriteVars);
+        } catch (Throwable) {
+            if (!headers_sent()) {
+                http_response_code(503);
+                header('Content-Type: text/plain; charset=utf-8');
+            }
+            echo 'Sitemap temporarily unavailable.';
+            exit(0);
+        }
+    }
     // Forum create-topic / reply forms (POST → redirect before render).
     if (class_exists('AP_Forum_Front', false) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         try {

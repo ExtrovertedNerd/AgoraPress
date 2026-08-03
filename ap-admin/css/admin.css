@@ -2120,3 +2120,241 @@ a.ap-button-danger {
         color: #000;
     }
 }
+
+/* --------------------------------------------------------------------------
+   RTL (dir="rtl" / body.rtl) — mirror directional chrome
+   -------------------------------------------------------------------------- */
+
+html[dir="rtl"] body.ap-admin,
+body.ap-admin.rtl {
+    direction: rtl;
+}
+
+html[dir="rtl"] .ap-admin-menu,
+body.ap-admin.rtl .ap-admin-menu {
+    border-right: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+html[dir="rtl"] .ap-admin-menu a,
+body.ap-admin.rtl .ap-admin-menu a {
+    border-left: none;
+    border-right: 3px solid transparent;
+    border-radius: var(--ap-radius) 0 0 var(--ap-radius);
+    margin-right: 0;
+    margin-left: 0.35rem;
+}
+
+html[dir="rtl"] .ap-admin-menu li.current a,
+html[dir="rtl"] .ap-admin-menu a:hover,
+html[dir="rtl"] .ap-admin-menu a:focus-visible,
+body.ap-admin.rtl .ap-admin-menu li.current a,
+body.ap-admin.rtl .ap-admin-menu a:hover,
+body.ap-admin.rtl .ap-admin-menu a:focus-visible {
+    border-left-color: transparent;
+    border-right-color: var(--ap-menu-current);
+}
+
+html[dir="rtl"] .ap-notice,
+body.ap-admin.rtl .ap-notice {
+    border-left: none;
+    border-right: 4px solid var(--ap-border);
+}
+
+html[dir="rtl"] .ap-notice-success,
+body.ap-admin.rtl .ap-notice-success {
+    border-right-color: var(--ap-success-border);
+}
+
+html[dir="rtl"] .ap-notice-error,
+body.ap-admin.rtl .ap-notice-error {
+    border-right-color: var(--ap-error-border);
+}
+
+html[dir="rtl"] .ap-notice-warning,
+body.ap-admin.rtl .ap-notice-warning {
+    border-right-color: var(--ap-warning-border);
+}
+
+html[dir="rtl"] .ap-notice-info,
+body.ap-admin.rtl .ap-notice-info {
+    border-right-color: var(--ap-info-border);
+}
+
+html[dir="rtl"] .ap-list-table th,
+html[dir="rtl"] .ap-list-table td,
+body.ap-admin.rtl .ap-list-table th,
+body.ap-admin.rtl .ap-list-table td {
+    text-align: right;
+}
+
+html[dir="rtl"] .skip-link,
+body.ap-admin.rtl .skip-link {
+    left: auto;
+    right: 0.5rem;
+}
+
+/* -------------------------------------------------------------------------
+   Site Health (Tools → Site Health)
+   ------------------------------------------------------------------------- */
+
+.ap-site-health-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0 0 1.25rem;
+    border-bottom: 1px solid var(--ap-border);
+    padding-bottom: 0.5rem;
+}
+
+.ap-site-health-tabs .ap-tab {
+    display: inline-block;
+    padding: 0.4rem 0.85rem;
+    border-radius: var(--ap-radius-md, 0.4rem);
+    text-decoration: none;
+    color: var(--ap-text-muted, var(--ap-text));
+    font-weight: 550;
+    border: 1px solid transparent;
+}
+
+.ap-site-health-tabs .ap-tab:hover {
+    background: var(--ap-surface-2);
+    color: var(--ap-text);
+}
+
+.ap-site-health-tabs .ap-tab.is-active {
+    background: var(--ap-surface-2);
+    border-color: var(--ap-border);
+    color: var(--ap-text);
+    font-weight: 650;
+}
+
+.ap-site-health-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem 1.5rem;
+    list-style: none;
+    margin: 0.75rem 0 1rem;
+    padding: 0;
+}
+
+.ap-site-health-counts li {
+    margin: 0;
+}
+
+.ap-site-health-actions {
+    margin-top: 0.5rem;
+}
+
+.ap-site-health-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.ap-site-health-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--ap-border);
+}
+
+.ap-site-health-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.ap-site-health-item:first-child {
+    padding-top: 0;
+}
+
+.ap-site-health-item-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.ap-site-health-item-message {
+    margin: 0.15rem 0 0;
+    color: var(--ap-text-muted, var(--ap-text));
+    font-size: 0.92rem;
+}
+
+.ap-site-health-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--ap-border);
+    background: var(--ap-surface-2);
+    color: var(--ap-text);
+    line-height: 1.3;
+}
+
+.ap-site-health-badge--good {
+    border-color: var(--ap-success-border, #2f9e44);
+    color: var(--ap-success-border, #2f9e44);
+    background: color-mix(in srgb, var(--ap-success-border, #2f9e44) 12%, transparent);
+}
+
+.ap-site-health-badge--recommended {
+    border-color: var(--ap-warning-border, #e67700);
+    color: var(--ap-warning-border, #e67700);
+    background: color-mix(in srgb, var(--ap-warning-border, #e67700) 12%, transparent);
+}
+
+.ap-site-health-badge--critical {
+    border-color: var(--ap-error-border, #e03131);
+    color: var(--ap-error-border, #e03131);
+    background: color-mix(in srgb, var(--ap-error-border, #e03131) 12%, transparent);
+}
+
+.ap-site-health-overall {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin: 0;
+}
+
+.ap-site-health-count {
+    font-weight: 500;
+    opacity: 0.75;
+}
+
+.ap-site-health-info-text {
+    width: 100%;
+    min-height: 12rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    resize: vertical;
+}
+
+.ap-site-health-info-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.ap-site-health-info-table th,
+.ap-site-health-info-table td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.4rem 0.6rem 0.4rem 0;
+    border-bottom: 1px solid var(--ap-border);
+    font-size: 0.92rem;
+}
+
+.ap-site-health-info-table th {
+    width: 32%;
+    font-weight: 600;
+    color: var(--ap-text-muted, var(--ap-text));
+}
+
+.ap-site-health-info-table tr:last-child th,
+.ap-site-health-info-table tr:last-child td {
+    border-bottom: none;
+}
