@@ -32,8 +32,18 @@ require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin-terms.php';
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-comments-list-table.php';
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-users-list-table.php';
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin-user-edit.php';
+require_once AP_ABSPATH . 'ap-admin/includes/class-ap-forums-list-table.php';
+require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin-forum-edit.php';
+require_once AP_ABSPATH . 'ap-admin/includes/class-ap-forum-topics-list-table.php';
+require_once AP_ABSPATH . 'ap-admin/includes/class-ap-forum-moderation-queue.php';
+require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin-forum-groups.php';
 
 // Login screen sets $ap_admin_skip_auth = true before including this file.
 if (empty($ap_admin_skip_auth)) {
     AP_Admin::requireLogin();
+
+    // Core update notice (version.json, transient-cached, no site identity).
+    if (class_exists('AP_Version_Check', false)) {
+        AP_Version_Check::maybeQueueAdminNotice();
+    }
 }

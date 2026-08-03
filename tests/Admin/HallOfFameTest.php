@@ -388,7 +388,10 @@ final class HallOfFameTest extends TestCase
             string $method,
             string $url,
             array $payload
-        ) use (&$calls, $jsonBody): array {
+        ) use (
+            &$calls,
+            $jsonBody
+        ): array {
             $calls[] = [
                 'method' => $method,
                 'url' => $url,

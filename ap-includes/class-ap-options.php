@@ -568,6 +568,60 @@ class AP_Options
     }
 
     /**
+     * Persist Forum settings (display, guests, features, attachments, moderation).
+     *
+     * @param array<string, mixed> $settings
+     */
+    public static function updateForumSettings(array $settings, ?AP_DB $db = null): bool
+    {
+        if (class_exists('AP_Settings', false)) {
+            $keys = [
+                'forum_topics_per_page',
+                'forum_posts_per_page',
+                'forum_allow_guest_viewing',
+                'forum_allow_guest_posting',
+                'forum_private_messaging_enabled',
+                'forum_attachments_enabled',
+                'forum_attachment_max_size',
+                'forum_attachment_allowed_types',
+                'forum_flood_interval',
+                'forum_posts_require_approval',
+                'forum_spam_blacklist',
+                'forum_spam_max_links',
+                'forum_search_enabled',
+                'forum_online_enabled',
+                'forum_unread_tracking_enabled',
+            ];
+            $input = [];
+            foreach ($keys as $key) {
+                if (array_key_exists($key, $settings)) {
+                    $input[$key] = $settings[$key];
+                }
+            }
+            foreach (
+                [
+                    'forum_allow_guest_viewing',
+                    'forum_allow_guest_posting',
+                    'forum_private_messaging_enabled',
+                    'forum_attachments_enabled',
+                    'forum_posts_require_approval',
+                    'forum_search_enabled',
+                    'forum_online_enabled',
+                    'forum_unread_tracking_enabled',
+                ] as $cb
+            ) {
+                if (!array_key_exists($cb, $input)) {
+                    $input[$cb] = '0';
+                }
+            }
+
+            return AP_Settings::save('forums', $input, $db);
+        }
+
+        return false;
+    }
+
+    /**
      * Persist Permalink structure + optional bases; flushes rewrite rules.
      *
      * @param array{permalink_structure?: string, category_base?: string, tag_base?: string} $settings

@@ -18,14 +18,31 @@ $q = isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query
     : null;
 $forumId = $q instanceof AP_Query ? (int) $q->get('forum_id', 0) : 0;
 $forumName = $q instanceof AP_Query ? (string) $q->get('forum_name', '') : '';
+$forumDesc = $q instanceof AP_Query ? (string) $q->get('forum_desc', '') : '';
+$forumClosed = $q instanceof AP_Query && !empty($q->get('forum_closed', false));
+$canPost = $q instanceof AP_Query && !empty($q->get('can_post_topic', false));
+$notFound = $q instanceof AP_Query && !empty($q->get('ap_forum_not_found', false));
+$disabled = $q instanceof AP_Query && !empty($q->get('ap_forum_disabled', false));
 if ($forumName === '') {
     $forumName = 'Forum';
 }
 $home = function_exists('agora_home_url') ? agora_home_url('/') : '/';
-$forumsUrl = rtrim($home, '/') . '/forums/';
+$forumsUrl = function_exists('ap_forums_url')
+    ? ap_forums_url()
+    : (rtrim($home, '/') . '/forums/');
 $topics = function_exists('agora_get_forum_topics_data')
     ? agora_get_forum_topics_data($forumId)
     : [];
+$notice = function_exists('ap_get_forum_notice') ? ap_get_forum_notice() : null;
+$loggedIn = false;
+if (function_exists('ap_is_user_logged_in') && class_exists('AP_Session', false)) {
+    try {
+        $loggedIn = ap_is_user_logged_in();
+    } catch (Throwable) {
+        $loggedIn = false;
+    }
+}
+$nonceAction = 'ap_forum_new_topic_' . $forumId;
 ?>
 <nav class="ap-breadcrumbs" aria-label="Breadcrumb">
     <ol>
@@ -39,14 +56,35 @@ $topics = function_exists('agora_get_forum_topics_data')
     <header class="ap-forum__header">
         <div>
             <h1 class="ap-archive-title"><?php echo agora_esc($forumName); ?></h1>
-            <p class="ap-forum__lead">Topics in this forum, newest activity first.</p>
+            <?php if ($forumDesc !== '') : ?>
+                <p class="ap-forum__lead"><?php echo agora_esc($forumDesc); ?></p>
+            <?php else : ?>
+                <p class="ap-forum__lead">Topics in this forum, newest activity first.</p>
+            <?php endif; ?>
         </div>
-        <div class="ap-forum-toolbar">
-            <a class="ap-btn" href="#new-topic">New topic</a>
-        </div>
+        <?php if ($canPost && !$forumClosed) : ?>
+            <div class="ap-forum-toolbar">
+                <a class="ap-btn" href="#new-topic">New topic</a>
+            </div>
+        <?php endif; ?>
     </header>
 
-<?php if ($topics === []) : ?>
+<?php if (is_array($notice) && ($notice['message'] ?? '') !== '') : ?>
+    <div class="ap-forum-notice ap-forum-notice--<?php echo agora_esc_attr((string) ($notice['type'] ?? 'info')); ?>" role="status">
+        <p><?php echo agora_esc((string) $notice['message']); ?></p>
+    </div>
+<?php endif; ?>
+
+<?php if ($disabled) : ?>
+    <div class="ap-empty" role="status">
+        <p>The forum module is currently disabled.</p>
+    </div>
+<?php elseif ($notFound) : ?>
+    <div class="ap-empty" role="status">
+        <p>Forum not found.</p>
+        <p><a href="<?php echo agora_esc_url($forumsUrl); ?>">Back to forums</a></p>
+    </div>
+<?php elseif ($topics === []) : ?>
     <div class="ap-empty" role="status">
         <p>No topics yet in this forum.</p>
         <p>Be the first to start a conversation.</p>
@@ -67,10 +105,11 @@ $topics = function_exists('agora_get_forum_topics_data')
                 $sticky = !empty($topic['sticky']);
                 $locked = !empty($topic['locked']);
                 $announce = !empty($topic['announcement']);
+                $unread = !empty($topic['is_unread']);
                 $lastDate = (string) ($topic['last_date'] ?? '');
                 $lastAuthor = (string) ($topic['last_author'] ?? '');
                 ?>
-                <li class="ap-forum-list__item ap-forum-list__item--topic">
+                <li class="ap-forum-list__item ap-forum-list__item--topic<?php echo $unread ? ' ap-forum-list__item--unread' : ''; ?>">
                     <div>
                         <h2 class="ap-forum-list__name">
                             <?php if ($sticky) : ?>
@@ -81,6 +120,9 @@ $topics = function_exists('agora_get_forum_topics_data')
                             <?php endif; ?>
                             <?php if ($locked) : ?>
                                 <span class="ap-badge ap-badge--locked">Locked</span>
+                            <?php endif; ?>
+                            <?php if ($unread) : ?>
+                                <span class="ap-badge ap-badge--unread">Unread</span>
                             <?php endif; ?>
                             <a href="<?php echo agora_esc_url($url); ?>"><?php echo agora_esc($title); ?></a>
                         </h2>
@@ -110,19 +152,45 @@ $topics = function_exists('agora_get_forum_topics_data')
     </section>
 <?php endif; ?>
 
-    <section class="ap-forum-form" id="new-topic" aria-labelledby="new-topic-heading">
-        <h2 id="new-topic-heading" class="ap-comments__title">Start a new topic</h2>
-        <p class="ap-forum__lead">Posting will be available when the forum module is enabled.</p>
-        <div class="ap-field">
-            <label for="agora-topic-title">Subject</label>
-            <input type="text" id="agora-topic-title" name="topic_title" disabled placeholder="Topic subject" autocomplete="off">
+<?php if (!$disabled && !$notFound && $forumId > 0) : ?>
+    <?php if ($forumClosed) : ?>
+        <div class="ap-empty" role="status">
+            <p>This forum is closed. New topics are not accepted.</p>
         </div>
-        <div class="ap-field">
-            <label for="agora-topic-body">Message</label>
-            <textarea id="agora-topic-body" name="topic_body" disabled placeholder="Write your message…"></textarea>
-        </div>
-        <button type="button" class="ap-btn" disabled>Post topic</button>
-    </section>
+    <?php elseif ($canPost) : ?>
+        <section class="ap-forum-form" id="new-topic" aria-labelledby="new-topic-heading">
+            <h2 id="new-topic-heading" class="ap-comments__title">Start a new topic</h2>
+            <form method="post" action="">
+                <input type="hidden" name="ap_forum_action" value="ap_forum_new_topic">
+                <input type="hidden" name="forum_id" value="<?php echo (int) $forumId; ?>">
+                <?php
+                if (function_exists('ap_nonce_field')) {
+                    echo ap_nonce_field($nonceAction);
+                } elseif (class_exists('AP_Nonce', false)) {
+                    echo AP_Nonce::field($nonceAction);
+                }
+                ?>
+                <div class="ap-field">
+                    <label for="agora-topic-title">Subject</label>
+                    <input type="text" id="agora-topic-title" name="topic_title" required maxlength="255" placeholder="Topic subject" autocomplete="off">
+                </div>
+                <div class="ap-field">
+                    <label for="agora-topic-body">Message</label>
+                    <textarea id="agora-topic-body" name="topic_body" required rows="8" placeholder="Write your message… (BBCode and Markdown supported)"></textarea>
+                </div>
+                <button type="submit" class="ap-btn">Post topic</button>
+            </form>
+        </section>
+    <?php elseif (!$loggedIn) : ?>
+        <section class="ap-forum-form" id="new-topic" aria-labelledby="new-topic-heading">
+            <h2 id="new-topic-heading" class="ap-comments__title">Start a new topic</h2>
+            <p class="ap-forum__lead">
+                <a href="<?php echo agora_esc_url(function_exists('ap_site_url') ? ap_site_url('ap-admin/login.php') : '/ap-admin/login.php'); ?>">Log in</a>
+                to start a new topic.
+            </p>
+        </section>
+    <?php endif; ?>
+<?php endif; ?>
 </div>
 <?php
 AP_Theme::getFooter();

@@ -42,9 +42,27 @@ if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
             exit(0);
         }
     }
+    // Forum create-topic / reply forms (POST → redirect before render).
+    if (class_exists('AP_Forum_Front', false) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        try {
+            $apForumRedirect = AP_Forum_Front::handlePost();
+            if (is_string($apForumRedirect) && $apForumRedirect !== '') {
+                if (!headers_sent()) {
+                    header('Location: ' . $apForumRedirect, true, 302);
+                }
+                exit(0);
+            }
+        } catch (Throwable) {
+            // Fall through to normal render with an error notice if set.
+        }
+    }
     if (function_exists('ap_set_query') && class_exists('AP_Query', false)) {
         try {
             $apMainQuery = AP_Rewrite::queryFromVars($apRewriteVars);
+            // Enrich forum query vars (names, caps) + side effects (views, online).
+            if (class_exists('AP_Forum_Front', false) && AP_Forum_Front::isForumRequest($apMainQuery)) {
+                AP_Forum_Front::applyToQuery($apMainQuery);
+            }
             ap_set_query($apMainQuery);
         } catch (Throwable) {
             // DB may be unavailable in partial installs; empty main query (no SQL).

@@ -839,6 +839,73 @@ class AP_Settings
                 return trim($base, '/');
             },
         ]);
+
+        // --- Forums ---
+        self::registerSetting('forums', 'forum_topics_per_page', [
+            'type' => 'integer',
+            'default' => 20,
+            'sanitize_callback' => static fn (mixed $v): int => max(1, min(100, (int) $v)),
+        ]);
+        self::registerSetting('forums', 'forum_posts_per_page', [
+            'type' => 'integer',
+            'default' => 15,
+            'sanitize_callback' => static fn (mixed $v): int => max(1, min(100, (int) $v)),
+        ]);
+        foreach (
+            [
+                'forum_allow_guest_viewing' => '1',
+                'forum_allow_guest_posting' => '0',
+                'forum_private_messaging_enabled' => '1',
+                'forum_attachments_enabled' => '1',
+                'forum_posts_require_approval' => '0',
+                'forum_search_enabled' => '1',
+                'forum_online_enabled' => '1',
+                'forum_unread_tracking_enabled' => '1',
+            ] as $opt => $default
+        ) {
+            self::registerSetting('forums', $opt, [
+                'type' => 'boolean',
+                'default' => $default,
+                'sanitize_callback' => [self::class, 'sanitizeCheckbox'],
+            ]);
+        }
+        self::registerSetting('forums', 'forum_attachment_max_size', [
+            'type' => 'integer',
+            'default' => 2097152,
+            'sanitize_callback' => static fn (mixed $v): int => max(0, (int) $v),
+        ]);
+        self::registerSetting('forums', 'forum_attachment_allowed_types', [
+            'type' => 'string',
+            'default' => 'jpg,jpeg,png,gif,webp,pdf,txt,zip',
+            'sanitize_callback' => static function (mixed $v): string {
+                $raw = strtolower(trim((string) ($v ?? '')));
+                $parts = preg_split('/[\s,]+/', $raw) ?: [];
+                $clean = [];
+                foreach ($parts as $p) {
+                    $p = preg_replace('/[^a-z0-9]/', '', $p) ?? '';
+                    if ($p !== '') {
+                        $clean[] = $p;
+                    }
+                }
+
+                return implode(',', array_unique($clean));
+            },
+        ]);
+        self::registerSetting('forums', 'forum_flood_interval', [
+            'type' => 'integer',
+            'default' => 30,
+            'sanitize_callback' => static fn (mixed $v): int => max(0, min(3600, (int) $v)),
+        ]);
+        self::registerSetting('forums', 'forum_spam_max_links', [
+            'type' => 'integer',
+            'default' => 5,
+            'sanitize_callback' => static fn (mixed $v): int => max(0, min(100, (int) $v)),
+        ]);
+        self::registerSetting('forums', 'forum_spam_blacklist', [
+            'type' => 'string',
+            'default' => '',
+            'sanitize_callback' => static fn (mixed $v): string => str_replace("\0", '', (string) ($v ?? '')),
+        ]);
     }
 
     // -------------------------------------------------------------------------

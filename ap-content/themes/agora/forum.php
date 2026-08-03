@@ -15,6 +15,14 @@ AP_Theme::getHeader();
 
 $home = function_exists('agora_home_url') ? agora_home_url('/') : '/';
 $categories = function_exists('agora_get_forum_index_data') ? agora_get_forum_index_data() : [];
+$q = isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query
+    ? $GLOBALS['ap_query']
+    : null;
+$disabled = $q instanceof AP_Query && !empty($q->get('ap_forum_disabled', false));
+$notice = function_exists('ap_get_forum_notice') ? ap_get_forum_notice() : null;
+if ($notice === null && function_exists('agora_get_forum_notice')) {
+    $notice = agora_get_forum_notice();
+}
 ?>
 <nav class="ap-breadcrumbs" aria-label="Breadcrumb">
     <ol>
@@ -31,10 +39,38 @@ $categories = function_exists('agora_get_forum_index_data') ? agora_get_forum_in
         </div>
     </header>
 
-<?php if ($categories === []) : ?>
+<?php
+$searchAction = function_exists('agora_forum_search_url')
+    ? agora_forum_search_url()
+    : (function_exists('ap_forum_search_url') ? ap_forum_search_url() : $home . 'forums/search/');
+$searchEnabled = !class_exists('AP_Forum_Guard', false) || AP_Forum_Guard::isSearchEnabled();
+if ($searchEnabled) :
+    $prettySearch = class_exists('AP_Rewrite', false) && AP_Rewrite::usingPermalinks();
+    ?>
+    <form class="ap-search-form ap-forum-search-form" role="search" method="get" action="<?php echo agora_esc_url($searchAction); ?>">
+        <label class="screen-reader-text" for="ap-forum-index-search">Search forums</label>
+        <?php if (!$prettySearch) : ?>
+            <input type="hidden" name="ap_forum_view" value="search">
+        <?php endif; ?>
+        <input type="search" id="ap-forum-index-search" name="forum_s" placeholder="Search topics and posts…" required>
+        <button type="submit">Search</button>
+    </form>
+<?php endif; ?>
+
+<?php if (is_array($notice) && ($notice['message'] ?? '') !== '') : ?>
+    <div class="ap-forum-notice ap-forum-notice--<?php echo agora_esc_attr((string) ($notice['type'] ?? 'info')); ?>" role="status">
+        <p><?php echo agora_esc((string) $notice['message']); ?></p>
+    </div>
+<?php endif; ?>
+
+<?php if ($disabled) : ?>
+    <div class="ap-empty" role="status">
+        <p>The forum module is currently disabled.</p>
+    </div>
+<?php elseif ($categories === []) : ?>
     <div class="ap-empty" role="status">
         <p>No forums have been created yet.</p>
-        <p>When the forum module is active, categories and forums will appear here.</p>
+        <p>When an administrator adds categories and forums, they will appear here.</p>
     </div>
 <?php else : ?>
     <?php foreach ($categories as $category) : ?>
@@ -61,10 +97,14 @@ $categories = function_exists('agora_get_forum_index_data') ? agora_get_forum_in
                         $topics = (int) ($forum['topics'] ?? 0);
                         $posts = (int) ($forum['posts'] ?? 0);
                         $last = is_array($forum['last_post'] ?? null) ? $forum['last_post'] : null;
+                        $unread = !empty($forum['is_unread']);
                         ?>
-                        <li class="ap-forum-list__item">
+                        <li class="ap-forum-list__item<?php echo $unread ? ' ap-forum-list__item--unread' : ''; ?>">
                             <div>
                                 <h3 class="ap-forum-list__name">
+                                    <?php if ($unread) : ?>
+                                        <span class="ap-badge ap-badge--unread">Unread</span>
+                                    <?php endif; ?>
                                     <a href="<?php echo agora_esc_url($url); ?>"><?php echo agora_esc($name); ?></a>
                                 </h3>
                                 <?php if ($desc !== '') : ?>

@@ -192,13 +192,55 @@ require __DIR__ . '/admin-header.php';
                     <?php endif; ?>
                 </li>
 
-                <?php if ($forumOn && $glance['forum'] === null) : ?>
-                    <li class="ap-glance-item ap-glance-muted">
-                        <span class="ap-glance-static">
-                            <span class="ap-glance-label">Forums</span>
-                        </span>
-                        <span class="ap-glance-meta">Coming soon</span>
+                <?php if ($forumOn && is_array($glance['forum'] ?? null)) : ?>
+                    <?php
+                    $fStats = $glance['forum'];
+                    $forumsListUrl = AP_Admin::url('forums.php');
+                    $topicsListUrl = AP_Admin::url('forum-topics.php');
+                    $modUrl = AP_Admin::url('forum-moderation.php');
+                    ?>
+                    <li class="ap-glance-item">
+                        <?php if (AP_Admin::currentUserCan('manage_forums', $db)) : ?>
+                            <a href="<?php echo ap_esc_url($forumsListUrl); ?>">
+                                <span class="ap-glance-count"><?php echo (int) $fStats['forums']; ?></span>
+                                <span class="ap-glance-label">
+                                    <?php echo (int) $fStats['forums'] === 1 ? 'Forum' : 'Forums'; ?>
+                                </span>
+                            </a>
+                        <?php else : ?>
+                            <span class="ap-glance-static">
+                                <span class="ap-glance-count"><?php echo (int) $fStats['forums']; ?></span>
+                                <span class="ap-glance-label">
+                                    <?php echo (int) $fStats['forums'] === 1 ? 'Forum' : 'Forums'; ?>
+                                </span>
+                            </span>
+                        <?php endif; ?>
                     </li>
+                    <li class="ap-glance-item">
+                        <?php if (AP_Admin::currentUserCan('moderate_forums', $db)) : ?>
+                            <a href="<?php echo ap_esc_url($topicsListUrl); ?>">
+                                <span class="ap-glance-count"><?php echo (int) $fStats['topics']; ?></span>
+                                <span class="ap-glance-label">
+                                    <?php echo (int) $fStats['topics'] === 1 ? 'Topic' : 'Topics'; ?>
+                                </span>
+                            </a>
+                        <?php else : ?>
+                            <span class="ap-glance-static">
+                                <span class="ap-glance-count"><?php echo (int) $fStats['topics']; ?></span>
+                                <span class="ap-glance-label">
+                                    <?php echo (int) $fStats['topics'] === 1 ? 'Topic' : 'Topics'; ?>
+                                </span>
+                            </span>
+                        <?php endif; ?>
+                    </li>
+                    <?php if ((int) $fStats['pending'] > 0 && AP_Admin::currentUserCan('moderate_forums', $db)) : ?>
+                        <li class="ap-glance-item">
+                            <a href="<?php echo ap_esc_url($modUrl); ?>">
+                                <span class="ap-glance-count"><?php echo (int) $fStats['pending']; ?></span>
+                                <span class="ap-glance-label">Pending</span>
+                            </a>
+                        </li>
+                    <?php endif; ?>
                 <?php endif; ?>
             </ul>
 
@@ -210,6 +252,10 @@ require __DIR__ . '/admin-header.php';
                 <?php if ($pagesOn && AP_Admin::currentUserCan('edit_pages', $db)) : ?>
                     <a class="button button-primary" href="<?php echo ap_esc_url($pagesNewUrl); ?>">Add Page</a>
                     <a class="button" href="<?php echo ap_esc_url($pagesListUrl); ?>">All Pages</a>
+                <?php endif; ?>
+                <?php if ($forumOn && AP_Admin::currentUserCan('manage_forums', $db)) : ?>
+                    <a class="button button-primary" href="<?php echo ap_esc_url(AP_Admin::url('forum-edit.php')); ?>">Add Forum</a>
+                    <a class="button" href="<?php echo ap_esc_url(AP_Admin::url('forums.php')); ?>">All Forums</a>
                 <?php endif; ?>
             </p>
         </div>
@@ -260,39 +306,41 @@ require __DIR__ . '/admin-header.php';
                     <p class="ap-muted">No comments yet.</p>
                 <?php else : ?>
                     <ul class="ap-activity-list">
-                        <?php foreach ($recentComments as $comment) : ?>
-                            <?php
+                        <?php foreach ($recentComments as $comment) :
                             $author = $comment->comment_author !== ''
                                 ? $comment->comment_author
                                 : 'Anonymous';
                             $excerpt = function_exists('ap_strip_all_tags')
                                 ? ap_strip_all_tags($comment->comment_content)
                                 : strip_tags($comment->comment_content);
-                            if (function_exists('mb_substr')) {
-                                $excerpt = mb_substr($excerpt, 0, 80);
-                            } else {
-                                $excerpt = substr($excerpt, 0, 80);
-                            }
+                            $excerpt = function_exists('mb_substr')
+                                ? mb_substr($excerpt, 0, 80)
+                                : substr($excerpt, 0, 80);
                             $status = $comment->comment_approved;
-                            $statusLabel = match ($status) {
-                                AP_Comment::STATUS_APPROVED => 'Approved',
-                                AP_Comment::STATUS_HOLD => 'Pending',
-                                default => $status,
-                            };
+                            if ($status === AP_Comment::STATUS_APPROVED) {
+                                $statusLabel = 'Approved';
+                            } elseif ($status === AP_Comment::STATUS_HOLD) {
+                                $statusLabel = 'Pending';
+                            } else {
+                                $statusLabel = (string) $status;
+                            }
                             $onPost = AP_Post::get((int) $comment->comment_post_ID, $db);
-                            $postTitle = $onPost !== null && $onPost->post_title !== ''
+                            $postTitle = ($onPost !== null && $onPost->post_title !== '')
                                 ? $onPost->post_title
-                                : 'Post #' . (int) $comment->comment_post_ID;
+                                : ('Post #' . (int) $comment->comment_post_ID);
+                            $statusClass = (string) $status === '1' ? 'approved' : 'pending';
                             ?>
                             <li>
                                 <strong><?php echo ap_esc_html($author); ?></strong>
                                 on
                                 <?php if (AP_Admin::currentUserCan('moderate_comments', $db)) : ?>
-                                    <a href="<?php echo ap_esc_url($commentsUrl); ?>"><?php echo ap_esc_html($postTitle); ?></a>
+                                    <a href="<?php echo ap_esc_url($commentsUrl); ?>">
+                                        <?php echo ap_esc_html($postTitle); ?>
+                                    </a>
                                 <?php else : ?>
                                     <?php echo ap_esc_html($postTitle); ?>
                                 <?php endif; ?>
-                                <span class="ap-activity-status ap-status-<?php echo ap_esc_attr((string) $status === '1' ? 'approved' : 'pending'); ?>">
+                                <span class="ap-activity-status ap-status-<?php echo ap_esc_attr($statusClass); ?>">
                                     <?php echo ap_esc_html($statusLabel); ?>
                                 </span>
                                 <?php if ($excerpt !== '') : ?>

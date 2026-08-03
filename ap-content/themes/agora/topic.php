@@ -20,6 +20,9 @@ $topicId = $q instanceof AP_Query ? (int) $q->get('topic_id', 0) : 0;
 $topicTitle = $q instanceof AP_Query ? (string) $q->get('topic_title', '') : '';
 $forumName = $q instanceof AP_Query ? (string) $q->get('forum_name', '') : '';
 $forumUrl = $q instanceof AP_Query ? (string) $q->get('forum_url', '') : '';
+$canReply = $q instanceof AP_Query && !empty($q->get('can_reply', false));
+$notFound = $q instanceof AP_Query && !empty($q->get('ap_forum_not_found', false));
+$disabled = $q instanceof AP_Query && !empty($q->get('ap_forum_disabled', false));
 if ($topicTitle === '') {
     $topicTitle = 'Topic';
 }
@@ -27,7 +30,9 @@ if ($forumName === '') {
     $forumName = 'Forum';
 }
 $home = function_exists('agora_home_url') ? agora_home_url('/') : '/';
-$forumsUrl = rtrim($home, '/') . '/forums/';
+$forumsUrl = function_exists('ap_forums_url')
+    ? ap_forums_url()
+    : (rtrim($home, '/') . '/forums/');
 if ($forumUrl === '') {
     $forumUrl = $forumsUrl;
 }
@@ -35,6 +40,22 @@ $posts = function_exists('agora_get_topic_posts_data')
     ? agora_get_topic_posts_data($topicId)
     : [];
 $locked = $q instanceof AP_Query && !empty($q->get('topic_locked', false));
+$notice = function_exists('ap_get_forum_notice') ? ap_get_forum_notice() : null;
+$loggedIn = false;
+if (function_exists('ap_is_user_logged_in') && class_exists('AP_Session', false)) {
+    try {
+        $loggedIn = ap_is_user_logged_in();
+    } catch (Throwable) {
+        $loggedIn = false;
+    }
+} elseif (function_exists('ap_get_current_user_id') && class_exists('AP_Session', false)) {
+    try {
+        $loggedIn = ap_get_current_user_id() > 0;
+    } catch (Throwable) {
+        $loggedIn = false;
+    }
+}
+$nonceAction = 'ap_forum_reply_' . $topicId;
 ?>
 <nav class="ap-breadcrumbs" aria-label="Breadcrumb">
     <ol>
@@ -61,7 +82,22 @@ $locked = $q instanceof AP_Query && !empty($q->get('topic_locked', false));
         </div>
     </header>
 
-<?php if ($posts === []) : ?>
+<?php if (is_array($notice) && ($notice['message'] ?? '') !== '') : ?>
+    <div class="ap-forum-notice ap-forum-notice--<?php echo agora_esc_attr((string) ($notice['type'] ?? 'info')); ?>" role="status">
+        <p><?php echo agora_esc((string) $notice['message']); ?></p>
+    </div>
+<?php endif; ?>
+
+<?php if ($disabled) : ?>
+    <div class="ap-empty" role="status">
+        <p>The forum module is currently disabled.</p>
+    </div>
+<?php elseif ($notFound) : ?>
+    <div class="ap-empty" role="status">
+        <p>Topic not found.</p>
+        <p><a href="<?php echo agora_esc_url($forumsUrl); ?>">Back to forums</a></p>
+    </div>
+<?php elseif ($posts === []) : ?>
     <div class="ap-empty" role="status">
         <p>No posts in this topic yet.</p>
     </div>
@@ -77,6 +113,7 @@ $locked = $q instanceof AP_Query && !empty($q->get('topic_locked', false));
             $body = (string) ($post['content'] ?? '');
             $role = (string) ($post['role'] ?? '');
             $postNum = (int) ($post['number'] ?? ($index + 1));
+            $postId = (int) ($post['id'] ?? $postNum);
             $initial = function_exists('mb_substr')
                 ? mb_strtoupper(mb_substr($author, 0, 1))
                 : strtoupper(substr($author, 0, 1));
@@ -87,8 +124,9 @@ $locked = $q instanceof AP_Query && !empty($q->get('topic_locked', false));
                 // Trusted HTML from the forum formatter (Phase 5).
                 $safeBody = (string) $post['content_html'];
             }
+            $attachments = is_array($post['attachments'] ?? null) ? $post['attachments'] : [];
             ?>
-            <section class="ap-forum-post" id="post-<?php echo (int) ($post['id'] ?? $postNum); ?>" aria-label="<?php echo agora_esc_attr('Post #' . $postNum . ' by ' . $author); ?>">
+            <section class="ap-forum-post" id="post-<?php echo $postId; ?>" aria-label="<?php echo agora_esc_attr('Post #' . $postNum . ' by ' . $author); ?>">
                 <aside class="ap-forum-post__author">
                     <div class="ap-forum-post__avatar" aria-hidden="true"><?php echo agora_esc($initial); ?></div>
                     <p class="ap-forum-post__author-name"><?php echo agora_esc($author); ?></p>
@@ -103,31 +141,71 @@ $locked = $q instanceof AP_Query && !empty($q->get('topic_locked', false));
                         <?php else : ?>
                             <span></span>
                         <?php endif; ?>
-                        <a href="#post-<?php echo (int) ($post['id'] ?? $postNum); ?>">#<?php echo $postNum; ?></a>
+                        <a href="#post-<?php echo $postId; ?>">#<?php echo $postNum; ?></a>
                     </div>
                     <div class="ap-forum-post__body">
                         <?php echo $safeBody; ?>
                     </div>
+                    <?php if ($attachments !== []) : ?>
+                        <ul class="ap-forum-attachments" aria-label="Attachments">
+                            <?php foreach ($attachments as $att) : ?>
+                                <?php
+                                if (!is_array($att)) {
+                                    continue;
+                                }
+                                $attName = (string) ($att['filename'] ?? $att['name'] ?? 'file');
+                                $attUrl = (string) ($att['url'] ?? '#');
+                                $attSize = (string) ($att['size_label'] ?? $att['filesize'] ?? '');
+                                ?>
+                                <li class="ap-forum-attachments__item">
+                                    <a href="<?php echo agora_esc_url($attUrl); ?>"><?php echo agora_esc($attName); ?></a>
+                                    <?php if ($attSize !== '') : ?>
+                                        <span class="ap-forum-attachments__size"><?php echo agora_esc((string) $attSize); ?></span>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
                 </div>
             </section>
         <?php endforeach; ?>
     </div>
 <?php endif; ?>
 
-<?php if (!$locked) : ?>
-    <section class="ap-forum-form" id="reply" aria-labelledby="reply-heading">
-        <h2 id="reply-heading" class="ap-comments__title">Reply</h2>
-        <p class="ap-forum__lead">Replies will be available when the forum module is enabled.</p>
-        <div class="ap-field">
-            <label for="agora-reply-body">Message</label>
-            <textarea id="agora-reply-body" name="reply_body" disabled placeholder="Write your reply…"></textarea>
+<?php if (!$disabled && !$notFound) : ?>
+    <?php if ($locked) : ?>
+        <div class="ap-empty" role="status">
+            <p>This topic is locked. New replies are not accepted.</p>
         </div>
-        <button type="button" class="ap-btn" disabled>Post reply</button>
-    </section>
-<?php else : ?>
-    <div class="ap-empty" role="status">
-        <p>This topic is locked. New replies are not accepted.</p>
-    </div>
+    <?php elseif ($canReply) : ?>
+        <section class="ap-forum-form" id="reply" aria-labelledby="reply-heading">
+            <h2 id="reply-heading" class="ap-comments__title">Reply</h2>
+            <form method="post" action="">
+                <input type="hidden" name="ap_forum_action" value="ap_forum_reply">
+                <input type="hidden" name="topic_id" value="<?php echo (int) $topicId; ?>">
+                <?php
+                if (function_exists('ap_nonce_field')) {
+                    echo ap_nonce_field($nonceAction);
+                } elseif (class_exists('AP_Nonce', false)) {
+                    echo AP_Nonce::field($nonceAction);
+                }
+                ?>
+                <div class="ap-field">
+                    <label for="agora-reply-body">Message</label>
+                    <textarea id="agora-reply-body" name="reply_body" required rows="6" placeholder="Write your reply… (BBCode and Markdown supported)"></textarea>
+                </div>
+                <button type="submit" class="ap-btn">Post reply</button>
+            </form>
+        </section>
+    <?php elseif (!$loggedIn) : ?>
+        <section class="ap-forum-form" id="reply" aria-labelledby="reply-heading">
+            <h2 id="reply-heading" class="ap-comments__title">Reply</h2>
+            <p class="ap-forum__lead">
+                <a href="<?php echo agora_esc_url(function_exists('ap_site_url') ? ap_site_url('ap-admin/login.php') : '/ap-admin/login.php'); ?>">Log in</a>
+                to post a reply.
+            </p>
+        </section>
+    <?php endif; ?>
 <?php endif; ?>
 </article>
 <?php

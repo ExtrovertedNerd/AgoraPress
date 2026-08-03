@@ -352,8 +352,8 @@ PHP;
         $m = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $found = $m->discover();
         $this->assertNotSame([], $found);
-        $this->assertGreaterThanOrEqual(4, $m->getAvailableTargetVersion());
-        $this->assertSame(4, (int) AP_DB_VERSION);
+        $this->assertGreaterThanOrEqual(9, $m->getAvailableTargetVersion());
+        $this->assertSame(9, (int) AP_DB_VERSION);
         $this->assertSame(1, $found[0]->version());
         $this->assertStringContainsString('options', $found[0]->description());
         $this->assertSame(2, $found[1]->version());
@@ -362,5 +362,15 @@ PHP;
         $this->assertStringContainsString('term', $found[2]->description());
         $this->assertSame(4, $found[3]->version());
         $this->assertStringContainsString('comment', $found[3]->description());
+        $this->assertSame(5, $found[4]->version());
+        $this->assertStringContainsString('forum', strtolower($found[4]->description()));
+        $this->assertSame(6, $found[5]->version());
+        $this->assertStringContainsString('attachment', strtolower($found[5]->description()));
+        $this->assertSame(7, $found[6]->version());
+        $this->assertStringContainsString('permission', strtolower($found[6]->description()));
+        $this->assertSame(8, $found[7]->version());
+        $this->assertStringContainsString('moderation', strtolower($found[7]->description()));
+        $this->assertSame(9, $found[8]->version());
+        $this->assertStringContainsString('unread', strtolower($found[8]->description()));
     }
 }

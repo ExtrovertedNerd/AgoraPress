@@ -93,6 +93,8 @@ class AP_Roles
             'manage_categories' => true,
             'moderate_comments' => true,
             'edit_comment' => true,
+            // Site-wide forum moderation (per-forum ACL still applies for non-mods).
+            'moderate_forums' => true,
         ];
 
         return [

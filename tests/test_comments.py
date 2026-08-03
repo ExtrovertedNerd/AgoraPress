@@ -103,9 +103,15 @@ def test_bootstrap_loads_comment() -> None:
     assert "class-ap-comment.php" in src
 
 
-def test_db_version_is_four() -> None:
+def test_db_version_is_at_least_four() -> None:
     src = VERSION.read_text(encoding="utf-8")
-    assert "define('AP_DB_VERSION', '4')" in src
+    # Comments ship at schema v4; later migrations may bump further.
+    assert "AP_DB_VERSION" in src
+    import re
+
+    m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", src)
+    assert m is not None
+    assert int(m.group(1)) >= 4
 
 
 def test_migration_0004_surface() -> None:

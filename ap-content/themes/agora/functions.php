@@ -324,9 +324,9 @@ function agora_home_url(string $path = '/'): string
 /**
  * Active forum front-end view for the current (or given) query.
  *
- * Recognized values: index | forum | topic (empty when not a forum request).
- * Driven by query vars that the forum router (Phase 5) will set:
- * - ap_forum_view: explicit view slug
+ * Recognized values: index | forum | topic | search (empty when not a forum request).
+ * Driven by query vars set by the rewrite layer + {@see AP_Forum_Front}:
+ * - ap_forum_view: explicit view slug (index|forum|topic|search)
  * - topic_id: implies topic
  * - forum_id: implies forum
  * - ap_forum: non-empty implies index
@@ -359,7 +359,7 @@ function agora_get_forum_view(?AP_Query $query = null): string
     }
 
     $view = preg_replace('/[^a-z0-9\-]/', '', $view) ?? '';
-    if (!in_array($view, ['index', 'forum', 'topic'], true)) {
+    if (!in_array($view, ['index', 'forum', 'topic', 'search'], true)) {
         return '';
     }
 
@@ -384,6 +384,7 @@ function agora_forum_template_hierarchy(array $templates, $query = null): array
     $prefix = match ($view) {
         'topic' => ['topic.php', 'forum-topic.php', 'single-topic.php'],
         'forum' => ['forum-view.php', 'single-forum.php'],
+        'search' => ['forum-search.php', 'search-forum.php', 'forum.php'],
         default => ['forum.php', 'forums.php'],
     };
 
@@ -404,16 +405,30 @@ function agora_forum_template_hierarchy(array $templates, $query = null): array
 }
 
 /**
- * Forum index categories/forums for templates (filterable; empty until Phase 5).
+ * Forum index categories/forums for templates (filterable).
  *
  * Each category: ['name' => string, 'forums' => list of forum rows].
  * Forum row: name, description, url, topics, posts, last_post (optional).
+ * Loads live data from {@see AP_Forum} when the forum module is available.
  *
  * @return list<array{name: string, forums: list<array<string, mixed>>}>
  */
 function agora_get_forum_index_data(): array
 {
     $data = [];
+    if (function_exists('ap_get_forum_index_data')) {
+        try {
+            $data = ap_get_forum_index_data();
+        } catch (Throwable) {
+            $data = [];
+        }
+    } elseif (class_exists('AP_Forum', false)) {
+        try {
+            $data = AP_Forum::getIndexData();
+        } catch (Throwable) {
+            $data = [];
+        }
+    }
     if (function_exists('ap_apply_filters')) {
         $filtered = ap_apply_filters('agora_forum_index_data', $data);
         if (is_array($filtered)) {
@@ -432,6 +447,26 @@ function agora_get_forum_index_data(): array
 function agora_get_forum_topics_data(int $forumId = 0): array
 {
     $data = [];
+    if ($forumId > 0) {
+        $page = 1;
+        if (isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
+            $page = max(1, (int) $GLOBALS['ap_query']->get('paged', 1));
+        }
+        $args = ['per_page' => 20, 'page' => $page];
+        if (function_exists('ap_get_forum_topics_data')) {
+            try {
+                $data = ap_get_forum_topics_data($forumId, $args);
+            } catch (Throwable) {
+                $data = [];
+            }
+        } elseif (class_exists('AP_Forum', false)) {
+            try {
+                $data = AP_Forum::getTopicsDisplayData($forumId, $args);
+            } catch (Throwable) {
+                $data = [];
+            }
+        }
+    }
     if (function_exists('ap_apply_filters')) {
         $filtered = ap_apply_filters('agora_forum_topics_data', $data, $forumId);
         if (is_array($filtered)) {
@@ -450,6 +485,26 @@ function agora_get_forum_topics_data(int $forumId = 0): array
 function agora_get_topic_posts_data(int $topicId = 0): array
 {
     $data = [];
+    if ($topicId > 0) {
+        $page = 1;
+        if (isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
+            $page = max(1, (int) $GLOBALS['ap_query']->get('paged', 1));
+        }
+        $args = ['per_page' => 20, 'page' => $page];
+        if (function_exists('ap_get_topic_posts_data')) {
+            try {
+                $data = ap_get_topic_posts_data($topicId, $args);
+            } catch (Throwable) {
+                $data = [];
+            }
+        } elseif (class_exists('AP_Forum', false)) {
+            try {
+                $data = AP_Forum::getPostsDisplayData($topicId, $args);
+            } catch (Throwable) {
+                $data = [];
+            }
+        }
+    }
     if (function_exists('ap_apply_filters')) {
         $filtered = ap_apply_filters('agora_topic_posts_data', $data, $topicId);
         if (is_array($filtered)) {
@@ -458,6 +513,100 @@ function agora_get_topic_posts_data(int $topicId = 0): array
     }
 
     return array_values($data);
+}
+
+/**
+ * Forum flash notice for templates (wrapper around core helper).
+ *
+ * @return array{type: string, message: string}|null
+ */
+function agora_get_forum_notice(): ?array
+{
+    if (function_exists('ap_get_forum_notice')) {
+        return ap_get_forum_notice();
+    }
+    if (class_exists('AP_Forum_Front', false)) {
+        return AP_Forum_Front::getNotice();
+    }
+
+    return null;
+}
+
+/**
+ * Forum search results for the current request (filterable).
+ *
+ * @return array{query: string, total: int, results: list<array<string, mixed>>}
+ */
+function agora_get_forum_search_data(): array
+{
+    $data = [
+        'query' => '',
+        'total' => 0,
+        'results' => [],
+    ];
+    $q = isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query
+        ? $GLOBALS['ap_query']
+        : null;
+    if ($q instanceof AP_Query) {
+        $data['query'] = trim((string) $q->get('forum_s', ''));
+        if ($data['query'] === '') {
+            $data['query'] = trim((string) $q->get('s', ''));
+        }
+        $data['total'] = (int) $q->get('forum_search_total', 0);
+        $results = $q->get('forum_search_results', []);
+        $data['results'] = is_array($results) ? array_values($results) : [];
+    }
+    if ($data['results'] === [] && $data['query'] !== '' && function_exists('ap_forum_search')) {
+        try {
+            $page = $q instanceof AP_Query ? max(1, (int) $q->get('paged', 1)) : 1;
+            $userId = 0;
+            if (function_exists('ap_get_current_user_id')) {
+                $userId = (int) ap_get_current_user_id();
+            } elseif (class_exists('AP_User', false) && method_exists('AP_User', 'getCurrentUserId')) {
+                $userId = (int) AP_User::getCurrentUserId();
+            }
+            $search = ap_forum_search($data['query'], [
+                'type' => 'all',
+                'per_page' => 20,
+                'page' => $page,
+                'check_permissions' => true,
+                'user_id' => $userId,
+            ]);
+            $data['total'] = (int) ($search['total'] ?? 0);
+            $data['results'] = is_array($search['results'] ?? null) ? array_values($search['results']) : [];
+        } catch (Throwable) {
+            // keep empty
+        }
+    }
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('agora_forum_search_data', $data);
+        if (is_array($filtered)) {
+            $data = $filtered;
+        }
+    }
+
+    return [
+        'query' => (string) ($data['query'] ?? ''),
+        'total' => (int) ($data['total'] ?? 0),
+        'results' => is_array($data['results'] ?? null) ? array_values($data['results']) : [],
+    ];
+}
+
+/**
+ * Forum search form action URL.
+ */
+function agora_forum_search_url(string $query = ''): string
+{
+    if (function_exists('ap_forum_search_url')) {
+        return ap_forum_search_url($query);
+    }
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::searchUrl($query);
+    }
+
+    return function_exists('agora_home_url')
+        ? agora_home_url('/forums/search/')
+        : '/forums/search/';
 }
 
 /**

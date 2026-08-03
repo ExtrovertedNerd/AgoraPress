@@ -221,12 +221,27 @@ require __DIR__ . '/admin-header.php';
                 $compatHint = 'Block theme (limited support)';
             }
             ?>
-            <article class="ap-card ap-theme-card<?php echo $isActive ? ' ap-theme-card--active' : ''; ?>" style="display:flex;flex-direction:column;">
-                <div class="ap-theme-card__preview" style="aspect-ratio:4/3;background:var(--ap-table-head);border-radius:var(--ap-radius,6px);overflow:hidden;margin-bottom:0.75rem;display:flex;align-items:center;justify-content:center;">
+            <article
+                class="ap-card ap-theme-card<?php echo $isActive ? ' ap-theme-card--active' : ''; ?>"
+                style="display:flex;flex-direction:column;"
+            >
+                <div
+                    class="ap-theme-card__preview"
+                    style="aspect-ratio:4/3;background:var(--ap-table-head);
+                        border-radius:var(--ap-radius,6px);overflow:hidden;
+                        margin-bottom:0.75rem;display:flex;align-items:center;justify-content:center;"
+                >
                     <?php if ($shot !== '') : ?>
-                        <img src="<?php echo ap_esc_url($shot); ?>" alt="" style="width:100%;height:100%;object-fit:cover;" loading="lazy" />
+                        <img
+                            src="<?php echo ap_esc_url($shot); ?>"
+                            alt=""
+                            style="width:100%;height:100%;object-fit:cover;"
+                            loading="lazy"
+                        />
                     <?php else : ?>
-                        <span class="ap-meta" style="padding:1rem;text-align:center;"><?php echo ap_esc_html($name); ?></span>
+                        <span class="ap-meta" style="padding:1rem;text-align:center;">
+                            <?php echo ap_esc_html($name); ?>
+                        </span>
                     <?php endif; ?>
                 </div>
                 <h2 class="ap-theme-card__title" style="font-size:1.05rem;margin:0 0 0.35rem;">

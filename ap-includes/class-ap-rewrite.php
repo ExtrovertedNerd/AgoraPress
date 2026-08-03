@@ -275,6 +275,24 @@ class AP_Rewrite
         $rules['feed/?$'] = 'feed=rss2';
         $rules['(feed|rdf|rss|rss2|atom)/?$'] = 'feed=$matches[1]';
 
+        // Forum front-end (before structure / page catch-all).
+        // Matches AP_Forum::forumUrl / topicUrl / searchUrl:
+        // /forums/, /forums/search/, /forums/{slug}/, /topic/{slug}/.
+        $rules['forums/page/?([0-9]{1,})/?$'] = 'ap_forum_view=index&paged=$matches[1]';
+        $rules['forums/?$'] = 'ap_forum_view=index';
+        // Search must come before the generic forum-slug rule.
+        $rules['forums/search/page/?([0-9]{1,})/?$'] = 'ap_forum_view=search&paged=$matches[1]';
+        $rules['forums/search/(.+)/page/?([0-9]{1,})/?$'] =
+            'ap_forum_view=search&forum_s=$matches[1]&paged=$matches[2]';
+        $rules['forums/search/(.+)/?$'] = 'ap_forum_view=search&forum_s=$matches[1]';
+        $rules['forums/search/?$'] = 'ap_forum_view=search';
+        $rules['forums/([^/]+)/page/?([0-9]{1,})/?$'] =
+            'ap_forum_view=forum&forum_slug=$matches[1]&paged=$matches[2]';
+        $rules['forums/([^/]+)/?$'] = 'ap_forum_view=forum&forum_slug=$matches[1]';
+        $rules['topic/([^/]+)/page/?([0-9]{1,})/?$'] =
+            'ap_forum_view=topic&topic_slug=$matches[1]&paged=$matches[2]';
+        $rules['topic/([^/]+)/?$'] = 'ap_forum_view=topic&topic_slug=$matches[1]';
+
         // Structure-derived single post rule (+ optional trailing page/N for multipage).
         $postRule = self::structureToRule($structure);
         if ($postRule !== null) {
@@ -428,6 +446,9 @@ class AP_Rewrite
         if (isset($vars['s']) && is_string($vars['s'])) {
             $vars['s'] = str_replace('+', ' ', $vars['s']);
         }
+        if (isset($vars['forum_s']) && is_string($vars['forum_s'])) {
+            $vars['forum_s'] = str_replace('+', ' ', $vars['forum_s']);
+        }
 
         self::$queryVars = $vars;
 
@@ -515,9 +536,13 @@ class AP_Rewrite
     public static function toQueryArgs(array $vars, ?AP_DB $db = null): array
     {
         $args = [];
-        $intKeys = ['p', 'page_id', 'author', 'year', 'monthnum', 'day', 'paged', 'page', 'cat', 'tag_id'];
+        $intKeys = [
+            'p', 'page_id', 'author', 'year', 'monthnum', 'day', 'paged', 'page', 'cat', 'tag_id',
+            'forum_id', 'topic_id',
+        ];
         $stringKeys = [
             'name', 'pagename', 'author_name', 's', 'category_name', 'tag', 'post_type', 'post_status', 'feed',
+            'ap_forum_view', 'forum_slug', 'topic_slug', 'ap_forum', 'forum_s',
         ];
 
         foreach ($intKeys as $key) {
@@ -528,7 +553,37 @@ class AP_Rewrite
         foreach ($stringKeys as $key) {
             if (isset($vars[$key]) && is_string($vars[$key]) && $vars[$key] !== '') {
                 $args[$key] = $vars[$key];
+            } elseif (isset($vars[$key]) && is_int($vars[$key]) && $vars[$key] !== 0) {
+                // Plain mode may cast numeric-looking strings; keep ap_forum flag.
+                $args[$key] = (string) $vars[$key];
             }
+        }
+
+        // Infer forum view from IDs / flags when explicit view is missing.
+        if (empty($args['ap_forum_view'])) {
+            if (!empty($args['topic_id']) || !empty($args['topic_slug'])) {
+                $args['ap_forum_view'] = 'topic';
+            } elseif (!empty($args['forum_id']) || !empty($args['forum_slug'])) {
+                $args['ap_forum_view'] = 'forum';
+            } elseif (!empty($args['ap_forum'])) {
+                $args['ap_forum_view'] = 'index';
+            }
+        }
+
+        // Forum front-end: skip blog Reading settings and avoid loading posts.
+        if (!empty($args['ap_forum_view'])) {
+            $args['no_found_rows'] = true;
+            $args['nopaging'] = true;
+            $args['posts_per_page'] = 1;
+            // Empty blog loop — forum templates load dedicated data.
+            if (empty($args['post__in'])) {
+                $args['post__in'] = [0];
+            }
+            if (class_exists('AP_Forum_Front', false)) {
+                $args = AP_Forum_Front::enrichQueryArgs($args, $db);
+            }
+
+            return $args;
         }
 
         // Singular page by page_id / pagename implies post_type page.
@@ -986,7 +1041,10 @@ NGINX;
             if (is_array($value)) {
                 continue;
             }
-            $stringKeys = ['name', 'pagename', 's', 'tag', 'category_name', 'author_name'];
+            $stringKeys = [
+                'name', 'pagename', 's', 'tag', 'category_name', 'author_name',
+                'ap_forum_view', 'forum_slug', 'topic_slug', 'ap_forum', 'forum_s',
+            ];
             $keepString = in_array($key, $stringKeys, true);
             if (is_numeric($value) && !$keepString) {
                 $out[$key] = str_contains((string) $value, '.')
@@ -1027,6 +1085,14 @@ NGINX;
             'tag_id' => 'int',
             'feed' => 'string',
             'preview' => 'string',
+            // Forum front-end (plain + pretty).
+            'ap_forum' => 'string',
+            'ap_forum_view' => 'string',
+            'forum_id' => 'int',
+            'topic_id' => 'int',
+            'forum_slug' => 'string',
+            'topic_slug' => 'string',
+            'forum_s' => 'string',
         ];
 
         $out = [];

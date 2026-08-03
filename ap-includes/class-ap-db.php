@@ -61,9 +61,13 @@ class AP_DB
 
     public string $forum_posts = '';
 
+    public string $forum_attachments = '';
+
     public string $groups = '';
 
     public string $group_members = '';
+
+    public string $forum_permissions = '';
 
     public string $messages = '';
 
@@ -71,7 +75,15 @@ class AP_DB
 
     public string $reports = '';
 
+    public string $warnings = '';
+
+    public string $bans = '';
+
     public string $online = '';
+
+    public string $topic_track = '';
+
+    public string $forum_track = '';
 
     private PDO $pdo;
 
@@ -217,12 +229,18 @@ class AP_DB
             'forums',
             'topics',
             'forum_posts',
+            'forum_attachments',
             'groups',
             'group_members',
+            'forum_permissions',
             'messages',
             'ranks',
             'reports',
+            'warnings',
+            'bans',
             'online',
+            'topic_track',
+            'forum_track',
         ];
     }
 

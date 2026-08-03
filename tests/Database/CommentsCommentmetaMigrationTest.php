@@ -48,7 +48,8 @@ final class CommentsCommentmetaMigrationTest extends TestCase
     {
         $path = AP_Migrator::defaultMigrationsPath() . '/0004_core_comments_commentmeta.php';
         $this->assertFileIsReadable($path);
-        $this->assertSame(4, (int) AP_DB_VERSION);
+        // Comments ship at schema v4; later migrations may bump AP_DB_VERSION.
+        $this->assertGreaterThanOrEqual(4, (int) AP_DB_VERSION);
         $this->assertGreaterThanOrEqual(4, AP_Migrator::codeTargetVersion());
     }
 
@@ -62,7 +63,7 @@ final class CommentsCommentmetaMigrationTest extends TestCase
         $this->assertSame(3, $applied[2]['version']);
         $this->assertSame(4, $applied[3]['version']);
         $this->assertStringContainsString('comment', $applied[3]['description']);
-        $this->assertSame(4, $this->migrator->getCurrentVersion());
+        $this->assertGreaterThanOrEqual(4, $this->migrator->getCurrentVersion());
         $this->assertFalse($this->migrator->needsMigration());
 
         foreach (['ap_comments', 'ap_commentmeta'] as $table) {

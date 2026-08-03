@@ -95,7 +95,11 @@ final class MediaLibraryTest extends TestCase
         require_once $this->root . '/ap-admin/includes/class-ap-media-list-table.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin-media.php';
 
-        // Clear leftover files between tests (shared uploads dir constant).
+        // Prefer runtime override so suite order cannot pin AP_UPLOADS_DIR elsewhere.
+        AP_Media::setBasedirOverride(self::$uploadsTmp);
+        AP_Media::setBaseurlOverride('https://example.test/ap-content/uploads');
+
+        // Clear leftover files between tests (shared uploads dir).
         $this->emptyDir(self::$uploadsTmp);
 
         AP_Roles::flushCache();
@@ -131,6 +135,8 @@ final class MediaLibraryTest extends TestCase
         AP_Post::resetRegistry();
         AP_Admin::clearNotices();
         $this->emptyDir(self::$uploadsTmp);
+        AP_Media::setBasedirOverride(null);
+        AP_Media::setBaseurlOverride(null);
     }
 
     public function testSanitizeFilenameAndCheckTypes(): void

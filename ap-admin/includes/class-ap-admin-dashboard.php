@@ -86,7 +86,7 @@ class AP_Admin_Dashboard
      *   pages: array{by_status: array<string, int>, publish: int, draft: int, pending: int, total: int},
      *   comments: array{by_status: array<string, int>, approved: int, pending: int, spam: int, total: int},
      *   users: int,
-     *   forum: null
+     *   forum: array{forums: int, topics: int, posts: int, pending: int, open_reports: int}|null
      * }
      */
     public static function getAtAGlance(?AP_DB $db = null): array
@@ -127,6 +127,42 @@ class AP_Admin_Dashboard
             $userCount = 0;
         }
 
+        $forumStats = null;
+        if ($forum && class_exists('AP_Forum', false)) {
+            try {
+                $forums = AP_Forum::getForums(['include_hidden' => true], $db);
+                $topicCount = AP_Forum::countTopicsQuery(['include_deleted' => false], $db);
+                $pendingTopics = AP_Forum::countPendingTopics([], $db);
+                $pendingPosts = class_exists('AP_Forum', false)
+                    ? AP_Forum::countPendingPosts([], $db)
+                    : 0;
+                $openReports = class_exists('AP_Forum_Moderation', false)
+                    ? AP_Forum_Moderation::countReports([
+                        'status' => AP_Forum_Moderation::REPORT_STATUS_OPEN,
+                    ], $db)
+                    : 0;
+                $postCount = 0;
+                foreach ($forums as $f) {
+                    $postCount += (int) ($f->post_count ?? 0);
+                }
+                $forumStats = [
+                    'forums' => count($forums),
+                    'topics' => $topicCount,
+                    'posts' => $postCount,
+                    'pending' => $pendingTopics + $pendingPosts,
+                    'open_reports' => $openReports,
+                ];
+            } catch (Throwable) {
+                $forumStats = [
+                    'forums' => 0,
+                    'topics' => 0,
+                    'posts' => 0,
+                    'pending' => 0,
+                    'open_reports' => 0,
+                ];
+            }
+        }
+
         return [
             'modules' => [
                 'blog' => $blog,
@@ -143,8 +179,7 @@ class AP_Admin_Dashboard
                 'total' => $commentTotal,
             ],
             'users' => $userCount,
-            // Forum tables land in Phase 5; keep key for forward compatibility.
-            'forum' => null,
+            'forum' => $forumStats,
         ];
     }
 

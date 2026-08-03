@@ -16,7 +16,7 @@ declare(strict_types=1);
  */
 class AP_Admin
 {
-    /** @var list<array{message: string, type: string}> */
+    /** @var list<array{message: string, type: string, escape: bool}> */
     private static array $notices = [];
 
     /**
@@ -233,6 +233,7 @@ class AP_Admin
             'nav-menus.php' => 'edit_theme_options',
             'widgets.php' => 'edit_theme_options',
             'plugins.php' => 'activate_plugins',
+            'update-core.php' => 'update_core',
             'options-general.php' => 'manage_options',
             'options-modules.php' => 'manage_options',
             'options-writing.php' => 'manage_options',
@@ -241,6 +242,13 @@ class AP_Admin
             'options-media.php' => 'manage_options',
             'options-permalink.php' => 'manage_options',
             'options-hall-of-fame.php' => 'manage_options',
+            'options-forums.php' => 'manage_options',
+            // Forums (module-gated in screens)
+            'forums.php' => 'manage_forums',
+            'forum-edit.php' => 'manage_forums',
+            'forum-topics.php' => 'moderate_forums',
+            'forum-moderation.php' => 'moderate_forums',
+            'forum-groups.php' => 'manage_forums',
             // Dynamic (documented for tests / tooling):
             // edit.php, post.php, post-new.php, revision.php → edit_posts|edit_pages
         ];
@@ -356,19 +364,26 @@ class AP_Admin
     /**
      * Queue an admin notice for the next render.
      *
-     * @param string $type success|error|warning|info
+     * @param string $type   success|error|warning|info
+     * @param bool   $escape When true (default), message is HTML-escaped on render.
+     *                       Pass false only for trusted HTML built with escaping helpers
+     *                       (e.g. version-check notice with download links).
      */
-    public static function addNotice(string $message, string $type = 'success'): void
+    public static function addNotice(string $message, string $type = 'success', bool $escape = true): void
     {
         $allowed = ['success', 'error', 'warning', 'info'];
         if (!in_array($type, $allowed, true)) {
             $type = 'info';
         }
-        self::$notices[] = ['message' => $message, 'type' => $type];
+        self::$notices[] = [
+            'message' => $message,
+            'type' => $type,
+            'escape' => $escape,
+        ];
     }
 
     /**
-     * @return list<array{message: string, type: string}>
+     * @return list<array{message: string, type: string, escape: bool}>
      */
     public static function getNotices(): array
     {
@@ -395,7 +410,10 @@ class AP_Admin
         $html = '<div class="ap-notices" role="status">' . "\n";
         foreach (self::$notices as $notice) {
             $type = ap_esc_attr($notice['type']);
-            $msg = ap_esc_html($notice['message']);
+            $escape = $notice['escape'] ?? true;
+            $msg = $escape
+                ? ap_esc_html($notice['message'])
+                : (string) $notice['message'];
             $html .= '  <div class="ap-notice ap-notice--' . $type . '">' . $msg . '</div>' . "\n";
         }
         $html .= '</div>' . "\n";
@@ -540,9 +558,11 @@ class AP_Admin
     {
         return match ($section) {
             'content' => 'Content',
+            'forums' => 'Forums',
             'appearance' => 'Appearance',
             'plugins' => 'Plugins',
             'users' => 'Users',
+            'tools' => 'Tools',
             'settings' => 'Settings',
             default => '',
         };
@@ -566,6 +586,15 @@ class AP_Admin
                 'cap' => 'read',
                 'module' => '',
                 'section' => '',
+            ],
+            [
+                'id' => 'update-core',
+                'label' => 'Update Core',
+                'url' => self::url('update-core.php'),
+                'active' => $current === 'update-core',
+                'cap' => 'update_core',
+                'module' => '',
+                'section' => 'tools',
             ],
             [
                 'id' => 'posts',
@@ -620,6 +649,42 @@ class AP_Admin
                 'cap' => 'upload_files',
                 'module' => '',
                 'section' => 'content',
+            ],
+            [
+                'id' => 'forums',
+                'label' => 'Forums',
+                'url' => self::url('forums.php'),
+                'active' => $current === 'forums',
+                'cap' => 'manage_forums',
+                'module' => 'forum',
+                'section' => 'forums',
+            ],
+            [
+                'id' => 'forum-topics',
+                'label' => 'Topics',
+                'url' => self::url('forum-topics.php'),
+                'active' => $current === 'forum-topics',
+                'cap' => 'moderate_forums',
+                'module' => 'forum',
+                'section' => 'forums',
+            ],
+            [
+                'id' => 'forum-moderation',
+                'label' => 'Moderation',
+                'url' => self::url('forum-moderation.php'),
+                'active' => $current === 'forum-moderation',
+                'cap' => 'moderate_forums',
+                'module' => 'forum',
+                'section' => 'forums',
+            ],
+            [
+                'id' => 'forum-groups',
+                'label' => 'Groups',
+                'url' => self::url('forum-groups.php'),
+                'active' => $current === 'forum-groups',
+                'cap' => 'manage_forums',
+                'module' => 'forum',
+                'section' => 'forums',
             ],
             [
                 'id' => 'users',
@@ -745,6 +810,15 @@ class AP_Admin
                 'active' => $current === 'options-permalink',
                 'cap' => 'manage_options',
                 'module' => '',
+                'section' => 'settings',
+            ],
+            [
+                'id' => 'options-forums',
+                'label' => 'Forums',
+                'url' => self::url('options-forums.php'),
+                'active' => $current === 'options-forums',
+                'cap' => 'manage_options',
+                'module' => 'forum',
                 'section' => 'settings',
             ],
             [
@@ -885,6 +959,43 @@ class AP_Admin
             ],
             'hall_of_fame_dismissed' => ['Hall of Fame prompt dismissed. You can join anytime under Settings → Hall of Fame.', 'success'],
             'hall_of_fame_donation_saved' => ['Donation link preference saved.', 'success'],
+            // Forums
+            'forum_created' => ['Forum created.', 'success'],
+            'forum_updated' => ['Forum updated.', 'success'],
+            'forum_deleted' => ['Forum deleted.', 'success'],
+            'bulk_forum_deleted' => ['Selected forums deleted.', 'success'],
+            'topic_locked' => ['Topic locked.', 'success'],
+            'topic_unlocked' => ['Topic unlocked.', 'success'],
+            'topic_sticky' => ['Topic marked sticky.', 'success'],
+            'topic_unsticky' => ['Topic sticky removed.', 'success'],
+            'topic_approved' => ['Topic approved.', 'success'],
+            'topic_unapproved' => ['Topic unapproved.', 'success'],
+            'topic_trashed' => ['Topic soft-deleted.', 'success'],
+            'topic_restored' => ['Topic restored.', 'success'],
+            'topic_deleted' => ['Topic permanently deleted.', 'success'],
+            'bulk_topic_locked' => ['Selected topics locked.', 'success'],
+            'bulk_topic_unlocked' => ['Selected topics unlocked.', 'success'],
+            'bulk_topic_sticky' => ['Selected topics marked sticky.', 'success'],
+            'bulk_topic_unsticky' => ['Selected topics un-stickied.', 'success'],
+            'bulk_topic_approved' => ['Selected topics approved.', 'success'],
+            'bulk_topic_unapproved' => ['Selected topics unapproved.', 'success'],
+            'bulk_topic_trashed' => ['Selected topics soft-deleted.', 'success'],
+            'bulk_topic_restored' => ['Selected topics restored.', 'success'],
+            'bulk_topic_deleted' => ['Selected topics permanently deleted.', 'success'],
+            'forum_post_approved' => ['Forum post approved.', 'success'],
+            'forum_post_trashed' => ['Forum post soft-deleted.', 'success'],
+            'bulk_forum_post_approved' => ['Selected forum posts approved.', 'success'],
+            'bulk_forum_post_trashed' => ['Selected forum posts soft-deleted.', 'success'],
+            'report_resolved' => ['Report resolved.', 'success'],
+            'report_dismissed' => ['Report dismissed.', 'success'],
+            'report_reopened' => ['Report re-opened.', 'success'],
+            'bulk_report_resolved' => ['Selected reports resolved.', 'success'],
+            'bulk_report_dismissed' => ['Selected reports dismissed.', 'success'],
+            'group_created' => ['Group created.', 'success'],
+            'group_updated' => ['Group updated.', 'success'],
+            'group_deleted' => ['Group deleted.', 'success'],
+            'group_member_added' => ['Member added to group.', 'success'],
+            'forums_saved' => ['Forum settings saved.', 'success'],
             'error' => ['Something went wrong. Please try again.', 'error'],
             'nonce' => ['Security check failed. Please reload and try again.', 'error'],
             'not_found' => ['That item could not be found.', 'error'],

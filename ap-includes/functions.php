@@ -470,11 +470,13 @@ function ap_clear_auth_cookie(): void
 /**
  * Whether the current request is logged in via a valid auth cookie.
  *
+ * Returns false when AP_Session is not loaded (partial bootstrap / unit tests).
+ *
  * @see AP_Session::isLoggedIn()
  */
 function ap_is_user_logged_in(?AP_DB $db = null): bool
 {
-    return AP_Session::isLoggedIn($db);
+    return class_exists('AP_Session', false) && AP_Session::isLoggedIn($db);
 }
 
 /**
@@ -484,7 +486,7 @@ function ap_is_user_logged_in(?AP_DB $db = null): bool
  */
 function ap_get_current_user_id(?AP_DB $db = null): int
 {
-    return AP_Session::getCurrentUserId($db);
+    return class_exists('AP_Session', false) ? AP_Session::getCurrentUserId($db) : 0;
 }
 
 /**
@@ -494,7 +496,7 @@ function ap_get_current_user_id(?AP_DB $db = null): int
  */
 function ap_get_current_user(?AP_DB $db = null): ?AP_User
 {
-    return AP_Session::getCurrentUser($db);
+    return class_exists('AP_Session', false) ? AP_Session::getCurrentUser($db) : null;
 }
 
 /**
@@ -2228,21 +2230,129 @@ function ap_parse_request(?string $path = null, ?array $get = null, ?AP_DB $db =
 /**
  * Home URL (option `home`, then `siteurl`, then AP_SITEURL).
  *
+ * Safe when AP_Rewrite is not loaded (partial bootstrap / isolated tests):
+ * falls back to options constants and path joining.
+ *
  * @see AP_Rewrite::homeUrl()
  */
 function ap_home_url(string $path = '', ?AP_DB $db = null): string
 {
-    return AP_Rewrite::homeUrl($path, $db);
+    if (class_exists('AP_Rewrite', false)) {
+        return AP_Rewrite::homeUrl($path, $db);
+    }
+
+    return ap_url_join_base(ap_resolve_home_base($db), $path);
 }
 
 /**
  * Site URL (core install URL).
  *
+ * Safe when AP_Rewrite is not loaded (partial bootstrap / isolated tests).
+ *
  * @see AP_Rewrite::siteUrl()
  */
 function ap_site_url(string $path = '', ?AP_DB $db = null): string
 {
-    return AP_Rewrite::siteUrl($path, $db);
+    if (class_exists('AP_Rewrite', false)) {
+        return AP_Rewrite::siteUrl($path, $db);
+    }
+
+    $site = ap_resolve_site_base($db);
+    if ($site === '') {
+        return ap_home_url($path, $db);
+    }
+
+    return ap_url_join_base($site, $path);
+}
+
+/**
+ * Resolve home base URL without AP_Rewrite (options → constants).
+ *
+ * @internal
+ */
+function ap_resolve_home_base(?AP_DB $db = null): string
+{
+    $home = ap_read_url_option('home', $db);
+    if ($home === '') {
+        $home = ap_read_url_option('siteurl', $db);
+    }
+    if ($home === '' && defined('AP_HOME') && is_string(AP_HOME) && AP_HOME !== '') {
+        $home = (string) AP_HOME;
+    }
+    if ($home === '' && defined('AP_SITEURL') && is_string(AP_SITEURL) && AP_SITEURL !== '') {
+        $home = (string) AP_SITEURL;
+    }
+
+    return rtrim($home, '/');
+}
+
+/**
+ * Resolve site base URL without AP_Rewrite (option → constant).
+ *
+ * @internal
+ */
+function ap_resolve_site_base(?AP_DB $db = null): string
+{
+    $site = ap_read_url_option('siteurl', $db);
+    if ($site === '' && defined('AP_SITEURL') && is_string(AP_SITEURL) && AP_SITEURL !== '') {
+        $site = (string) AP_SITEURL;
+    }
+
+    return rtrim($site, '/');
+}
+
+/**
+ * Read a URL-style option value from AP_Options or raw options table.
+ *
+ * @internal
+ */
+function ap_read_url_option(string $name, ?AP_DB $db = null): string
+{
+    $conn = $db;
+    if (!$conn instanceof AP_DB && isset($GLOBALS['apdb']) && $GLOBALS['apdb'] instanceof AP_DB) {
+        $conn = $GLOBALS['apdb'];
+    }
+    if (!$conn instanceof AP_DB) {
+        return '';
+    }
+
+    try {
+        if (class_exists('AP_Options', false)) {
+            $val = AP_Options::get($name, '', $conn);
+
+            return is_string($val) ? $val : '';
+        }
+
+        $val = $conn->getVar(
+            'SELECT option_value FROM ' . $conn->quoteIdentifier($conn->table('options'))
+            . ' WHERE option_name = ? LIMIT 1',
+            [$name]
+        );
+
+        return is_string($val) ? $val : '';
+    } catch (Throwable) {
+        return '';
+    }
+}
+
+/**
+ * Join a base URL (no trailing slash) with a path or query string.
+ *
+ * @internal
+ */
+function ap_url_join_base(string $base, string $path): string
+{
+    if ($path === '') {
+        return $base !== '' ? $base : '';
+    }
+
+    if (str_starts_with($path, '?')) {
+        return ($base !== '' ? $base . '/' : '/') . ltrim($path, '/');
+    }
+
+    $path = '/' . ltrim($path, '/');
+
+    return ($base !== '' ? $base : '') . $path;
 }
 
 /**
@@ -2417,6 +2527,194 @@ function ap_hall_of_fame_domain(?AP_DB $db = null): string
 }
 
 // -----------------------------------------------------------------------------
+// Version check (public version.json — no site identification)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether core version checks against the project endpoint are enabled.
+ *
+ * @see AP_Version_Check::isEnabled()
+ */
+function ap_version_check_enabled(?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Version_Check', false)) {
+        return false;
+    }
+
+    return AP_Version_Check::isEnabled($db);
+}
+
+/**
+ * Whether a newer AgoraPress release is available (uses transient cache).
+ *
+ * @see AP_Version_Check::hasUpdate()
+ */
+function ap_has_core_update(?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Version_Check', false)) {
+        return false;
+    }
+
+    return AP_Version_Check::hasUpdate($db);
+}
+
+/**
+ * Cached remote version.json payload (or empty on failure / disabled).
+ *
+ * @return array{
+ *   ok: bool,
+ *   version: string,
+ *   download_url: string,
+ *   changelog_url: string,
+ *   sha256: string,
+ *   checked_at: int,
+ *   from_cache: bool
+ * }
+ *
+ * @see AP_Version_Check::getRemoteInfo()
+ */
+function ap_get_remote_version_info(?AP_DB $db = null, bool $force = false): array
+{
+    if (!class_exists('AP_Version_Check', false)) {
+        return [
+            'ok' => false,
+            'version' => '',
+            'download_url' => '',
+            'changelog_url' => '',
+            'sha256' => '',
+            'checked_at' => 0,
+            'from_cache' => false,
+        ];
+    }
+
+    return AP_Version_Check::getRemoteInfo($db, $force);
+}
+
+/**
+ * Force a fresh version.json fetch (clears the cache first).
+ *
+ * @return array{
+ *   ok: bool,
+ *   version: string,
+ *   download_url: string,
+ *   changelog_url: string,
+ *   sha256: string,
+ *   checked_at: int,
+ *   from_cache: bool
+ * }
+ *
+ * @see AP_Version_Check::forceCheck()
+ */
+function ap_force_version_check(?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Version_Check', false)) {
+        return [
+            'ok' => false,
+            'version' => '',
+            'download_url' => '',
+            'changelog_url' => '',
+            'sha256' => '',
+            'checked_at' => 0,
+            'from_cache' => false,
+        ];
+    }
+
+    return AP_Version_Check::forceCheck($db);
+}
+
+/**
+ * Whether a one-click core update can run (pre-flight).
+ *
+ * @return array{
+ *   ok: bool,
+ *   can_update: bool,
+ *   current_version: string,
+ *   remote_version: string,
+ *   download_url: string,
+ *   changelog_url: string,
+ *   sha256: string,
+ *   has_update: bool,
+ *   errors: list<string>,
+ *   warnings: list<string>,
+ *   checks: array<string, bool>
+ * }
+ *
+ * @see AP_Core_Updater::canUpdate()
+ */
+function ap_can_core_update(?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Core_Updater', false)) {
+        return [
+            'ok' => false,
+            'can_update' => false,
+            'current_version' => '',
+            'remote_version' => '',
+            'download_url' => '',
+            'changelog_url' => '',
+            'sha256' => '',
+            'has_update' => false,
+            'errors' => ['Core updater is not loaded.'],
+            'warnings' => [],
+            'checks' => [],
+        ];
+    }
+
+    return AP_Core_Updater::canUpdate($db);
+}
+
+/**
+ * Run the one-click core auto-update (download → verify → apply → migrate).
+ *
+ * @param array<string, mixed> $args See {@see AP_Core_Updater::run()}.
+ *
+ * @return array{
+ *   ok: bool,
+ *   from_version: string,
+ *   to_version: string,
+ *   files_applied: int,
+ *   migrations: list<array{version: int, description: string}>,
+ *   package_version: string,
+ *   errors: list<string>,
+ *   warnings: list<string>,
+ *   steps: list<string>
+ * }
+ *
+ * @see AP_Core_Updater::run()
+ */
+function ap_run_core_update(?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Core_Updater', false)) {
+        return [
+            'ok' => false,
+            'from_version' => '',
+            'to_version' => '',
+            'files_applied' => 0,
+            'migrations' => [],
+            'package_version' => '',
+            'errors' => ['Core updater is not loaded.'],
+            'warnings' => [],
+            'steps' => [],
+        ];
+    }
+
+    return AP_Core_Updater::run($db, $args);
+}
+
+/**
+ * Whether the site is in auto-update maintenance mode.
+ *
+ * @see AP_Core_Updater::isMaintenanceMode()
+ */
+function ap_is_maintenance_mode(?string $abspath = null): bool
+{
+    if (!class_exists('AP_Core_Updater', false)) {
+        return false;
+    }
+
+    return AP_Core_Updater::isMaintenanceMode($abspath);
+}
+
+// -----------------------------------------------------------------------------
 // Settings API
 // -----------------------------------------------------------------------------
 
@@ -2534,6 +2832,11 @@ function ap_settings_submit_button(string $text = 'Save Changes'): void
  */
 function ap_is_module_enabled(string $module, ?AP_DB $db = null): bool
 {
+    if (!class_exists('AP_Options', false)) {
+        // Options layer not loaded — treat modules as enabled (installer / partial boot).
+        return true;
+    }
+
     return AP_Options::isModuleEnabled($module, $db);
 }
 
@@ -3542,6 +3845,1805 @@ function ap_update_comment_meta(
 function ap_delete_comment_meta(int $commentId, string $key, ?AP_DB $db = null): bool
 {
     return AP_Comment::deleteMeta($commentId, $key, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Forums — hierarchy, topics, posts/replies
+// -----------------------------------------------------------------------------
+
+/**
+ * Prefixed forum table map.
+ *
+ * @return array<string, string>
+ *
+ * @see AP_Forum::tables()
+ */
+function ap_forum_tables(?AP_DB $db = null): array
+{
+    return AP_Forum::tables($db);
+}
+
+/**
+ * Fetch a forum by ID.
+ *
+ * @see AP_Forum::getForum()
+ */
+function ap_get_forum(int $id, ?AP_DB $db = null): ?object
+{
+    return AP_Forum::getForum($id, $db);
+}
+
+/**
+ * Fetch a forum by slug.
+ *
+ * @see AP_Forum::getForumBySlug()
+ */
+function ap_get_forum_by_slug(string $slug, ?AP_DB $db = null): ?object
+{
+    return AP_Forum::getForumBySlug($slug, $db);
+}
+
+/**
+ * Insert a forum or category. Returns new forum_id or 0.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum::insertForum()
+ */
+function ap_insert_forum(array $data, ?AP_DB $db = null): int
+{
+    return AP_Forum::insertForum($data, $db);
+}
+
+/**
+ * Update a forum.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum::updateForum()
+ */
+function ap_update_forum(int $id, array $data, ?AP_DB $db = null): bool
+{
+    return AP_Forum::updateForum($id, $data, $db);
+}
+
+/**
+ * Delete a forum (fails if non-empty unless force).
+ *
+ * @see AP_Forum::deleteForum()
+ */
+function ap_delete_forum(int $id, bool $force = false, ?AP_DB $db = null): bool
+{
+    return AP_Forum::deleteForum($id, $force, $db);
+}
+
+/**
+ * Nested forum hierarchy.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<array{forum: object, children: list}>
+ *
+ * @see AP_Forum::getHierarchy()
+ */
+function ap_get_forum_hierarchy(int $parentId = 0, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum::getHierarchy($parentId, $args, $db);
+}
+
+/**
+ * Child forums of a parent (or root when 0).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum::getChildForums()
+ */
+function ap_get_child_forums(int $parentId = 0, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum::getChildForums($parentId, $args, $db);
+}
+
+/**
+ * Forum index display data for templates.
+ *
+ * @return list<array{name: string, forums: list<array<string, mixed>>}>
+ *
+ * @see AP_Forum::getIndexData()
+ */
+function ap_get_forum_index_data(?AP_DB $db = null): array
+{
+    return AP_Forum::getIndexData($db);
+}
+
+/**
+ * Fetch a topic by ID.
+ *
+ * @see AP_Forum::getTopic()
+ */
+function ap_get_topic(int $id, ?AP_DB $db = null): ?object
+{
+    return AP_Forum::getTopic($id, $db);
+}
+
+/**
+ * Create a topic with its first post. Returns topic_id or 0.
+ *
+ * @param array<string, mixed> $data
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Forum::createTopic()
+ */
+function ap_create_topic(array $data, ?AP_DB $db = null, array $args = []): int
+{
+    return AP_Forum::createTopic($data, $db, $args);
+}
+
+/**
+ * Update topic metadata.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum::updateTopic()
+ */
+function ap_update_topic(int $id, array $data, ?AP_DB $db = null): bool
+{
+    return AP_Forum::updateTopic($id, $data, $db);
+}
+
+/**
+ * Soft-delete or force-delete a topic.
+ *
+ * @see AP_Forum::deleteTopic()
+ */
+function ap_delete_topic(int $id, bool $force = false, ?AP_DB $db = null): bool
+{
+    return AP_Forum::deleteTopic($id, $force, $db);
+}
+
+/**
+ * Topics in a forum (sticky/announce first).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum::getTopics()
+ */
+function ap_get_topics(int $forumId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum::getTopics($forumId, $args, $db);
+}
+
+/**
+ * Theme-friendly topic list for a forum.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<array<string, mixed>>
+ *
+ * @see AP_Forum::getTopicsDisplayData()
+ */
+function ap_get_forum_topics_data(int $forumId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum::getTopicsDisplayData($forumId, $args, $db);
+}
+
+/**
+ * Fetch a forum post by ID.
+ *
+ * @see AP_Forum::getPost()
+ */
+function ap_get_forum_post(int $id, ?AP_DB $db = null): ?object
+{
+    return AP_Forum::getPost($id, $db);
+}
+
+/**
+ * Reply to a topic. Returns post_id or 0.
+ *
+ * @param array<string, mixed> $data
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Forum::createReply()
+ */
+function ap_create_forum_reply(array $data, ?AP_DB $db = null, array $args = []): int
+{
+    return AP_Forum::createReply($data, $db, $args);
+}
+
+/**
+ * Update a forum post.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum::updatePost()
+ */
+function ap_update_forum_post(int $id, array $data, ?AP_DB $db = null): bool
+{
+    return AP_Forum::updatePost($id, $data, $db);
+}
+
+/**
+ * Delete a forum post (first post requires force and deletes the topic).
+ *
+ * @see AP_Forum::deletePost()
+ */
+function ap_delete_forum_post(int $id, bool $force = false, ?AP_DB $db = null): bool
+{
+    return AP_Forum::deletePost($id, $force, $db);
+}
+
+/**
+ * Posts in a topic.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum::getPosts()
+ */
+function ap_get_forum_posts(int $topicId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum::getPosts($topicId, $args, $db);
+}
+
+/**
+ * Theme-friendly post list for a topic.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<array<string, mixed>>
+ *
+ * @see AP_Forum::getPostsDisplayData()
+ */
+function ap_get_topic_posts_data(int $topicId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum::getPostsDisplayData($topicId, $args, $db);
+}
+
+/**
+ * Increment topic view counter.
+ *
+ * @see AP_Forum::incrementTopicViews()
+ */
+function ap_increment_topic_views(int $topicId, ?AP_DB $db = null): bool
+{
+    return AP_Forum::incrementTopicViews($topicId, $db);
+}
+
+/**
+ * Forum index public URL.
+ *
+ * @see AP_Forum::forumsIndexUrl()
+ */
+function ap_forums_url(): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::forumsIndexUrl();
+    }
+    if (function_exists('ap_home_url')) {
+        return ap_home_url('/forums/');
+    }
+
+    return '/forums/';
+}
+
+/**
+ * Public URL for a forum.
+ *
+ * @see AP_Forum::forumUrl()
+ */
+function ap_forum_url(object|int $forum): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::forumUrl($forum);
+    }
+    $id = is_object($forum) ? (int) ($forum->forum_id ?? 0) : (int) $forum;
+
+    return ap_forums_url() . ($id > 0 ? '?forum_id=' . $id : '');
+}
+
+/**
+ * Public URL for a topic.
+ *
+ * @see AP_Forum::topicUrl()
+ */
+function ap_topic_url(object|int $topic): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::topicUrl($topic);
+    }
+    $id = is_object($topic) ? (int) ($topic->topic_id ?? 0) : (int) $topic;
+    if (function_exists('ap_home_url')) {
+        return $id > 0 ? ap_home_url('/?topic_id=' . $id) : ap_home_url('/');
+    }
+
+    return $id > 0 ? '/?topic_id=' . $id : '/';
+}
+
+/**
+ * Whether the current request is a forum front-end view.
+ *
+ * @see AP_Forum_Front::isForumRequest()
+ */
+function ap_is_forum_request(?AP_Query $query = null): bool
+{
+    return class_exists('AP_Forum_Front', false) && AP_Forum_Front::isForumRequest($query);
+}
+
+/**
+ * Handle forum front-end POST actions (create topic / reply).
+ *
+ * @param array<string, mixed>|null $post
+ *
+ * @return string|null Redirect URL or null
+ *
+ * @see AP_Forum_Front::handlePost()
+ */
+function ap_handle_forum_front_post(?array $post = null, ?AP_DB $db = null): ?string
+{
+    if (!class_exists('AP_Forum_Front', false)) {
+        return null;
+    }
+
+    return AP_Forum_Front::handlePost($post, $db);
+}
+
+/**
+ * Flash / query-string notice for forum templates.
+ *
+ * @return array{type: string, message: string}|null
+ *
+ * @see AP_Forum_Front::getNotice()
+ */
+function ap_get_forum_notice(): ?array
+{
+    if (!class_exists('AP_Forum_Front', false)) {
+        return null;
+    }
+
+    return AP_Forum_Front::getNotice();
+}
+
+/**
+ * Search topics and posts.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return array{query: string, total: int, topics: list<object>, posts: list<object>, results: list<array<string, mixed>>}
+ *
+ * @see AP_Forum::search()
+ */
+function ap_forum_search(string $query, array $args = [], ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Forum', false)) {
+        return [
+            'query' => trim($query),
+            'total' => 0,
+            'topics' => [],
+            'posts' => [],
+            'results' => [],
+        ];
+    }
+
+    return AP_Forum::search($query, $args, $db);
+}
+
+/**
+ * Forum search results URL.
+ *
+ * @see AP_Forum::searchUrl()
+ */
+function ap_forum_search_url(string $query = ''): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::searchUrl($query);
+    }
+    $base = function_exists('ap_forums_url') ? ap_forums_url() : '/forums/';
+    $q = trim($query);
+    if ($q === '') {
+        return rtrim($base, '/') . (str_contains($base, '?') ? '&' : '/') . (str_contains($base, '?') ? 'ap_forum_view=search' : 'search/');
+    }
+
+    return function_exists('ap_home_url')
+        ? ap_home_url('/forums/search/' . rawurlencode($q) . '/')
+        : '/forums/search/' . rawurlencode($q) . '/';
+}
+
+/**
+ * Whether the poster is currently flood-limited.
+ *
+ * @see AP_Forum_Guard::isFlooding()
+ */
+function ap_forum_is_flooding(int $userId = 0, string $ip = '', ?AP_DB $db = null): bool
+{
+    return class_exists('AP_Forum_Guard', false) && AP_Forum_Guard::isFlooding($userId, $ip, $db);
+}
+
+/**
+ * Seconds until the user may post again (0 = allowed now).
+ *
+ * @see AP_Forum_Guard::secondsUntilAllowed()
+ */
+function ap_forum_flood_retry_after(int $userId = 0, string $ip = '', ?AP_DB $db = null): int
+{
+    return class_exists('AP_Forum_Guard', false)
+        ? AP_Forum_Guard::secondsUntilAllowed($userId, $ip, $db)
+        : 0;
+}
+
+/**
+ * Evaluate flood / spam / approval for a prospective post.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Forum_Guard::evaluate()
+ */
+function ap_forum_guard_evaluate(array $data, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Forum_Guard', false)) {
+        return [
+            'allowed' => true,
+            'approved' => 1,
+            'status' => 'approve',
+            'code' => 'ok',
+            'message' => '',
+            'retry_after' => 0,
+        ];
+    }
+
+    return AP_Forum_Guard::evaluate($data, $db);
+}
+
+/**
+ * Register a pluggable forum spam checker.
+ *
+ * @param callable(array<string, mixed>): (bool|string|null) $callback
+ *
+ * @see AP_Forum_Guard::registerSpamChecker()
+ */
+function ap_register_forum_spam_checker(callable $callback): void
+{
+    if (class_exists('AP_Forum_Guard', false)) {
+        AP_Forum_Guard::registerSpamChecker($callback);
+    }
+}
+
+/**
+ * Pending topics queue.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum::getPendingTopics()
+ */
+function ap_get_pending_topics(array $args = [], ?AP_DB $db = null): array
+{
+    return class_exists('AP_Forum', false) ? AP_Forum::getPendingTopics($args, $db) : [];
+}
+
+/**
+ * Pending posts queue (replies).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum::getPendingPosts()
+ */
+function ap_get_pending_forum_posts(array $args = [], ?AP_DB $db = null): array
+{
+    return class_exists('AP_Forum', false) ? AP_Forum::getPendingPosts($args, $db) : [];
+}
+
+/**
+ * Approve a pending topic.
+ *
+ * @see AP_Forum_Moderation::approveTopic()
+ */
+function ap_approve_topic(int $topicId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return class_exists('AP_Forum_Moderation', false)
+        && AP_Forum_Moderation::approveTopic($topicId, $moderatorId, $db);
+}
+
+/**
+ * Hold a topic for moderation.
+ *
+ * @see AP_Forum_Moderation::unapproveTopic()
+ */
+function ap_unapprove_topic(int $topicId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return class_exists('AP_Forum_Moderation', false)
+        && AP_Forum_Moderation::unapproveTopic($topicId, $moderatorId, $db);
+}
+
+/**
+ * Approve a pending forum post.
+ *
+ * @see AP_Forum_Moderation::approvePost()
+ */
+function ap_approve_forum_post(int $postId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return class_exists('AP_Forum_Moderation', false)
+        && AP_Forum_Moderation::approvePost($postId, $moderatorId, $db);
+}
+
+/**
+ * Unapprove a forum post (hold).
+ *
+ * @see AP_Forum_Moderation::unapprovePost()
+ */
+function ap_unapprove_forum_post(int $postId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return class_exists('AP_Forum_Moderation', false)
+        && AP_Forum_Moderation::unapprovePost($postId, $moderatorId, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Forum attachments (media linked to posts, quotas)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether forum attachments are enabled.
+ *
+ * @see AP_Forum_Attachment::isEnabled()
+ */
+function ap_forum_attachments_enabled(?AP_DB $db = null): bool
+{
+    return AP_Forum_Attachment::isEnabled($db);
+}
+
+/**
+ * Handle a forum attachment upload ($_FILES-style array).
+ *
+ * @param array<string, mixed> $file
+ * @param array<string, mixed> $args
+ *
+ * @return array{ok: bool, id: int, media_id: int, file: string, url: string, type: string, error: string, attachment: ?object}
+ *
+ * @see AP_Forum_Attachment::handleUpload()
+ */
+function ap_handle_forum_attachment_upload(array $file, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum_Attachment::handleUpload($file, $args, $db);
+}
+
+/**
+ * Link an existing media library attachment to a forum post.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Forum_Attachment::attachMedia()
+ */
+function ap_attach_forum_media(int $mediaId, int $postId, array $args = [], ?AP_DB $db = null): int
+{
+    return AP_Forum_Attachment::attachMedia($mediaId, $postId, $args, $db);
+}
+
+/**
+ * Assign orphan forum attachments to a post after create.
+ *
+ * @param list<int> $attachIds
+ *
+ * @see AP_Forum_Attachment::assignToPost()
+ */
+function ap_assign_forum_attachments(array $attachIds, int $postId, ?AP_DB $db = null): int
+{
+    return AP_Forum_Attachment::assignToPost($attachIds, $postId, $db);
+}
+
+/**
+ * Fetch a forum attachment by ID.
+ *
+ * @see AP_Forum_Attachment::get()
+ */
+function ap_get_forum_attachment(int $attachId, ?AP_DB $db = null): ?object
+{
+    return AP_Forum_Attachment::get($attachId, $db);
+}
+
+/**
+ * Attachments for a forum post.
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum_Attachment::getForPost()
+ */
+function ap_get_forum_attachments(int $postId, ?AP_DB $db = null): array
+{
+    return AP_Forum_Attachment::getForPost($postId, $db);
+}
+
+/**
+ * Theme-friendly attachment rows for a forum post.
+ *
+ * @return list<array<string, mixed>>
+ *
+ * @see AP_Forum_Attachment::getDisplayForPost()
+ */
+function ap_get_forum_attachments_display(int $postId, ?AP_DB $db = null): array
+{
+    return AP_Forum_Attachment::getDisplayForPost($postId, $db);
+}
+
+/**
+ * Delete a forum attachment (and optionally its media file).
+ *
+ * @see AP_Forum_Attachment::delete()
+ */
+function ap_delete_forum_attachment(int $attachId, bool $deleteFile = true, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Attachment::delete($attachId, $deleteFile, $db);
+}
+
+/**
+ * Bytes used by a user's forum attachments.
+ *
+ * @see AP_Forum_Attachment::userUsageBytes()
+ */
+function ap_forum_attachment_user_usage(int $userId, ?AP_DB $db = null): int
+{
+    return AP_Forum_Attachment::userUsageBytes($userId, $db);
+}
+
+/**
+ * Whether a user may upload a forum attachment of the given size.
+ *
+ * @return array{ok: bool, error: string}
+ *
+ * @see AP_Forum_Attachment::canUpload()
+ */
+function ap_can_upload_forum_attachment(
+    int $userId,
+    int $fileSize,
+    ?int $postId = null,
+    ?AP_DB $db = null
+): array {
+    return AP_Forum_Attachment::canUpload($userId, $fileSize, $postId, $db);
+}
+
+// -----------------------------------------------------------------------------
+// User groups (forum permission foundation)
+// -----------------------------------------------------------------------------
+
+/**
+ * Ensure built-in system groups exist.
+ *
+ * @return array<string, int>
+ *
+ * @see AP_Group::ensureSystemGroups()
+ */
+function ap_ensure_system_groups(?AP_DB $db = null): array
+{
+    return AP_Group::ensureSystemGroups($db);
+}
+
+/**
+ * Fetch a group by ID.
+ *
+ * @see AP_Group::get()
+ */
+function ap_get_group(int $id, ?AP_DB $db = null): ?object
+{
+    return AP_Group::get($id, $db);
+}
+
+/**
+ * Fetch a group by slug.
+ *
+ * @see AP_Group::getBySlug()
+ */
+function ap_get_group_by_slug(string $slug, ?AP_DB $db = null): ?object
+{
+    return AP_Group::getBySlug($slug, $db);
+}
+
+/**
+ * Create a user group.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Group::create()
+ */
+function ap_create_group(array $data, ?AP_DB $db = null): int
+{
+    return AP_Group::create($data, $db);
+}
+
+/**
+ * Update a user group.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Group::update()
+ */
+function ap_update_group(int $id, array $data, ?AP_DB $db = null): bool
+{
+    return AP_Group::update($id, $data, $db);
+}
+
+/**
+ * Delete a user group (system groups cannot be deleted).
+ *
+ * @see AP_Group::delete()
+ */
+function ap_delete_group(int $id, ?AP_DB $db = null): bool
+{
+    return AP_Group::delete($id, $db);
+}
+
+/**
+ * List groups.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Group::query()
+ */
+function ap_get_groups(array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Group::query($args, $db);
+}
+
+/**
+ * Add a user to a group.
+ *
+ * @see AP_Group::addMember()
+ */
+function ap_add_group_member(
+    int $groupId,
+    int $userId,
+    string $role = 'member',
+    ?AP_DB $db = null
+): int {
+    return AP_Group::addMember($groupId, $userId, $role, $db);
+}
+
+/**
+ * Remove a user from a group.
+ *
+ * @see AP_Group::removeMember()
+ */
+function ap_remove_group_member(int $groupId, int $userId, ?AP_DB $db = null): bool
+{
+    return AP_Group::removeMember($groupId, $userId, $db);
+}
+
+/**
+ * Groups a user belongs to (explicit membership).
+ *
+ * @return list<object>
+ *
+ * @see AP_Group::getUserGroups()
+ */
+function ap_get_user_groups(int $userId, ?AP_DB $db = null): array
+{
+    return AP_Group::getUserGroups($userId, $db);
+}
+
+/**
+ * Members of a group.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Group::getMembers()
+ */
+function ap_get_group_members(int $groupId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Group::getMembers($groupId, $args, $db);
+}
+
+/**
+ * Effective group IDs for permission checks (explicit + virtual).
+ *
+ * @return list<int>
+ *
+ * @see AP_Group::getEffectiveGroupIds()
+ */
+function ap_get_effective_group_ids(int $userId, ?AP_DB $db = null): array
+{
+    return AP_Group::getEffectiveGroupIds($userId, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Granular per-forum permissions
+// -----------------------------------------------------------------------------
+
+/**
+ * Seed system groups + global default forum ACL.
+ *
+ * @see AP_Forum_Permissions::ensureDefaults()
+ */
+function ap_ensure_forum_permission_defaults(?AP_DB $db = null): void
+{
+    AP_Forum_Permissions::ensureDefaults($db);
+}
+
+/**
+ * Known forum permission keys.
+ *
+ * @return list<string>
+ *
+ * @see AP_Forum_Permissions::allPermissions()
+ */
+function ap_forum_permissions(): array
+{
+    return AP_Forum_Permissions::allPermissions();
+}
+
+/**
+ * Set a group permission on a forum (forum_id 0 = global).
+ *
+ * @see AP_Forum_Permissions::setPermission()
+ */
+function ap_set_forum_permission(
+    int $forumId,
+    int $groupId,
+    string $perm,
+    bool $allow,
+    ?AP_DB $db = null
+): bool {
+    return AP_Forum_Permissions::setPermission($forumId, $groupId, $perm, $allow, $db);
+}
+
+/**
+ * Remove a stored forum permission row.
+ *
+ * @see AP_Forum_Permissions::removePermission()
+ */
+function ap_remove_forum_permission(
+    int $forumId,
+    int $groupId,
+    string $perm,
+    ?AP_DB $db = null
+): bool {
+    return AP_Forum_Permissions::removePermission($forumId, $groupId, $perm, $db);
+}
+
+/**
+ * Permission map for one group on one forum.
+ *
+ * @return array<string, bool>
+ *
+ * @see AP_Forum_Permissions::getGroupPermissions()
+ */
+function ap_get_group_forum_permissions(int $forumId, int $groupId, ?AP_DB $db = null): array
+{
+    return AP_Forum_Permissions::getGroupPermissions($forumId, $groupId, $db);
+}
+
+/**
+ * Whether a user may perform a permission in a forum.
+ *
+ * @see AP_Forum_Permissions::userCan()
+ */
+function ap_user_can_forum(
+    int $userId,
+    int $forumId,
+    string $perm,
+    ?AP_DB $db = null
+): bool {
+    return AP_Forum_Permissions::userCan($userId, $forumId, $perm, $db);
+}
+
+/**
+ * Whether the current user may perform a permission in a forum.
+ *
+ * @see AP_Forum_Permissions::currentUserCan()
+ */
+function ap_current_user_can_forum(int $forumId, string $perm, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Permissions::currentUserCan($forumId, $perm, $db);
+}
+
+/**
+ * Effective permission map for a user on a forum.
+ *
+ * @return array<string, bool>
+ *
+ * @see AP_Forum_Permissions::getUserPermissions()
+ */
+function ap_get_user_forum_permissions(int $userId, int $forumId, ?AP_DB $db = null): array
+{
+    return AP_Forum_Permissions::getUserPermissions($userId, $forumId, $db);
+}
+
+/**
+ * Whether a user may view a forum.
+ *
+ * @see AP_Forum_Permissions::userCanViewForum()
+ */
+function ap_user_can_view_forum(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db);
+}
+
+/**
+ * Whether a user may create topics in a forum.
+ *
+ * @see AP_Forum_Permissions::userCanPostTopic()
+ */
+function ap_user_can_post_topic(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Permissions::userCanPostTopic($userId, $forumId, $db);
+}
+
+/**
+ * Whether a user may reply in a forum.
+ *
+ * @see AP_Forum_Permissions::userCanPostReply()
+ */
+function ap_user_can_post_reply(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Permissions::userCanPostReply($userId, $forumId, $db);
+}
+
+/**
+ * Whether a user may moderate a forum.
+ *
+ * @see AP_Forum_Permissions::userCanModerate()
+ */
+function ap_user_can_moderate_forum(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Permissions::userCanModerate($userId, $forumId, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Forum moderation — edit/soft-delete, move/merge/split, reports, warnings, bans
+// -----------------------------------------------------------------------------
+
+/**
+ * Lock a forum topic.
+ *
+ * @see AP_Forum_Moderation::lockTopic()
+ */
+function ap_lock_topic(int $topicId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::lockTopic($topicId, $moderatorId, $db);
+}
+
+/**
+ * Unlock a forum topic.
+ *
+ * @see AP_Forum_Moderation::unlockTopic()
+ */
+function ap_unlock_topic(int $topicId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::unlockTopic($topicId, $moderatorId, $db);
+}
+
+/**
+ * Soft-delete a forum topic.
+ *
+ * @see AP_Forum_Moderation::softDeleteTopic()
+ */
+function ap_soft_delete_topic(int $topicId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::softDeleteTopic($topicId, $moderatorId, $db);
+}
+
+/**
+ * Restore a soft-deleted forum topic.
+ *
+ * @see AP_Forum_Moderation::restoreTopic()
+ */
+function ap_restore_topic(int $topicId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::restoreTopic($topicId, $moderatorId, $db);
+}
+
+/**
+ * Move a topic to another forum.
+ *
+ * @see AP_Forum_Moderation::moveTopic()
+ */
+function ap_move_topic(int $topicId, int $newForumId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::moveTopic($topicId, $newForumId, $moderatorId, $db);
+}
+
+/**
+ * Merge source topic into target topic.
+ *
+ * @see AP_Forum_Moderation::mergeTopics()
+ */
+function ap_merge_topics(
+    int $sourceTopicId,
+    int $targetTopicId,
+    int $moderatorId = 0,
+    ?AP_DB $db = null
+): bool {
+    return AP_Forum_Moderation::mergeTopics($sourceTopicId, $targetTopicId, $moderatorId, $db);
+}
+
+/**
+ * Split selected posts into a new topic.
+ *
+ * @param list<int>            $postIds
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Forum_Moderation::splitTopic()
+ */
+function ap_split_topic(
+    int $sourceTopicId,
+    array $postIds,
+    array $args = [],
+    ?AP_DB $db = null
+): int {
+    return AP_Forum_Moderation::splitTopic($sourceTopicId, $postIds, $args, $db);
+}
+
+/**
+ * Soft-delete a forum post (unapprove / hide).
+ *
+ * @see AP_Forum_Moderation::softDeletePost()
+ */
+function ap_soft_delete_forum_post(
+    int $postId,
+    int $moderatorId = 0,
+    string $reason = '',
+    ?AP_DB $db = null
+): bool {
+    return AP_Forum_Moderation::softDeletePost($postId, $moderatorId, $reason, $db);
+}
+
+/**
+ * Restore a soft-deleted forum post.
+ *
+ * @see AP_Forum_Moderation::restorePost()
+ */
+function ap_restore_forum_post(int $postId, int $moderatorId = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::restorePost($postId, $moderatorId, $db);
+}
+
+/**
+ * Moderator edit of a forum post.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum_Moderation::editPost()
+ */
+function ap_mod_edit_forum_post(
+    int $postId,
+    array $data,
+    int $moderatorId = 0,
+    ?AP_DB $db = null
+): bool {
+    return AP_Forum_Moderation::editPost($postId, $data, $moderatorId, $db);
+}
+
+/**
+ * File a moderation report.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum_Moderation::createReport()
+ */
+function ap_create_report(array $data, ?AP_DB $db = null): int
+{
+    return AP_Forum_Moderation::createReport($data, $db);
+}
+
+/**
+ * Get a report by id.
+ *
+ * @see AP_Forum_Moderation::getReport()
+ */
+function ap_get_report(int $id, ?AP_DB $db = null): ?object
+{
+    return AP_Forum_Moderation::getReport($id, $db);
+}
+
+/**
+ * Query moderation reports.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum_Moderation::queryReports()
+ */
+function ap_get_reports(array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum_Moderation::queryReports($args, $db);
+}
+
+/**
+ * Resolve (close) a report.
+ *
+ * @see AP_Forum_Moderation::resolveReport()
+ */
+function ap_resolve_report(int $reportId, int $resolvedBy = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::resolveReport($reportId, $resolvedBy, $db);
+}
+
+/**
+ * Dismiss a report.
+ *
+ * @see AP_Forum_Moderation::dismissReport()
+ */
+function ap_dismiss_report(int $reportId, int $resolvedBy = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::dismissReport($reportId, $resolvedBy, $db);
+}
+
+/**
+ * Issue a user warning.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum_Moderation::issueWarning()
+ */
+function ap_issue_warning(array $data, ?AP_DB $db = null): int
+{
+    return AP_Forum_Moderation::issueWarning($data, $db);
+}
+
+/**
+ * Warnings for a user.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum_Moderation::getUserWarnings()
+ */
+function ap_get_user_warnings(int $userId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum_Moderation::getUserWarnings($userId, $args, $db);
+}
+
+/**
+ * Revoke a warning.
+ *
+ * @see AP_Forum_Moderation::revokeWarning()
+ */
+function ap_revoke_warning(int $warningId, int $revokedBy = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::revokeWarning($warningId, $revokedBy, $db);
+}
+
+/**
+ * Ban a user (optional expiry for suspension).
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum_Moderation::banUser()
+ */
+function ap_ban_user(int $userId, array $data = [], ?AP_DB $db = null): int
+{
+    return AP_Forum_Moderation::banUser($userId, $data, $db);
+}
+
+/**
+ * Suspend a user until a datetime.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum_Moderation::suspendUser()
+ */
+function ap_suspend_user(
+    int $userId,
+    string $expiresAt,
+    array $data = [],
+    ?AP_DB $db = null
+): int {
+    return AP_Forum_Moderation::suspendUser($userId, $expiresAt, $data, $db);
+}
+
+/**
+ * Unban a user.
+ *
+ * @see AP_Forum_Moderation::unbanUser()
+ */
+function ap_unban_user(int $userId, int $liftedBy = 0, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::unbanUser($userId, $liftedBy, $db);
+}
+
+/**
+ * Whether a user is currently banned/suspended.
+ *
+ * @see AP_Forum_Moderation::isUserBanned()
+ */
+function ap_is_user_banned(int $userId, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::isUserBanned($userId, $db);
+}
+
+/**
+ * Ban an IP address.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @see AP_Forum_Moderation::banIp()
+ */
+function ap_ban_ip(string $ip, array $data = [], ?AP_DB $db = null): int
+{
+    return AP_Forum_Moderation::banIp($ip, $data, $db);
+}
+
+/**
+ * Whether an IP is banned.
+ *
+ * @see AP_Forum_Moderation::isIpBanned()
+ */
+function ap_is_ip_banned(string $ip, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Moderation::isIpBanned($ip, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Private messaging (inbox / outbox / threads)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether private messaging is enabled and the forum module is on.
+ *
+ * @see AP_Private_Message::isAvailable()
+ */
+function ap_private_messaging_enabled(?AP_DB $db = null): bool
+{
+    return AP_Private_Message::isAvailable($db);
+}
+
+/**
+ * Whether a user may send private messages.
+ *
+ * @see AP_Private_Message::userCanSend()
+ */
+function ap_user_can_send_pm(int $userId, ?AP_DB $db = null): bool
+{
+    return AP_Private_Message::userCanSend($userId, $db);
+}
+
+/**
+ * Send a private message. Returns new message_id or 0.
+ *
+ * @param array<string, mixed> $data
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Private_Message::send()
+ */
+function ap_send_private_message(array $data, ?AP_DB $db = null, array $args = []): int
+{
+    return AP_Private_Message::send($data, $db, $args);
+}
+
+/**
+ * Reply in a PM thread.
+ *
+ * @param array<string, mixed> $data
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Private_Message::reply()
+ */
+function ap_reply_private_message(array $data, ?AP_DB $db = null, array $args = []): int
+{
+    return AP_Private_Message::reply($data, $db, $args);
+}
+
+/**
+ * Fetch a private message by ID.
+ *
+ * @see AP_Private_Message::get()
+ */
+function ap_get_private_message(int $id, ?AP_DB $db = null): ?object
+{
+    return AP_Private_Message::get($id, $db);
+}
+
+/**
+ * Fetch a private message only if the user may view it.
+ *
+ * @see AP_Private_Message::getForUser()
+ */
+function ap_get_private_message_for_user(int $id, int $userId, ?AP_DB $db = null): ?object
+{
+    return AP_Private_Message::getForUser($id, $userId, $db);
+}
+
+/**
+ * Inbox messages for a user.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Private_Message::getInbox()
+ */
+function ap_get_pm_inbox(int $userId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Private_Message::getInbox($userId, $args, $db);
+}
+
+/**
+ * Outbox (sent) messages for a user.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Private_Message::getOutbox()
+ */
+function ap_get_pm_outbox(int $userId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Private_Message::getOutbox($userId, $args, $db);
+}
+
+/**
+ * Unread private messages for a user.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Private_Message::getUnread()
+ */
+function ap_get_pm_unread(int $userId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Private_Message::getUnread($userId, $args, $db);
+}
+
+/**
+ * Count unread private messages for a user.
+ *
+ * @see AP_Private_Message::countUnread()
+ */
+function ap_count_unread_pms(int $userId, ?AP_DB $db = null): int
+{
+    return AP_Private_Message::countUnread($userId, $db);
+}
+
+/**
+ * Full conversation thread for a message.
+ *
+ * @return list<object>
+ *
+ * @see AP_Private_Message::getThread()
+ */
+function ap_get_pm_thread(int $messageId, int $userId = 0, ?AP_DB $db = null): array
+{
+    return AP_Private_Message::getThread($messageId, $userId, $db);
+}
+
+/**
+ * Mark a private message as read.
+ *
+ * @see AP_Private_Message::markRead()
+ */
+function ap_mark_pm_read(int $messageId, int $userId = 0, ?AP_DB $db = null): bool
+{
+    return AP_Private_Message::markRead($messageId, $userId, $db);
+}
+
+/**
+ * Mark a private message as unread.
+ *
+ * @see AP_Private_Message::markUnread()
+ */
+function ap_mark_pm_unread(int $messageId, int $userId = 0, ?AP_DB $db = null): bool
+{
+    return AP_Private_Message::markUnread($messageId, $userId, $db);
+}
+
+/**
+ * Soft-delete a private message for one user (hard-purges when both sides delete).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Private_Message::deleteForUser()
+ */
+function ap_delete_private_message(
+    int $messageId,
+    int $userId,
+    ?AP_DB $db = null,
+    array $args = []
+): bool {
+    return AP_Private_Message::deleteForUser($messageId, $userId, $db, $args);
+}
+
+/**
+ * Theme-friendly inbox or outbox rows.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<array<string, mixed>>
+ *
+ * @see AP_Private_Message::getFolderDisplay()
+ */
+function ap_get_pm_folder_display(
+    int $userId,
+    string $folder = 'inbox',
+    array $args = [],
+    ?AP_DB $db = null
+): array {
+    return AP_Private_Message::getFolderDisplay($userId, $folder, $args, $db);
+}
+
+/**
+ * Theme-friendly thread rows.
+ *
+ * @return list<array<string, mixed>>
+ *
+ * @see AP_Private_Message::getThreadDisplay()
+ */
+function ap_get_pm_thread_display(int $messageId, int $userId = 0, ?AP_DB $db = null): array
+{
+    return AP_Private_Message::getThreadDisplay($messageId, $userId, $db);
+}
+
+/**
+ * Format PM body to safe HTML.
+ *
+ * @param array<string, mixed> $formatArgs
+ *
+ * @see AP_Private_Message::formatContent()
+ */
+function ap_format_private_message(string $content, array $formatArgs = []): string
+{
+    return AP_Private_Message::formatContent($content, $formatArgs);
+}
+
+// -----------------------------------------------------------------------------
+// Who’s online (presence)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether who’s-online tracking is available.
+ *
+ * @see AP_Online::isAvailable()
+ */
+function ap_online_enabled(?AP_DB $db = null): bool
+{
+    return AP_Online::isAvailable($db);
+}
+
+/**
+ * Record or refresh a presence row.
+ *
+ * @param array<string, mixed> $data
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Online::track()
+ */
+function ap_track_online(array $data, ?AP_DB $db = null, array $args = []): int
+{
+    return AP_Online::track($data, $db, $args);
+}
+
+/**
+ * Track the current request presence.
+ *
+ * @param array<string, mixed> $context
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Online::trackCurrent()
+ */
+function ap_track_online_current(array $context = [], ?AP_DB $db = null, array $args = []): int
+{
+    return AP_Online::trackCurrent($context, $db, $args);
+}
+
+/**
+ * Remove a presence row by session key.
+ *
+ * @see AP_Online::remove()
+ */
+function ap_remove_online(string $sessionKey, ?AP_DB $db = null): bool
+{
+    return AP_Online::remove($sessionKey, $db);
+}
+
+/**
+ * Prune stale online rows.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Online::prune()
+ */
+function ap_prune_online(?AP_DB $db = null, array $args = []): int
+{
+    return AP_Online::prune($db, $args);
+}
+
+/**
+ * Whether a user is currently online.
+ *
+ * @see AP_Online::isUserOnline()
+ */
+function ap_is_user_online(int $userId, ?AP_DB $db = null): bool
+{
+    return AP_Online::isUserOnline($userId, $db);
+}
+
+/**
+ * Distinct logged-in users currently online.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Online::getOnlineUsers()
+ */
+function ap_get_online_users(array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Online::getOnlineUsers($args, $db);
+}
+
+/**
+ * Guest sessions currently online.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Online::getOnlineGuests()
+ */
+function ap_get_online_guests(array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Online::getOnlineGuests($args, $db);
+}
+
+/**
+ * Total online count (members + guests).
+ *
+ * @see AP_Online::countOnline()
+ */
+function ap_count_online(?AP_DB $db = null): int
+{
+    return AP_Online::countOnline($db);
+}
+
+/**
+ * Theme-friendly who’s-online snapshot.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Online::getDisplay()
+ */
+function ap_get_online_display(array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Online::getDisplay($args, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Forum unread tracking
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether forum unread tracking is available.
+ *
+ * @see AP_Forum_Read::isAvailable()
+ */
+function ap_forum_unread_tracking_enabled(?AP_DB $db = null): bool
+{
+    return AP_Forum_Read::isAvailable($db);
+}
+
+/**
+ * Mark a topic as read for a user.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Forum_Read::markTopicRead()
+ */
+function ap_mark_topic_read(int $userId, int $topicId, ?AP_DB $db = null, array $args = []): bool
+{
+    return AP_Forum_Read::markTopicRead($userId, $topicId, $db, $args);
+}
+
+/**
+ * Mark a forum as read for a user.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Forum_Read::markForumRead()
+ */
+function ap_mark_forum_read(int $userId, int $forumId, ?AP_DB $db = null, array $args = []): bool
+{
+    return AP_Forum_Read::markForumRead($userId, $forumId, $db, $args);
+}
+
+/**
+ * Mark all forums/topics as read for a user.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Forum_Read::markAllRead()
+ */
+function ap_mark_all_forums_read(int $userId, ?AP_DB $db = null, array $args = []): bool
+{
+    return AP_Forum_Read::markAllRead($userId, $db, $args);
+}
+
+/**
+ * Whether a topic is unread for a user.
+ *
+ * @param object|int $topic
+ *
+ * @see AP_Forum_Read::isTopicUnread()
+ */
+function ap_is_topic_unread(int $userId, object|int $topic, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Read::isTopicUnread($userId, $topic, $db);
+}
+
+/**
+ * Whether a forum has unread topics for a user.
+ *
+ * @see AP_Forum_Read::isForumUnread()
+ */
+function ap_is_forum_unread(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    return AP_Forum_Read::isForumUnread($userId, $forumId, $db);
+}
+
+/**
+ * Unread topics for a user.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum_Read::getUnreadTopics()
+ */
+function ap_get_unread_topics(int $userId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum_Read::getUnreadTopics($userId, $args, $db);
+}
+
+/**
+ * Count unread topics in a forum.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Forum_Read::countUnreadTopicsInForum()
+ */
+function ap_count_unread_topics_in_forum(
+    int $userId,
+    int $forumId,
+    ?AP_DB $db = null,
+    array $args = []
+): int {
+    return AP_Forum_Read::countUnreadTopicsInForum($userId, $forumId, $db, $args);
+}
+
+/**
+ * Annotate topic rows with is_unread.
+ *
+ * @param list<object|array<string, mixed>> $topics
+ *
+ * @return list<array<string, mixed>>
+ *
+ * @see AP_Forum_Read::annotateTopics()
+ */
+function ap_annotate_topics_unread(int $userId, array $topics, ?AP_DB $db = null): array
+{
+    return AP_Forum_Read::annotateTopics($userId, $topics, $db);
+}
+
+/**
+ * Theme-friendly unread summary.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Forum_Read::getUnreadSummary()
+ */
+function ap_get_unread_summary(int $userId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum_Read::getUnreadSummary($userId, $args, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Content formatting (BBCode + Markdown + limited safe HTML)
+// -----------------------------------------------------------------------------
+
+/**
+ * Format user content for safe HTML display.
+ *
+ * Default mode `auto`: BBCode → Markdown → whitelist kses.
+ *
+ * @param array<string, mixed> $args mode, context, …
+ *
+ * @see AP_Content_Format::format()
+ */
+function ap_format_content(string $content, array $args = []): string
+{
+    if (!class_exists('AP_Content_Format', false)) {
+        return ap_esc_html($content);
+    }
+
+    return AP_Content_Format::format($content, $args);
+}
+
+/**
+ * Convert BBCode to HTML (not sanitized; prefer ap_format_content).
+ *
+ * @see AP_Content_Format::bbcodeToHtml()
+ */
+function ap_bbcode_to_html(string $text): string
+{
+    if (!class_exists('AP_Content_Format', false)) {
+        return ap_esc_html($text);
+    }
+
+    return AP_Content_Format::bbcodeToHtml($text);
+}
+
+/**
+ * Convert a Markdown subset to HTML (not sanitized; prefer ap_format_content).
+ *
+ * @see AP_Content_Format::markdownToHtml()
+ */
+function ap_markdown_to_html(string $text): string
+{
+    if (!class_exists('AP_Content_Format', false)) {
+        return ap_esc_html($text);
+    }
+
+    return AP_Content_Format::markdownToHtml($text);
+}
+
+/**
+ * Sanitize HTML to an allow-list of tags/attributes (kses).
+ *
+ * @param array<string, array<string, bool>>|null $allowed
+ *
+ * @see AP_Content_Format::kses()
+ */
+function ap_kses(string $html, ?array $allowed = null): string
+{
+    if (!class_exists('AP_Content_Format', false)) {
+        return ap_esc_html($html);
+    }
+
+    return AP_Content_Format::kses($html, $allowed);
+}
+
+/**
+ * Default allowed HTML tags for user content.
+ *
+ * @return array<string, array<string, bool>>
+ *
+ * @see AP_Content_Format::allowedTags()
+ */
+function ap_allowed_html(): array
+{
+    if (!class_exists('AP_Content_Format', false)) {
+        return [];
+    }
+
+    return AP_Content_Format::allowedTags();
+}
+
+/**
+ * Whether a URL is safe for href/src in formatted content.
+ *
+ * @see AP_Content_Format::isSafeUrl()
+ */
+function ap_is_safe_url(string $url): bool
+{
+    if (!class_exists('AP_Content_Format', false)) {
+        return false;
+    }
+
+    return AP_Content_Format::isSafeUrl($url);
 }
 
 // -----------------------------------------------------------------------------

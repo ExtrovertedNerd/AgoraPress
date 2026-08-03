@@ -80,6 +80,31 @@ if (function_exists('ap_has_nav_menu') && ap_has_nav_menu('primary')) {
         'menu_class' => 'ap-menu',
         'echo' => true,
     ]);
+} else {
+    // Fallback when no custom primary menu: expose Forums when the module is on.
+    $forumNav = class_exists('AP_Forum', false);
+    if ($forumNav && function_exists('ap_is_module_enabled')) {
+        try {
+            $forumNav = ap_is_module_enabled('forum');
+        } catch (Throwable) {
+            $forumNav = class_exists('AP_Forum', false);
+        }
+    }
+    if ($forumNav) {
+        $forumsHref = rtrim($home, '/') . '/forums/';
+        if (function_exists('ap_forums_url') && class_exists('AP_Forum', false)) {
+            try {
+                $forumsHref = ap_forums_url();
+            } catch (Throwable) {
+                // keep path fallback
+            }
+        }
+        echo '<nav class="ap-nav ap-nav--primary" aria-label="Primary">';
+        echo '<ul class="ap-menu">';
+        echo '<li class="menu-item"><a href="' . $escUrl($home) . '">Home</a></li>';
+        echo '<li class="menu-item"><a href="' . $escUrl($forumsHref) . '">Forums</a></li>';
+        echo '</ul></nav>';
+    }
 }
 ?>
     </div>

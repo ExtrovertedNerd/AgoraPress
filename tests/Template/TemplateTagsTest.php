@@ -93,7 +93,8 @@ final class TemplateTagsTest extends TestCase
     {
         $id = AP_Post::insert([
             'post_title' => 'Hello <World>',
-            'post_content' => "Line one.\n\nLine two with more words than needed for an excerpt test pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad.",
+            'post_content' => "Line one.\n\nLine two with more words than needed for an excerpt test "
+                . str_repeat('pad ', 60),
             'post_excerpt' => '',
             'post_status' => 'publish',
             'post_type' => 'post',

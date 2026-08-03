@@ -66,7 +66,7 @@ def test_db_version_constant_is_integer_string() -> None:
     src = VERSION.read_text(encoding="utf-8")
     assert "AP_DB_VERSION" in src
     assert "define('AP_DB_VERSION'" in src
-    assert "define('AP_DB_VERSION', '4')" in src
+    assert "define('AP_DB_VERSION', '9')" in src
 
 
 def test_shipped_core_options_users_migration_exists() -> None:
@@ -147,8 +147,33 @@ def test_shipped_comments_commentmeta_migration_exists() -> None:
         assert needle in src, f"Expected {needle} in comments/commentmeta migration"
 
 
+def test_shipped_forum_tables_migration_exists() -> None:
+    mig = MIGRATIONS_DIR / "0005_forum_tables.php"
+    assert mig.is_file(), "Missing 0005_forum_tables.php"
+    src = mig.read_text(encoding="utf-8")
+    for needle in (
+        "AP_Migration_0005_Forum_Tables",
+        "forums",
+        "topics",
+        "forum_posts",
+        "groups",
+        "group_members",
+        "messages",
+        "ranks",
+        "reports",
+        "online",
+        "forum_id",
+        "topic_id",
+        "post_id",
+        "ENGINE=InnoDB",
+        "BIGSERIAL",
+        "AUTOINCREMENT",
+    ):
+        assert needle in src, f"Expected {needle} in forum tables migration"
+
+
 def test_shipped_core_migration_applies_via_php() -> None:
-    """Apply real shipped migrations (0001–0004) on in-memory SQLite."""
+    """Apply real shipped migrations (0001–0006) on in-memory SQLite."""
     script = textwrap.dedent(
         f"""
         declare(strict_types=1);
@@ -161,7 +186,7 @@ def test_shipped_core_migration_applies_via_php() -> None:
         ]);
         $db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
         $m = new AP_Migrator($db, AP_Migrator::defaultMigrationsPath());
-        if ((int) AP_DB_VERSION < 4) {{
+        if ((int) AP_DB_VERSION < 8) {{
             fwrite(STDERR, "AP_DB_VERSION too low\\n");
             exit(2);
         }}
@@ -186,7 +211,36 @@ def test_shipped_core_migration_applies_via_php() -> None:
             fwrite(STDERR, "version 4 not applied\\n");
             exit(4);
         }}
-        foreach (['ap_options', 'ap_users', 'ap_usermeta', 'ap_posts', 'ap_postmeta', 'ap_terms', 'ap_term_taxonomy', 'ap_term_relationships', 'ap_comments', 'ap_commentmeta'] as $t) {{
+        if (count($applied) < 5 || (int) $applied[4]['version'] !== 5) {{
+            fwrite(STDERR, "version 5 not applied\\n");
+            exit(4);
+        }}
+        if (count($applied) < 6 || (int) $applied[5]['version'] !== 6) {{
+            fwrite(STDERR, "version 6 not applied\\n");
+            exit(4);
+        }}
+        if (count($applied) < 7 || (int) $applied[6]['version'] !== 7) {{
+            fwrite(STDERR, "version 7 not applied\\n");
+            exit(4);
+        }}
+        if (count($applied) < 8 || (int) $applied[7]['version'] !== 8) {{
+            fwrite(STDERR, "version 8 not applied\\n");
+            exit(4);
+        }}
+        if (count($applied) < 9 || (int) $applied[8]['version'] !== 9) {{
+            fwrite(STDERR, "version 9 not applied\\n");
+            exit(4);
+        }}
+        foreach ([
+            'ap_options', 'ap_users', 'ap_usermeta', 'ap_posts', 'ap_postmeta',
+            'ap_terms', 'ap_term_taxonomy', 'ap_term_relationships',
+            'ap_comments', 'ap_commentmeta',
+            'ap_forums', 'ap_topics', 'ap_forum_posts', 'ap_forum_attachments',
+            'ap_groups', 'ap_group_members', 'ap_forum_permissions',
+            'ap_messages', 'ap_ranks',
+            'ap_reports', 'ap_warnings', 'ap_bans', 'ap_online',
+            'ap_topic_track', 'ap_forum_track',
+        ] as $t) {{
             $name = $db->getVar(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
                 [$t]
@@ -306,8 +360,37 @@ def test_shipped_core_migration_applies_via_php() -> None:
             fwrite(STDERR, "comment author mismatch\\n");
             exit(13);
         }}
-        if ($m->getCurrentVersion() !== 4) {{
-            fwrite(STDERR, "current version not 4\\n");
+        $db->insert('forums', [
+            'parent_id' => 0,
+            'forum_type' => 'forum',
+            'forum_status' => 'open',
+            'forum_name' => 'General',
+            'forum_slug' => 'general',
+            'forum_desc' => '',
+            'forum_order' => 0,
+            'topic_count' => 0,
+            'post_count' => 0,
+            'last_post_id' => 0,
+            'last_poster_id' => 0,
+            'last_post_time' => '1970-01-01 00:00:00',
+            'last_topic_id' => 0,
+        ]);
+        $fid = (int) $db->lastInsertId();
+        if ($fid < 1) {{
+            fwrite(STDERR, "forum insert failed\\n");
+            exit(14);
+        }}
+        $fname = $db->getVar(
+            'SELECT forum_name FROM ' . $db->quoteIdentifier($db->forums)
+            . ' WHERE forum_id = ?',
+            [$fid]
+        );
+        if ($fname !== 'General') {{
+            fwrite(STDERR, "forum name mismatch\\n");
+            exit(15);
+        }}
+        if ($m->getCurrentVersion() !== 9) {{
+            fwrite(STDERR, "current version not 9\\n");
             exit(9);
         }}
         if ($m->migrate() !== []) {{

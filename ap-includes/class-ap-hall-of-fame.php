@@ -196,7 +196,8 @@ class AP_Hall_Of_Fame
      */
     public static function registrationEndpoint(): string
     {
-        if (defined('AP_HALL_OF_FAME_ENDPOINT') && is_string(AP_HALL_OF_FAME_ENDPOINT)
+        if (
+            defined('AP_HALL_OF_FAME_ENDPOINT') && is_string(AP_HALL_OF_FAME_ENDPOINT)
             && AP_HALL_OF_FAME_ENDPOINT !== ''
         ) {
             return (string) AP_HALL_OF_FAME_ENDPOINT;

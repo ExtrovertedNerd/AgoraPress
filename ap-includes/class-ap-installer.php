@@ -621,6 +621,29 @@ PHP;
             'show_avatars' => '1',
             'avatar_default' => 'mystery',
             'avatar_rating' => 'g',
+            // Forum attachments (Settings → Forums; FEATURES “Attachments with quotas”).
+            'forum_attachments_enabled' => '1',
+            'forum_attachment_max_size' => '2097152',
+            'forum_attachment_allowed_types' => 'jpg,jpeg,png,gif,webp,pdf,txt,zip',
+            'forum_attachment_max_per_post' => '5',
+            'forum_attachment_user_quota' => '10485760',
+            // Private messaging (Settings → Forums; FEATURES “Private Messaging”).
+            'forum_private_messaging_enabled' => '1',
+            // Who’s online + unread tracking (FEATURES “Who’s online, unread tracking”).
+            'forum_online_enabled' => '1',
+            'forum_online_window' => '900',
+            'forum_unread_tracking_enabled' => '1',
+            // Flood control, anti-spam, approval queues, search (FEATURES Phase 5).
+            'forum_flood_interval' => '30',
+            'forum_posts_require_approval' => '0',
+            'forum_spam_blacklist' => '',
+            'forum_spam_max_links' => '5',
+            'forum_search_enabled' => '1',
+            // Forum display / guest defaults (Settings → Forums).
+            'forum_topics_per_page' => '20',
+            'forum_posts_per_page' => '15',
+            'forum_allow_guest_viewing' => '1',
+            'forum_allow_guest_posting' => '0',
             // Hall of Fame: never auto-joined; donation link unobtrusive default on.
             // Installer does not ping or register domains (no telemetry).
             'hall_of_fame_status' => '',
@@ -629,6 +652,8 @@ PHP;
             'hall_of_fame_joined_at' => '',
             'hall_of_fame_dismissed' => '0',
             'show_donation_button' => '1',
+            // Version check: admin-only, cached GET of public version.json (no site id).
+            'version_check_enabled' => '1',
         ];
 
         foreach ($options as $name => $value) {
@@ -641,6 +666,28 @@ PHP;
         }
         AP_Roles::flushCache();
         AP_Roles::ensureDefaults($db);
+
+        // Forum system groups + global default ACL (idempotent; safe if tables missing).
+        if (!class_exists('AP_Group', false)) {
+            $groupFile = __DIR__ . '/class-ap-group.php';
+            if (is_readable($groupFile)) {
+                require_once $groupFile;
+            }
+        }
+        if (!class_exists('AP_Forum_Permissions', false)) {
+            $permFile = __DIR__ . '/class-ap-forum-permissions.php';
+            if (is_readable($permFile)) {
+                require_once $permFile;
+            }
+        }
+        if (class_exists('AP_Group', false) && class_exists('AP_Forum_Permissions', false)) {
+            try {
+                AP_Group::ensureSystemGroups($db);
+                AP_Forum_Permissions::ensureDefaults($db);
+            } catch (Throwable) {
+                // Schema may not include forum tables yet on partial installs.
+            }
+        }
     }
 
     /**

@@ -141,12 +141,18 @@ function ap_forum_base_tables(): array
         'forums',
         'topics',
         'forum_posts',
+        'forum_attachments',
         'groups',
         'group_members',
+        'forum_permissions',
         'messages',
         'ranks',
         'reports',
+        'warnings',
+        'bans',
         'online',
+        'topic_track',
+        'forum_track',
     ];
 }
 

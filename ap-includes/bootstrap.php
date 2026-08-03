@@ -287,8 +287,30 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-taxonomy.php';
     // Comments: nested threads, moderation, pluggable spam hooks.
     require_once AP_ABSPATH . 'ap-includes/class-ap-comment.php';
+    // Forums: hierarchy, topics, posts/replies (dedicated tables).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum.php';
+    // Content format: BBCode + Markdown + limited safe HTML (forum posts, etc.).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-content-format.php';
     // Media library: secure uploads + attachment posts.
     require_once AP_ABSPATH . 'ap-includes/class-ap-media.php';
+    // Forum attachments: media linked to forum posts with quotas.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-attachment.php';
+    // User groups (forum ACL foundation).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-group.php';
+    // Granular per-forum permissions (group × forum ACL).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-permissions.php';
+    // Forum moderation: edit/soft-delete, move/merge/split, reports, warnings, bans.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-moderation.php';
+    // Private messaging (inbox/outbox/threads on dedicated messages table).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-private-message.php';
+    // Who’s online (presence on dedicated online table).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-online.php';
+    // Forum unread tracking (topic_track / forum_track + global last mark).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-read.php';
+    // Forum flood control, anti-spam, post approval (pluggable checkers).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-guard.php';
+    // Forum front-end: route context, forms, template helpers.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-front.php';
     // Avatars: local upload + Gravatar fallback.
     require_once AP_ABSPATH . 'ap-includes/class-ap-avatar.php';
     // Content query (WP_Query-inspired main loop + secondary queries).
@@ -323,12 +345,27 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-nonce.php';
     // Hall of Fame: voluntary domain registration only (no installer pings / telemetry).
     require_once AP_ABSPATH . 'ap-includes/class-ap-hall-of-fame.php';
+    // Version checker: public version.json only (cached, admin notice, no site identity).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-version-check.php';
+    // One-click core auto-update (download package, apply files, migrate).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-core-updater.php';
     // Procedural helpers (ap_hash_password, ap_login, ap_insert_post, …) after core classes.
     require_once AP_ABSPATH . 'ap-includes/functions.php';
     // Front-end template tags (the_title, body_class, …).
     require_once AP_ABSPATH . 'ap-includes/template-tags.php';
     // Classic WordPress Theme Compatibility Layer (shims load lazily per theme).
     require_once AP_ABSPATH . 'ap-includes/compatibility/load.php';
+
+    // Maintenance mode during core auto-update: front-end 503; admin + CLI still load.
+    if (
+        class_exists('AP_Core_Updater', false)
+        && AP_Core_Updater::isMaintenanceMode()
+        && !(defined('AP_SKIP_MAINTENANCE') && AP_SKIP_MAINTENANCE)
+        && !(defined('AP_ADMIN') && AP_ADMIN)
+        && PHP_SAPI !== 'cli'
+    ) {
+        ap_graceful_exit(503, AP_Core_Updater::maintenanceHtml());
+    }
 
     // Register built-in post statuses/types and taxonomies once core is loaded.
     if (class_exists('AP_Post', false)) {

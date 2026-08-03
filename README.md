@@ -212,6 +212,8 @@ See [`CODING_STANDARDS.md`](CODING_STANDARDS.md), [`phpunit.xml.dist`](phpunit.x
 - Nonces / capability checks on privileged actions (as features land)  
 - Password hashing with Argon2id (installer + auth)  
 - **`AP_TELEMETRY` is false by default** — no site identification is sent for version checks by default  
+- **Version check** (admin-only): GET of the public `version.json` endpoint; transient-cached; fails silently; **never** sends domain or other site identity. Option `version_check_enabled` (default on) can disable checks for offline installs.  
+- **One-click auto-update** (Dashboard → **Update Core**, cap `update_core`): downloads the published package URL from `version.json` (optional SHA-256 verification), applies core files while preserving `ap-config.php` and user content under `ap-content/` (uploads, plugins, mu-plugins, custom themes; default `agora` theme may update), runs pending DB migrations, and uses a brief front-end maintenance page. No site identity is sent on the package GET.
 
 Optional “Hall of Fame” domain registration (fully voluntary, withdrawable) is the only install-counting path — never automatic pings. Admins can join or leave under **Settings → Hall of Fame**; the dashboard may show a one-time prompt. Registration sends only the site domain (no telemetry).
 
@@ -227,7 +229,7 @@ Optional “Hall of Fame” domain registration (fully voluntary, withdrawable) 
 
 - Project site: [agorapress.extrovertednerd.com](https://agorapress.extrovertednerd.com)  
 - Source: [github.com/ExtrovertedNerd/AgoraPress](https://github.com/ExtrovertedNerd/AgoraPress)  
-- Version endpoint (planned): `https://agorapress.extrovertednerd.com/version.json`  
+- Version endpoint: `https://agorapress.extrovertednerd.com/version.json`  
 
 ---
 

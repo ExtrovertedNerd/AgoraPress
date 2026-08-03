@@ -36,6 +36,16 @@ class AP_Media
     public const DEFAULT_MAX_BYTES = 16777216;
 
     /**
+     * Runtime basedir override (tests). Takes precedence over AP_UPLOADS_DIR.
+     */
+    private static ?string $basedirOverride = null;
+
+    /**
+     * Runtime baseurl override (tests). Takes precedence over AP_UPLOADS_URL.
+     */
+    private static ?string $baseurlOverride = null;
+
+    /**
      * Extension → preferred MIME type map (allow-list for uploads).
      *
      * @var array<string, string>
@@ -256,10 +266,39 @@ HTACCESS;
     }
 
     /**
+     * Override uploads basedir for isolated tests (null clears).
+     */
+    public static function setBasedirOverride(?string $dir): void
+    {
+        if ($dir === null || $dir === '') {
+            self::$basedirOverride = null;
+
+            return;
+        }
+        self::$basedirOverride = rtrim(str_replace('\\', '/', $dir), '/');
+    }
+
+    /**
+     * Override uploads base URL for isolated tests (null clears).
+     */
+    public static function setBaseurlOverride(?string $url): void
+    {
+        if ($url === null || $url === '') {
+            self::$baseurlOverride = null;
+
+            return;
+        }
+        self::$baseurlOverride = rtrim($url, '/');
+    }
+
+    /**
      * Absolute filesystem path to ap-content/uploads (no trailing slash).
      */
     public static function basedir(): string
     {
+        if (self::$basedirOverride !== null) {
+            return self::$basedirOverride;
+        }
         if (defined('AP_UPLOADS_DIR') && is_string(AP_UPLOADS_DIR) && AP_UPLOADS_DIR !== '') {
             return rtrim(str_replace('\\', '/', (string) AP_UPLOADS_DIR), '/');
         }
@@ -278,6 +317,9 @@ HTACCESS;
      */
     public static function baseurl(): string
     {
+        if (self::$baseurlOverride !== null) {
+            return self::$baseurlOverride;
+        }
         if (defined('AP_UPLOADS_URL') && is_string(AP_UPLOADS_URL) && AP_UPLOADS_URL !== '') {
             return rtrim((string) AP_UPLOADS_URL, '/');
         }

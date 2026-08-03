@@ -1229,5 +1229,4 @@ class AP_User
 
         return [$sql, $params];
     }
-
 }

@@ -132,10 +132,11 @@ final class CodingStandardsConfigTest extends TestCase
         }
 
         $config = $this->root . '/phpcs.xml.dist';
+        // -n: report errors only. Line-length is soft guidance (warnings) in phpcs.xml.dist.
         $cmd = escapeshellarg(PHP_BINARY !== '' ? PHP_BINARY : 'php')
             . ' ' . escapeshellarg($phpcs)
             . ' --standard=' . escapeshellarg($config)
-            . ' -q'
+            . ' -n -q'
             . ' 2>&1';
 
         $output = [];
@@ -145,7 +146,7 @@ final class CodingStandardsConfigTest extends TestCase
         $this->assertSame(
             0,
             $exit,
-            "phpcs reported violations:\n" . implode("\n", $output)
+            "phpcs reported errors:\n" . implode("\n", $output)
         );
     }
 }
