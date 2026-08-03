@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/admin-bootstrap.php';
 
+AP_Admin::requireCapability('manage_options');
+
 AP_Admin::consumeQueryNotice();
 
 $userId = ap_get_current_user_id();
@@ -27,10 +29,14 @@ $pages = AP_Post::query([
     'limit' => 200,
 ], $db);
 
-// --- Save ---
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['ap_save_reading'])) {
+// --- Save (Settings API nonce group "reading" or legacy ap_options_reading) ---
+$isReadingPost = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'
+    && (isset($_POST['ap_save_reading']) || isset($_POST['ap_settings_submit']));
+if ($isReadingPost) {
     $nonce = (string) ($_POST['_ap_nonce'] ?? '');
-    if (!ap_check_nonce($nonce, 'ap_options_reading', $userId > 0 ? $userId : null)) {
+    $nonceOk = ap_check_nonce($nonce, 'ap_settings_reading', $userId > 0 ? $userId : null)
+        || ap_check_nonce($nonce, 'ap_options_reading', $userId > 0 ? $userId : null);
+    if (!$nonceOk) {
         AP_Admin::addNotice('Security check failed. Please try again.', 'error');
     } else {
         $ok = AP_Options::updateReadingSettings([
@@ -66,7 +72,13 @@ require __DIR__ . '/admin-header.php';
 <p>Control what visitors see on the front of your site and how many posts appear in lists and feeds.</p>
 
 <form method="post" action="" class="ap-form ap-form--settings">
-    <?php echo ap_nonce_field('ap_options_reading', '_ap_nonce', false); ?>
+    <?php
+    if (class_exists('AP_Settings', false)) {
+        AP_Settings::settingsFields('reading');
+    } else {
+        echo ap_nonce_field('ap_options_reading', '_ap_nonce', false);
+    }
+    ?>
 
     <fieldset class="ap-fieldset">
         <legend>Your homepage displays</legend>

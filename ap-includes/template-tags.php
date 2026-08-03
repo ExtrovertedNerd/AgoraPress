@@ -267,6 +267,42 @@ function ap_the_author(AP_Post|int|null $post = null, ?AP_DB $db = null): void
     echo ap_esc_html($name);
 }
 
+/**
+ * Avatar HTML for the post author (empty when avatars disabled or no author).
+ *
+ * @param array<string, mixed> $args Passed to {@see ap_get_avatar()}.
+ */
+function ap_get_the_author_avatar(
+    int $size = 96,
+    AP_Post|int|null $post = null,
+    array $args = [],
+    ?AP_DB $db = null
+): string {
+    $obj = ap_resolve_template_post($post);
+    if (!$obj instanceof AP_Post || $obj->post_author < 1) {
+        return '';
+    }
+    if (!function_exists('ap_get_avatar')) {
+        return '';
+    }
+
+    return ap_get_avatar($obj->post_author, $size, '', '', $args, $db);
+}
+
+/**
+ * Echo the post author avatar.
+ *
+ * @param array<string, mixed> $args
+ */
+function ap_the_author_avatar(
+    int $size = 96,
+    AP_Post|int|null $post = null,
+    array $args = [],
+    ?AP_DB $db = null
+): void {
+    echo ap_get_the_author_avatar($size, $post, $args, $db);
+}
+
 // -----------------------------------------------------------------------------
 // Site identity
 // -----------------------------------------------------------------------------

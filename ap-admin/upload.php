@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/admin-bootstrap.php';
 
+AP_Admin::requireCapability('upload_files');
+
 $listTable = new AP_Media_List_Table();
 $userId = ap_get_current_user_id();
 

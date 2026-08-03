@@ -17,7 +17,10 @@ use AP_Media;
 use AP_Media_List_Table;
 use AP_Migrator;
 use AP_Nonce;
+use AP_Options;
 use AP_Post;
+use AP_Roles;
+use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -32,6 +35,9 @@ final class MediaLibraryTest extends TestCase
     private static string $uploadsTmp = '';
 
     private AP_DB $db;
+
+    /** Privileged actor with upload_files (administrator). */
+    private int $actorId = 0;
 
     public static function setUpBeforeClass(): void
     {
@@ -77,10 +83,12 @@ final class MediaLibraryTest extends TestCase
         require_once $this->root . '/ap-includes/version.php';
         require_once $this->root . '/ap-includes/class-ap-db.php';
         require_once $this->root . '/ap-includes/class-ap-migrator.php';
+        require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
         require_once $this->root . '/ap-includes/class-ap-media.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-session.php';
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
         require_once $this->root . '/ap-includes/class-ap-nonce.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';
@@ -90,6 +98,8 @@ final class MediaLibraryTest extends TestCase
         // Clear leftover files between tests (shared uploads dir constant).
         $this->emptyDir(self::$uploadsTmp);
 
+        AP_Roles::flushCache();
+        AP_Options::flushCache();
         AP_Post::resetRegistry();
         AP_Admin::clearNotices();
 
@@ -102,11 +112,22 @@ final class MediaLibraryTest extends TestCase
 
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $migrator->migrate();
+        AP_Roles::ensureDefaults($this->db);
         AP_Post::ensureBuiltins();
+
+        $admin = AP_User::create([
+            'user_login' => 'mediaadmin',
+            'user_email' => 'mediaadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $this->actorId = (int) $admin['id'];
     }
 
     protected function tearDown(): void
     {
+        AP_Roles::flushCache();
+        AP_Options::flushCache();
         AP_Post::resetRegistry();
         AP_Admin::clearNotices();
         $this->emptyDir(self::$uploadsTmp);
@@ -261,21 +282,12 @@ final class MediaLibraryTest extends TestCase
         $gridHtml = $grid->render();
         $this->assertStringContainsString('ap-media-grid', $gridHtml);
 
-        $nonce = AP_Nonce::create('bulk-media', 1);
+        $nonce = ap_create_nonce('bulk-media', $this->actorId);
         $result = $table->processBulkAction([
             'action' => 'delete',
             '_ap_nonce' => $nonce,
             'media' => [$id1, $id2],
-        ]);
-        // Nonce was created for user 1; check uses current user (0) — create without user binding.
-        if (!$result['ok']) {
-            $nonce = ap_create_nonce('bulk-media');
-            $result = $table->processBulkAction([
-                'action' => 'delete',
-                '_ap_nonce' => $nonce,
-                'media' => [$id1, $id2],
-            ]);
-        }
+        ], $this->actorId);
 
         $this->assertTrue($result['ok'], implode('; ', $result['errors']));
         $this->assertSame(2, $result['count']);
@@ -285,7 +297,8 @@ final class MediaLibraryTest extends TestCase
     public function testAdminMediaSaveWithNonce(): void
     {
         $id = $this->seedAttachment('edit-me.txt', 'Edit Me', 'text/plain', "body\n");
-        $nonce = ap_create_nonce('update-media-' . $id, 7);
+        // Attachments with author 0 still editable by administrators via edit_others_posts.
+        $nonce = ap_create_nonce('update-media-' . $id, $this->actorId);
 
         $result = AP_Admin_Media::save([
             'attachment_id' => $id,
@@ -295,7 +308,7 @@ final class MediaLibraryTest extends TestCase
             'post_content' => 'Desc',
             'alt_text' => '',
             'post_parent' => 0,
-        ], 7, $this->db);
+        ], $this->actorId, $this->db);
 
         $this->assertTrue($result['ok'], implode('; ', $result['errors']));
         $post = AP_Post::get($id, $this->db);

@@ -95,15 +95,20 @@ class AP_Posts_List_Table
      *
      * @return array{ok: bool, message_key: string, count: int, errors: list<string>}
      */
-    public function processBulkAction(array $post): array
+    public function processBulkAction(array $post, int $actorId = 0): array
     {
         $action = (string) ($post['action'] ?? $post['action2'] ?? '-1');
         if ($action === '' || $action === '-1') {
             return ['ok' => false, 'message_key' => '', 'count' => 0, 'errors' => ['No bulk action selected.']];
         }
 
+        $db = $this->resolveDb();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
         $nonce = (string) ($post['_ap_nonce'] ?? '');
-        if (!ap_check_nonce($nonce, 'bulk-posts')) {
+        if (!ap_check_nonce($nonce, 'bulk-posts', $actorId > 0 ? $actorId : null)) {
             return ['ok' => false, 'message_key' => 'nonce', 'count' => 0, 'errors' => ['Security check failed.']];
         }
 
@@ -119,8 +124,6 @@ class AP_Posts_List_Table
         if ($ids === []) {
             return ['ok' => false, 'message_key' => '', 'count' => 0, 'errors' => ['No items selected.']];
         }
-
-        $db = $this->resolveDb();
         $count = 0;
         $errors = [];
 
@@ -128,6 +131,29 @@ class AP_Posts_List_Table
             $item = AP_Post::get($id, $db);
             if ($item === null || $item->post_type !== $this->postType) {
                 $errors[] = "Item #{$id} not found.";
+                continue;
+            }
+
+            $deleteCap = AP_Admin::deleteMetaCapForPostType($item->post_type);
+            $editCap = AP_Admin::editMetaCapForPostType($item->post_type);
+            $needed = match ($action) {
+                'trash', 'delete' => $deleteCap,
+                default => $editCap,
+            };
+            if (!AP_Admin::userCan($actorId, $needed, $id, $db)) {
+                $errors[] = "You do not have permission to modify #{$id}.";
+                continue;
+            }
+            if (
+                in_array($action, ['publish', 'private'], true)
+                && !AP_Admin::userCan(
+                    $actorId,
+                    AP_Admin::publishCapabilityForPostType($item->post_type),
+                    null,
+                    $db
+                )
+            ) {
+                $errors[] = "You do not have permission to publish #{$id}.";
                 continue;
             }
 

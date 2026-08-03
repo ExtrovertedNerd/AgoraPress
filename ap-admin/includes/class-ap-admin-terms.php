@@ -80,6 +80,16 @@ class AP_Admin_Terms
             ];
         }
 
+        if (!AP_Admin::userCan($userId, 'manage_categories', null, $db)) {
+            return [
+                'ok' => false,
+                'id' => $termId,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to manage terms.'],
+                'term' => $termId > 0 ? AP_Taxonomy::getTerm($termId, $taxonomy, $db) : null,
+            ];
+        }
+
         $name = ap_sanitize_text_field((string) ($input['name'] ?? ''));
         $slug = ap_sanitize_text_field((string) ($input['slug'] ?? ''));
         $description = ap_sanitize_textarea_field((string) ($input['description'] ?? ''));
@@ -173,6 +183,9 @@ class AP_Admin_Terms
         if (!ap_check_nonce($nonce, 'delete-tag-' . $termId, $userId > 0 ? $userId : null)) {
             return ['ok' => false, 'message_key' => 'nonce'];
         }
+        if (!AP_Admin::userCan($userId, 'manage_categories', null, $db)) {
+            return ['ok' => false, 'message_key' => 'error'];
+        }
         if ($termId < 1) {
             return ['ok' => false, 'message_key' => 'not_found'];
         }
@@ -207,6 +220,9 @@ class AP_Admin_Terms
         $taxonomy = self::resolveTaxonomy($taxonomy);
         if (!ap_check_nonce($nonce, 'bulk-tags', $userId > 0 ? $userId : null)) {
             return ['ok' => false, 'count' => 0, 'message_key' => 'nonce'];
+        }
+        if (!AP_Admin::userCan($userId, 'manage_categories', null, $db)) {
+            return ['ok' => false, 'count' => 0, 'message_key' => 'error'];
         }
         $count = 0;
         foreach ($ids as $id) {

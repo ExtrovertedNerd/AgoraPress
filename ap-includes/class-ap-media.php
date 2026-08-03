@@ -304,12 +304,25 @@ HTACCESS;
 
     /**
      * Whether to nest uploads under YYYY/MM.
+     *
+     * Constant {@see AP_UPLOADS_USE_YEARMONTH} overrides the site option when set.
+     * Option: uploads_use_yearmonth_folders (default on).
      */
-    public static function useYearMonthFolders(): bool
+    public static function useYearMonthFolders(?AP_DB $db = null): bool
     {
-        // Option API lands later; honor a constant override when set.
         if (defined('AP_UPLOADS_USE_YEARMONTH') && is_bool(AP_UPLOADS_USE_YEARMONTH)) {
             return (bool) AP_UPLOADS_USE_YEARMONTH;
+        }
+
+        if (class_exists('AP_Options', false)) {
+            $raw = strtolower(trim((string) AP_Options::get(self::OPTION_ORGANIZE, '1', $db)));
+
+            return !in_array($raw, ['0', 'false', 'no', 'off', ''], true);
+        }
+        if (function_exists('ap_get_option')) {
+            $raw = strtolower(trim((string) ap_get_option(self::OPTION_ORGANIZE, '1', $db)));
+
+            return !in_array($raw, ['0', 'false', 'no', 'off', ''], true);
         }
 
         return true;

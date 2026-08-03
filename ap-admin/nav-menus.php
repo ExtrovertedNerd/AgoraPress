@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/admin-bootstrap.php';
 
+AP_Admin::requireCapability('edit_theme_options');
+
 AP_Admin::consumeQueryNotice();
 
 // Load theme so locations registered in functions.php are available.

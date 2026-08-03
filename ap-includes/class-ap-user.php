@@ -154,6 +154,14 @@ class AP_User
      */
     private static function selectColumns(AP_DB $db): string
     {
+        return self::selectColumnsPrefixed($db, '');
+    }
+
+    /**
+     * Columns selected for user rows, optionally table-qualified (e.g. "u").
+     */
+    private static function selectColumnsPrefixed(AP_DB $db, string $alias = ''): string
+    {
         $cols = [
             'ID',
             'user_login',
@@ -167,9 +175,10 @@ class AP_User
             'display_name',
         ];
 
+        $prefix = $alias !== '' ? $alias . '.' : '';
         $quoted = [];
         foreach ($cols as $col) {
-            $quoted[] = $db->quoteIdentifier($col);
+            $quoted[] = $prefix . $db->quoteIdentifier($col);
         }
 
         return implode(', ', $quoted);
@@ -418,4 +427,807 @@ class AP_User
             'display_name' => $this->display_name,
         ];
     }
+
+    // -------------------------------------------------------------------------
+    // Create / update / delete
+    // -------------------------------------------------------------------------
+
+    /**
+     * Create a new user.
+     *
+     * Required keys: user_login, user_email, user_pass (or password).
+     * Optional: display_name, user_url, user_nicename, user_status, role,
+     * first_name, last_name, nickname, description.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array{ok: bool, id: int, errors: list<string>, user: ?self}
+     */
+    public static function create(array $data, ?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+
+        $login = self::sanitizeUserLogin((string) ($data['user_login'] ?? ''));
+        $email = self::sanitizeEmail((string) ($data['user_email'] ?? $data['email'] ?? ''));
+        $password = (string) ($data['user_pass'] ?? $data['password'] ?? '');
+        $url = self::sanitizeUrl((string) ($data['user_url'] ?? $data['url'] ?? ''));
+        $display = ap_sanitize_text_field((string) ($data['display_name'] ?? ''));
+        $status = (int) ($data['user_status'] ?? 0);
+        $nicename = self::sanitizeNicename((string) ($data['user_nicename'] ?? $login));
+
+        $errors = [];
+        if ($login === '') {
+            $errors[] = 'Username is required.';
+        } elseif (strlen($login) > 60) {
+            $errors[] = 'Username is too long (max 60 characters).';
+        } elseif (self::getByLogin($login, $db) !== null) {
+            $errors[] = 'That username is already registered.';
+        }
+
+        if ($email === '') {
+            $errors[] = 'Email is required.';
+        } elseif (!self::isValidEmail($email)) {
+            $errors[] = 'Please enter a valid email address.';
+        } elseif (self::getByEmail($email, $db) !== null) {
+            $errors[] = 'That email address is already registered.';
+        }
+
+        if ($password === '') {
+            $errors[] = 'Password is required.';
+        } elseif (strlen($password) < 8) {
+            $errors[] = 'Password must be at least 8 characters.';
+        }
+
+        if ($errors !== []) {
+            return ['ok' => false, 'id' => 0, 'errors' => $errors, 'user' => null];
+        }
+
+        if ($display === '') {
+            $display = $login;
+        }
+        if ($nicename === '') {
+            $nicename = self::sanitizeNicename($login);
+        }
+        $nicename = self::uniqueNicename($nicename, 0, $db);
+
+        $hash = self::hashPassword($password);
+        $registered = gmdate('Y-m-d H:i:s');
+
+        $ok = $db->insert('users', [
+            'user_login' => $login,
+            'user_pass' => $hash,
+            'user_nicename' => $nicename,
+            'user_email' => $email,
+            'user_url' => $url,
+            'user_registered' => $registered,
+            'user_activation_key' => '',
+            'user_status' => $status,
+            'display_name' => $display,
+        ]);
+
+        if ($ok === false) {
+            return [
+                'ok' => false,
+                'id' => 0,
+                'errors' => ['Could not create the user: ' . ($db->lastError() ?? 'unknown error')],
+                'user' => null,
+            ];
+        }
+
+        $id = (int) $db->lastInsertId();
+        if ($id < 1) {
+            return [
+                'ok' => false,
+                'id' => 0,
+                'errors' => ['User insert did not return an ID.'],
+                'user' => null,
+            ];
+        }
+
+        // Profile meta.
+        $nickname = ap_sanitize_text_field((string) ($data['nickname'] ?? $display));
+        if ($nickname === '') {
+            $nickname = $display;
+        }
+        self::updateMeta($id, 'nickname', $nickname, $db);
+        self::updateMeta($id, 'first_name', ap_sanitize_text_field((string) ($data['first_name'] ?? '')), $db);
+        self::updateMeta($id, 'last_name', ap_sanitize_text_field((string) ($data['last_name'] ?? '')), $db);
+        self::updateMeta($id, 'description', ap_sanitize_textarea_field((string) ($data['description'] ?? '')), $db);
+
+        // Role assignment.
+        $role = trim((string) ($data['role'] ?? ''));
+        if ($role === '') {
+            if (function_exists('ap_get_option')) {
+                $role = (string) ap_get_option('default_role', 'subscriber', $db);
+            } elseif (class_exists('AP_Options', false)) {
+                $role = (string) AP_Options::get('default_role', 'subscriber', $db);
+            } else {
+                $role = 'subscriber';
+            }
+        }
+        if ($role !== '' && class_exists('AP_Roles', false)) {
+            AP_Roles::ensureDefaults($db);
+            if (!AP_Roles::roleExists($role, $db)) {
+                $role = 'subscriber';
+            }
+            AP_Roles::setUserRole($id, $role, $db);
+        }
+
+        $user = self::getById($id, $db);
+
+        return ['ok' => true, 'id' => $id, 'errors' => [], 'user' => $user];
+    }
+
+    /**
+     * Update an existing user (core columns + optional profile meta + role).
+     *
+     * Username (user_login) is never changed after creation.
+     * Pass user_pass / password only when changing the password.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array{ok: bool, id: int, errors: list<string>, user: ?self}
+     */
+    public static function update(int $id, array $data, ?AP_DB $db = null): array
+    {
+        if ($id < 1) {
+            return ['ok' => false, 'id' => 0, 'errors' => ['Invalid user ID.'], 'user' => null];
+        }
+
+        $db = self::resolveDb($db);
+        $existing = self::getById($id, $db);
+        if ($existing === null) {
+            return ['ok' => false, 'id' => $id, 'errors' => ['User not found.'], 'user' => null];
+        }
+
+        $errors = [];
+        $cols = [];
+
+        if (array_key_exists('user_email', $data) || array_key_exists('email', $data)) {
+            $email = self::sanitizeEmail((string) ($data['user_email'] ?? $data['email'] ?? ''));
+            if ($email === '') {
+                $errors[] = 'Email is required.';
+            } elseif (!self::isValidEmail($email)) {
+                $errors[] = 'Please enter a valid email address.';
+            } else {
+                $other = self::getByEmail($email, $db);
+                if ($other !== null && $other->ID !== $id) {
+                    $errors[] = 'That email address is already registered.';
+                } else {
+                    $cols['user_email'] = $email;
+                }
+            }
+        }
+
+        if (array_key_exists('user_url', $data) || array_key_exists('url', $data)) {
+            $cols['user_url'] = self::sanitizeUrl((string) ($data['user_url'] ?? $data['url'] ?? ''));
+        }
+
+        if (array_key_exists('display_name', $data)) {
+            $display = ap_sanitize_text_field((string) $data['display_name']);
+            if ($display === '') {
+                $display = $existing->user_login;
+            }
+            $cols['display_name'] = $display;
+        }
+
+        if (array_key_exists('user_nicename', $data)) {
+            $nicename = self::sanitizeNicename((string) $data['user_nicename']);
+            if ($nicename === '') {
+                $nicename = self::sanitizeNicename($existing->user_login);
+            }
+            $cols['user_nicename'] = self::uniqueNicename($nicename, $id, $db);
+        }
+
+        if (array_key_exists('user_status', $data)) {
+            $cols['user_status'] = (int) $data['user_status'];
+        }
+
+        $newPassword = null;
+        if (array_key_exists('user_pass', $data) || array_key_exists('password', $data)) {
+            $password = (string) ($data['user_pass'] ?? $data['password'] ?? '');
+            // Empty password field means “leave unchanged”.
+            if ($password !== '') {
+                if (strlen($password) < 8) {
+                    $errors[] = 'Password must be at least 8 characters.';
+                } else {
+                    $newPassword = $password;
+                    $cols['user_pass'] = self::hashPassword($password);
+                }
+            }
+        }
+
+        if ($errors !== []) {
+            return ['ok' => false, 'id' => $id, 'errors' => $errors, 'user' => $existing];
+        }
+
+        if ($cols !== []) {
+            $result = $db->update('users', $cols, ['ID' => $id]);
+            if ($result === false) {
+                return [
+                    'ok' => false,
+                    'id' => $id,
+                    'errors' => ['Could not update the user: ' . ($db->lastError() ?? 'unknown error')],
+                    'user' => $existing,
+                ];
+            }
+        }
+
+        // Profile meta (only when keys present).
+        foreach (['first_name', 'last_name', 'nickname'] as $metaKey) {
+            if (array_key_exists($metaKey, $data)) {
+                self::updateMeta($id, $metaKey, ap_sanitize_text_field((string) $data[$metaKey]), $db);
+            }
+        }
+        if (array_key_exists('description', $data)) {
+            self::updateMeta(
+                $id,
+                'description',
+                ap_sanitize_textarea_field((string) $data['description']),
+                $db
+            );
+        }
+
+        // Role (when provided and roles API is available).
+        if (array_key_exists('role', $data) && class_exists('AP_Roles', false)) {
+            $role = trim((string) $data['role']);
+            if ($role !== '') {
+                AP_Roles::ensureDefaults($db);
+                if (AP_Roles::roleExists($role, $db)) {
+                    AP_Roles::setUserRole($id, $role, $db);
+                }
+            }
+        }
+
+        // Password change invalidates sessions (same as updatePassword).
+        if ($newPassword !== null && class_exists('AP_Session', false)) {
+            AP_Session::destroyAllSessionTokens($id, $db);
+            if (function_exists('ap_get_current_user_id') && ap_get_current_user_id($db) === $id) {
+                AP_Session::resetCurrentUser();
+            }
+        }
+
+        $user = self::getById($id, $db);
+
+        return ['ok' => true, 'id' => $id, 'errors' => [], 'user' => $user];
+    }
+
+    /**
+     * Permanently delete a user and all usermeta.
+     *
+     * Does not reassign posts (caller may do that later). Returns false when
+     * the user does not exist or the delete fails.
+     */
+    public static function delete(int $id, ?AP_DB $db = null): bool
+    {
+        if ($id < 1) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        $existing = self::getById($id, $db);
+        if ($existing === null) {
+            return false;
+        }
+
+        if (class_exists('AP_Session', false)) {
+            AP_Session::destroyAllSessionTokens($id, $db);
+        }
+
+        // Drop local avatar file before wiping usermeta (meta holds the attachment id).
+        if (class_exists('AP_Avatar', false)) {
+            AP_Avatar::deleteLocal($id, true, $db);
+        }
+
+        self::deleteAllMeta($id, $db);
+
+        $result = $db->delete('users', ['ID' => $id]);
+        if ($result === false) {
+            return false;
+        }
+
+        if (class_exists('AP_Roles', false)) {
+            AP_Roles::flushCache();
+        }
+
+        return true;
+    }
+
+    /**
+     * Query users with optional search, role filter, and pagination.
+     *
+     * @param array{
+     *     search?: string,
+     *     role?: string,
+     *     orderby?: string,
+     *     order?: string,
+     *     number?: int,
+     *     offset?: int,
+     *     include?: list<int>,
+     *     exclude?: list<int>
+     * } $args
+     *
+     * @return list<self>
+     */
+    public static function query(array $args = [], ?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+        [$sql, $params] = self::buildQuerySql($args, false, $db);
+        $rows = $db->getResults($sql, $params);
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $users = [];
+        foreach ($rows as $row) {
+            $users[] = self::fromRow($row);
+        }
+
+        return $users;
+    }
+
+    /**
+     * Count users matching the same filters as {@see self::query()}.
+     *
+     * @param array<string, mixed> $args
+     */
+    public static function count(array $args = [], ?AP_DB $db = null): int
+    {
+        $db = self::resolveDb($db);
+        [$sql, $params] = self::buildQuerySql($args, true, $db);
+        $n = $db->getVar($sql, $params);
+
+        return max(0, (int) $n);
+    }
+
+    /**
+     * Count users per role (including those with no registered role as '').
+     *
+     * @return array<string, int> role slug => count; key '' = no role
+     */
+    public static function countByRole(?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+        $counts = ['' => 0];
+        if (class_exists('AP_Roles', false)) {
+            AP_Roles::ensureDefaults($db);
+            foreach (array_keys(AP_Roles::getRoles($db)) as $slug) {
+                $counts[(string) $slug] = 0;
+            }
+        }
+
+        $users = self::query(['number' => 0], $db);
+        foreach ($users as $user) {
+            $role = '';
+            if (class_exists('AP_Roles', false)) {
+                $role = AP_Roles::getUserRole($user->ID, $db);
+            }
+            if (!isset($counts[$role])) {
+                $counts[$role] = 0;
+            }
+            $counts[$role]++;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Count published/public content posts authored by a user (not revisions).
+     */
+    public static function countPosts(int $userId, ?AP_DB $db = null): int
+    {
+        if ($userId < 1) {
+            return 0;
+        }
+
+        $db = self::resolveDb($db);
+        try {
+            $table = $db->quoteIdentifier($db->table('posts'));
+            $n = $db->getVar(
+                'SELECT COUNT(*) FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('post_author') . ' = ?'
+                . ' AND ' . $db->quoteIdentifier('post_type') . ' IN (?, ?)'
+                . ' AND ' . $db->quoteIdentifier('post_status') . ' NOT IN (?, ?, ?)',
+                [$userId, 'post', 'page', 'trash', 'auto-draft', 'inherit']
+            );
+
+            return max(0, (int) $n);
+        } catch (Throwable) {
+            return 0;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Usermeta
+    // -------------------------------------------------------------------------
+
+    /**
+     * Fetch a single usermeta value (first row for the key), or null.
+     */
+    public static function getMeta(int $userId, string $metaKey, ?AP_DB $db = null): ?string
+    {
+        if ($userId < 1 || $metaKey === '') {
+            return null;
+        }
+
+        $db = self::resolveDb($db);
+        try {
+            $raw = $db->getVar(
+                'SELECT meta_value FROM ' . $db->quoteIdentifier($db->table('usermeta'))
+                . ' WHERE user_id = ? AND meta_key = ? LIMIT 1',
+                [$userId, $metaKey]
+            );
+        } catch (Throwable) {
+            return null;
+        }
+
+        if ($raw === null) {
+            return null;
+        }
+
+        return (string) $raw;
+    }
+
+    /**
+     * Insert or update a usermeta key.
+     */
+    public static function updateMeta(
+        int $userId,
+        string $metaKey,
+        string $metaValue,
+        ?AP_DB $db = null
+    ): bool {
+        if ($userId < 1 || $metaKey === '') {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        try {
+            $existing = $db->getVar(
+                'SELECT umeta_id FROM ' . $db->quoteIdentifier($db->table('usermeta'))
+                . ' WHERE user_id = ? AND meta_key = ? LIMIT 1',
+                [$userId, $metaKey]
+            );
+
+            if ($existing !== null && $existing !== '') {
+                return $db->update(
+                    'usermeta',
+                    ['meta_value' => $metaValue],
+                    [
+                        'user_id' => $userId,
+                        'meta_key' => $metaKey,
+                    ]
+                ) !== false;
+            }
+
+            return $db->insert('usermeta', [
+                'user_id' => $userId,
+                'meta_key' => $metaKey,
+                'meta_value' => $metaValue,
+            ]) !== false;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Delete one usermeta key for a user.
+     */
+    public static function deleteMeta(int $userId, string $metaKey, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || $metaKey === '') {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        try {
+            return $db->delete('usermeta', [
+                'user_id' => $userId,
+                'meta_key' => $metaKey,
+            ]) !== false;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Delete all usermeta rows for a user.
+     */
+    public static function deleteAllMeta(int $userId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        try {
+            // Delete by user_id only.
+            return $db->delete('usermeta', ['user_id' => $userId]) !== false;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Profile meta bag used by admin forms.
+     *
+     * @return array{first_name: string, last_name: string, nickname: string, description: string}
+     */
+    public static function getProfileMeta(int $userId, ?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+
+        return [
+            'first_name' => (string) (self::getMeta($userId, 'first_name', $db) ?? ''),
+            'last_name' => (string) (self::getMeta($userId, 'last_name', $db) ?? ''),
+            'nickname' => (string) (self::getMeta($userId, 'nickname', $db) ?? ''),
+            'description' => (string) (self::getMeta($userId, 'description', $db) ?? ''),
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Sanitization / helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Sanitize a login name: strip tags, spaces → empty, allow a-z0-9 _ . @ - +
+     * Lowercased for consistency.
+     */
+    public static function sanitizeUserLogin(string $login): string
+    {
+        $login = trim($login);
+        $login = strip_tags($login);
+        $login = preg_replace('/\s+/', '', $login) ?? '';
+        // Disallow control chars and path-ish characters.
+        $login = preg_replace('/[^\w.@+\-]/u', '', $login) ?? '';
+        $login = trim($login);
+
+        return $login;
+    }
+
+    /**
+     * URL-safe nicename from a display string or login.
+     */
+    public static function sanitizeNicename(string $value): string
+    {
+        $value = strtolower(trim($value));
+        $value = preg_replace('/[^a-z0-9\-]+/', '-', $value) ?? '';
+        $value = trim($value, '-');
+        if (strlen($value) > 50) {
+            $value = substr($value, 0, 50);
+            $value = rtrim($value, '-');
+        }
+
+        return $value;
+    }
+
+    /**
+     * Sanitize a website URL (empty allowed).
+     */
+    public static function sanitizeUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+        // Add scheme when missing so filter_var accepts common inputs.
+        if (!preg_match('#^https?://#i', $url)) {
+            $url = 'https://' . $url;
+        }
+        $filtered = filter_var($url, FILTER_SANITIZE_URL);
+        if (!is_string($filtered) || $filtered === '') {
+            return '';
+        }
+        if (filter_var($filtered, FILTER_VALIDATE_URL) === false) {
+            return '';
+        }
+        if (strlen($filtered) > 100) {
+            $filtered = substr($filtered, 0, 100);
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * Normalize an email address.
+     */
+    public static function sanitizeEmail(string $email): string
+    {
+        $email = trim($email);
+        $email = str_replace(["\r", "\n", "\0", ' '], '', $email);
+        if (strlen($email) > 100) {
+            $email = substr($email, 0, 100);
+        }
+
+        return $email;
+    }
+
+    /**
+     * Whether the email looks valid.
+     */
+    public static function isValidEmail(string $email): bool
+    {
+        if ($email === '') {
+            return false;
+        }
+
+        return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
+    }
+
+    /**
+     * Generate a random password (cryptographically secure when possible).
+     */
+    public static function generatePassword(int $length = 16): string
+    {
+        $length = max(8, min(64, $length));
+        $alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%^&*';
+        $max = strlen($alphabet) - 1;
+        $out = '';
+        for ($i = 0; $i < $length; $i++) {
+            $out .= $alphabet[random_int(0, $max)];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Ensure nicename is unique (appends -2, -3, … when needed).
+     */
+    public static function uniqueNicename(string $nicename, int $excludeId = 0, ?AP_DB $db = null): string
+    {
+        $db = self::resolveDb($db);
+        $base = $nicename !== '' ? $nicename : 'user';
+        $candidate = $base;
+        $n = 2;
+        while (true) {
+            $existing = self::getByNicename($candidate, $db);
+            if ($existing === null || ($excludeId > 0 && $existing->ID === $excludeId)) {
+                return $candidate;
+            }
+            $suffix = '-' . $n;
+            $trimLen = 50 - strlen($suffix);
+            $candidate = ($trimLen > 0 ? substr($base, 0, $trimLen) : 'user') . $suffix;
+            $candidate = trim($candidate, '-');
+            $n++;
+            if ($n > 1000) {
+                return $base . '-' . bin2hex(random_bytes(3));
+            }
+        }
+    }
+
+    /**
+     * Whether the user is the last remaining administrator.
+     */
+    public static function isLastAdministrator(int $userId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || !class_exists('AP_Roles', false)) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        $role = AP_Roles::getUserRole($userId, $db);
+        if ($role !== 'administrator') {
+            return false;
+        }
+
+        $admins = 0;
+        foreach (self::query(['role' => 'administrator', 'number' => 0], $db) as $user) {
+            $admins++;
+            if ($admins > 1) {
+                return false;
+            }
+        }
+
+        return $admins === 1;
+    }
+
+    /**
+     * Build SELECT / COUNT SQL for user queries.
+     *
+     * @param array<string, mixed> $args
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private static function buildQuerySql(array $args, bool $countOnly, AP_DB $db): array
+    {
+        $users = $db->quoteIdentifier($db->table('users'));
+        $idCol = $db->quoteIdentifier('ID');
+        $loginCol = $db->quoteIdentifier('user_login');
+        $emailCol = $db->quoteIdentifier('user_email');
+        $displayCol = $db->quoteIdentifier('display_name');
+        $registeredCol = $db->quoteIdentifier('user_registered');
+
+        $role = trim((string) ($args['role'] ?? ''));
+        $search = trim((string) ($args['search'] ?? ''));
+        $include = $args['include'] ?? [];
+        $exclude = $args['exclude'] ?? [];
+        if (!is_array($include)) {
+            $include = [];
+        }
+        if (!is_array($exclude)) {
+            $exclude = [];
+        }
+        $include = array_values(array_filter(array_map('intval', $include), static fn (int $i): bool => $i > 0));
+        $exclude = array_values(array_filter(array_map('intval', $exclude), static fn (int $i): bool => $i > 0));
+
+        $joins = '';
+        $where = ['1=1'];
+        $params = [];
+
+        if ($role !== '') {
+            $usermeta = $db->quoteIdentifier($db->table('usermeta'));
+            $metaKey = class_exists('AP_Roles', false)
+                ? AP_Roles::META_CAPABILITIES
+                : 'ap_capabilities';
+            // Role membership is stored as a serialized map key; match quoted slug.
+            $joins .= ' INNER JOIN ' . $usermeta . ' um_role ON um_role.user_id = u.' . $idCol
+                . ' AND um_role.meta_key = ? AND um_role.meta_value LIKE ?';
+            $params[] = $metaKey;
+            // Role slug is a controlled token; strip LIKE wildcards from it.
+            $roleToken = str_replace(['%', '_'], '', $role);
+            $params[] = '%"' . $roleToken . '"%';
+        }
+
+        if ($search !== '') {
+            // Treat %/_ as literals by stripping them (search still useful).
+            $needle = str_replace(['%', '_'], '', $search);
+            $like = '%' . $needle . '%';
+            $where[] = '(u.' . $loginCol . ' LIKE ? OR u.' . $emailCol
+                . ' LIKE ? OR u.' . $displayCol . ' LIKE ?)';
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        if ($include !== []) {
+            $placeholders = implode(', ', array_fill(0, count($include), '?'));
+            $where[] = 'u.' . $idCol . ' IN (' . $placeholders . ')';
+            foreach ($include as $i) {
+                $params[] = $i;
+            }
+        }
+
+        if ($exclude !== []) {
+            $placeholders = implode(', ', array_fill(0, count($exclude), '?'));
+            $where[] = 'u.' . $idCol . ' NOT IN (' . $placeholders . ')';
+            foreach ($exclude as $i) {
+                $params[] = $i;
+            }
+        }
+
+        $whereSql = implode(' AND ', $where);
+
+        if ($countOnly) {
+            $sql = 'SELECT COUNT(DISTINCT u.' . $idCol . ') FROM ' . $users . ' u' . $joins
+                . ' WHERE ' . $whereSql;
+
+            return [$sql, $params];
+        }
+
+        $orderby = strtolower((string) ($args['orderby'] ?? 'login'));
+        $orderCol = match ($orderby) {
+            'id' => 'u.' . $idCol,
+            'email' => 'u.' . $emailCol,
+            'registered', 'date' => 'u.' . $registeredCol,
+            'display_name', 'name' => 'u.' . $displayCol,
+            default => 'u.' . $loginCol,
+        };
+        $order = strtoupper((string) ($args['order'] ?? 'ASC')) === 'DESC' ? 'DESC' : 'ASC';
+
+        $number = (int) ($args['number'] ?? 20);
+        // number=0 means no LIMIT (all matching rows).
+        $offset = max(0, (int) ($args['offset'] ?? 0));
+
+        $sql = 'SELECT DISTINCT ' . self::selectColumnsPrefixed($db, 'u')
+            . ' FROM ' . $users . ' u' . $joins
+            . ' WHERE ' . $whereSql
+            . ' ORDER BY ' . $orderCol . ' ' . $order;
+
+        if ($number > 0) {
+            $sql .= ' LIMIT ' . max(1, min(500, $number)) . ' OFFSET ' . $offset;
+        }
+
+        return [$sql, $params];
+    }
+
 }

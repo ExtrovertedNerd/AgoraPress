@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/admin-bootstrap.php';
 
+AP_Admin::requireCapability('manage_categories');
+
 AP_Admin::consumeQueryNotice();
 
 $taxonomy = AP_Admin_Terms::resolveTaxonomy((string) ($_REQUEST['taxonomy'] ?? 'category'));

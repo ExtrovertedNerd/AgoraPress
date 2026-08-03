@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/admin-bootstrap.php';
 
+AP_Admin::requireCapability('moderate_comments');
+
 $listTable = new AP_Comments_List_Table();
 
 // Single-row actions via GET.

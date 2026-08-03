@@ -40,6 +40,16 @@ class AP_Admin_Media
             ];
         }
 
+        if (!AP_Admin::userCan($userId, 'upload_files', null, $db)) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'count' => 0,
+                'ids' => [],
+                'errors' => ['You do not have permission to upload files.'],
+            ];
+        }
+
         $normalized = self::normalizeFilesArray($files);
         if ($normalized === []) {
             return [
@@ -135,6 +145,20 @@ class AP_Admin_Media
                 'message_key' => 'not_found',
                 'errors' => ['That attachment could not be found.'],
                 'post' => null,
+            ];
+        }
+
+        // Meta-cap maps own vs others; also require upload_files for media library access.
+        if (
+            !AP_Admin::userCan($userId, 'upload_files', null, $db)
+            || !AP_Admin::userCan($userId, 'edit_post', $id, $db)
+        ) {
+            return [
+                'ok' => false,
+                'id' => $id,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to edit this media item.'],
+                'post' => $post,
             ];
         }
 

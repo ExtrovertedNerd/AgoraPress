@@ -122,15 +122,20 @@ class AP_Media_List_Table
      *
      * @return array{ok: bool, message_key: string, count: int, errors: list<string>}
      */
-    public function processBulkAction(array $post): array
+    public function processBulkAction(array $post, int $actorId = 0): array
     {
         $action = (string) ($post['action'] ?? $post['action2'] ?? '-1');
         if ($action === '' || $action === '-1') {
             return ['ok' => false, 'message_key' => '', 'count' => 0, 'errors' => ['No bulk action selected.']];
         }
 
+        $db = $this->resolveDb();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
         $nonce = (string) ($post['_ap_nonce'] ?? '');
-        if (!ap_check_nonce($nonce, 'bulk-media')) {
+        if (!ap_check_nonce($nonce, 'bulk-media', $actorId > 0 ? $actorId : null)) {
             return ['ok' => false, 'message_key' => 'nonce', 'count' => 0, 'errors' => ['Security check failed.']];
         }
 
@@ -147,12 +152,24 @@ class AP_Media_List_Table
             return ['ok' => false, 'message_key' => '', 'count' => 0, 'errors' => ['No items selected.']];
         }
 
-        $db = $this->resolveDb();
+        if (!AP_Admin::userCan($actorId, 'upload_files', null, $db)) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'count' => 0,
+                'errors' => ['You do not have permission to manage media.'],
+            ];
+        }
+
         $count = 0;
         $errors = [];
 
         foreach ($ids as $id) {
             if ($action === 'delete') {
+                if (!AP_Admin::userCan($actorId, 'delete_post', $id, $db)) {
+                    $errors[] = "You do not have permission to delete attachment #{$id}.";
+                    continue;
+                }
                 $ok = AP_Media::deleteAttachment($id, $db);
             } else {
                 $ok = false;
@@ -176,7 +193,7 @@ class AP_Media_List_Table
     /**
      * @return array{ok: bool, message_key: string, errors: list<string>}
      */
-    public function processRowAction(array $get): array
+    public function processRowAction(array $get, int $actorId = 0): array
     {
         $action = (string) ($get['action'] ?? '');
         $id = (int) ($get['media'] ?? $get['post'] ?? 0);
@@ -186,11 +203,27 @@ class AP_Media_List_Table
             return ['ok' => false, 'message_key' => '', 'errors' => ['Invalid action.']];
         }
 
-        if (!ap_check_nonce($nonce, 'delete-media-' . $id)) {
+        $db = $this->resolveDb();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
+        if (!ap_check_nonce($nonce, 'delete-media-' . $id, $actorId > 0 ? $actorId : null)) {
             return ['ok' => false, 'message_key' => 'nonce', 'errors' => ['Security check failed.']];
         }
 
-        $ok = AP_Media::deleteAttachment($id, $this->resolveDb());
+        if (
+            !AP_Admin::userCan($actorId, 'upload_files', null, $db)
+            || !AP_Admin::userCan($actorId, 'delete_post', $id, $db)
+        ) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to delete this media item.'],
+            ];
+        }
+
+        $ok = AP_Media::deleteAttachment($id, $db);
 
         return [
             'ok' => $ok,

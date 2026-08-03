@@ -15,9 +15,12 @@ use AP_Admin_Post_Edit;
 use AP_DB;
 use AP_Migrator;
 use AP_Nonce;
+use AP_Options;
 use AP_Post;
 use AP_Posts_List_Table;
+use AP_Roles;
 use AP_Taxonomy;
+use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -31,18 +34,23 @@ final class AdminPostsTest extends TestCase
 
     private AP_DB $db;
 
+    /** Privileged actor for form/list actions (administrator). */
+    private int $actorId = 0;
+
     protected function setUp(): void
     {
         $this->root = dirname(__DIR__, 2);
         require_once $this->root . '/ap-includes/version.php';
         require_once $this->root . '/ap-includes/class-ap-db.php';
         require_once $this->root . '/ap-includes/class-ap-migrator.php';
+        require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
         require_once $this->root . '/ap-includes/class-ap-taxonomy.php';
         require_once $this->root . '/ap-includes/class-ap-query.php';
         require_once $this->root . '/ap-includes/class-ap-rewrite.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-session.php';
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
         require_once $this->root . '/ap-includes/class-ap-nonce.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';
@@ -63,6 +71,8 @@ final class AdminPostsTest extends TestCase
             define('AP_LOGGED_IN_SALT', 'test-logged-in-salt-' . str_repeat('b', 32));
         }
 
+        AP_Roles::flushCache();
+        AP_Options::flushCache();
         AP_Post::resetRegistry();
         AP_Taxonomy::resetRegistry();
         AP_Admin::clearNotices();
@@ -76,12 +86,23 @@ final class AdminPostsTest extends TestCase
 
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $migrator->migrate();
+        AP_Roles::ensureDefaults($this->db);
         AP_Post::ensureBuiltins();
         AP_Taxonomy::ensureBuiltins();
+
+        $admin = AP_User::create([
+            'user_login' => 'postadmin',
+            'user_email' => 'postadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $this->actorId = (int) $admin['id'];
     }
 
     protected function tearDown(): void
     {
+        AP_Roles::flushCache();
+        AP_Options::flushCache();
         AP_Post::resetRegistry();
         AP_Taxonomy::resetRegistry();
         AP_Admin::clearNotices();
@@ -116,19 +137,19 @@ final class AdminPostsTest extends TestCase
             'post_title' => 'Published One',
             'post_type' => 'post',
             'post_status' => 'publish',
-            'post_author' => 1,
+            'post_author' => $this->actorId,
         ], $this->db);
         AP_Post::insert([
             'post_title' => 'Draft Two',
             'post_type' => 'post',
             'post_status' => 'draft',
-            'post_author' => 1,
+            'post_author' => $this->actorId,
         ], $this->db);
         AP_Post::insert([
             'post_title' => 'Trashed Three',
             'post_type' => 'post',
             'post_status' => 'publish',
-            'post_author' => 1,
+            'post_author' => $this->actorId,
         ], $this->db);
         $trashId = (int) $this->db->getVar(
             'SELECT ID FROM ' . $this->db->quoteIdentifier($this->db->table('posts'))
@@ -196,13 +217,13 @@ final class AdminPostsTest extends TestCase
             'post_title' => 'In News',
             'post_type' => 'post',
             'post_status' => 'publish',
-            'post_author' => 1,
+            'post_author' => $this->actorId,
         ], $this->db);
         $p2 = AP_Post::insert([
             'post_title' => 'Other Cat',
             'post_type' => 'post',
             'post_status' => 'publish',
-            'post_author' => 1,
+            'post_author' => $this->actorId,
         ], $this->db);
         AP_Taxonomy::setObjectTerms($p1, [$catId], 'category', false, $this->db);
         AP_Taxonomy::setObjectTerms($p2, [AP_Taxonomy::getDefaultCategoryId($this->db)], 'category', false, $this->db);
@@ -233,7 +254,7 @@ final class AdminPostsTest extends TestCase
     {
         $cat = AP_Taxonomy::insertTerm('Tech', 'category', [], $this->db);
         $catId = (int) $cat['term_id'];
-        $nonce = ap_create_nonce('new-post', 1);
+        $nonce = ap_create_nonce('new-post', $this->actorId);
         $result = AP_Admin_Post_Edit::save([
             'post_title' => 'Taxed Post',
             'post_content' => 'Body',
@@ -242,7 +263,7 @@ final class AdminPostsTest extends TestCase
             'post_category' => [$catId],
             'tax_input' => ['post_tag' => 'php, sqlite'],
             '_ap_nonce' => $nonce,
-        ], 1, $this->db);
+        ], $this->actorId, $this->db);
 
         $this->assertTrue($result['ok']);
         $id = (int) $result['id'];
@@ -280,24 +301,24 @@ final class AdminPostsTest extends TestCase
         ], $this->db);
 
         $table = new AP_Posts_List_Table('post', $this->db);
-        $nonce = ap_create_nonce('bulk-posts');
+        $nonce = ap_create_nonce('bulk-posts', $this->actorId);
         $result = $table->processBulkAction([
             'action' => 'trash',
             '_ap_nonce' => $nonce,
             'post' => [$id1, $id2],
-        ]);
+        ], $this->actorId);
         $this->assertTrue($result['ok']);
         $this->assertSame(2, $result['count']);
         $this->assertSame('bulk_trashed', $result['message_key']);
         $this->assertSame('trash', AP_Post::get($id1, $this->db)?->post_status);
         $this->assertSame('trash', AP_Post::get($id2, $this->db)?->post_status);
 
-        $nonce2 = ap_create_nonce('bulk-posts');
+        $nonce2 = ap_create_nonce('bulk-posts', $this->actorId);
         $result2 = $table->processBulkAction([
             'action' => 'untrash',
             '_ap_nonce' => $nonce2,
             'post' => [$id1],
-        ]);
+        ], $this->actorId);
         $this->assertTrue($result2['ok']);
         $this->assertSame('publish', AP_Post::get($id1, $this->db)?->post_status);
     }
@@ -322,7 +343,7 @@ final class AdminPostsTest extends TestCase
 
     public function testSaveCreatesAndUpdatesPost(): void
     {
-        $nonce = ap_create_nonce('new-post', 1);
+        $nonce = ap_create_nonce('new-post', $this->actorId);
         $result = AP_Admin_Post_Edit::save([
             'post_title' => 'Hello Admin',
             'post_content' => '<p>Body</p>',
@@ -332,7 +353,7 @@ final class AdminPostsTest extends TestCase
             'visibility' => 'public',
             'comment_status' => 'open',
             '_ap_nonce' => $nonce,
-        ], 1, $this->db);
+        ], $this->actorId, $this->db);
 
         $this->assertTrue($result['ok']);
         $this->assertGreaterThan(0, $result['id']);
@@ -343,7 +364,7 @@ final class AdminPostsTest extends TestCase
         $this->assertSame('publish', $post->post_status);
         $this->assertSame('open', $post->comment_status);
 
-        $updateNonce = ap_create_nonce('update-post-' . $result['id'], 1);
+        $updateNonce = ap_create_nonce('update-post-' . $result['id'], $this->actorId);
         $result2 = AP_Admin_Post_Edit::save([
             'post_ID' => $result['id'],
             'post_title' => 'Hello Updated',
@@ -353,7 +374,7 @@ final class AdminPostsTest extends TestCase
             'save_action' => 'draft',
             'visibility' => 'public',
             '_ap_nonce' => $updateNonce,
-        ], 1, $this->db);
+        ], $this->actorId, $this->db);
 
         $this->assertTrue($result2['ok']);
         $this->assertSame('updated', $result2['message_key']);
@@ -370,7 +391,7 @@ final class AdminPostsTest extends TestCase
             'post_status' => 'publish',
         ], $this->db);
 
-        $nonce = ap_create_nonce('new-post', 1);
+        $nonce = ap_create_nonce('new-post', $this->actorId);
         $result = AP_Admin_Post_Edit::save([
             'post_title' => 'Child Page',
             'post_content' => 'Child body',
@@ -382,7 +403,7 @@ final class AdminPostsTest extends TestCase
             'save_action' => 'publish',
             'visibility' => 'public',
             '_ap_nonce' => $nonce,
-        ], 1, $this->db);
+        ], $this->actorId, $this->db);
 
         $this->assertTrue($result['ok'], implode('; ', $result['errors']));
         $page = AP_Post::get($result['id'], $this->db);
@@ -396,7 +417,7 @@ final class AdminPostsTest extends TestCase
 
     public function testSavePasswordProtectedAndPrivate(): void
     {
-        $nonce = ap_create_nonce('new-post', 1);
+        $nonce = ap_create_nonce('new-post', $this->actorId);
         $result = AP_Admin_Post_Edit::save([
             'post_title' => 'Secret',
             'post_content' => 'shh',
@@ -406,12 +427,12 @@ final class AdminPostsTest extends TestCase
             'post_password' => 's3cret',
             'save_action' => 'publish',
             '_ap_nonce' => $nonce,
-        ], 1, $this->db);
+        ], $this->actorId, $this->db);
         $this->assertTrue($result['ok']);
         $post = AP_Post::get($result['id'], $this->db);
         $this->assertSame('s3cret', $post?->post_password);
 
-        $nonce2 = ap_create_nonce('update-post-' . $result['id'], 1);
+        $nonce2 = ap_create_nonce('update-post-' . $result['id'], $this->actorId);
         $result2 = AP_Admin_Post_Edit::save([
             'post_ID' => $result['id'],
             'post_title' => 'Secret',
@@ -421,7 +442,7 @@ final class AdminPostsTest extends TestCase
             'visibility' => 'private',
             'save_action' => 'publish',
             '_ap_nonce' => $nonce2,
-        ], 1, $this->db);
+        ], $this->actorId, $this->db);
         $this->assertTrue($result2['ok']);
         $post2 = AP_Post::get($result['id'], $this->db);
         $this->assertSame('private', $post2?->post_status);
@@ -435,12 +456,12 @@ final class AdminPostsTest extends TestCase
             'post_type' => 'post',
             'post_status' => 'publish',
         ], $this->db);
-        $nonce = ap_create_nonce('post-row-' . $id);
+        $nonce = ap_create_nonce('post-row-' . $id, $this->actorId);
         $result = AP_Admin_Post_Edit::processRowAction([
             'action' => 'trash',
             'post' => $id,
             '_ap_nonce' => $nonce,
-        ], $this->db);
+        ], $this->db, $this->actorId);
         $this->assertTrue($result['ok']);
         $this->assertSame('trashed', $result['message_key']);
         $this->assertSame('trash', AP_Post::get($id, $this->db)?->post_status);
@@ -448,7 +469,7 @@ final class AdminPostsTest extends TestCase
 
     public function testRenderFormContainsFields(): void
     {
-        $html = AP_Admin_Post_Edit::renderForm(null, 'post', 1, $this->db);
+        $html = AP_Admin_Post_Edit::renderForm(null, 'post', $this->actorId, $this->db);
         $this->assertStringContainsString('name="post_title"', $html);
         $this->assertStringContainsString('name="post_content"', $html);
         $this->assertStringContainsString('name="post_status"', $html);
@@ -456,7 +477,7 @@ final class AdminPostsTest extends TestCase
         $this->assertStringContainsString('name="sticky"', $html);
         $this->assertStringContainsString('_ap_nonce', $html);
 
-        $pageHtml = AP_Admin_Post_Edit::renderForm(null, 'page', 1, $this->db);
+        $pageHtml = AP_Admin_Post_Edit::renderForm(null, 'page', $this->actorId, $this->db);
         $this->assertStringContainsString('name="post_parent"', $pageHtml);
         $this->assertStringContainsString('name="menu_order"', $pageHtml);
         $this->assertStringContainsString('Page Attributes', $pageHtml);
@@ -488,10 +509,10 @@ final class AdminPostsTest extends TestCase
             'post_content' => 'Live body',
             'post_type' => 'post',
             'post_status' => 'publish',
-            'post_author' => 1,
+            'post_author' => $this->actorId,
         ], $this->db);
 
-        $nonce = ap_create_nonce('update-post-' . $id, 1);
+        $nonce = ap_create_nonce('update-post-' . $id, $this->actorId);
         $result = AP_Admin_Post_Edit::save([
             'post_ID' => $id,
             'post_title' => 'In progress title',
@@ -499,7 +520,7 @@ final class AdminPostsTest extends TestCase
             'post_type' => 'post',
             'save_action' => 'autosave',
             '_ap_nonce' => $nonce,
-        ], 1, $this->db);
+        ], $this->actorId, $this->db);
 
         $this->assertTrue($result['ok']);
         $this->assertSame('autosaved', $result['message_key']);
@@ -510,7 +531,7 @@ final class AdminPostsTest extends TestCase
         $this->assertSame('Published', $parent?->post_title);
         $this->assertSame('Live body', $parent?->post_content);
 
-        $autosave = AP_Post::getAutosave($id, 1, $this->db);
+        $autosave = AP_Post::getAutosave($id, $this->actorId, $this->db);
         $this->assertNotNull($autosave);
         $this->assertSame('In progress title', $autosave->post_title);
     }
@@ -522,15 +543,15 @@ final class AdminPostsTest extends TestCase
             'post_content' => 'C1',
             'post_type' => 'post',
             'post_status' => 'publish',
-            'post_author' => 1,
+            'post_author' => $this->actorId,
         ], $this->db);
         AP_Post::autosave($id, [
             'post_title' => 'Drafting',
             'post_content' => 'WIP',
-        ], 1, $this->db);
-        $this->assertNotNull(AP_Post::getAutosave($id, 1, $this->db));
+        ], $this->actorId, $this->db);
+        $this->assertNotNull(AP_Post::getAutosave($id, $this->actorId, $this->db));
 
-        $nonce = ap_create_nonce('update-post-' . $id, 1);
+        $nonce = ap_create_nonce('update-post-' . $id, $this->actorId);
         $result = AP_Admin_Post_Edit::save([
             'post_ID' => $id,
             'post_title' => 'V2',
@@ -540,12 +561,12 @@ final class AdminPostsTest extends TestCase
             'save_action' => 'publish',
             'visibility' => 'public',
             '_ap_nonce' => $nonce,
-        ], 1, $this->db);
+        ], $this->actorId, $this->db);
 
         $this->assertTrue($result['ok']);
         $this->assertSame('V2', AP_Post::get($id, $this->db)?->post_title);
         $this->assertSame(1, AP_Post::countRevisions($id, false, $this->db));
-        $this->assertNull(AP_Post::getAutosave($id, 1, $this->db));
+        $this->assertNull(AP_Post::getAutosave($id, $this->actorId, $this->db));
     }
 
     public function testRestoreAndDeleteRevisionActions(): void
@@ -566,8 +587,8 @@ final class AdminPostsTest extends TestCase
 
         $restore = AP_Admin_Post_Edit::processRestoreRevision([
             'revision' => $revId,
-            '_ap_nonce' => ap_create_nonce('restore-revision-' . $revId),
-        ], $this->db);
+            '_ap_nonce' => ap_create_nonce('restore-revision-' . $revId, $this->actorId),
+        ], $this->db, $this->actorId);
         $this->assertTrue($restore['ok']);
         $this->assertSame('revision_restored', $restore['message_key']);
         $this->assertSame('Current', AP_Post::get($id, $this->db)?->post_title);
@@ -576,8 +597,8 @@ final class AdminPostsTest extends TestCase
         $deleteId = $revisions[0]->ID;
         $delete = AP_Admin_Post_Edit::processDeleteRevision([
             'revision' => $deleteId,
-            '_ap_nonce' => ap_create_nonce('delete-revision-' . $deleteId),
-        ], $this->db);
+            '_ap_nonce' => ap_create_nonce('delete-revision-' . $deleteId, $this->actorId),
+        ], $this->db, $this->actorId);
         $this->assertTrue($delete['ok']);
         $this->assertSame('revision_deleted', $delete['message_key']);
         $this->assertNull(AP_Post::get($deleteId, $this->db));
@@ -595,12 +616,12 @@ final class AdminPostsTest extends TestCase
         $post = AP_Post::get($id, $this->db);
         $this->assertNotNull($post);
 
-        $html = AP_Admin_Post_Edit::renderForm($post, 'post', 1, $this->db);
+        $html = AP_Admin_Post_Edit::renderForm($post, 'post', $this->actorId, $this->db);
         $this->assertStringContainsString('Revisions', $html);
         $this->assertStringContainsString('Browse history', $html);
         $this->assertStringContainsString('value="autosave"', $html);
 
-        $list = AP_Admin_Post_Edit::renderRevisionsList($post, 1, $this->db);
+        $list = AP_Admin_Post_Edit::renderRevisionsList($post, $this->actorId, $this->db);
         $this->assertStringContainsString('Restore', $list);
         $this->assertStringContainsString('ap-revisions-list', $list);
     }

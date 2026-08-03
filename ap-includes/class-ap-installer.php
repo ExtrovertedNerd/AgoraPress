@@ -559,6 +559,8 @@ PHP;
             'home' => $url,
             'admin_email' => $email,
             'users_can_register' => '0',
+            'require_email_verification' => '1',
+            'default_role' => 'subscriber',
             'ap_db_version' => $dbVersion,
             'ap_version' => $version,
             // Module toggles (independent; all on for a full install).
@@ -587,14 +589,54 @@ PHP;
             'posts_per_page' => '10',
             'posts_per_rss' => '10',
             'rss_use_excerpt' => '0',
+            // Writing settings.
+            'default_category' => '0',
+            'use_smilies' => '1',
+            'default_comment_status' => 'open',
+            // Discussion settings.
+            'require_name_email' => '1',
+            'comment_moderation' => '0',
+            'comment_registration' => '0',
+            'close_comments_for_old_posts' => '0',
+            'close_comments_days_old' => '14',
+            'thread_comments' => '1',
+            'thread_comments_depth' => '5',
+            // Media settings.
+            'thumbnail_size_w' => '150',
+            'thumbnail_size_h' => '150',
+            'thumbnail_crop' => '1',
+            'medium_size_w' => '300',
+            'medium_size_h' => '300',
+            'large_size_w' => '1024',
+            'large_size_h' => '1024',
+            'uploads_use_yearmonth_folders' => '1',
             // Navigation menus (empty until admin creates them).
             'ap_nav_menus' => '',
             'nav_menu_locations' => '',
+            // Avatars (Discussion settings).
+            'show_avatars' => '1',
+            'avatar_default' => 'mystery',
+            'avatar_rating' => 'g',
+            // Hall of Fame: never auto-joined; donation link unobtrusive default on.
+            // Installer does not ping or register domains (no telemetry).
+            'hall_of_fame_status' => '',
+            'hall_of_fame_domain' => '',
+            'hall_of_fame_token' => '',
+            'hall_of_fame_joined_at' => '',
+            'hall_of_fame_dismissed' => '0',
+            'show_donation_button' => '1',
         ];
 
         foreach ($options as $name => $value) {
             self::upsertOption($db, $name, (string) $value);
         }
+
+        // Seed the roles map (administrator, editor, author, contributor, subscriber).
+        if (!class_exists('AP_Roles', false)) {
+            require_once __DIR__ . '/class-ap-roles.php';
+        }
+        AP_Roles::flushCache();
+        AP_Roles::ensureDefaults($db);
     }
 
     /**
@@ -645,17 +687,13 @@ PHP;
             throw new RuntimeException('Admin user insert did not return an ID.');
         }
 
-        // Capability placeholder until full roles land (Phase 3).
-        $db->insert('usermeta', [
-            'user_id' => $userId,
-            'meta_key' => 'ap_capabilities',
-            'meta_value' => serialize(['administrator' => true]),
-        ]);
-        $db->insert('usermeta', [
-            'user_id' => $userId,
-            'meta_key' => 'ap_user_level',
-            'meta_value' => '10',
-        ]);
+        // Assign administrator role via the roles API (ap_capabilities + ap_user_level).
+        if (!class_exists('AP_Roles', false)) {
+            require_once __DIR__ . '/class-ap-roles.php';
+        }
+        AP_Roles::ensureDefaults($db);
+        AP_Roles::setUserRole($userId, 'administrator', $db);
+
         $db->insert('usermeta', [
             'user_id' => $userId,
             'meta_key' => 'nickname',

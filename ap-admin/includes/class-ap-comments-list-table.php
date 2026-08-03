@@ -77,15 +77,20 @@ class AP_Comments_List_Table
      *
      * @return array{ok: bool, message_key: string, count: int, errors: list<string>}
      */
-    public function processBulkAction(array $post): array
+    public function processBulkAction(array $post, int $actorId = 0): array
     {
         $action = (string) ($post['action'] ?? $post['action2'] ?? '-1');
         if ($action === '' || $action === '-1') {
             return ['ok' => false, 'message_key' => '', 'count' => 0, 'errors' => ['No bulk action selected.']];
         }
 
+        $db = $this->resolveDb();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
         $nonce = (string) ($post['_ap_nonce'] ?? '');
-        if (!ap_check_nonce($nonce, 'bulk-comments')) {
+        if (!ap_check_nonce($nonce, 'bulk-comments', $actorId > 0 ? $actorId : null)) {
             return ['ok' => false, 'message_key' => 'nonce', 'count' => 0, 'errors' => ['Security check failed.']];
         }
 
@@ -102,7 +107,15 @@ class AP_Comments_List_Table
             return ['ok' => false, 'message_key' => '', 'count' => 0, 'errors' => ['No comments selected.']];
         }
 
-        $db = $this->resolveDb();
+        if (!AP_Admin::userCan($actorId, 'moderate_comments', null, $db)) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'count' => 0,
+                'errors' => ['You do not have permission to moderate comments.'],
+            ];
+        }
+
         $count = 0;
         $errors = [];
 
@@ -157,7 +170,7 @@ class AP_Comments_List_Table
      *
      * @return array{ok: bool, message_key: string, errors: list<string>}
      */
-    public function processRowAction(array $request): array
+    public function processRowAction(array $request, int $actorId = 0): array
     {
         $action = (string) ($request['action'] ?? '');
         $id = (int) ($request['c'] ?? $request['comment'] ?? 0);
@@ -165,12 +178,24 @@ class AP_Comments_List_Table
             return ['ok' => false, 'message_key' => 'error', 'errors' => ['Invalid request.']];
         }
 
+        $db = $this->resolveDb();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
         $nonce = (string) ($request['_ap_nonce'] ?? $request['_wpnonce'] ?? '');
-        if (!ap_check_nonce($nonce, 'comment-' . $action . '-' . $id)) {
+        if (!ap_check_nonce($nonce, 'comment-' . $action . '-' . $id, $actorId > 0 ? $actorId : null)) {
             return ['ok' => false, 'message_key' => 'nonce', 'errors' => ['Security check failed.']];
         }
 
-        $db = $this->resolveDb();
+        if (!AP_Admin::userCan($actorId, 'moderate_comments', null, $db)) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to moderate comments.'],
+            ];
+        }
+
         $item = AP_Comment::get($id, $db);
         if ($item === null) {
             return ['ok' => false, 'message_key' => 'not_found', 'errors' => ['Comment not found.']];

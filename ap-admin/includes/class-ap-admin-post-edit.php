@@ -58,6 +58,31 @@ class AP_Admin_Post_Edit
             ];
         }
 
+        // Capability: create needs edit_posts/pages; update needs edit_post/page meta.
+        if ($isNew) {
+            $listCap = AP_Admin::editCapabilityForPostType($postType);
+            if (!AP_Admin::userCan($userId, $listCap, null, $db)) {
+                return [
+                    'ok' => false,
+                    'id' => 0,
+                    'message_key' => 'error',
+                    'errors' => ['You do not have permission to create this content.'],
+                    'post' => null,
+                ];
+            }
+        } else {
+            $metaCap = AP_Admin::editMetaCapForPostType($postType);
+            if (!AP_Admin::userCan($userId, $metaCap, $id, $db)) {
+                return [
+                    'ok' => false,
+                    'id' => $id,
+                    'message_key' => 'error',
+                    'errors' => ['You do not have permission to edit this item.'],
+                    'post' => AP_Post::get($id, $db),
+                ];
+            }
+        }
+
         $title = ap_sanitize_text_field((string) ($input['post_title'] ?? ''));
         $content = (string) ($input['post_content'] ?? '');
         // Content allows limited HTML later; store as-is for now (escaped on output).
@@ -116,6 +141,25 @@ class AP_Admin_Post_Edit
 
         $errors = [];
         // Title may be empty (WP allows it); soft warning only.
+
+        // Publishing (or private/future) requires publish_* unless already that status.
+        $publicish = in_array($status, ['publish', 'private', 'future'], true);
+        if ($publicish) {
+            $needsPublishCheck = $isNew;
+            if (!$isNew) {
+                $existingForStatus = AP_Post::get($id, $db);
+                $prev = $existingForStatus !== null ? (string) $existingForStatus->post_status : '';
+                $needsPublishCheck = !in_array($prev, ['publish', 'private', 'future'], true)
+                    || $prev !== $status;
+            }
+            if ($needsPublishCheck) {
+                $pubCap = AP_Admin::publishCapabilityForPostType($postType);
+                if (!AP_Admin::userCan($userId, $pubCap, null, $db)) {
+                    // Contributors: fall back to pending rather than hard-fail.
+                    $status = 'pending';
+                }
+            }
+        }
 
         $data = [
             'post_title' => $title,
@@ -314,6 +358,17 @@ class AP_Admin_Post_Edit
             ];
         }
 
+        $metaCap = AP_Admin::editMetaCapForPostType($existing->post_type);
+        if (!AP_Admin::userCan($userId, $metaCap, $id, $db)) {
+            return [
+                'ok' => false,
+                'id' => $id,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to edit this item.'],
+                'post' => $existing,
+            ];
+        }
+
         if (!AP_Post::typeSupports($existing->post_type, 'revisions')) {
             return [
                 'ok' => false,
@@ -359,15 +414,20 @@ class AP_Admin_Post_Edit
      *
      * @return array{ok: bool, message_key: string, errors: list<string>, parent_id: int}
      */
-    public static function processRestoreRevision(array $request, ?AP_DB $db = null): array
+    public static function processRestoreRevision(array $request, ?AP_DB $db = null, int $actorId = 0): array
     {
         $revisionId = (int) ($request['revision'] ?? $request['revision_id'] ?? 0);
         if ($revisionId < 1) {
             return ['ok' => false, 'message_key' => '', 'errors' => [], 'parent_id' => 0];
         }
 
+        $db = $db ?? ap_db();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
         $nonce = (string) ($request['_ap_nonce'] ?? '');
-        if (!ap_check_nonce($nonce, 'restore-revision-' . $revisionId)) {
+        if (!ap_check_nonce($nonce, 'restore-revision-' . $revisionId, $actorId > 0 ? $actorId : null)) {
             return [
                 'ok' => false,
                 'message_key' => 'nonce',
@@ -376,7 +436,6 @@ class AP_Admin_Post_Edit
             ];
         }
 
-        $db = $db ?? ap_db();
         $revision = AP_Post::get($revisionId, $db);
         if ($revision === null || $revision->post_type !== 'revision') {
             return [
@@ -388,6 +447,19 @@ class AP_Admin_Post_Edit
         }
 
         $parentId = $revision->post_parent;
+        $parent = $parentId > 0 ? AP_Post::get($parentId, $db) : null;
+        if ($parent !== null) {
+            $metaCap = AP_Admin::editMetaCapForPostType($parent->post_type);
+            if (!AP_Admin::userCan($actorId, $metaCap, $parentId, $db)) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'errors' => ['You do not have permission to restore revisions for this item.'],
+                    'parent_id' => $parentId,
+                ];
+            }
+        }
+
         $ok = AP_Post::restoreRevision($revisionId, $db);
         if (!$ok) {
             return [
@@ -413,15 +485,20 @@ class AP_Admin_Post_Edit
      *
      * @return array{ok: bool, message_key: string, errors: list<string>, parent_id: int}
      */
-    public static function processDeleteRevision(array $request, ?AP_DB $db = null): array
+    public static function processDeleteRevision(array $request, ?AP_DB $db = null, int $actorId = 0): array
     {
         $revisionId = (int) ($request['revision'] ?? $request['revision_id'] ?? 0);
         if ($revisionId < 1) {
             return ['ok' => false, 'message_key' => '', 'errors' => [], 'parent_id' => 0];
         }
 
+        $db = $db ?? ap_db();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
         $nonce = (string) ($request['_ap_nonce'] ?? '');
-        if (!ap_check_nonce($nonce, 'delete-revision-' . $revisionId)) {
+        if (!ap_check_nonce($nonce, 'delete-revision-' . $revisionId, $actorId > 0 ? $actorId : null)) {
             return [
                 'ok' => false,
                 'message_key' => 'nonce',
@@ -430,7 +507,6 @@ class AP_Admin_Post_Edit
             ];
         }
 
-        $db = $db ?? ap_db();
         $revision = AP_Post::get($revisionId, $db);
         if ($revision === null || $revision->post_type !== 'revision') {
             return [
@@ -442,6 +518,19 @@ class AP_Admin_Post_Edit
         }
 
         $parentId = $revision->post_parent;
+        $parent = $parentId > 0 ? AP_Post::get($parentId, $db) : null;
+        if ($parent !== null) {
+            $metaCap = AP_Admin::editMetaCapForPostType($parent->post_type);
+            if (!AP_Admin::userCan($actorId, $metaCap, $parentId, $db)) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'errors' => ['You do not have permission to delete revisions for this item.'],
+                    'parent_id' => $parentId,
+                ];
+            }
+        }
+
         $ok = AP_Post::deleteRevision($revisionId, $db);
         if (!$ok) {
             return [
@@ -467,7 +556,7 @@ class AP_Admin_Post_Edit
      *
      * @return array{ok: bool, message_key: string, errors: list<string>}
      */
-    public static function processRowAction(array $request, ?AP_DB $db = null): array
+    public static function processRowAction(array $request, ?AP_DB $db = null, int $actorId = 0): array
     {
         $action = (string) ($request['action'] ?? '');
         $id = (int) ($request['post'] ?? 0);
@@ -476,15 +565,30 @@ class AP_Admin_Post_Edit
             return ['ok' => false, 'message_key' => '', 'errors' => []];
         }
 
+        $db = $db ?? ap_db();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
         $nonce = (string) ($request['_ap_nonce'] ?? '');
-        if (!ap_check_nonce($nonce, 'post-row-' . $id)) {
+        if (!ap_check_nonce($nonce, 'post-row-' . $id, $actorId > 0 ? $actorId : null)) {
             return ['ok' => false, 'message_key' => 'nonce', 'errors' => ['Security check failed.']];
         }
 
-        $db = $db ?? ap_db();
         $post = AP_Post::get($id, $db);
         if ($post === null) {
             return ['ok' => false, 'message_key' => 'not_found', 'errors' => ['Not found.']];
+        }
+
+        $deleteCap = AP_Admin::deleteMetaCapForPostType($post->post_type);
+        $editCap = AP_Admin::editMetaCapForPostType($post->post_type);
+        $needed = $action === 'delete' || $action === 'trash' ? $deleteCap : $editCap;
+        if (!AP_Admin::userCan($actorId, $needed, $id, $db)) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to modify this item.'],
+            ];
         }
 
         $ok = match ($action) {

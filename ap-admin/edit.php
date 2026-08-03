@@ -11,6 +11,7 @@ declare(strict_types=1);
 require __DIR__ . '/admin-bootstrap.php';
 
 $postType = AP_Admin::resolvePostType((string) ($_REQUEST['post_type'] ?? 'post'), 'post');
+AP_Admin::requireCapability(AP_Admin::editCapabilityForPostType($postType));
 $listTable = new AP_Posts_List_Table($postType);
 
 // Single-row actions via GET (trash / untrash / delete).

@@ -213,7 +213,7 @@ See [`CODING_STANDARDS.md`](CODING_STANDARDS.md), [`phpunit.xml.dist`](phpunit.x
 - Password hashing with Argon2id (installer + auth)  
 - **`AP_TELEMETRY` is false by default** — no site identification is sent for version checks by default  
 
-Optional “Hall of Fame” domain registration (fully voluntary, withdrawable) is the only planned install-counting path — never automatic pings.
+Optional “Hall of Fame” domain registration (fully voluntary, withdrawable) is the only install-counting path — never automatic pings. Admins can join or leave under **Settings → Hall of Fame**; the dashboard may show a one-time prompt. Registration sends only the site domain (no telemetry).
 
 ---
 

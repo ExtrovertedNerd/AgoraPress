@@ -16,7 +16,10 @@ use AP_Comments_List_Table;
 use AP_DB;
 use AP_Migrator;
 use AP_Nonce;
+use AP_Options;
 use AP_Post;
+use AP_Roles;
+use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -38,8 +41,10 @@ final class AdminCommentsTest extends TestCase
         require_once $this->root . '/ap-includes/version.php';
         require_once $this->root . '/ap-includes/class-ap-db.php';
         require_once $this->root . '/ap-includes/class-ap-migrator.php';
+        require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-session.php';
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
         require_once $this->root . '/ap-includes/class-ap-comment.php';
         require_once $this->root . '/ap-includes/class-ap-nonce.php';
@@ -60,6 +65,8 @@ final class AdminCommentsTest extends TestCase
             define('AP_LOGGED_IN_SALT', 'test-logged-in-salt-' . str_repeat('f', 32));
         }
 
+        AP_Roles::flushCache();
+        AP_Options::flushCache();
         AP_Post::resetRegistry();
         AP_Comment::resetSpamCheckers();
         AP_Admin::clearNotices();
@@ -72,9 +79,16 @@ final class AdminCommentsTest extends TestCase
         $this->db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $migrator->migrate();
+        AP_Roles::ensureDefaults($this->db);
         AP_Post::ensureBuiltins();
 
-        $this->userId = 1;
+        $editor = AP_User::create([
+            'user_login' => 'commented',
+            'user_email' => 'commented@example.test',
+            'password' => 'password123',
+            'role' => 'editor',
+        ], $this->db);
+        $this->userId = (int) $editor['id'];
 
         $this->postId = AP_Post::insert([
             'post_title' => 'Discuss me',
@@ -87,6 +101,8 @@ final class AdminCommentsTest extends TestCase
 
     protected function tearDown(): void
     {
+        AP_Roles::flushCache();
+        AP_Options::flushCache();
         AP_Post::resetRegistry();
         AP_Comment::resetSpamCheckers();
         AP_Admin::clearNotices();
@@ -147,25 +163,24 @@ final class AdminCommentsTest extends TestCase
             'comment_approved' => '0',
         ], $this->db);
 
-        // Nonces match processBulkAction (no session → user id 0).
-        $nonce = ap_create_nonce('bulk-comments', 0);
+        $nonce = ap_create_nonce('bulk-comments', $this->userId);
         $table = new AP_Comments_List_Table($this->db);
         $result = $table->processBulkAction([
             'action' => 'approve',
             '_ap_nonce' => $nonce,
             'comment' => [$id1, $id2],
-        ]);
+        ], $this->userId);
         $this->assertTrue($result['ok']);
         $this->assertSame(2, $result['count']);
         $this->assertSame('bulk_comment_approved', $result['message_key']);
         $this->assertSame('1', AP_Comment::get($id1, $this->db)?->comment_approved);
 
-        $nonce2 = ap_create_nonce('bulk-comments', 0);
+        $nonce2 = ap_create_nonce('bulk-comments', $this->userId);
         $result2 = $table->processBulkAction([
             'action' => 'spam',
             '_ap_nonce' => $nonce2,
             'comment' => [$id1],
-        ]);
+        ], $this->userId);
         $this->assertTrue($result2['ok']);
         $this->assertSame('spam', AP_Comment::get($id1, $this->db)?->comment_approved);
     }
@@ -184,16 +199,16 @@ final class AdminCommentsTest extends TestCase
             'action' => 'approve',
             'c' => $id,
             '_ap_nonce' => 'invalid',
-        ]);
+        ], $this->userId);
         $this->assertFalse($bad['ok']);
         $this->assertSame('nonce', $bad['message_key']);
 
-        $nonce = ap_create_nonce('comment-approve-' . $id, 0);
+        $nonce = ap_create_nonce('comment-approve-' . $id, $this->userId);
         $ok = $table->processRowAction([
             'action' => 'approve',
             'c' => $id,
             '_ap_nonce' => $nonce,
-        ]);
+        ], $this->userId);
         $this->assertTrue($ok['ok']);
         $this->assertSame('comment_approved', $ok['message_key']);
         $this->assertSame('1', AP_Comment::get($id, $this->db)?->comment_approved);

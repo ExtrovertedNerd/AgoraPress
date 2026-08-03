@@ -11,6 +11,7 @@ declare(strict_types=1);
 require __DIR__ . '/admin-bootstrap.php';
 
 $postType = AP_Admin::resolvePostType((string) ($_REQUEST['post_type'] ?? 'post'), 'post');
+AP_Admin::requireCapability(AP_Admin::editCapabilityForPostType($postType));
 $userId = ap_get_current_user_id();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {

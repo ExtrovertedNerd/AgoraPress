@@ -65,6 +65,365 @@ function ap_get_user_by(string $field, string|int $value, ?AP_DB $db = null): ?A
 }
 
 /**
+ * Create a user.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @return array{ok: bool, id: int, errors: list<string>, user: ?AP_User}
+ *
+ * @see AP_User::create()
+ */
+function ap_create_user(array $data, ?AP_DB $db = null): array
+{
+    return AP_User::create($data, $db);
+}
+
+/**
+ * Update a user.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @return array{ok: bool, id: int, errors: list<string>, user: ?AP_User}
+ *
+ * @see AP_User::update()
+ */
+function ap_update_user(int $id, array $data, ?AP_DB $db = null): array
+{
+    return AP_User::update($id, $data, $db);
+}
+
+/**
+ * Permanently delete a user and their usermeta.
+ *
+ * @see AP_User::delete()
+ */
+function ap_delete_user(int $id, ?AP_DB $db = null): bool
+{
+    return AP_User::delete($id, $db);
+}
+
+/**
+ * Query users (search, role, pagination).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<AP_User>
+ *
+ * @see AP_User::query()
+ */
+function ap_get_users(array $args = [], ?AP_DB $db = null): array
+{
+    return AP_User::query($args, $db);
+}
+
+/**
+ * Count users matching query args.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_User::count()
+ */
+function ap_count_users(array $args = [], ?AP_DB $db = null): int
+{
+    return AP_User::count($args, $db);
+}
+
+/**
+ * Read a usermeta value.
+ *
+ * @see AP_User::getMeta()
+ */
+function ap_get_user_meta(int $userId, string $metaKey, ?AP_DB $db = null): ?string
+{
+    return AP_User::getMeta($userId, $metaKey, $db);
+}
+
+/**
+ * Insert or update a usermeta value.
+ *
+ * @see AP_User::updateMeta()
+ */
+function ap_update_user_meta(
+    int $userId,
+    string $metaKey,
+    string $metaValue,
+    ?AP_DB $db = null
+): bool {
+    return AP_User::updateMeta($userId, $metaKey, $metaValue, $db);
+}
+
+/**
+ * Delete a usermeta key.
+ *
+ * @see AP_User::deleteMeta()
+ */
+function ap_delete_user_meta(int $userId, string $metaKey, ?AP_DB $db = null): bool
+{
+    return AP_User::deleteMeta($userId, $metaKey, $db);
+}
+
+/**
+ * Generate a random password.
+ *
+ * @see AP_User::generatePassword()
+ */
+function ap_generate_password(int $length = 16): string
+{
+    return AP_User::generatePassword($length);
+}
+
+// -----------------------------------------------------------------------------
+// Avatars (local upload + Gravatar)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether site-wide avatars are enabled.
+ *
+ * @see AP_Avatar::isEnabled()
+ */
+function ap_show_avatars(?AP_DB $db = null): bool
+{
+    return class_exists('AP_Avatar', false) && AP_Avatar::isEnabled($db);
+}
+
+/**
+ * Avatar image URL for a user ID, email, AP_User, or comment-like object.
+ *
+ * @param int|string|object    $idOrEmail
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Avatar::getUrl()
+ */
+function ap_get_avatar_url(
+    int|string|object $idOrEmail,
+    int $size = 96,
+    array $args = [],
+    ?AP_DB $db = null
+): string {
+    if (!class_exists('AP_Avatar', false)) {
+        return '';
+    }
+
+    return AP_Avatar::getUrl($idOrEmail, $size, $args, $db);
+}
+
+/**
+ * Escaped &lt;img&gt; HTML for an avatar (empty when avatars are disabled).
+ *
+ * @param int|string|object    $idOrEmail
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Avatar::getHtml()
+ */
+function ap_get_avatar(
+    int|string|object $idOrEmail,
+    int $size = 96,
+    string $default = '',
+    string $alt = '',
+    array $args = [],
+    ?AP_DB $db = null
+): string {
+    if (!class_exists('AP_Avatar', false)) {
+        return '';
+    }
+
+    if ($default !== '') {
+        $args['default'] = $default;
+    }
+    if ($alt !== '') {
+        $args['alt'] = $alt;
+    }
+
+    return AP_Avatar::getHtml($idOrEmail, $size, $args, $db);
+}
+
+/**
+ * Structured avatar data (url, size, source, …).
+ *
+ * @param int|string|object    $idOrEmail
+ * @param array<string, mixed> $args
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Avatar::getData()
+ */
+function ap_get_avatar_data(
+    int|string|object $idOrEmail,
+    int $size = 96,
+    array $args = [],
+    ?AP_DB $db = null
+): array {
+    if (!class_exists('AP_Avatar', false)) {
+        return [
+            'found' => false,
+            'url' => '',
+            'size' => $size,
+            'width' => $size,
+            'height' => $size,
+            'alt' => '',
+            'class' => 'avatar',
+            'extra_attr' => '',
+            'source' => 'none',
+        ];
+    }
+
+    return AP_Avatar::getData($idOrEmail, $size, $args, $db);
+}
+
+/**
+ * Upload a local avatar for a user (replaces any previous local avatar).
+ *
+ * @param array<string, mixed> $file $_FILES-style entry
+ *
+ * @return array{ok: bool, id: int, url: string, error: string}
+ *
+ * @see AP_Avatar::upload()
+ */
+function ap_upload_user_avatar(int $userId, array $file, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Avatar', false)) {
+        return ['ok' => false, 'id' => 0, 'url' => '', 'error' => 'Avatar layer not available.'];
+    }
+
+    return AP_Avatar::upload($userId, $file, $db);
+}
+
+/**
+ * Remove a user's local avatar (and optionally the attachment file).
+ *
+ * @see AP_Avatar::deleteLocal()
+ */
+function ap_delete_user_avatar(int $userId, bool $deleteFile = true, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Avatar', false)) {
+        return false;
+    }
+
+    return AP_Avatar::deleteLocal($userId, $deleteFile, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Registration, email verification, password reset
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether public registration is open.
+ *
+ * @see AP_Registration::usersCanRegister()
+ */
+function ap_users_can_register(?AP_DB $db = null): bool
+{
+    return AP_Registration::usersCanRegister($db);
+}
+
+/**
+ * Whether new public accounts must verify email before logging in.
+ *
+ * @see AP_Registration::requireEmailVerification()
+ */
+function ap_require_email_verification(?AP_DB $db = null): bool
+{
+    return AP_Registration::requireEmailVerification($db);
+}
+
+/**
+ * Register a public account (when users_can_register is enabled).
+ *
+ * @param array<string, mixed> $data
+ *
+ * @return array{
+ *     ok: bool,
+ *     id: int,
+ *     errors: list<string>,
+ *     user: ?AP_User,
+ *     needs_verification: bool,
+ *     plain_key: string
+ * }
+ *
+ * @see AP_Registration::register()
+ */
+function ap_register_user(array $data, ?AP_DB $db = null): array
+{
+    return AP_Registration::register($data, $db);
+}
+
+/**
+ * Confirm a registration email with login + key from the verification link.
+ *
+ * @return array{ok: bool, errors: list<string>, user: ?AP_User}
+ *
+ * @see AP_Registration::verifyEmail()
+ */
+function ap_verify_user_email(string $login, string $plainKey, ?AP_DB $db = null): array
+{
+    return AP_Registration::verifyEmail($login, $plainKey, $db);
+}
+
+/**
+ * Request a password-reset email (generic success; does not leak account existence).
+ *
+ * @return array{
+ *     ok: bool,
+ *     errors: list<string>,
+ *     sent: bool,
+ *     plain_key: string,
+ *     user: ?AP_User
+ * }
+ *
+ * @see AP_Registration::requestPasswordReset()
+ */
+function ap_request_password_reset(string $loginOrEmail, ?AP_DB $db = null): array
+{
+    return AP_Registration::requestPasswordReset($loginOrEmail, $db);
+}
+
+/**
+ * Validate a password-reset key; returns the user or null.
+ *
+ * @see AP_Registration::checkPasswordResetKey()
+ */
+function ap_check_password_reset_key(
+    string $login,
+    string $plainKey,
+    ?AP_DB $db = null
+): ?AP_User {
+    return AP_Registration::checkPasswordResetKey($login, $plainKey, $db);
+}
+
+/**
+ * Complete a password reset with a valid key.
+ *
+ * @return array{ok: bool, errors: list<string>, user: ?AP_User}
+ *
+ * @see AP_Registration::resetPassword()
+ */
+function ap_reset_password(
+    string $login,
+    string $plainKey,
+    string $newPassword,
+    ?AP_DB $db = null
+): array {
+    return AP_Registration::resetPassword($login, $plainKey, $newPassword, $db);
+}
+
+/**
+ * Send an email (test-mode capture when AP_Mail::enableTestMode() is active).
+ *
+ * @param string|list<string>   $to
+ * @param array<string, string> $headers
+ *
+ * @see AP_Mail::send()
+ */
+function ap_mail(
+    string|array $to,
+    string $subject,
+    string $message,
+    array $headers = []
+): bool {
+    return AP_Mail::send($to, $subject, $message, $headers);
+}
+
+/**
  * Authenticate and establish a signed session cookie on success.
  *
  * @see AP_Session::login()
@@ -156,6 +515,219 @@ function ap_auth_cookie_name(): string
 function ap_destroy_user_sessions(int $userId, ?AP_DB $db = null): void
 {
     AP_Session::destroyAllSessionTokens($userId, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Roles & capabilities
+// -----------------------------------------------------------------------------
+
+/**
+ * Ensure default roles are seeded (idempotent).
+ *
+ * @see AP_Roles::ensureDefaults()
+ */
+function ap_ensure_roles(?AP_DB $db = null): void
+{
+    AP_Roles::ensureDefaults($db);
+}
+
+/**
+ * All registered roles.
+ *
+ * @return array<string, array{name: string, capabilities: array<string, bool>}>
+ *
+ * @see AP_Roles::getRoles()
+ */
+function ap_get_roles(?AP_DB $db = null): array
+{
+    return AP_Roles::getRoles($db);
+}
+
+/**
+ * Single role definition, or null.
+ *
+ * @return array{name: string, capabilities: array<string, bool>}|null
+ *
+ * @see AP_Roles::getRole()
+ */
+function ap_get_role(string $role, ?AP_DB $db = null): ?array
+{
+    return AP_Roles::getRole($role, $db);
+}
+
+/**
+ * Whether a role slug is registered.
+ *
+ * @see AP_Roles::roleExists()
+ */
+function ap_role_exists(string $role, ?AP_DB $db = null): bool
+{
+    return AP_Roles::roleExists($role, $db);
+}
+
+/**
+ * Role display names (slug => name).
+ *
+ * @return array<string, string>
+ *
+ * @see AP_Roles::getRoleNames()
+ */
+function ap_get_role_names(?AP_DB $db = null): array
+{
+    return AP_Roles::getRoleNames($db);
+}
+
+/**
+ * Register a new role.
+ *
+ * @param array<string, bool> $capabilities
+ *
+ * @see AP_Roles::addRole()
+ */
+function ap_add_role(
+    string $role,
+    string $displayName,
+    array $capabilities = [],
+    ?AP_DB $db = null
+): bool {
+    return AP_Roles::addRole($role, $displayName, $capabilities, $db);
+}
+
+/**
+ * Remove a role from the registry.
+ *
+ * @see AP_Roles::removeRole()
+ */
+function ap_remove_role(string $role, ?AP_DB $db = null): bool
+{
+    return AP_Roles::removeRole($role, $db);
+}
+
+/**
+ * Grant a capability on a role.
+ *
+ * @see AP_Roles::addCap()
+ */
+function ap_add_cap(string $role, string $cap, bool $grant = true, ?AP_DB $db = null): bool
+{
+    return AP_Roles::addCap($role, $cap, $grant, $db);
+}
+
+/**
+ * Remove a capability from a role.
+ *
+ * @see AP_Roles::removeCap()
+ */
+function ap_remove_cap(string $role, string $cap, ?AP_DB $db = null): bool
+{
+    return AP_Roles::removeCap($role, $cap, $db);
+}
+
+/**
+ * Role slugs assigned to a user.
+ *
+ * @return list<string>
+ *
+ * @see AP_Roles::getUserRoles()
+ */
+function ap_get_user_roles(int $userId, ?AP_DB $db = null): array
+{
+    return AP_Roles::getUserRoles($userId, $db);
+}
+
+/**
+ * Primary role slug for a user (first assigned), or empty string.
+ *
+ * @see AP_Roles::getUserRole()
+ */
+function ap_get_user_role(int $userId, ?AP_DB $db = null): string
+{
+    return AP_Roles::getUserRole($userId, $db);
+}
+
+/**
+ * Replace a user's roles with a single role.
+ *
+ * @see AP_Roles::setUserRole()
+ */
+function ap_set_user_role(int $userId, string $role, ?AP_DB $db = null): bool
+{
+    return AP_Roles::setUserRole($userId, $role, $db);
+}
+
+/**
+ * Add a role to a user without removing existing roles.
+ *
+ * @see AP_Roles::addUserRole()
+ */
+function ap_add_user_role(int $userId, string $role, ?AP_DB $db = null): bool
+{
+    return AP_Roles::addUserRole($userId, $role, $db);
+}
+
+/**
+ * Remove one role from a user.
+ *
+ * @see AP_Roles::removeUserRole()
+ */
+function ap_remove_user_role(int $userId, string $role, ?AP_DB $db = null): bool
+{
+    return AP_Roles::removeUserRole($userId, $role, $db);
+}
+
+/**
+ * Effective capabilities for a user.
+ *
+ * @return array<string, bool>
+ *
+ * @see AP_Roles::getUserCapabilities()
+ */
+function ap_get_user_capabilities(int $userId, ?AP_DB $db = null): array
+{
+    return AP_Roles::getUserCapabilities($userId, $db);
+}
+
+/**
+ * Whether a user has a capability (meta-caps mapped).
+ *
+ * @see AP_Roles::userCan()
+ */
+function ap_user_can(
+    int $userId,
+    string $capability,
+    ?int $objectId = null,
+    ?AP_DB $db = null
+): bool {
+    return AP_Roles::userCan($userId, $capability, $objectId, $db);
+}
+
+/**
+ * Whether the current user has a capability.
+ *
+ * @see AP_Roles::currentUserCan()
+ */
+function ap_current_user_can(
+    string $capability,
+    ?int $objectId = null,
+    ?AP_DB $db = null
+): bool {
+    return AP_Roles::currentUserCan($capability, $objectId, $db);
+}
+
+/**
+ * Map a meta capability to primitive capabilities.
+ *
+ * @return list<string>
+ *
+ * @see AP_Roles::mapMetaCap()
+ */
+function ap_map_meta_cap(
+    string $cap,
+    int $userId,
+    ?int $objectId = null,
+    ?AP_DB $db = null
+): array {
+    return AP_Roles::mapMetaCap($cap, $userId, $objectId, $db);
 }
 
 // -----------------------------------------------------------------------------
@@ -925,6 +1497,180 @@ function ap_add_option(string $name, mixed $value, ?AP_DB $db = null): bool
 function ap_delete_option(string $name, ?AP_DB $db = null): bool
 {
     return AP_Options::delete($name, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Hall of Fame (voluntary domain registration — not telemetry)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether this site is registered in the public Hall of Fame.
+ *
+ * @see AP_Hall_Of_Fame::isJoined()
+ */
+function ap_hall_of_fame_is_joined(?AP_DB $db = null): bool
+{
+    return AP_Hall_Of_Fame::isJoined($db);
+}
+
+/**
+ * Local Hall of Fame status snapshot.
+ *
+ * @return array{
+ *   joined: bool,
+ *   domain: string,
+ *   token: string,
+ *   joined_at: string,
+ *   dismissed: bool,
+ *   show_donation: bool
+ * }
+ *
+ * @see AP_Hall_Of_Fame::getStatus()
+ */
+function ap_hall_of_fame_status(?AP_DB $db = null): array
+{
+    return AP_Hall_Of_Fame::getStatus($db);
+}
+
+/**
+ * Whether the unobtrusive admin donation link should show (default on).
+ *
+ * @see AP_Hall_Of_Fame::showDonationButton()
+ */
+function ap_show_donation_button(?AP_DB $db = null): bool
+{
+    return AP_Hall_Of_Fame::showDonationButton($db);
+}
+
+/**
+ * Domain that would be registered (from siteurl / home).
+ *
+ * @see AP_Hall_Of_Fame::resolveDomain()
+ */
+function ap_hall_of_fame_domain(?AP_DB $db = null): string
+{
+    return AP_Hall_Of_Fame::resolveDomain($db);
+}
+
+// -----------------------------------------------------------------------------
+// Settings API
+// -----------------------------------------------------------------------------
+
+/**
+ * Register an option with a settings group.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Settings::registerSetting()
+ */
+function ap_register_setting(string $optionGroup, string $optionName, array $args = []): void
+{
+    if (!class_exists('AP_Settings', false)) {
+        return;
+    }
+    AP_Settings::registerSetting($optionGroup, $optionName, $args);
+}
+
+/**
+ * Add a settings section.
+ *
+ * @see AP_Settings::addSection()
+ */
+function ap_add_settings_section(
+    string $id,
+    string $title,
+    ?callable $callback,
+    string $page
+): void {
+    if (!class_exists('AP_Settings', false)) {
+        return;
+    }
+    AP_Settings::addSection($id, $title, $callback, $page);
+}
+
+/**
+ * Add a settings field.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Settings::addField()
+ */
+function ap_add_settings_field(
+    string $id,
+    string $title,
+    ?callable $callback,
+    string $page,
+    string $section = 'default',
+    array $args = []
+): void {
+    if (!class_exists('AP_Settings', false)) {
+        return;
+    }
+    AP_Settings::addField($id, $title, $callback, $page, $section, $args);
+}
+
+/**
+ * Output nonce + option_page hidden fields for a settings form.
+ *
+ * @see AP_Settings::settingsFields()
+ */
+function ap_settings_fields(string $optionGroup): void
+{
+    if (!class_exists('AP_Settings', false)) {
+        return;
+    }
+    AP_Settings::settingsFields($optionGroup, true);
+}
+
+/**
+ * Render all sections for a settings page.
+ *
+ * @see AP_Settings::doSections()
+ */
+function ap_do_settings_sections(string $page): void
+{
+    if (!class_exists('AP_Settings', false)) {
+        return;
+    }
+    AP_Settings::doSections($page);
+}
+
+/**
+ * Render fields for one section.
+ *
+ * @see AP_Settings::doFields()
+ */
+function ap_do_settings_fields(string $page, string $section): void
+{
+    if (!class_exists('AP_Settings', false)) {
+        return;
+    }
+    AP_Settings::doFields($page, $section);
+}
+
+/**
+ * Settings form submit button.
+ *
+ * @see AP_Settings::submitButton()
+ */
+function ap_settings_submit_button(string $text = 'Save Changes'): void
+{
+    if (!class_exists('AP_Settings', false)) {
+        return;
+    }
+    AP_Settings::submitButton($text);
+}
+
+/**
+ * Whether a core module is enabled.
+ *
+ * @param string $module static_pages|blog|forum
+ *
+ * @see AP_Options::isModuleEnabled()
+ */
+function ap_is_module_enabled(string $module, ?AP_DB $db = null): bool
+{
+    return AP_Options::isModuleEnabled($module, $db);
 }
 
 // -----------------------------------------------------------------------------
@@ -1977,4 +2723,52 @@ function ap_nonce_field(
     ?int $userId = null
 ): string {
     return AP_Nonce::field($action, $name, $referer, $userId);
+}
+
+/**
+ * Append a nonce query argument to a URL (GET row-actions / logout links).
+ *
+ * @see AP_Nonce::url()
+ */
+function ap_nonce_url(
+    string $url,
+    string $action = '-1',
+    string $name = '_ap_nonce',
+    ?int $userId = null
+): string {
+    return AP_Nonce::url($url, $action, $name, $userId);
+}
+
+/**
+ * Verify a nonce taken from a request bag (POST/GET).
+ *
+ * @param array<string, mixed> $request
+ *
+ * @return int|false
+ *
+ * @see AP_Nonce::verifyRequest()
+ */
+function ap_verify_request_nonce(
+    array $request,
+    string $action = '-1',
+    string $name = '_ap_nonce',
+    ?int $userId = null
+): int|false {
+    return AP_Nonce::verifyRequest($request, $action, $name, $userId);
+}
+
+/**
+ * Whether a request carries a valid nonce for the action.
+ *
+ * @param array<string, mixed> $request
+ *
+ * @see AP_Nonce::verifyRequest()
+ */
+function ap_check_request_nonce(
+    array $request,
+    string $action = '-1',
+    string $name = '_ap_nonce',
+    ?int $userId = null
+): bool {
+    return AP_Nonce::verifyRequest($request, $action, $name, $userId) !== false;
 }

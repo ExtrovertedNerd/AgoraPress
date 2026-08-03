@@ -23,6 +23,11 @@ if ($post === null) {
 }
 
 $postType = AP_Admin::resolvePostType($post->post_type, $post->post_type);
+AP_Admin::requireCapability(
+    AP_Admin::editMetaCapForPostType($postType),
+    null,
+    $postId
+);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $result = AP_Admin_Post_Edit::save($_POST, $userId);

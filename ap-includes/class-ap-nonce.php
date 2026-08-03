@@ -99,6 +99,49 @@ class AP_Nonce
     }
 
     /**
+     * Append a nonce query argument to a URL (for GET state-changing links).
+     *
+     * @param string $url     Absolute or relative URL.
+     * @param string $action  Nonce action string.
+     * @param string $name    Query parameter name (default `_ap_nonce`).
+     * @param int|null $userId Optional user id; null = current user.
+     */
+    public static function url(
+        string $url,
+        string $action = '-1',
+        string $name = '_ap_nonce',
+        ?int $userId = null
+    ): string {
+        $nonce = self::create($action, $userId);
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . rawurlencode($name) . '=' . rawurlencode($nonce);
+    }
+
+    /**
+     * Read a nonce from a request bag (POST preferred, then GET/REQUEST) and verify.
+     *
+     * @param array<string, mixed> $request Typically $_REQUEST / $_POST / $_GET.
+     * @return int|false Same as {@see verify()}.
+     */
+    public static function verifyRequest(
+        array $request,
+        string $action = '-1',
+        string $name = '_ap_nonce',
+        ?int $userId = null
+    ): int|false {
+        $nonce = '';
+        if (isset($request[$name]) && is_scalar($request[$name])) {
+            $nonce = (string) $request[$name];
+        } elseif (isset($request['_wpnonce']) && is_scalar($request['_wpnonce'])) {
+            // Accept classic WP field name as a compatibility alias.
+            $nonce = (string) $request['_wpnonce'];
+        }
+
+        return self::verify($nonce, $action, $userId);
+    }
+
+    /**
      * Current tick number (floor of unix time / TICK_SECONDS).
      */
     public static function tick(): int

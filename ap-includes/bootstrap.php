@@ -275,6 +275,12 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-user.php';
     // Signed auth cookies + session tokens (login / logout / current user).
     require_once AP_ABSPATH . 'ap-includes/class-ap-session.php';
+    // Outbound mail (registration / password reset) with test outbox.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-mail.php';
+    // Public registration, email verification, password reset.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-registration.php';
+    // Roles & capabilities (role map + userCan / currentUserCan).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-roles.php';
     // Posts: statuses, types, CRUD, hierarchical pages.
     require_once AP_ABSPATH . 'ap-includes/class-ap-post.php';
     // Taxonomies: categories, tags, custom taxonomies, term relationships.
@@ -283,20 +289,26 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-comment.php';
     // Media library: secure uploads + attachment posts.
     require_once AP_ABSPATH . 'ap-includes/class-ap-media.php';
+    // Avatars: local upload + Gravatar fallback.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-avatar.php';
     // Content query (WP_Query-inspired main loop + secondary queries).
     require_once AP_ABSPATH . 'ap-includes/class-ap-query.php';
     // Permalinks + rewrite rules (pretty URLs → query vars, link builders).
     require_once AP_ABSPATH . 'ap-includes/class-ap-rewrite.php';
     // Theme loader + classic template hierarchy.
     require_once AP_ABSPATH . 'ap-includes/class-ap-theme.php';
-    // Options API + Reading settings helpers.
+    // Options API + Reading / module helpers.
     require_once AP_ABSPATH . 'ap-includes/class-ap-options.php';
+    // Settings API (register_setting / sections / fields / sanitized group save).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-settings.php';
     // Navigation menus (locations, items, render).
     require_once AP_ABSPATH . 'ap-includes/class-ap-nav-menu.php';
     // RSS / Atom syndication feeds.
     require_once AP_ABSPATH . 'ap-includes/class-ap-feed.php';
     // Nonces for state-changing forms (admin + front-end).
     require_once AP_ABSPATH . 'ap-includes/class-ap-nonce.php';
+    // Hall of Fame: voluntary domain registration only (no installer pings / telemetry).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-hall-of-fame.php';
     // Procedural helpers (ap_hash_password, ap_login, ap_insert_post, …) after core classes.
     require_once AP_ABSPATH . 'ap-includes/functions.php';
     // Front-end template tags (the_title, body_class, …).
@@ -308,6 +320,19 @@ function ap_bootstrap(): void
     }
     if (class_exists('AP_Taxonomy', false)) {
         AP_Taxonomy::ensureBuiltins();
+    }
+    // Ensure default roles exist (idempotent; does not overwrite custom maps).
+    if (class_exists('AP_Roles', false)) {
+        try {
+            AP_Roles::ensureDefaults();
+        } catch (Throwable) {
+            // DB may be unavailable during some CLI/tooling paths.
+        }
+    }
+
+    // Register core Settings API option groups (general, modules, writing, …).
+    if (class_exists('AP_Settings', false)) {
+        AP_Settings::registerCore();
     }
 
     /**

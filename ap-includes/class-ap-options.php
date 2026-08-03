@@ -310,6 +310,296 @@ class AP_Options
     }
 
     // -------------------------------------------------------------------------
+    // Modules (Static Pages / Blog / Forum)
+    // -------------------------------------------------------------------------
+
+    /** Option keys for the three independent module toggles. */
+    public const MODULE_STATIC_PAGES = 'ap_module_static_pages';
+
+    public const MODULE_BLOG = 'ap_module_blog';
+
+    public const MODULE_FORUM = 'ap_module_forum';
+
+    /**
+     * Known module slugs → option names.
+     *
+     * @return array<string, string>
+     */
+    public static function moduleOptionMap(): array
+    {
+        return [
+            'static_pages' => self::MODULE_STATIC_PAGES,
+            'blog' => self::MODULE_BLOG,
+            'forum' => self::MODULE_FORUM,
+        ];
+    }
+
+    /**
+     * Whether a core module is enabled (default true when option missing).
+     *
+     * @param string $module static_pages|blog|forum (or full option name)
+     */
+    public static function isModuleEnabled(string $module, ?AP_DB $db = null): bool
+    {
+        $map = self::moduleOptionMap();
+        $option = $map[$module] ?? $module;
+        if (!in_array($option, array_values($map), true)) {
+            return true;
+        }
+        $raw = strtolower(trim((string) self::get($option, '1', $db)));
+
+        return !in_array($raw, ['0', 'false', 'no', 'off', ''], true);
+    }
+
+    /**
+     * Persist module toggles. At least one module must remain enabled.
+     *
+     * @param array{static_pages?: bool|string|int, blog?: bool|string|int, forum?: bool|string|int} $modules
+     *
+     * @return bool False when validation fails (all off) or a write fails.
+     */
+    public static function updateModules(array $modules, ?AP_DB $db = null): bool
+    {
+        $values = [];
+        foreach (self::moduleOptionMap() as $slug => $option) {
+            $raw = $modules[$slug] ?? $modules[$option] ?? null;
+            $on = ($raw === true || $raw === 1 || $raw === '1' || $raw === 'on' || $raw === 'yes');
+            // When key absent entirely, preserve current (form checkboxes omit unchecked).
+            if ($raw === null && !array_key_exists($slug, $modules) && !array_key_exists($option, $modules)) {
+                $on = self::isModuleEnabled($slug, $db);
+            }
+            $values[$option] = $on ? '1' : '0';
+        }
+
+        if (!in_array('1', array_values($values), true)) {
+            return false;
+        }
+
+        $ok = true;
+        foreach ($values as $option => $value) {
+            $ok = self::update($option, $value, $db) && $ok;
+        }
+
+        return $ok;
+    }
+
+    // -------------------------------------------------------------------------
+    // General settings helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Persist General settings (site identity, membership, locale/time).
+     *
+     * @param array<string, mixed> $settings
+     */
+    public static function updateGeneralSettings(array $settings, ?AP_DB $db = null): bool
+    {
+        if (class_exists('AP_Settings', false)) {
+            // Prefer Settings API sanitizers when available.
+            $map = [
+                'blogname', 'blogdescription', 'siteurl', 'home', 'admin_email',
+                'users_can_register', 'require_email_verification', 'default_role',
+                'timezone_string', 'date_format', 'time_format', 'start_of_week',
+            ];
+            $input = [];
+            foreach ($map as $key) {
+                if (array_key_exists($key, $settings)) {
+                    $input[$key] = $settings[$key];
+                }
+            }
+            // Ensure checkboxes default to off when omitted.
+            foreach (['users_can_register', 'require_email_verification'] as $cb) {
+                if (!array_key_exists($cb, $input)) {
+                    $input[$cb] = '0';
+                }
+            }
+
+            return AP_Settings::save('general', $input, $db);
+        }
+
+        $ok = true;
+        if (isset($settings['blogname'])) {
+            $ok = self::update('blogname', trim(strip_tags((string) $settings['blogname'])), $db) && $ok;
+        }
+        if (isset($settings['blogdescription'])) {
+            $ok = self::update('blogdescription', trim(strip_tags((string) $settings['blogdescription'])), $db) && $ok;
+        }
+        if (isset($settings['admin_email'])) {
+            $email = strtolower(trim((string) $settings['admin_email']));
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $ok = self::update('admin_email', $email, $db) && $ok;
+            }
+        }
+        foreach (['siteurl', 'home'] as $urlKey) {
+            if (!isset($settings[$urlKey])) {
+                continue;
+            }
+            $url = rtrim(trim((string) $settings[$urlKey]), '/');
+            if ($url !== '' && preg_match('#^https?://#i', $url) === 1) {
+                $ok = self::update($urlKey, $url, $db) && $ok;
+            }
+        }
+        $ok = self::update(
+            'users_can_register',
+            self::truthy($settings['users_can_register'] ?? '0') ? '1' : '0',
+            $db
+        ) && $ok;
+        $ok = self::update(
+            'require_email_verification',
+            self::truthy($settings['require_email_verification'] ?? '0') ? '1' : '0',
+            $db
+        ) && $ok;
+        if (isset($settings['default_role'])) {
+            $role = strtolower(preg_replace('/[^a-z0-9_\-]/', '', (string) $settings['default_role']) ?? '');
+            if ($role !== '' && $role !== 'administrator') {
+                $ok = self::update('default_role', $role, $db) && $ok;
+            }
+        }
+        if (isset($settings['timezone_string'])) {
+            $tz = trim((string) $settings['timezone_string']);
+            $ok = self::update('timezone_string', $tz !== '' ? $tz : 'UTC', $db) && $ok;
+        }
+        if (isset($settings['date_format'])) {
+            $f = trim((string) $settings['date_format']);
+            $ok = self::update('date_format', $f !== '' ? $f : 'Y-m-d', $db) && $ok;
+        }
+        if (isset($settings['time_format'])) {
+            $f = trim((string) $settings['time_format']);
+            $ok = self::update('time_format', $f !== '' ? $f : 'H:i', $db) && $ok;
+        }
+        if (isset($settings['start_of_week'])) {
+            $ok = self::update('start_of_week', (string) max(0, min(6, (int) $settings['start_of_week'])), $db) && $ok;
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Persist Discussion settings (comments + avatars).
+     *
+     * @param array<string, mixed> $settings
+     */
+    public static function updateDiscussionSettings(array $settings, ?AP_DB $db = null): bool
+    {
+        if (class_exists('AP_Settings', false)) {
+            $keys = [
+                'default_comment_status', 'require_name_email', 'comment_moderation',
+                'comment_registration', 'close_comments_for_old_posts', 'close_comments_days_old',
+                'thread_comments', 'thread_comments_depth', 'show_avatars', 'avatar_default',
+                'avatar_rating',
+            ];
+            $input = [];
+            foreach ($keys as $key) {
+                if (array_key_exists($key, $settings)) {
+                    $input[$key] = $settings[$key];
+                }
+            }
+            foreach (
+                [
+                    'require_name_email', 'comment_moderation', 'comment_registration',
+                    'close_comments_for_old_posts', 'thread_comments', 'show_avatars',
+                ] as $cb
+            ) {
+                if (!array_key_exists($cb, $input)) {
+                    $input[$cb] = '0';
+                }
+            }
+
+            return AP_Settings::save('discussion', $input, $db);
+        }
+
+        return false;
+    }
+
+    /**
+     * Persist Media settings (image sizes + organize uploads).
+     *
+     * @param array<string, mixed> $settings
+     */
+    public static function updateMediaSettings(array $settings, ?AP_DB $db = null): bool
+    {
+        if (class_exists('AP_Settings', false)) {
+            $keys = [
+                'thumbnail_size_w', 'thumbnail_size_h', 'thumbnail_crop',
+                'medium_size_w', 'medium_size_h', 'large_size_w', 'large_size_h',
+                'uploads_use_yearmonth_folders',
+            ];
+            $input = [];
+            foreach ($keys as $key) {
+                if (array_key_exists($key, $settings)) {
+                    $input[$key] = $settings[$key];
+                }
+            }
+            foreach (['thumbnail_crop', 'uploads_use_yearmonth_folders'] as $cb) {
+                if (!array_key_exists($cb, $input)) {
+                    $input[$cb] = '0';
+                }
+            }
+
+            return AP_Settings::save('media', $input, $db);
+        }
+
+        return false;
+    }
+
+    /**
+     * Persist Writing settings.
+     *
+     * @param array<string, mixed> $settings
+     */
+    public static function updateWritingSettings(array $settings, ?AP_DB $db = null): bool
+    {
+        if (class_exists('AP_Settings', false)) {
+            $keys = ['default_category', 'use_smilies', 'default_comment_status'];
+            $input = [];
+            foreach ($keys as $key) {
+                if (array_key_exists($key, $settings)) {
+                    $input[$key] = $settings[$key];
+                }
+            }
+            if (!array_key_exists('use_smilies', $input)) {
+                $input['use_smilies'] = '0';
+            }
+
+            return AP_Settings::save('writing', $input, $db);
+        }
+
+        return false;
+    }
+
+    /**
+     * Persist Permalink structure + optional bases; flushes rewrite rules.
+     *
+     * @param array{permalink_structure?: string, category_base?: string, tag_base?: string} $settings
+     */
+    public static function updatePermalinkSettings(array $settings, ?AP_DB $db = null): bool
+    {
+        $structure = (string) ($settings['permalink_structure'] ?? '');
+        $categoryBase = (string) ($settings['category_base'] ?? '');
+        $tagBase = (string) ($settings['tag_base'] ?? '');
+
+        if (class_exists('AP_Rewrite', false)) {
+            $ok = AP_Rewrite::setStructure($structure, $db);
+            $ok = AP_Rewrite::setCategoryBase($categoryBase, $db) && $ok;
+            $ok = AP_Rewrite::setTagBase($tagBase, $db) && $ok;
+
+            return $ok;
+        }
+
+        $ok = self::update('permalink_structure', $structure, $db);
+        $ok = self::update('category_base', $categoryBase, $db) && $ok;
+        $ok = self::update('tag_base', $tagBase, $db) && $ok;
+
+        return $ok;
+    }
+
+    private static function truthy(mixed $value): bool
+    {
+        return $value === true || $value === 1 || $value === '1'
+            || $value === 'on' || $value === 'yes' || $value === 'true';
+    }
+
+    // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
 

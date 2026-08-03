@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/admin-bootstrap.php';
 
+AP_Admin::requireCapability('upload_files');
+
 $userId = ap_get_current_user_id();
 $itemId = (int) ($_REQUEST['item'] ?? $_REQUEST['post'] ?? 0);
 

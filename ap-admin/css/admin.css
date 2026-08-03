@@ -1,6 +1,6 @@
 /**
- * AgoraPress admin styles — lightweight, accessible, light + dark via prefers-color-scheme.
- * Full light/dark theme toggle lands with Phase 3 polish.
+ * AgoraPress admin styles — clean, responsive, accessible.
+ * Light + dark via prefers-color-scheme. Explicit admin theme toggle is later polish.
  */
 
 :root {
@@ -20,13 +20,22 @@
     --ap-error-border: #d63638;
     --ap-warning-bg: #fcf9e8;
     --ap-warning-border: #dba617;
+    --ap-info-bg: #f0f6fc;
+    --ap-info-border: #72aee6;
     --ap-menu-bg: #1d2327;
     --ap-menu-text: #f0f0f1;
+    --ap-menu-muted: rgba(240, 240, 241, 0.55);
     --ap-menu-current: #2271b1;
+    --ap-menu-hover: rgba(255, 255, 255, 0.06);
     --ap-link: #2271b1;
     --ap-radius: 4px;
+    --ap-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     --ap-font: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
     --ap-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
+    --ap-menu-width: 14rem;
+    --ap-topbar-height: 3rem;
+    --ap-touch-min: 2.75rem;
+    --ap-transition: 0.18s ease;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -46,10 +55,15 @@
         --ap-error-border: #a32a2b;
         --ap-warning-bg: #2e2a14;
         --ap-warning-border: #b89a14;
+        --ap-info-bg: #15202b;
+        --ap-info-border: #3d6b99;
         --ap-menu-bg: #0a0c0e;
         --ap-menu-text: #e8eaed;
+        --ap-menu-muted: rgba(232, 234, 237, 0.5);
         --ap-menu-current: #72aee6;
+        --ap-menu-hover: rgba(255, 255, 255, 0.07);
         --ap-link: #72aee6;
+        --ap-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
     }
 }
 
@@ -112,7 +126,12 @@ textarea:focus-visible {
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--ap-border);
     border-radius: var(--ap-radius);
+    box-shadow: var(--ap-shadow);
 }
+
+/* --------------------------------------------------------------------------
+   Shell: topbar + sidebar + content
+   -------------------------------------------------------------------------- */
 
 .ap-admin-wrap {
     min-height: 100vh;
@@ -124,49 +143,169 @@ textarea:focus-visible {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 0.65rem 1.25rem;
+    gap: 0.75rem 1rem;
+    min-height: var(--ap-topbar-height);
+    padding: 0.4rem 1rem;
     background: var(--ap-menu-bg);
     color: var(--ap-menu-text);
+    position: sticky;
+    top: 0;
+    z-index: 200;
 }
 
-.ap-admin-brand a {
+.ap-admin-topbar-start,
+.ap-admin-topbar-end {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+}
+
+.ap-admin-topbar-end {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.ap-admin-brand {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.ap-admin-brand-name {
     color: var(--ap-menu-text);
     font-weight: 700;
     font-size: 1.05rem;
     text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 12rem;
+}
+
+.ap-admin-brand-name:hover {
+    text-decoration: none;
+    opacity: 0.92;
 }
 
 .ap-version {
-    margin-left: 0.5rem;
     font-size: 0.75rem;
     opacity: 0.65;
+    flex-shrink: 0;
+}
+
+.ap-visit-site {
+    color: var(--ap-menu-text);
+    font-size: 0.9rem;
+    opacity: 0.9;
+    white-space: nowrap;
+    padding: 0.25rem 0.35rem;
+}
+
+.ap-visit-site:hover {
+    opacity: 1;
+    text-decoration: underline;
 }
 
 .ap-admin-user {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.65rem;
     font-size: 0.9rem;
 }
 
 .ap-admin-user a {
     color: var(--ap-menu-text);
     opacity: 0.9;
+    white-space: nowrap;
+}
+
+.ap-admin-user a:hover {
+    opacity: 1;
+}
+
+/* Hamburger — visible only on small screens */
+.ap-menu-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    margin: 0;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: var(--ap-radius);
+    background: transparent;
+    color: var(--ap-menu-text);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.ap-menu-toggle:hover {
+    background: var(--ap-menu-hover);
+}
+
+.ap-menu-toggle-bars,
+.ap-menu-toggle-bars::before,
+.ap-menu-toggle-bars::after {
+    display: block;
+    width: 1.1rem;
+    height: 2px;
+    background: currentColor;
+    border-radius: 1px;
+    position: relative;
+    transition: transform var(--ap-transition), opacity var(--ap-transition);
+}
+
+.ap-menu-toggle-bars::before,
+.ap-menu-toggle-bars::after {
+    content: "";
+    position: absolute;
+    left: 0;
+}
+
+.ap-menu-toggle-bars::before {
+    top: -6px;
+}
+
+.ap-menu-toggle-bars::after {
+    top: 6px;
+}
+
+body.ap-menu-open .ap-menu-toggle-bars {
+    background: transparent;
+}
+
+body.ap-menu-open .ap-menu-toggle-bars::before {
+    top: 0;
+    transform: rotate(45deg);
+}
+
+body.ap-menu-open .ap-menu-toggle-bars::after {
+    top: 0;
+    transform: rotate(-45deg);
 }
 
 .ap-admin-body {
     display: flex;
     flex: 1;
     min-height: 0;
+    position: relative;
+}
+
+.ap-admin-menu-backdrop {
+    display: none;
 }
 
 .ap-admin-menu {
-    width: 12rem;
+    width: var(--ap-menu-width);
     flex-shrink: 0;
     background: var(--ap-menu-bg);
     color: var(--ap-menu-text);
-    padding: 0.75rem 0;
+    padding: 0.5rem 0 1.25rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .ap-admin-menu ul {
@@ -177,22 +316,49 @@ textarea:focus-visible {
 
 .ap-admin-menu a {
     display: block;
-    padding: 0.55rem 1.1rem;
+    padding: 0.5rem 1.1rem;
     color: var(--ap-menu-text);
     text-decoration: none;
     border-left: 3px solid transparent;
+    min-height: 2.35rem;
+    line-height: 1.35;
 }
 
 .ap-admin-menu li.current a,
-.ap-admin-menu a:hover {
-    background: rgba(255, 255, 255, 0.06);
+.ap-admin-menu a:hover,
+.ap-admin-menu a:focus-visible {
+    background: var(--ap-menu-hover);
     border-left-color: var(--ap-menu-current);
+    text-decoration: none;
+}
+
+.ap-admin-menu li.current a {
+    font-weight: 600;
+}
+
+.ap-menu-section {
+    margin: 0.65rem 0 0.15rem;
+    pointer-events: none;
+}
+
+.ap-menu-section-label {
+    display: block;
+    padding: 0.45rem 1.15rem 0.2rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ap-menu-muted);
 }
 
 .ap-admin-content {
     flex: 1;
     padding: 1.25rem 1.5rem 2rem;
     min-width: 0;
+}
+
+.ap-admin-content:focus {
+    outline: none;
 }
 
 .ap-admin-footer {
@@ -205,6 +371,333 @@ textarea:focus-visible {
 
 .ap-admin-footer p {
     margin: 0;
+}
+
+.ap-footer-version {
+    opacity: 0.85;
+}
+
+/* Dashboard cards (legacy class kept for tests / older markup) */
+.ap-dashboard-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+}
+
+.ap-dashboard-card .ap-stat-line {
+    margin: 0 0 0.35rem;
+}
+
+.ap-dashboard-card .ap-card-actions,
+.ap-dashboard-widget .ap-card-actions {
+    margin: 0.85rem 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+/* Dashboard home — At a Glance, Activity, Quick Draft */
+.ap-dashboard-welcome {
+    margin: 0 0 0.25rem;
+    color: var(--ap-muted);
+}
+
+.ap-dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+    align-items: start;
+}
+
+.ap-dashboard-widget .ap-metabox-body {
+    min-height: 0;
+}
+
+.ap-glance-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.ap-glance-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.ap-glance-item a {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+}
+
+.ap-glance-item a:hover .ap-glance-count,
+.ap-glance-item a:focus-visible .ap-glance-count {
+    color: var(--ap-primary);
+}
+
+.ap-glance-static {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+}
+
+.ap-glance-count {
+    font-size: 1.65rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--ap-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.ap-glance-label {
+    font-size: 0.95rem;
+    color: var(--ap-muted);
+}
+
+.ap-glance-meta {
+    font-size: 0.85rem;
+    color: var(--ap-muted);
+    margin-left: 0.1rem;
+}
+
+.ap-glance-meta a {
+    color: var(--ap-link);
+    text-decoration: none;
+}
+
+.ap-glance-meta a:hover,
+.ap-glance-meta a:focus-visible {
+    text-decoration: underline;
+}
+
+.ap-glance-muted {
+    opacity: 0.75;
+}
+
+.ap-widget-subtitle {
+    margin: 1rem 0 0.45rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ap-muted);
+}
+
+.ap-widget-subtitle:first-child {
+    margin-top: 0;
+}
+
+.ap-activity-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.ap-activity-list li {
+    padding: 0.45rem 0;
+    border-bottom: 1px solid var(--ap-border);
+    font-size: 0.92rem;
+    line-height: 1.4;
+}
+
+.ap-activity-list li:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.ap-activity-type {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--ap-muted);
+    margin-right: 0.35rem;
+}
+
+.ap-activity-date {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--ap-muted);
+    margin-top: 0.15rem;
+}
+
+.ap-activity-status {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: var(--ap-radius);
+    background: var(--ap-info-bg);
+    border: 1px solid var(--ap-info-border);
+    color: var(--ap-text);
+}
+
+.ap-activity-status.ap-status-pending {
+    background: var(--ap-warning-bg);
+    border-color: var(--ap-warning-border);
+}
+
+.ap-activity-status.ap-status-approved {
+    background: var(--ap-success-bg);
+    border-color: var(--ap-success-border);
+}
+
+.ap-activity-excerpt {
+    display: block;
+    margin-top: 0.2rem;
+    color: var(--ap-muted);
+    font-size: 0.85rem;
+}
+
+.ap-muted {
+    color: var(--ap-muted);
+    margin: 0.25rem 0 0.5rem;
+}
+
+.ap-quick-draft-form label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.ap-quick-draft-form p {
+    margin: 0 0 0.75rem;
+}
+
+.ap-quick-draft-form .regular-text,
+.ap-quick-draft-form .large-text,
+.ap-quick-draft-form input[type="text"],
+.ap-quick-draft-form textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.ap-dashboard-quick-draft {
+    grid-column: 1 / -1;
+}
+
+@media (min-width: 960px) {
+    .ap-dashboard-grid {
+        grid-template-columns: 1fr 1.2fr;
+    }
+
+    .ap-dashboard-quick-draft {
+        grid-column: 1 / -1;
+        max-width: 36rem;
+    }
+}
+
+/* Mobile / narrow: collapsible drawer menu */
+@media (max-width: 782px) {
+    .ap-menu-toggle {
+        display: inline-flex;
+    }
+
+    .ap-admin-topbar {
+        padding: 0.35rem 0.75rem;
+    }
+
+    .ap-admin-brand-name {
+        max-width: 9rem;
+    }
+
+    .ap-visit-site {
+        font-size: 0.85rem;
+    }
+
+    .ap-admin-user .ap-user-name {
+        max-width: 7rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ap-admin-body {
+        flex-direction: column;
+    }
+
+    .ap-admin-menu {
+        position: fixed;
+        top: var(--ap-topbar-height);
+        left: 0;
+        bottom: 0;
+        width: min(var(--ap-menu-width), 85vw);
+        z-index: 190;
+        transform: translateX(-105%);
+        transition: transform var(--ap-transition);
+        box-shadow: none;
+        padding-bottom: 2rem;
+    }
+
+    body.ap-menu-open .ap-admin-menu {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.28);
+    }
+
+    .ap-admin-menu-backdrop {
+        display: block;
+        position: fixed;
+        inset: var(--ap-topbar-height) 0 0 0;
+        z-index: 180;
+        background: rgba(0, 0, 0, 0.45);
+        border: 0;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .ap-admin-menu-backdrop[hidden] {
+        display: none;
+    }
+
+    body.ap-menu-open {
+        overflow: hidden;
+    }
+
+    .ap-admin-content {
+        padding: 1rem 0.85rem 1.75rem;
+    }
+
+    .ap-admin-footer {
+        padding: 0.65rem 0.85rem;
+    }
+
+    .ap-admin-menu a {
+        min-height: var(--ap-touch-min);
+        display: flex;
+        align-items: center;
+        padding-top: 0.65rem;
+        padding-bottom: 0.65rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .ap-admin-user .ap-user-name {
+        display: none;
+    }
+
+    .ap-version {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ap-admin-menu,
+    .ap-menu-toggle-bars,
+    .ap-menu-toggle-bars::before,
+    .ap-menu-toggle-bars::after {
+        transition: none;
+    }
 }
 
 /* Headings / page header */
@@ -288,6 +781,79 @@ button.button-primary:hover {
     background: var(--ap-warning-bg);
 }
 
+.ap-notice--info {
+    border-left-color: var(--ap-info-border);
+    background: var(--ap-info-bg);
+}
+
+/* Hall of Fame prompt (dashboard) + settings */
+.ap-hof-prompt {
+    margin: 1rem 0 0;
+}
+
+.ap-hof-prompt-title {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+    font-weight: 650;
+}
+
+.ap-hof-prompt .ap-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0.65rem 0 0;
+}
+
+.ap-hof-dismiss-form {
+    display: inline;
+    margin: 0;
+}
+
+.ap-hof-badge {
+    margin: 0 0 0.5rem;
+}
+
+.ap-hof-badge--joined {
+    color: var(--ap-text);
+}
+
+.ap-hof-badge code,
+.ap-hof-prompt code {
+    font-family: var(--ap-mono);
+    font-size: 0.9em;
+}
+
+.ap-list {
+    margin: 0 0 0.75rem;
+    padding-left: 1.25rem;
+}
+
+.ap-list li {
+    margin-bottom: 0.35rem;
+}
+
+.ap-footer-sep {
+    margin: 0 0.35rem;
+    opacity: 0.55;
+}
+
+.ap-footer-donate,
+.ap-footer-hof {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.12em;
+    opacity: 0.9;
+}
+
+.ap-footer-donate:hover,
+.ap-footer-donate:focus-visible,
+.ap-footer-hof:hover,
+.ap-footer-hof:focus-visible {
+    opacity: 1;
+    color: var(--ap-link);
+}
+
 /* List table */
 .ap-list-toolbar {
     display: flex;
@@ -297,6 +863,19 @@ button.button-primary:hover {
     gap: 0.75rem;
     margin-bottom: 0.75rem;
 }
+
+/* Horizontal scroll for wide tables on small viewports */
+.ap-table-scroll,
+.ap-list-table-wrap,
+form.ap-list-form,
+form.ap-list-table-form {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+
 
 .ap-subsubsub {
     list-style: none;
@@ -322,11 +901,11 @@ button.button-primary:hover {
 
 .ap-list-table {
     width: 100%;
+    min-width: 36rem;
     border-collapse: collapse;
     background: var(--ap-surface);
     border: 1px solid var(--ap-border);
     border-radius: var(--ap-radius);
-    overflow: hidden;
 }
 
 .ap-list-table th,
@@ -367,6 +946,14 @@ button.button-primary:hover {
     visibility: visible;
 }
 
+/* Always show row actions on touch / coarse pointers and small screens */
+@media (hover: none), (max-width: 782px) {
+    .row-actions {
+        visibility: visible;
+    }
+}
+
+
 .submitdelete {
     color: var(--ap-danger);
 }
@@ -400,23 +987,58 @@ button.button-primary:hover {
 }
 
 @media (max-width: 782px) {
-    .ap-admin-body {
-        flex-direction: column;
-    }
-
-    .ap-admin-menu {
-        width: 100%;
-    }
-
-    .ap-admin-menu ul {
-        display: flex;
-        flex-wrap: wrap;
-    }
-
     .ap-edit-layout {
         grid-template-columns: 1fr;
     }
+
+    .ap-page-header h1 {
+        font-size: 1.3rem;
+    }
+
+    .button,
+    button.button {
+        min-height: 2.4rem;
+        padding: 0.45rem 0.9rem;
+    }
+
+    .ap-search-form {
+        width: 100%;
+    }
+
+    .ap-search-form input[type="search"],
+    .ap-search-form input[type="text"] {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .ap-form-table,
+    .ap-form-table tbody,
+    .ap-form-table tr,
+    .ap-form-table th,
+    .ap-form-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .ap-form-table th {
+        padding: 0.65rem 0 0.15rem;
+    }
+
+    .ap-form-table td {
+        padding: 0.15rem 0 0.65rem;
+    }
+
+    .ap-form-table tr {
+        border-bottom: 1px solid var(--ap-border);
+        margin-bottom: 0.35rem;
+    }
+
+    .ap-form--settings .regular-text,
+    .ap-user-form .regular-text {
+        max-width: 100%;
+    }
 }
+
 
 .ap-field {
     margin-bottom: 1rem;
@@ -442,13 +1064,101 @@ input[type="text"],
 input[type="search"],
 input[type="password"],
 input[type="number"],
-input[type="email"] {
+input[type="email"],
+input[type="url"] {
     font: inherit;
     padding: 0.4rem 0.55rem;
     border: 1px solid var(--ap-border);
     border-radius: var(--ap-radius);
     background: var(--ap-surface);
     color: var(--ap-text);
+}
+
+/* User create / edit / profile forms */
+.ap-user-form {
+    max-width: 40rem;
+}
+
+.ap-user-form .ap-fieldset {
+    border: 1px solid var(--ap-border);
+    border-radius: var(--ap-radius);
+    background: var(--ap-surface);
+    margin: 0 0 1.25rem;
+    padding: 0.85rem 1rem 0.5rem;
+}
+
+.ap-user-form .ap-fieldset legend {
+    font-weight: 650;
+    padding: 0 0.35rem;
+}
+
+.ap-user-form .ap-field label {
+    display: block;
+    font-weight: 550;
+    margin-bottom: 0.25rem;
+}
+
+.ap-user-form .regular-text {
+    width: 100%;
+    max-width: 28rem;
+}
+
+.ap-user-form .description {
+    margin: 0.3rem 0 0;
+    color: var(--ap-muted);
+    font-size: 0.9em;
+}
+
+.ap-user-form .required {
+    color: var(--ap-danger);
+}
+
+.ap-user-form input[readonly],
+.ap-user-form input:disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+}
+
+/* Avatars on user profile / list */
+.ap-avatar-fieldset .ap-avatar-preview {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+}
+
+.ap-avatar-fieldset .ap-avatar-img,
+.ap-avatar-fieldset .avatar {
+    display: block;
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--ap-border);
+    background: var(--ap-bg);
+}
+
+.ap-user-list-avatar {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 0.35rem;
+    line-height: 0;
+}
+
+.ap-user-list-avatar .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    vertical-align: middle;
+    border: 1px solid var(--ap-border);
+}
+
+.ap-checkbox-label {
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .ap-field-content textarea,
@@ -583,6 +1293,7 @@ body.ap-admin-login {
 }
 
 .ap-login-box input[type="text"],
+.ap-login-box input[type="email"],
 .ap-login-box input[type="password"] {
     width: 100%;
 }
@@ -598,6 +1309,29 @@ body.ap-admin-login {
     align-items: center;
     gap: 0.4rem;
     font-weight: 400;
+}
+
+.ap-login-box .ap-login-links {
+    margin: 1rem 0 0;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.ap-login-box .ap-login-sep {
+    margin: 0 0.35rem;
+    color: var(--ap-muted);
+}
+
+.ap-login-box .ap-login-hint {
+    margin: 0 0 1rem;
+    color: var(--ap-muted);
+    font-size: 0.92rem;
+}
+
+.ap-login-box .ap-optional {
+    font-weight: 400;
+    color: var(--ap-muted);
+    font-size: 0.85em;
 }
 
 /* Media Library */
@@ -813,4 +1547,124 @@ a.ap-button-danger {
     flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
+}
+
+/* Settings screens */
+.ap-form--settings {
+    max-width: 48rem;
+}
+
+.ap-form--settings .ap-fieldset {
+    border: 1px solid var(--ap-border);
+    border-radius: var(--ap-radius);
+    background: var(--ap-surface);
+    margin: 0 0 1.25rem;
+    padding: 0.85rem 1rem 0.5rem;
+}
+
+.ap-form--settings .ap-fieldset legend {
+    font-weight: 650;
+    padding: 0 0.35rem;
+}
+
+.ap-form--settings .ap-field label {
+    display: block;
+    font-weight: 550;
+    margin-bottom: 0.25rem;
+}
+
+.ap-form--settings .regular-text {
+    width: 100%;
+    max-width: 28rem;
+}
+
+.ap-form--settings .small-text {
+    width: 5rem;
+}
+
+.ap-help,
+.ap-form--settings .ap-help {
+    display: block;
+    margin: 0.3rem 0 0.75rem;
+    color: var(--ap-muted);
+    font-size: 0.9em;
+}
+
+.ap-form-actions {
+    margin: 1rem 0 0;
+}
+
+.ap-form-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 1.25rem;
+}
+
+.ap-form-table th {
+    text-align: left;
+    vertical-align: top;
+    font-weight: 550;
+    padding: 0.55rem 1rem 0.55rem 0;
+    width: 12rem;
+}
+
+.ap-form-table td {
+    padding: 0.55rem 0;
+    vertical-align: top;
+}
+
+.ap-settings-section-title {
+    margin: 1.25rem 0 0.5rem;
+    font-size: 1.15rem;
+    font-weight: 650;
+}
+
+.ap-inline-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.25rem 0.75rem 0.25rem 0;
+    font-weight: 400;
+}
+
+.ap-module-toggle {
+    margin: 0 0 1rem;
+}
+
+.ap-module-toggle label {
+    font-weight: 550;
+}
+
+.ap-module-toggle .ap-help {
+    margin-top: 0.25rem;
+    margin-left: 1.5rem;
+}
+
+.ap-muted {
+    color: var(--ap-muted);
+}
+
+/* Utility: visually group primary page actions on narrow screens */
+.ap-page-header .button,
+.ap-page-header .button-primary {
+    flex-shrink: 0;
+}
+
+@media print {
+    .ap-admin-topbar,
+    .ap-admin-menu,
+    .ap-menu-toggle,
+    .ap-admin-menu-backdrop,
+    .ap-admin-footer {
+        display: none !important;
+    }
+
+    .ap-admin-content {
+        padding: 0;
+    }
+
+    body.ap-admin {
+        background: #fff;
+        color: #000;
+    }
 }

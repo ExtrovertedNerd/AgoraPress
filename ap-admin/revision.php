@@ -26,6 +26,11 @@ if ($parent === null || $parent->post_type === 'revision') {
 }
 
 $postType = AP_Admin::resolvePostType($parent->post_type, $parent->post_type);
+AP_Admin::requireCapability(
+    AP_Admin::editMetaCapForPostType($postType),
+    null,
+    $postId
+);
 
 if (!AP_Post::typeSupports($postType, 'revisions')) {
     AP_Admin::redirect(AP_Admin::url('post.php', [

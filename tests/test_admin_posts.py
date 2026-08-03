@@ -83,6 +83,10 @@ def test_admin_classes_define_core_api() -> None:
     for needle in (
         "class AP_Admin",
         "function requireLogin",
+        "function requireCapability",
+        "function userCan",
+        "function editCapabilityForPostType",
+        "function screenCapabilities",
         "function menuItems",
         "function url",
         "function sanitizeRedirect",
@@ -100,6 +104,9 @@ def test_functions_expose_nonce_and_escape_helpers() -> None:
         "function ap_verify_nonce",
         "function ap_check_nonce",
         "function ap_nonce_field",
+        "function ap_nonce_url",
+        "function ap_verify_request_nonce",
+        "function ap_check_request_nonce",
     ):
         assert needle in src, f"Expected {needle!r} in functions.php"
 

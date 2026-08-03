@@ -3,8 +3,8 @@
 /**
  * AgoraPress admin shell helpers — URLs, auth gate, notices, menu.
  *
- * Full roles/capabilities land in Phase 3. For now any logged-in user may
- * access ap-admin; capability checks will tighten later.
+ * Access requires a logged-in user with the `read` capability (all default
+ * roles). Individual screens and menu items use more specific caps.
  *
  * @package AgoraPress
  */
@@ -87,17 +87,191 @@ class AP_Admin
     /**
      * Require a logged-in user or redirect to the admin login screen.
      *
+     * Also requires the `read` capability so users without any role cannot
+     * enter the admin shell.
+     *
      * @return never|void Exits via redirect when not authenticated.
      */
     public static function requireLogin(?AP_DB $db = null): void
     {
-        if (self::isLoggedIn($db)) {
+        if (!self::isLoggedIn($db)) {
+            $redirect = self::currentRequestUrl();
+            $login = self::url('login.php', $redirect !== '' ? ['redirect_to' => $redirect] : []);
+            self::redirect($login);
+        }
+
+        // Logged in but no admin-capable role (e.g. empty caps).
+        if (!self::currentUserCan('read', $db)) {
+            self::denyAccess('You do not have permission to access the admin area.');
+        }
+    }
+
+    /**
+     * Whether the current user has a capability (meta-caps mapped when $objectId set).
+     *
+     * @param int|null $objectId Optional post/comment ID for meta capabilities
+     *                           such as edit_post / delete_post / edit_comment.
+     */
+    public static function currentUserCan(
+        string $capability,
+        ?AP_DB $db = null,
+        ?int $objectId = null
+    ): bool {
+        if (function_exists('ap_current_user_can')) {
+            return ap_current_user_can($capability, $objectId, $db);
+        }
+        if (class_exists('AP_Roles', false)) {
+            return AP_Roles::currentUserCan($capability, $objectId, $db);
+        }
+
+        // Roles not loaded yet — deny privileged checks, allow only bare login probes.
+        return false;
+    }
+
+    /**
+     * Whether a specific user has a capability (prefers actor id for unit tests).
+     *
+     * When the roles layer is not bootstrapped, returns true so legacy unit paths
+     * that only exercise nonces continue to work. Production admin always loads roles.
+     */
+    public static function userCan(
+        int $userId,
+        string $capability,
+        ?int $objectId = null,
+        ?AP_DB $db = null
+    ): bool {
+        if (!class_exists('AP_Roles', false)) {
+            return true;
+        }
+        if ($userId > 0 && function_exists('ap_user_can')) {
+            return ap_user_can($userId, $capability, $objectId, $db);
+        }
+        if (function_exists('ap_current_user_can')) {
+            return ap_current_user_can($capability, $objectId, $db);
+        }
+
+        return AP_Roles::userCan($userId, $capability, $objectId, $db);
+    }
+
+    /**
+     * Require a capability or exit with 403.
+     *
+     * @param int|null $objectId Optional object for meta-capability mapping.
+     *
+     * @return never|void
+     */
+    public static function requireCapability(
+        string $capability,
+        ?AP_DB $db = null,
+        ?int $objectId = null
+    ): void {
+        self::requireLogin($db);
+        if (self::currentUserCan($capability, $db, $objectId)) {
             return;
         }
 
-        $redirect = self::currentRequestUrl();
-        $login = self::url('login.php', $redirect !== '' ? ['redirect_to' => $redirect] : []);
-        self::redirect($login);
+        self::denyAccess('You do not have permission to perform this action.');
+    }
+
+    /**
+     * Primitive list/create capability for a post type UI (posts vs pages).
+     *
+     * Custom types fall back to edit_posts until type-specific caps land.
+     */
+    public static function editCapabilityForPostType(string $postType): string
+    {
+        return $postType === 'page' ? 'edit_pages' : 'edit_posts';
+    }
+
+    /**
+     * Meta capability for editing a single post/page row.
+     */
+    public static function editMetaCapForPostType(string $postType): string
+    {
+        return $postType === 'page' ? 'edit_page' : 'edit_post';
+    }
+
+    /**
+     * Meta capability for deleting a single post/page row.
+     */
+    public static function deleteMetaCapForPostType(string $postType): string
+    {
+        return $postType === 'page' ? 'delete_page' : 'delete_post';
+    }
+
+    /**
+     * Primitive publish capability for a post type.
+     */
+    public static function publishCapabilityForPostType(string $postType): string
+    {
+        return $postType === 'page' ? 'publish_pages' : 'publish_posts';
+    }
+
+    /**
+     * Map of admin screen basenames → required capability for screen access.
+     *
+     * Screens whose cap depends on query args (edit.php, post.php, …) are omitted
+     * here and resolved in the entry script via {@see self::editCapabilityForPostType()}.
+     *
+     * @return array<string, string> basename => capability
+     */
+    public static function screenCapabilities(): array
+    {
+        return [
+            'index.php' => 'read',
+            'profile.php' => 'read',
+            'users.php' => 'list_users',
+            'user-new.php' => 'create_users',
+            'user-edit.php' => 'edit_users',
+            'edit-comments.php' => 'moderate_comments',
+            'edit-tags.php' => 'manage_categories',
+            'upload.php' => 'upload_files',
+            'media.php' => 'upload_files',
+            'media-new.php' => 'upload_files',
+            'theme-options.php' => 'edit_theme_options',
+            'nav-menus.php' => 'edit_theme_options',
+            'options-general.php' => 'manage_options',
+            'options-modules.php' => 'manage_options',
+            'options-writing.php' => 'manage_options',
+            'options-reading.php' => 'manage_options',
+            'options-discussion.php' => 'manage_options',
+            'options-media.php' => 'manage_options',
+            'options-permalink.php' => 'manage_options',
+            'options-hall-of-fame.php' => 'manage_options',
+            // Dynamic (documented for tests / tooling):
+            // edit.php, post.php, post-new.php, revision.php → edit_posts|edit_pages
+        ];
+    }
+
+    /**
+     * Emit a 403 page and stop (or throw in CLI/tests when headers already sent).
+     *
+     * @return never
+     */
+    public static function denyAccess(string $message = 'Forbidden'): never
+    {
+        if (!headers_sent()) {
+            http_response_code(403);
+            header('Content-Type: text/html; charset=utf-8');
+        }
+
+        $safe = function_exists('ap_esc_html')
+            ? ap_esc_html($message)
+            : htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $home = self::url('index.php');
+        $homeEsc = function_exists('ap_esc_url')
+            ? ap_esc_url($home)
+            : htmlspecialchars($home, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>Forbidden — AgoraPress</title></head><body>'
+            . '<main style="font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:1rem">'
+            . '<h1>Permission denied</h1>'
+            . '<p>' . $safe . '</p>'
+            . '<p><a href="' . $homeEsc . '">Back to dashboard</a></p>'
+            . '</main></body></html>';
+        exit(0);
     }
 
     /**
@@ -227,11 +401,62 @@ class AP_Admin
     }
 
     /**
-     * Admin menu items for the sidebar.
-     *
-     * @return list<array{id: string, label: string, url: string, active: bool}>
+     * Site display name for the admin chrome (blogname option, fallback AgoraPress).
      */
-    public static function menuItems(string $current = ''): array
+    public static function siteName(?AP_DB $db = null): string
+    {
+        $name = '';
+        if (function_exists('ap_get_option')) {
+            $raw = ap_get_option('blogname', 'AgoraPress', $db);
+            $name = is_string($raw) ? trim($raw) : '';
+        }
+        if ($name === '') {
+            $name = 'AgoraPress';
+        }
+
+        return $name;
+    }
+
+    /**
+     * Front-end home URL for “Visit Site” (root-relative fallback).
+     */
+    public static function homeUrl(?AP_DB $db = null): string
+    {
+        if (function_exists('ap_home_url')) {
+            $url = ap_home_url('/', $db);
+            if (is_string($url) && $url !== '') {
+                return $url;
+            }
+        }
+        if (defined('AP_SITEURL') && is_string(AP_SITEURL) && AP_SITEURL !== '') {
+            return rtrim((string) AP_SITEURL, '/') . '/';
+        }
+
+        return '/';
+    }
+
+    /**
+     * Human label for a sidebar menu section key.
+     */
+    public static function menuSectionLabel(string $section): string
+    {
+        return match ($section) {
+            'content' => 'Content',
+            'appearance' => 'Appearance',
+            'users' => 'Users',
+            'settings' => 'Settings',
+            default => '',
+        };
+    }
+
+    /**
+     * Admin menu items for the sidebar (filtered by current user capabilities).
+     *
+     * Optional keys: cap, module, section (for visual grouping in the shell).
+     *
+     * @return list<array{id: string, label: string, url: string, active: bool, cap: string, module?: string, section?: string}>
+     */
+    public static function menuItems(string $current = '', ?AP_DB $db = null): array
     {
         $items = [
             [
@@ -239,64 +464,196 @@ class AP_Admin
                 'label' => 'Dashboard',
                 'url' => self::url('index.php'),
                 'active' => $current === 'dashboard',
+                'cap' => 'read',
+                'module' => '',
+                'section' => '',
             ],
             [
                 'id' => 'posts',
                 'label' => 'Posts',
                 'url' => self::url('edit.php', ['post_type' => 'post']),
                 'active' => $current === 'posts',
+                'cap' => 'edit_posts',
+                'module' => 'blog',
+                'section' => 'content',
             ],
             [
                 'id' => 'categories',
                 'label' => 'Categories',
                 'url' => self::url('edit-tags.php', ['taxonomy' => 'category']),
                 'active' => $current === 'categories',
+                'cap' => 'manage_categories',
+                'module' => 'blog',
+                'section' => 'content',
             ],
             [
                 'id' => 'tags',
                 'label' => 'Tags',
                 'url' => self::url('edit-tags.php', ['taxonomy' => 'post_tag']),
                 'active' => $current === 'tags',
+                'cap' => 'manage_categories',
+                'module' => 'blog',
+                'section' => 'content',
             ],
             [
                 'id' => 'pages',
                 'label' => 'Pages',
                 'url' => self::url('edit.php', ['post_type' => 'page']),
                 'active' => $current === 'pages',
+                'cap' => 'edit_pages',
+                'module' => 'static_pages',
+                'section' => 'content',
             ],
             [
                 'id' => 'comments',
                 'label' => 'Comments',
                 'url' => self::url('edit-comments.php'),
                 'active' => $current === 'comments',
+                'cap' => 'moderate_comments',
+                'module' => 'blog',
+                'section' => 'content',
             ],
             [
                 'id' => 'media',
                 'label' => 'Media',
                 'url' => self::url('upload.php'),
                 'active' => $current === 'media',
+                'cap' => 'upload_files',
+                'module' => '',
+                'section' => 'content',
+            ],
+            [
+                'id' => 'users',
+                'label' => 'Users',
+                'url' => self::url('users.php'),
+                'active' => $current === 'users',
+                'cap' => 'list_users',
+                'module' => '',
+                'section' => 'users',
+            ],
+            [
+                'id' => 'profile',
+                'label' => 'Profile',
+                'url' => self::url('profile.php'),
+                'active' => $current === 'profile',
+                'cap' => 'read',
+                'module' => '',
+                'section' => 'users',
             ],
             [
                 'id' => 'theme-options',
                 'label' => 'Theme Options',
                 'url' => self::url('theme-options.php'),
                 'active' => $current === 'theme-options',
+                'cap' => 'edit_theme_options',
+                'module' => '',
+                'section' => 'appearance',
             ],
             [
                 'id' => 'nav-menus',
                 'label' => 'Menus',
                 'url' => self::url('nav-menus.php'),
                 'active' => $current === 'nav-menus',
+                'cap' => 'edit_theme_options',
+                'module' => '',
+                'section' => 'appearance',
+            ],
+            [
+                'id' => 'options-general',
+                'label' => 'General',
+                'url' => self::url('options-general.php'),
+                'active' => $current === 'options-general',
+                'cap' => 'manage_options',
+                'module' => '',
+                'section' => 'settings',
+            ],
+            [
+                'id' => 'options-modules',
+                'label' => 'Modules',
+                'url' => self::url('options-modules.php'),
+                'active' => $current === 'options-modules',
+                'cap' => 'manage_options',
+                'module' => '',
+                'section' => 'settings',
+            ],
+            [
+                'id' => 'options-writing',
+                'label' => 'Writing',
+                'url' => self::url('options-writing.php'),
+                'active' => $current === 'options-writing',
+                'cap' => 'manage_options',
+                'module' => 'blog',
+                'section' => 'settings',
             ],
             [
                 'id' => 'options-reading',
                 'label' => 'Reading',
                 'url' => self::url('options-reading.php'),
                 'active' => $current === 'options-reading',
+                'cap' => 'manage_options',
+                'module' => '',
+                'section' => 'settings',
+            ],
+            [
+                'id' => 'options-discussion',
+                'label' => 'Discussion',
+                'url' => self::url('options-discussion.php'),
+                'active' => $current === 'options-discussion',
+                'cap' => 'manage_options',
+                'module' => 'blog',
+                'section' => 'settings',
+            ],
+            [
+                'id' => 'options-media',
+                'label' => 'Media Settings',
+                'url' => self::url('options-media.php'),
+                'active' => $current === 'options-media',
+                'cap' => 'manage_options',
+                'module' => '',
+                'section' => 'settings',
+            ],
+            [
+                'id' => 'options-permalink',
+                'label' => 'Permalinks',
+                'url' => self::url('options-permalink.php'),
+                'active' => $current === 'options-permalink',
+                'cap' => 'manage_options',
+                'module' => '',
+                'section' => 'settings',
+            ],
+            [
+                'id' => 'options-hall-of-fame',
+                'label' => 'Hall of Fame',
+                'url' => self::url('options-hall-of-fame.php'),
+                'active' => $current === 'options-hall-of-fame',
+                'cap' => 'manage_options',
+                'module' => '',
+                'section' => 'settings',
             ],
         ];
 
-        return $items;
+        // Filter by capability only for an authenticated request. Unauthenticated
+        // callers (structural unit tests, pre-login) receive the full menu map.
+        if (!class_exists('AP_Roles', false) || !self::isLoggedIn($db)) {
+            return $items;
+        }
+
+        $visible = [];
+        foreach ($items as $item) {
+            if (!self::currentUserCan((string) $item['cap'], $db)) {
+                continue;
+            }
+            $module = (string) ($item['module'] ?? '');
+            $moduleOff = $module !== ''
+                && class_exists('AP_Options', false)
+                && !AP_Options::isModuleEnabled($module, $db);
+            if ($moduleOff) {
+                continue;
+            }
+            $visible[] = $item;
+        }
+
+        return $visible;
     }
 
     /**
@@ -363,7 +720,13 @@ class AP_Admin
             'term_deleted' => ['Term deleted.', 'success'],
             'bulk_term_deleted' => ['Selected terms deleted.', 'success'],
             'theme_options_saved' => ['Theme options saved.', 'success'],
+            'general_saved' => ['General settings saved.', 'success'],
+            'modules_saved' => ['Module settings saved.', 'success'],
+            'writing_saved' => ['Writing settings saved.', 'success'],
             'reading_saved' => ['Reading settings saved.', 'success'],
+            'discussion_saved' => ['Discussion settings saved.', 'success'],
+            'media_saved' => ['Media settings saved.', 'success'],
+            'permalink_saved' => ['Permalink settings saved.', 'success'],
             'menu_created' => ['Menu created.', 'success'],
             'menu_saved' => ['Menu saved.', 'success'],
             'menu_deleted' => ['Menu deleted.', 'success'],
@@ -381,6 +744,21 @@ class AP_Admin
             'bulk_comment_trashed' => ['Selected comments moved to Trash.', 'success'],
             'bulk_comment_untrashed' => ['Selected comments restored.', 'success'],
             'bulk_comment_deleted' => ['Selected comments permanently deleted.', 'success'],
+            'user_created' => ['User created.', 'success'],
+            'user_updated' => ['User updated.', 'success'],
+            'user_deleted' => ['User deleted.', 'success'],
+            'profile_updated' => ['Profile updated.', 'success'],
+            'bulk_user_deleted' => ['Selected users deleted.', 'success'],
+            'bulk_user_role' => ['Selected users’ roles updated.', 'success'],
+            'draft_saved' => ['Draft saved. Open Posts to continue editing.', 'success'],
+            'hall_of_fame_joined' => ['Welcome to the Hall of Fame — your domain was registered voluntarily.', 'success'],
+            'hall_of_fame_left' => ['You left the Hall of Fame. Your domain registration was withdrawn.', 'success'],
+            'hall_of_fame_left_local' => [
+                'Local Hall of Fame membership cleared. The project API could not be reached; try Leave again later if needed.',
+                'warning',
+            ],
+            'hall_of_fame_dismissed' => ['Hall of Fame prompt dismissed. You can join anytime under Settings → Hall of Fame.', 'success'],
+            'hall_of_fame_donation_saved' => ['Donation link preference saved.', 'success'],
             'error' => ['Something went wrong. Please try again.', 'error'],
             'nonce' => ['Security check failed. Please reload and try again.', 'error'],
             'not_found' => ['That item could not be found.', 'error'],
