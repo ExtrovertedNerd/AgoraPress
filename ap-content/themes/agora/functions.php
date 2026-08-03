@@ -19,7 +19,7 @@ const AGORA_COLOR_SCHEME_OPTION = 'agora_color_scheme';
 const AGORA_DEFAULT_COLOR_SCHEME = 'marble';
 
 /** Stylesheet version (fallback when style.css header is unavailable). */
-const AGORA_THEME_VERSION = '0.3.0';
+const AGORA_THEME_VERSION = '0.3.1';
 
 /**
  * Register theme chrome: nav locations + modular sidebars (idempotent).
@@ -730,6 +730,176 @@ function agora_site_name(?AP_DB $db = null): string
     $name = agora_read_option('blogname', '', $db);
 
     return $name !== '' ? $name : 'AgoraPress';
+}
+
+/**
+ * Build an ap-admin URL without requiring the admin shell class.
+ */
+function agora_admin_path_url(string $file, array $query = [], ?AP_DB $db = null): string
+{
+    $file = ltrim($file, '/');
+    $url = '';
+
+    if (class_exists('AP_Admin', false) && method_exists('AP_Admin', 'url')) {
+        try {
+            $url = (string) AP_Admin::url($file, $query);
+        } catch (Throwable) {
+            $url = '';
+        }
+    }
+
+    if ($url === '') {
+        if (function_exists('ap_site_url')) {
+            try {
+                $url = (string) ap_site_url('ap-admin/' . $file, $db);
+            } catch (Throwable) {
+                $url = '';
+            }
+        }
+    }
+
+    if ($url === '' && class_exists('AP_Rewrite', false) && method_exists('AP_Rewrite', 'siteUrl')) {
+        try {
+            $url = (string) AP_Rewrite::siteUrl('ap-admin/' . $file, $db);
+        } catch (Throwable) {
+            $url = '';
+        }
+    }
+
+    if ($url === '') {
+        $site = agora_read_option('siteurl', '', $db);
+        if ($site === '') {
+            $site = agora_read_option('home', '', $db);
+        }
+        $url = $site !== ''
+            ? rtrim($site, '/') . '/ap-admin/' . $file
+            : '/ap-admin/' . $file;
+    }
+
+    // Append query when built without AP_Admin::url (which already merges $query).
+    if ($query !== [] && !str_contains($url, '?')) {
+        $qs = http_build_query($query);
+        if ($qs !== '') {
+            $url .= '?' . $qs;
+        }
+    }
+
+    return $url;
+}
+
+/**
+ * Logged-in account indicator data for the header, or null for guests.
+ *
+ * @return array{
+ *     display_name: string,
+ *     welcome: string,
+ *     profile_url: string,
+ *     logout_url: string
+ * }|null
+ */
+function agora_get_account_indicator(?AP_DB $db = null): ?array
+{
+    $loggedIn = false;
+    if (function_exists('ap_is_user_logged_in') && class_exists('AP_Session', false)) {
+        try {
+            $loggedIn = ap_is_user_logged_in($db);
+        } catch (Throwable) {
+            $loggedIn = false;
+        }
+    } elseif (function_exists('ap_get_current_user_id') && class_exists('AP_Session', false)) {
+        try {
+            $loggedIn = ap_get_current_user_id($db) > 0;
+        } catch (Throwable) {
+            $loggedIn = false;
+        }
+    }
+
+    if (!$loggedIn) {
+        return null;
+    }
+
+    $user = null;
+    if (function_exists('ap_get_current_user')) {
+        try {
+            $user = ap_get_current_user($db);
+        } catch (Throwable) {
+            $user = null;
+        }
+    }
+
+    if (!$user instanceof AP_User) {
+        return null;
+    }
+
+    $displayName = trim((string) $user->display_name);
+    if ($displayName === '') {
+        $displayName = trim((string) $user->user_login);
+    }
+    if ($displayName === '') {
+        $displayName = 'Member';
+    }
+
+    $profileUrl = agora_admin_path_url('profile.php', [], $db);
+    $logoutBase = agora_admin_path_url('login.php', ['action' => 'logout'], $db);
+    $logoutUrl = $logoutBase;
+    if (function_exists('ap_nonce_url')) {
+        try {
+            $logoutUrl = ap_nonce_url($logoutBase, 'log-out', '_ap_nonce', (int) $user->ID);
+        } catch (Throwable) {
+            $logoutUrl = $logoutBase;
+        }
+    }
+
+    $data = [
+        'display_name' => $displayName,
+        'welcome' => 'Welcome, ' . $displayName,
+        'profile_url' => $profileUrl,
+        'logout_url' => $logoutUrl,
+    ];
+
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('agora_account_indicator', $data, $user, $db);
+        if (is_array($filtered)) {
+            $data = [
+                'display_name' => (string) ($filtered['display_name'] ?? $data['display_name']),
+                'welcome' => (string) ($filtered['welcome'] ?? $data['welcome']),
+                'profile_url' => (string) ($filtered['profile_url'] ?? $data['profile_url']),
+                'logout_url' => (string) ($filtered['logout_url'] ?? $data['logout_url']),
+            ];
+        }
+    }
+
+    return $data;
+}
+
+/**
+ * Print the header account indicator when the visitor is logged in.
+ */
+function agora_the_account_indicator(?AP_DB $db = null): void
+{
+    $info = agora_get_account_indicator($db);
+    if ($info === null) {
+        return;
+    }
+
+    $name = (string) ($info['display_name'] ?? '');
+    $profileUrl = (string) ($info['profile_url'] ?? '');
+    $logoutUrl = (string) ($info['logout_url'] ?? '');
+
+    echo '<div class="site-account" role="navigation" aria-label="Account">';
+    echo '<span class="site-account__welcome">Welcome, ';
+    if ($profileUrl !== '' && $name !== '') {
+        echo '<a class="site-account__name" href="' . agora_esc_url($profileUrl) . '">'
+            . agora_esc($name) . '</a>';
+    } else {
+        echo agora_esc($name !== '' ? $name : 'Member');
+    }
+    echo '</span>';
+
+    if ($logoutUrl !== '') {
+        echo '<a class="site-account__logout" href="' . agora_esc_url($logoutUrl) . '">Log out</a>';
+    }
+    echo '</div>';
 }
 
 /**

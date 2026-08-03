@@ -4,7 +4,7 @@ Theme URI: https://agorapress.extrovertednerd.com/
 Author: ExtrovertedNerd
 Author URI: https://extrovertednerd.com/
 Description: Default lightweight, image-free theme for AgoraPress. Accessible, responsive, pure CSS with six selectable color schemes (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal. Works with blog and forum templates.
-Version: 0.3.0
+Version: 0.3.1
 Requires at least: 0.1.0
 Requires PHP: 8.2
 License: GNU General Public License v2 or later
@@ -449,6 +449,64 @@ body.agora-forum .site-footer__inner {
   border-bottom-color: var(--ap-link);
 }
 
+/* Logged-in welcome / account indicator (header) */
+.site-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  margin-inline-start: auto;
+  font-size: 0.9rem;
+  color: var(--ap-muted, var(--ap-fg));
+  min-height: 2.5rem;
+}
+
+.site-account__welcome {
+  font-weight: 500;
+  color: var(--ap-fg);
+}
+
+.site-account__name {
+  color: var(--ap-link);
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: var(--ap-radius-sm);
+}
+
+.site-account__name:hover {
+  text-decoration: underline;
+}
+
+.site-account__name:focus-visible {
+  outline: var(--ap-focus-ring) solid var(--ap-accent);
+  outline-offset: 2px;
+}
+
+.site-account__logout {
+  color: var(--ap-muted, var(--ap-fg));
+  text-decoration: none;
+  font-weight: 500;
+  padding: 0.35rem 0.55rem;
+  border-radius: var(--ap-radius-sm);
+  border: 1px solid var(--ap-border);
+  min-height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  transition: color var(--ap-transition), background var(--ap-transition),
+    border-color var(--ap-transition);
+}
+
+.site-account__logout:hover {
+  color: var(--ap-link);
+  background: var(--ap-accent-soft);
+  border-color: color-mix(in srgb, var(--ap-link) 35%, var(--ap-border));
+}
+
+.site-account__logout:focus-visible {
+  outline: var(--ap-focus-ring) solid var(--ap-accent);
+  outline-offset: 2px;
+}
+
 /* Small screens: nav wraps under branding with full-width touch targets */
 @media (max-width: 640px) {
   .site-header__inner {
@@ -457,6 +515,12 @@ body.agora-forum .site-footer__inner {
 
   .ap-nav--primary {
     flex: 1 1 100%;
+  }
+
+  .site-account {
+    flex: 1 1 100%;
+    margin-inline-start: 0;
+    justify-content: flex-start;
   }
 
   .ap-menu {

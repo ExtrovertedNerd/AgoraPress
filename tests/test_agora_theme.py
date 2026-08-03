@@ -93,6 +93,10 @@ def test_style_css_polish_responsive_accessible_forum() -> None:
     assert ".ap-pagination" in css
     # On-accent for dark-scheme button contrast
     assert "--ap-on-accent" in css
+    # Logged-in account indicator in header
+    assert ".site-account" in css
+    assert ".site-account__welcome" in css
+    assert ".site-account__logout" in css
     for slug in SCHEMES:
         assert f"agora-scheme-{slug}" in css
 
@@ -112,6 +116,8 @@ def test_functions_define_scheme_and_forum_api() -> None:
         "function agora_get_topic_posts_data",
         "function agora_the_posts_pagination",
         "function agora_the_entry_meta",
+        "function agora_get_account_indicator",
+        "function agora_the_account_indicator",
         "AGORA_COLOR_SCHEME_OPTION",
         "AGORA_DEFAULT_COLOR_SCHEME",
         "marble",
@@ -132,6 +138,7 @@ def test_header_applies_body_class_and_a11y() -> None:
     assert 'id="main"' in src
     assert "viewport" in src
     assert "lang=" in src
+    assert "agora_the_account_indicator" in src
 
 
 def test_footer_powered_by_agorapress_is_linked() -> None:
@@ -144,6 +151,10 @@ def test_footer_powered_by_agorapress_is_linked() -> None:
         footer,
         flags=re.I | re.S,
     )
+    # Footer menu location + useful-link fallback (Privacy / Login).
+    assert "theme_location" in footer
+    assert "'footer'" in footer or '"footer"' in footer
+    assert "fallbackFooter" in footer
 
 
 def test_forum_templates_markup() -> None:

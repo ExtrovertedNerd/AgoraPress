@@ -3713,6 +3713,25 @@ function ap_nav_menu_fallback_primary(array $args = [], ?AP_DB $db = null): stri
 }
 
 /**
+ * Default footer-nav fallback: Privacy Policy + Login/Account (+ Register).
+ *
+ * Suitable as ap_nav_menu() fallback_cb so utility links appear in the footer
+ * when no custom menu is assigned.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Nav_Menu::fallbackFooter()
+ */
+function ap_nav_menu_fallback_footer(array $args = [], ?AP_DB $db = null): string
+{
+    if (!class_exists('AP_Nav_Menu', false)) {
+        return '';
+    }
+
+    return AP_Nav_Menu::fallbackFooter($args, $db);
+}
+
+/**
  * Save a navigation menu (name + items).
  *
  * @param list<array<string, mixed>> $items

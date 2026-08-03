@@ -44,13 +44,21 @@ if (function_exists('ap_is_active_sidebar') && ap_is_active_sidebar('footer-1'))
 <?php
 endif;
 
-if (function_exists('ap_has_nav_menu') && ap_has_nav_menu('footer')) {
+// Footer nav: assigned menu when set; otherwise Privacy Policy + Login/Account.
+if (function_exists('ap_nav_menu')) {
     ap_nav_menu([
         'theme_location' => 'footer',
         'container' => 'nav',
         'container_class' => 'ap-nav ap-nav--footer',
         'menu_class' => 'ap-menu ap-menu--footer',
         'echo' => true,
+        'fallback_cb' => static function (array $args, $db = null): string {
+            if (class_exists('AP_Nav_Menu', false)) {
+                return AP_Nav_Menu::fallbackFooter($args, $db instanceof AP_DB ? $db : null);
+            }
+
+            return '';
+        },
     ]);
 }
 ?>

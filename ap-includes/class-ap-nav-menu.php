@@ -4,7 +4,8 @@
  * AgoraPress navigation menus.
  *
  * Themes register locations; menus and items are stored as site options
- * (JSON). Items may point at pages, posts, categories/tags, or custom URLs.
+ * (JSON). Items may point at pages, posts, categories/tags, custom URLs, or
+ * special “useful links” (privacy policy, login/account, register).
  * Admin screen: ap-admin/nav-menus.php. Front-end: ap_nav_menu() / AP_Nav_Menu::render().
  *
  * @package AgoraPress
@@ -268,7 +269,70 @@ class AP_Nav_Menu
      */
     public static function allowedItemTypes(): array
     {
-        return ['custom', 'page', 'post', 'category', 'post_tag', 'tag', 'forum'];
+        return [
+            'custom',
+            'page',
+            'post',
+            'category',
+            'post_tag',
+            'tag',
+            'forum',
+            // Dynamic utility links (resolved at render time).
+            'privacy_policy',
+            'login',
+            'register',
+        ];
+    }
+
+    /**
+     * Special item types that resolve dynamically (no object_id / fixed URL).
+     *
+     * @return list<string>
+     */
+    public static function usefulLinkTypes(): array
+    {
+        return ['privacy_policy', 'login', 'register'];
+    }
+
+    /**
+     * Catalog of placeable utility links for Appearance → Menus.
+     *
+     * @return list<array{
+     *   type: string,
+     *   label: string,
+     *   description: string,
+     *   available: bool
+     * }>
+     */
+    public static function getUsefulLinks(?AP_DB $db = null): array
+    {
+        $privacyUrl = self::privacyPolicyUrl($db);
+        $canRegister = self::usersCanRegister($db);
+
+        return [
+            [
+                'type' => 'privacy_policy',
+                'label' => 'Privacy Policy',
+                'description' => $privacyUrl !== ''
+                    ? 'Uses the page selected under Settings → Privacy.'
+                    : 'Set a privacy policy page under Settings → Privacy first.',
+                'available' => $privacyUrl !== '',
+            ],
+            [
+                'type' => 'login',
+                'label' => 'Login / Account',
+                'description' => 'Shows “Login” when visitors are logged out, “Account” when logged in.',
+                'available' => true,
+            ],
+            [
+                'type' => 'register',
+                'label' => 'Register',
+                'description' => $canRegister
+                    ? 'Public registration form.'
+                    : 'Enable “Anyone can register” under Settings → General first.',
+                'available' => $canRegister,
+            ],
+        ];
     }
 
     /**
@@ -302,7 +366,8 @@ class AP_Nav_Menu
      *
      * Existing rows use item_title / item_type / item_url / item_object_id keyed by index.
      * Checked item_remove[i] drops that row. New content comes from add_page[], add_post[],
-     * add_category[], add_forum[] (IDs) and optional new_item_* custom-link fields.
+     * add_category[], add_forum[] (IDs), add_useful[] (privacy_policy|login|register),
+     * and optional new_item_* custom-link fields.
      *
      * @param array<string, mixed> $post Typically $_POST
      *
@@ -356,6 +421,24 @@ class AP_Nav_Menu
                     'title' => '',
                     'url' => '',
                     'object_id' => $oid,
+                ];
+            }
+        }
+
+        // Useful links panel: add_useful[] = privacy_policy | login | register.
+        $useful = $post['add_useful'] ?? [];
+        if (is_array($useful)) {
+            $allowedUseful = self::usefulLinkTypes();
+            foreach ($useful as $rawType) {
+                $type = self::sanitizeSlug((string) $rawType);
+                if (!in_array($type, $allowedUseful, true)) {
+                    continue;
+                }
+                $items[] = [
+                    'type' => $type,
+                    'title' => '',
+                    'url' => '',
+                    'object_id' => 0,
                 ];
             }
         }
@@ -579,6 +662,9 @@ class AP_Nav_Menu
             'category' => self::termLink($objectId, 'category', $db),
             'post_tag', 'tag' => self::termLink($objectId, 'post_tag', $db),
             'forum' => self::forumLink($objectId, $db),
+            'privacy_policy' => self::privacyPolicyUrl($db),
+            'login' => self::loginOrAccountUrl($db),
+            'register' => self::registerUrl($db),
             default => (string) ($item['url'] ?? ''),
         };
     }
@@ -596,6 +682,16 @@ class AP_Nav_Menu
         }
 
         $type = (string) ($item['type'] ?? 'custom');
+        if ($type === 'privacy_policy') {
+            return 'Privacy Policy';
+        }
+        if ($type === 'login') {
+            return self::isUserLoggedIn($db) ? 'Account' : 'Login';
+        }
+        if ($type === 'register') {
+            return 'Register';
+        }
+
         $objectId = (int) ($item['object_id'] ?? 0);
         if ($objectId > 0 && in_array($type, ['page', 'post'], true) && class_exists('AP_Post', false)) {
             $post = AP_Post::get($objectId, $db);
@@ -632,8 +728,9 @@ class AP_Nav_Menu
      * Whether a stored menu item should appear on the public site.
      *
      * Page and post items only render when the object exists, matches the
-     * expected type, and has a public (published) status. Custom links and
-     * taxonomy/forum items stay visible when they resolve a label.
+     * expected type, and has a public (published) status. Useful links resolve
+     * at render time (privacy page must exist; register only when open).
+     * Custom links and taxonomy/forum items stay visible when they resolve a label.
      *
      * @param array<string, mixed> $item
      */
@@ -658,6 +755,17 @@ class AP_Nav_Menu
             }
 
             return AP_Post::isPublicStatus((string) $post->post_status);
+        }
+
+        if ($type === 'privacy_policy') {
+            return self::privacyPolicyUrl($db) !== '';
+        }
+        if ($type === 'login') {
+            return self::loginOrAccountUrl($db) !== '';
+        }
+        if ($type === 'register') {
+            // Hide when registration is closed (or URL cannot be built).
+            return self::usersCanRegister($db) && self::registerUrl($db) !== '';
         }
 
         // Non-content items: visible when they can produce a title.
@@ -816,6 +924,73 @@ class AP_Nav_Menu
     }
 
     /**
+     * Default footer-location fallback: Privacy Policy + Login/Account (+ Register).
+     *
+     * Used when no custom footer menu is assigned. Makes common utility links
+     * available without building a menu by hand. Themes may pass this as
+     * fallback_cb for the footer location.
+     *
+     * @param array<string, mixed> $args Same shape as render() args when used as callback
+     */
+    public static function fallbackFooter(array $args = [], ?AP_DB $db = null): string
+    {
+        $container = strtolower(trim((string) ($args['container'] ?? 'nav')));
+        if (!in_array($container, ['nav', 'div', ''], true)) {
+            $container = 'nav';
+        }
+        $containerClass = (string) ($args['container_class'] ?? 'ap-nav ap-nav--footer');
+        $containerId = (string) ($args['container_id'] ?? '');
+        $menuClass = (string) ($args['menu_class'] ?? 'ap-menu ap-menu--footer');
+        $menuId = (string) ($args['menu_id'] ?? '');
+        $ariaLabel = (string) ($args['aria_label'] ?? $args['container_aria_label'] ?? 'Footer');
+        if ($ariaLabel === '') {
+            $ariaLabel = 'Footer';
+        }
+
+        $includePrivacy = !array_key_exists('include_privacy', $args) || !empty($args['include_privacy']);
+        $includeLogin = !array_key_exists('include_login', $args) || !empty($args['include_login']);
+        $includeRegister = !array_key_exists('include_register', $args) || !empty($args['include_register']);
+
+        $pseudoItems = [];
+        if ($includePrivacy) {
+            $pseudoItems[] = ['type' => 'privacy_policy', 'title' => '', 'url' => '', 'object_id' => 0];
+        }
+        if ($includeLogin) {
+            $pseudoItems[] = ['type' => 'login', 'title' => '', 'url' => '', 'object_id' => 0];
+        }
+        if ($includeRegister) {
+            $pseudoItems[] = ['type' => 'register', 'title' => '', 'url' => '', 'object_id' => 0];
+        }
+
+        $itemsHtml = self::renderItems($pseudoItems, $db);
+        if ($itemsHtml === '') {
+            return '';
+        }
+
+        $ul = '<ul'
+            . ($menuId !== '' ? ' id="' . ap_esc_attr($menuId) . '"' : '')
+            . ($menuClass !== '' ? ' class="' . ap_esc_attr($menuClass) . '"' : '')
+            . '>' . $itemsHtml . '</ul>';
+
+        if ($container === '') {
+            $html = $ul;
+        } else {
+            $html = '<' . $container
+                . ($containerId !== '' ? ' id="' . ap_esc_attr($containerId) . '"' : '')
+                . ($containerClass !== '' ? ' class="' . ap_esc_attr($containerClass) . '"' : '')
+                . ' aria-label="' . ap_esc_attr($ariaLabel) . '">'
+                . $ul
+                . '</' . $container . '>';
+        }
+
+        if (!empty($args['echo'])) {
+            echo $html;
+        }
+
+        return $html;
+    }
+
+    /**
      * Clear registered locations (tests).
      */
     public static function reset(): void
@@ -846,9 +1021,12 @@ class AP_Nav_Menu
             if ($title === '') {
                 continue;
             }
-            // Object items without a resolvable URL (e.g. unpublished) must not surface.
+            // Object / dynamic items without a resolvable URL must not surface.
             $type = (string) ($item['type'] ?? 'custom');
-            if (in_array($type, ['page', 'post'], true) && $url === '') {
+            if (
+                (in_array($type, ['page', 'post'], true) || in_array($type, self::usefulLinkTypes(), true))
+                && $url === ''
+            ) {
                 continue;
             }
             $target = !empty($item['target']) ? (string) $item['target'] : '';
@@ -921,6 +1099,18 @@ class AP_Nav_Menu
         $objectId = max(0, (int) ($item['object_id'] ?? 0));
         $target = isset($item['target']) && (string) $item['target'] === '_blank' ? '_blank' : '';
 
+        // Dynamic useful links need only a type (title optional override).
+        if (in_array($type, self::usefulLinkTypes(), true)) {
+            return [
+                'type' => $type,
+                'title' => $title,
+                'url' => '',
+                'object_id' => 0,
+                'target' => $target,
+                'classes' => [],
+            ];
+        }
+
         if ($type === 'custom' && $url === '' && $title === '') {
             return null;
         }
@@ -936,6 +1126,189 @@ class AP_Nav_Menu
             'target' => $target,
             'classes' => [],
         ];
+    }
+
+    /**
+     * Privacy policy public URL when a published page is configured.
+     */
+    private static function privacyPolicyUrl(?AP_DB $db): string
+    {
+        if (function_exists('ap_get_privacy_policy_url')) {
+            try {
+                $url = ap_get_privacy_policy_url($db);
+
+                return is_string($url) ? $url : '';
+            } catch (Throwable) {
+                // fall through
+            }
+        }
+        if (class_exists('AP_Privacy', false)) {
+            try {
+                return (string) AP_Privacy::getPrivacyPolicyUrl($db);
+            } catch (Throwable) {
+                return '';
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Login URL when logged out; account/profile URL when logged in.
+     */
+    private static function loginOrAccountUrl(?AP_DB $db): string
+    {
+        if (self::isUserLoggedIn($db)) {
+            return self::accountUrl($db);
+        }
+
+        return self::loginUrl($db);
+    }
+
+    private static function loginUrl(?AP_DB $db): string
+    {
+        if (class_exists('AP_Registration', false) && method_exists('AP_Registration', 'loginActionUrl')) {
+            try {
+                $url = AP_Registration::loginActionUrl('login', [], $db);
+                if (is_string($url) && $url !== '') {
+                    return $url;
+                }
+            } catch (Throwable) {
+                // fall through
+            }
+        }
+        if (class_exists('AP_Admin', false) && method_exists('AP_Admin', 'url')) {
+            try {
+                return (string) AP_Admin::url('login.php');
+            } catch (Throwable) {
+                // fall through
+            }
+        }
+
+        return self::adminPathUrl('login.php', $db);
+    }
+
+    private static function accountUrl(?AP_DB $db): string
+    {
+        if (class_exists('AP_Admin', false) && method_exists('AP_Admin', 'url')) {
+            try {
+                return (string) AP_Admin::url('profile.php');
+            } catch (Throwable) {
+                // fall through
+            }
+        }
+
+        return self::adminPathUrl('profile.php', $db);
+    }
+
+    private static function registerUrl(?AP_DB $db): string
+    {
+        if (!self::usersCanRegister($db)) {
+            return '';
+        }
+        if (class_exists('AP_Registration', false) && method_exists('AP_Registration', 'loginActionUrl')) {
+            try {
+                $url = AP_Registration::loginActionUrl('register', [], $db);
+                if (is_string($url) && $url !== '') {
+                    return $url;
+                }
+            } catch (Throwable) {
+                // fall through
+            }
+        }
+        if (class_exists('AP_Admin', false) && method_exists('AP_Admin', 'url')) {
+            try {
+                return (string) AP_Admin::url('login.php', ['action' => 'register']);
+            } catch (Throwable) {
+                // fall through
+            }
+        }
+
+        $base = self::adminPathUrl('login.php', $db);
+        if ($base === '') {
+            return '';
+        }
+
+        return $base . (str_contains($base, '?') ? '&' : '?') . 'action=register';
+    }
+
+    /**
+     * Build /ap-admin/{file} absolute or relative URL without requiring AP_Admin.
+     */
+    private static function adminPathUrl(string $file, ?AP_DB $db): string
+    {
+        $file = ltrim($file, '/');
+        if (class_exists('AP_Rewrite', false) && method_exists('AP_Rewrite', 'siteUrl')) {
+            try {
+                $site = AP_Rewrite::siteUrl('ap-admin/' . $file, $db);
+                if (is_string($site) && $site !== '') {
+                    return $site;
+                }
+            } catch (Throwable) {
+                // fall through
+            }
+        }
+
+        $site = '';
+        if (class_exists('AP_Options', false)) {
+            try {
+                $site = (string) AP_Options::get('siteurl', '', $db);
+                if ($site === '') {
+                    $site = (string) AP_Options::get('home', '', $db);
+                }
+            } catch (Throwable) {
+                $site = '';
+            }
+        }
+        if ($site === '' && defined('AP_SITEURL') && is_string(AP_SITEURL) && AP_SITEURL !== '') {
+            $site = (string) AP_SITEURL;
+        }
+
+        return $site !== ''
+            ? rtrim($site, '/') . '/ap-admin/' . $file
+            : '/ap-admin/' . $file;
+    }
+
+    private static function isUserLoggedIn(?AP_DB $db): bool
+    {
+        if (function_exists('ap_is_user_logged_in')) {
+            try {
+                return (bool) ap_is_user_logged_in($db);
+            } catch (Throwable) {
+                return false;
+            }
+        }
+        if (class_exists('AP_Session', false) && method_exists('AP_Session', 'isLoggedIn')) {
+            try {
+                return (bool) AP_Session::isLoggedIn($db);
+            } catch (Throwable) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static function usersCanRegister(?AP_DB $db): bool
+    {
+        if (function_exists('ap_users_can_register')) {
+            try {
+                return (bool) ap_users_can_register($db);
+            } catch (Throwable) {
+                // fall through
+            }
+        }
+        if (class_exists('AP_Options', false)) {
+            try {
+                $raw = AP_Options::get('users_can_register', '0', $db);
+
+                return $raw === '1' || $raw === 1 || $raw === true;
+            } catch (Throwable) {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private static function forumLink(int $id, ?AP_DB $db): string

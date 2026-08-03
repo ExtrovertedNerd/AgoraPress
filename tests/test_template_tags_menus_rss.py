@@ -83,6 +83,10 @@ def test_nav_menu_api() -> None:
         "function isItemVisible",
         "function getPublishedPages",
         "function fallbackPrimary",
+        "function fallbackFooter",
+        "function getUsefulLinks",
+        "function usefulLinkTypes",
+        "privacy_policy",
         "function locationsFromAdminPost",
         "function mergeMenuLocationCheckboxes",
         "function getLocationsForMenu",
@@ -90,6 +94,7 @@ def test_nav_menu_api() -> None:
         "OPTION_LOCATIONS",
         "theme_location",
         "menu-item-type-page",
+        "add_useful",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-nav-menu.php"
 
@@ -100,6 +105,7 @@ def test_nav_menu_api() -> None:
         "function ap_has_nav_menu",
         "function ap_nav_menu",
         "function ap_nav_menu_fallback_primary",
+        "function ap_nav_menu_fallback_footer",
         "function ap_save_nav_menu",
         "function ap_set_nav_menu_locations",
     ):
@@ -114,10 +120,19 @@ def test_nav_menu_api() -> None:
         "tab",
         "locations",
         "add_page",
+        "add_useful",
+        "Useful links",
+        "Login / Account",
+        "Privacy Policy",
         "post_type' => 'page'",
         "post_status' => 'publish'",
     ):
         assert needle in admin, f"Expected {needle!r} in nav-menus.php"
+
+    footer = FOOTER.read_text(encoding="utf-8")
+    assert "fallbackFooter" in footer or "ap_nav_menu_fallback_footer" in footer
+    assert "theme_location" in footer
+    assert "footer" in footer
 
 
 def test_feed_api() -> None:

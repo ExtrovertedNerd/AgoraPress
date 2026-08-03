@@ -17,7 +17,9 @@ use AP_Options;
 use AP_Post;
 use AP_Query;
 use AP_Rewrite;
+use AP_Session;
 use AP_Theme;
+use AP_User;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -34,6 +36,8 @@ final class AgoraThemeTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-db.php';
         require_once $this->root . '/ap-includes/class-ap-migrator.php';
         require_once $this->root . '/ap-includes/class-ap-options.php';
+        require_once $this->root . '/ap-includes/class-ap-user.php';
+        require_once $this->root . '/ap-includes/class-ap-session.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
         require_once $this->root . '/ap-includes/class-ap-query.php';
         require_once $this->root . '/ap-includes/class-ap-rewrite.php';
@@ -43,6 +47,13 @@ final class AgoraThemeTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-assets.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-includes/template-tags.php';
+
+        if (!defined('AP_LOGGED_IN_KEY')) {
+            define('AP_LOGGED_IN_KEY', 'agora-theme-logged-in-key-' . str_repeat('a', 32));
+        }
+        if (!defined('AP_LOGGED_IN_SALT')) {
+            define('AP_LOGGED_IN_SALT', 'agora-theme-logged-in-salt-' . str_repeat('b', 32));
+        }
 
         if (function_exists('ap_reset_hooks')) {
             ap_reset_hooks();
@@ -55,6 +66,8 @@ final class AgoraThemeTest extends TestCase
         AP_Nav_Menu::reset();
         AP_Options::flushCache();
         AP_Rewrite::resetCache();
+        AP_Session::enableTestMode();
+        AP_Session::resetCurrentUser();
         unset($GLOBALS['ap_query'], $GLOBALS['ap_post']);
 
         $pdo = new PDO('sqlite::memory:', null, null, [
@@ -92,12 +105,37 @@ final class AgoraThemeTest extends TestCase
 
     protected function tearDown(): void
     {
+        AP_Session::disableTestMode();
+        AP_Session::resetCurrentUser();
         AP_Post::resetRegistry();
         AP_Theme::reset();
         AP_Nav_Menu::reset();
         AP_Options::flushCache();
         AP_Rewrite::resetCache();
         unset($GLOBALS['ap_query'], $GLOBALS['ap_post'], $GLOBALS['apdb']);
+    }
+
+    private function insertThemeUser(
+        string $login = 'themeuser',
+        string $password = 'theme-pass-1',
+        string $displayName = 'Theme User'
+    ): AP_User {
+        $hash = AP_User::hashPassword($password);
+        $this->db->insert('users', [
+            'user_login' => $login,
+            'user_pass' => $hash,
+            'user_nicename' => $login,
+            'user_email' => $login . '@example.test',
+            'user_url' => '',
+            'user_registered' => gmdate('Y-m-d H:i:s'),
+            'user_activation_key' => '',
+            'user_status' => 0,
+            'display_name' => $displayName,
+        ]);
+        $user = AP_User::getById((int) $this->db->lastInsertId(), $this->db);
+        $this->assertNotNull($user);
+
+        return $user;
     }
 
     public function testExactlySixColorSchemesThreeLightThreeDark(): void
@@ -416,7 +454,91 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('focus-visible', $css);
         $this->assertStringContainsString('skip-link', $css);
         $this->assertMatchesRegularExpression('/@media\s*\(\s*max-width:/', $css);
-        $this->assertStringContainsString('Version: 0.3.0', $css);
+        $this->assertStringContainsString('Version: 0.3.1', $css);
+        $this->assertStringContainsString('.site-account', $css);
+        $this->assertStringContainsString('.site-account__welcome', $css);
+        $this->assertStringContainsString('.site-account__logout', $css);
+    }
+
+    public function testAccountIndicatorNullForGuests(): void
+    {
+        $this->assertTrue(function_exists('agora_get_account_indicator'));
+        $this->assertTrue(function_exists('agora_the_account_indicator'));
+        $this->assertNull(agora_get_account_indicator($this->db));
+
+        ob_start();
+        agora_the_account_indicator($this->db);
+        $html = (string) ob_get_clean();
+        $this->assertSame('', $html);
+    }
+
+    public function testAccountIndicatorShowsWelcomeWhenLoggedIn(): void
+    {
+        $password = 'theme-account-pass';
+        $user = $this->insertThemeUser('headeruser', $password, 'Ada Header');
+        $loggedIn = AP_Session::login('headeruser', $password, false, $this->db);
+        $this->assertInstanceOf(AP_User::class, $loggedIn);
+        $this->assertTrue(ap_is_user_logged_in($this->db));
+
+        $info = agora_get_account_indicator($this->db);
+        $this->assertIsArray($info);
+        $this->assertSame('Ada Header', $info['display_name']);
+        $this->assertSame('Welcome, Ada Header', $info['welcome']);
+        $this->assertStringContainsString('profile.php', $info['profile_url']);
+        $this->assertStringContainsString('action=logout', $info['logout_url']);
+
+        ob_start();
+        agora_the_account_indicator($this->db);
+        $markup = (string) ob_get_clean();
+        $this->assertStringContainsString('site-account', $markup);
+        $this->assertStringContainsString('Welcome,', $markup);
+        $this->assertStringContainsString('Ada Header', $markup);
+        $this->assertStringContainsString('site-account__name', $markup);
+        $this->assertStringContainsString('Log out', $markup);
+        $this->assertStringContainsString('profile.php', $markup);
+
+        // Full theme render includes the header indicator.
+        AP_Post::insert([
+            'post_title' => 'Account Probe',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Body',
+        ], $this->db);
+        $query = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($query);
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('site-account', $html);
+        $this->assertStringContainsString('Welcome,', $html);
+        $this->assertStringContainsString('Ada Header', $html);
+        $this->assertStringContainsString('Log out', $html);
+        $this->assertSame($user->ID, ap_get_current_user_id($this->db));
+    }
+
+    public function testGuestRenderHidesAccountIndicator(): void
+    {
+        AP_Post::insert([
+            'post_title' => 'Guest Probe',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Body',
+        ], $this->db);
+        $query = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($query);
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringNotContainsString('site-account', $html);
+        $this->assertStringNotContainsString('Welcome,', $html);
     }
 
     public function testForumTemplateHierarchyIndex(): void

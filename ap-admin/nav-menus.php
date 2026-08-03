@@ -3,9 +3,10 @@
 /**
  * Appearance — Menus.
  *
- * Create a menu, add pages / posts / categories / forums / custom links,
- * reorder and remove items, assign to theme locations (Primary, Footer, …).
- * Manage Locations assigns any registered theme location independently.
+ * Create a menu, add pages / posts / categories / forums / useful links
+ * (Privacy Policy, Login/Account, Register) / custom links, reorder and remove
+ * items, assign to theme locations (Primary, Footer, …). Manage Locations
+ * assigns any registered theme location independently.
  *
  * @package AgoraPress
  */
@@ -218,6 +219,8 @@ require __DIR__ . '/admin-header.php';
     Published <strong>Pages</strong> with <strong>Show in navigation</strong> enabled
     can be added from the Pages panel below (or appear automatically in the primary bar
     when no custom menu is assigned). Toggle that checkbox on each page’s edit screen.
+    Use the <strong>Useful links</strong> panel to drop in Privacy Policy, Login/Account,
+    or Register with one click — ideal for the footer or primary bar.
 </p>
 
 <nav class="ap-menus-tabs" aria-label="Menus sections">
@@ -365,13 +368,19 @@ require __DIR__ . '/admin-header.php';
 
                 <h2>Menu structure</h2>
                 <?php if ($currentMenu['items'] === []) : ?>
-                    <p class="ap-help">No items yet. Use the panels below to add pages, posts, categories, forums, or custom links, then save.</p>
+                    <p class="ap-help">No items yet. Use the panels below to add pages, posts, categories, forums, useful links, or custom links, then save.</p>
                 <?php else : ?>
                     <?php $itemCount = count($currentMenu['items']); ?>
                     <ol class="ap-menu-items">
                         <?php foreach ($currentMenu['items'] as $i => $item) :
                             $typeLabel = (string) ($item['type'] ?? 'custom');
                             $displayTitle = AP_Nav_Menu::itemTitle($item, $db);
+                            $isUseful = in_array($typeLabel, AP_Nav_Menu::usefulLinkTypes(), true);
+                            $usefulMetaLabels = [
+                                'privacy_policy' => 'Privacy Policy (dynamic)',
+                                'login' => 'Login / Account (dynamic)',
+                                'register' => 'Register (dynamic)',
+                            ];
                             ?>
                             <li class="ap-menu-item-row">
                                 <div class="ap-menu-item-main">
@@ -387,6 +396,14 @@ require __DIR__ . '/admin-header.php';
                                         <input type="text" name="item_url[<?php echo (int) $i; ?>]"
                                             value="<?php echo ap_esc_attr((string) ($item['url'] ?? '')); ?>"
                                             aria-label="Item URL" placeholder="/ or https://">
+                                    <?php elseif ($isUseful) : ?>
+                                        <input type="hidden" name="item_url[<?php echo (int) $i; ?>]" value="">
+                                        <span class="ap-help ap-menu-item-meta">
+                                            <?php echo ap_esc_html($usefulMetaLabels[$typeLabel] ?? $typeLabel); ?>
+                                            <?php if ($displayTitle !== '' && (string) ($item['title'] ?? '') === '') : ?>
+                                                — <?php echo ap_esc_html($displayTitle); ?>
+                                            <?php endif; ?>
+                                        </span>
                                     <?php else : ?>
                                         <input type="hidden" name="item_url[<?php echo (int) $i; ?>]" value="">
                                         <span class="ap-help ap-menu-item-meta">
@@ -520,6 +537,34 @@ require __DIR__ . '/admin-header.php';
                         <?php endif; ?>
 
                         <fieldset class="ap-menu-add-panel">
+                            <legend>Useful links</legend>
+                            <p class="ap-help">
+                                One-click utilities for footer or primary navigation.
+                                Labels update automatically (e.g. Login vs Account).
+                            </p>
+                            <ul class="ap-menu-picker">
+                                <?php foreach (AP_Nav_Menu::getUsefulLinks($db) as $useful) :
+                                    $uType = (string) ($useful['type'] ?? '');
+                                    $uLabel = (string) ($useful['label'] ?? $uType);
+                                    $uDesc = (string) ($useful['description'] ?? '');
+                                    $uAvail = !empty($useful['available']);
+                                    ?>
+                                    <li>
+                                        <label <?php echo $uAvail ? '' : ' class="ap-muted"'; ?>>
+                                            <input type="checkbox" name="add_useful[]"
+                                                value="<?php echo ap_esc_attr($uType); ?>"
+                                                <?php echo $uAvail ? '' : ' disabled'; ?>>
+                                            <?php echo ap_esc_html($uLabel); ?>
+                                        </label>
+                                        <?php if ($uDesc !== '') : ?>
+                                            <span class="ap-help"><?php echo ap_esc_html($uDesc); ?></span>
+                                        <?php endif; ?>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </fieldset>
+
+                        <fieldset class="ap-menu-add-panel">
                             <legend>Custom link</legend>
                             <p class="ap-field">
                                 <label for="new_item_title">Label</label>
@@ -534,7 +579,7 @@ require __DIR__ . '/admin-header.php';
                             <input type="hidden" name="new_item_type" value="custom">
                         </fieldset>
                     </div>
-                    <p class="ap-help">Select content and/or fill in a custom link, then click Save Menu to add them.</p>
+                    <p class="ap-help">Select content, useful links, and/or fill in a custom link, then click Save Menu to add them.</p>
                 </div>
 
                 <h2>Display location</h2>

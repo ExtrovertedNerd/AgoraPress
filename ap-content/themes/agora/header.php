@@ -96,6 +96,11 @@ if (function_exists('ap_nav_menu')) {
         },
     ]);
 }
+
+// Logged-in welcome / account indicator (profile + log out).
+if (function_exists('agora_the_account_indicator')) {
+    agora_the_account_indicator();
+}
 ?>
     </div>
 </header>

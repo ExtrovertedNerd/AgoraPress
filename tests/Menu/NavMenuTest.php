@@ -15,6 +15,7 @@ use AP_Migrator;
 use AP_Nav_Menu;
 use AP_Options;
 use AP_Post;
+use AP_Privacy;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -34,6 +35,7 @@ final class NavMenuTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-migrator.php';
         require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
+        require_once $this->root . '/ap-includes/class-ap-privacy.php';
         require_once $this->root . '/ap-includes/class-ap-nav-menu.php';
         require_once $this->root . '/ap-includes/functions.php';
 
@@ -550,7 +552,7 @@ final class NavMenuTest extends TestCase
         $this->assertSame('/blog', $menu['items'][1]['url']);
     }
 
-    public function testAllowedItemTypesIncludesForum(): void
+    public function testAllowedItemTypesIncludesForumAndUsefulLinks(): void
     {
         $types = AP_Nav_Menu::allowedItemTypes();
         $this->assertContains('custom', $types);
@@ -558,6 +560,147 @@ final class NavMenuTest extends TestCase
         $this->assertContains('post', $types);
         $this->assertContains('category', $types);
         $this->assertContains('forum', $types);
+        $this->assertContains('privacy_policy', $types);
+        $this->assertContains('login', $types);
+        $this->assertContains('register', $types);
+        $this->assertSame(
+            ['privacy_policy', 'login', 'register'],
+            AP_Nav_Menu::usefulLinkTypes()
+        );
+    }
+
+    public function testUsefulLinksCatalogAndAdminPost(): void
+    {
+        $pageId = AP_Post::insert([
+            'post_title' => 'Privacy Policy',
+            'post_content' => 'We respect your privacy.',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+            'post_name' => 'privacy-policy',
+        ], $this->db);
+        $this->assertGreaterThan(0, $pageId);
+        $this->assertTrue(AP_Privacy::setPrivacyPolicyPageId($pageId, $this->db));
+        AP_Options::update('users_can_register', '1', $this->db);
+
+        $catalog = AP_Nav_Menu::getUsefulLinks($this->db);
+        $byType = [];
+        foreach ($catalog as $row) {
+            $byType[$row['type']] = $row;
+        }
+        $this->assertArrayHasKey('privacy_policy', $byType);
+        $this->assertTrue($byType['privacy_policy']['available']);
+        $this->assertTrue($byType['login']['available']);
+        $this->assertTrue($byType['register']['available']);
+
+        $items = AP_Nav_Menu::itemsFromAdminPost([
+            'add_useful' => ['privacy_policy', 'login', 'register', 'bogus'],
+        ]);
+        $this->assertCount(3, $items);
+        $this->assertSame('privacy_policy', $items[0]['type']);
+        $this->assertSame('login', $items[1]['type']);
+        $this->assertSame('register', $items[2]['type']);
+
+        $this->assertTrue(AP_Nav_Menu::saveMenu('utils', 'Utils', $items, $this->db));
+        $menu = AP_Nav_Menu::getMenu('utils', $this->db);
+        $this->assertNotNull($menu);
+        $this->assertCount(3, $menu['items']);
+
+        $html = AP_Nav_Menu::render([
+            'menu' => 'utils',
+            'echo' => false,
+        ], $this->db);
+        $this->assertStringContainsString('Privacy Policy', $html);
+        $this->assertStringContainsString('menu-item-type-privacy_policy', $html);
+        $this->assertStringContainsString('Login', $html);
+        $this->assertStringContainsString('menu-item-type-login', $html);
+        $this->assertStringContainsString('Register', $html);
+        $this->assertStringContainsString('menu-item-type-register', $html);
+        $this->assertStringContainsString('login.php', $html);
+    }
+
+    public function testPrivacyPolicyLinkHiddenWhenUnset(): void
+    {
+        AP_Privacy::setPrivacyPolicyPageId(0, $this->db);
+        $this->assertFalse(AP_Nav_Menu::isItemVisible([
+            'type' => 'privacy_policy',
+        ], $this->db));
+
+        $catalog = AP_Nav_Menu::getUsefulLinks($this->db);
+        $privacy = null;
+        foreach ($catalog as $row) {
+            if ($row['type'] === 'privacy_policy') {
+                $privacy = $row;
+                break;
+            }
+        }
+        $this->assertNotNull($privacy);
+        $this->assertFalse($privacy['available']);
+
+        AP_Nav_Menu::saveMenu('pol', 'Policy', [
+            ['type' => 'privacy_policy', 'title' => ''],
+            ['type' => 'login', 'title' => ''],
+        ], $this->db);
+        $html = AP_Nav_Menu::render(['menu' => 'pol', 'echo' => false], $this->db);
+        $this->assertStringNotContainsString('Privacy Policy', $html);
+        $this->assertStringContainsString('Login', $html);
+    }
+
+    public function testFallbackFooterIncludesUsefulLinks(): void
+    {
+        $pageId = AP_Post::insert([
+            'post_title' => 'Privacy Policy',
+            'post_content' => 'Policy body',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+            'post_name' => 'privacy-footer',
+        ], $this->db);
+        AP_Privacy::setPrivacyPolicyPageId($pageId, $this->db);
+        AP_Options::update('users_can_register', '0', $this->db);
+
+        $html = AP_Nav_Menu::fallbackFooter([
+            'echo' => false,
+            'container_class' => 'ap-nav ap-nav--footer',
+            'menu_class' => 'ap-menu ap-menu--footer',
+        ], $this->db);
+
+        $this->assertStringContainsString('ap-nav--footer', $html);
+        $this->assertStringContainsString('Privacy Policy', $html);
+        $this->assertStringContainsString('Login', $html);
+        // Registration closed → register link omitted.
+        $this->assertStringNotContainsString('Register', $html);
+
+        // Used as render() fallback when footer has no menu.
+        AP_Nav_Menu::registerLocation('footer', 'Footer');
+        $viaRender = AP_Nav_Menu::render([
+            'theme_location' => 'footer',
+            'echo' => false,
+            'container_class' => 'ap-nav ap-nav--footer',
+            'fallback_cb' => [AP_Nav_Menu::class, 'fallbackFooter'],
+        ], $this->db);
+        $this->assertStringContainsString('Privacy Policy', $viaRender);
+        $this->assertStringContainsString('Login', $viaRender);
+
+        // Procedural helper.
+        $viaFn = ap_nav_menu_fallback_footer([
+            'echo' => false,
+            'include_privacy' => false,
+        ], $this->db);
+        $this->assertStringContainsString('Login', $viaFn);
+        $this->assertStringNotContainsString('Privacy Policy', $viaFn);
+    }
+
+    public function testLoginItemTitleIsLoginWhenLoggedOut(): void
+    {
+        $item = ['type' => 'login', 'title' => '', 'url' => '', 'object_id' => 0];
+        $this->assertSame('Login', AP_Nav_Menu::itemTitle($item, $this->db));
+        $url = AP_Nav_Menu::itemUrl($item, $this->db);
+        $this->assertNotSame('', $url);
+        $this->assertStringContainsString('login.php', $url);
+        // Custom label override.
+        $this->assertSame('Sign in', AP_Nav_Menu::itemTitle([
+            'type' => 'login',
+            'title' => 'Sign in',
+        ], $this->db));
     }
 
     public function testLocationsFromAdminPostBuildsFullMap(): void
