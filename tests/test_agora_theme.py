@@ -134,6 +134,18 @@ def test_header_applies_body_class_and_a11y() -> None:
     assert "lang=" in src
 
 
+def test_footer_powered_by_agorapress_is_linked() -> None:
+    """“Powered by AgoraPress” credits the project site with a link on AgoraPress."""
+    footer = (AGORA / "footer.php").read_text(encoding="utf-8")
+    assert "Powered by" in footer
+    assert "https://agorapress.extrovertednerd.com" in footer
+    assert re.search(
+        r'Powered by\s*<a\s+href="[^"]*agorapress\.extrovertednerd\.com[^"]*"\s*>\s*AgoraPress\s*</a>',
+        footer,
+        flags=re.I | re.S,
+    )
+
+
 def test_forum_templates_markup() -> None:
     forum = (AGORA / "forum.php").read_text(encoding="utf-8")
     assert "ap-forum" in forum

@@ -57,7 +57,7 @@ if (function_exists('ap_has_nav_menu') && ap_has_nav_menu('footer')) {
         <p>
             &copy; <?php echo date('Y'); ?>
             <?php echo $esc($siteName); ?>
-            · Powered by AgoraPress
+            · Powered by <a href="<?php echo function_exists('ap_esc_url') ? ap_esc_url('https://agorapress.extrovertednerd.com') : 'https://agorapress.extrovertednerd.com'; ?>">AgoraPress</a>
 <?php
 $feedRss = function_exists('ap_get_feed_link') ? ap_get_feed_link('rss2') : '';
 if ($feedRss !== '') :
