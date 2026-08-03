@@ -67,6 +67,8 @@ HOF_DESCRIPTION = (
 def test_admin_screen_and_menu() -> None:
     screen = HOF_SCREEN.read_text(encoding="utf-8")
     assert HOF_DESCRIPTION in screen, "Hall of Fame description must match operator-supplied paragraph"
+    # Final check: description appears as the screen intro (not only in a comment).
+    assert screen.count(HOF_DESCRIPTION) >= 1
     for needle in (
         "Join the Hall of Fame",
         "Leave Hall of Fame",
@@ -75,6 +77,7 @@ def test_admin_screen_and_menu() -> None:
         "manage_options",
         "AP_Hall_Of_Fame::join",
         "voluntary",
+        "PUBLIC_PAGE_URL",
     ):
         assert needle in screen, f"options-hall-of-fame.php missing {needle!r}"
     assert "show_donation_button" not in screen

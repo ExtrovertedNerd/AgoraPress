@@ -410,6 +410,81 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('Home', $html);
     }
 
+    /**
+     * Re-test: per-page “Show in navigation” is honoured by the Agora primary navbar
+     * fallback, and pages added to an assigned custom menu still appear on the front-end.
+     */
+    public function testShowInNavAndCustomMenuPagesInPrimaryNavbar(): void
+    {
+        AP_Nav_Menu::setLocationAssignments([], $this->db);
+
+        $visibleId = AP_Post::insert([
+            'post_title' => 'Visible In Bar',
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'post_content' => 'Yes',
+            'post_name' => 'visible-in-bar',
+            'menu_order' => 1,
+        ], $this->db);
+        $hiddenId = AP_Post::insert([
+            'post_title' => 'Hidden From Bar',
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'post_content' => 'No',
+            'post_name' => 'hidden-from-bar',
+            'menu_order' => 2,
+            'show_in_nav' => false,
+        ], $this->db);
+        $this->assertGreaterThan(0, $visibleId);
+        $this->assertGreaterThan(0, $hiddenId);
+        $this->assertTrue(AP_Post::showsInNav($visibleId, $this->db));
+        $this->assertFalse(AP_Post::showsInNav($hiddenId, $this->db));
+
+        AP_Post::insert([
+            'post_title' => 'Nav Probe Post',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Content',
+        ], $this->db);
+
+        $query = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($query);
+
+        // Fallback navbar: only pages with show_in_nav (default on) appear.
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $fallbackHtml = (string) ob_get_clean();
+
+        $this->assertStringContainsString('ap-nav--primary', $fallbackHtml);
+        $this->assertStringContainsString('Visible In Bar', $fallbackHtml);
+        $this->assertStringNotContainsString('Hidden From Bar', $fallbackHtml);
+
+        // Custom menu: explicitly assigned page items (including previously hidden)
+        // appear when assigned to primary; fallback pages do not override.
+        AP_Nav_Menu::saveMenu('navbar-retest', 'Navbar Retest', [
+            ['type' => 'page', 'title' => '', 'object_id' => $hiddenId],
+            ['type' => 'page', 'title' => '', 'object_id' => $visibleId],
+            ['type' => 'custom', 'title' => 'Retest Link', 'url' => '/retest-link'],
+        ], $this->db);
+        AP_Nav_Menu::setLocationAssignments(['primary' => 'navbar-retest'], $this->db);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $menuHtml = (string) ob_get_clean();
+
+        $this->assertStringContainsString('ap-nav--primary', $menuHtml);
+        $this->assertStringContainsString('Hidden From Bar', $menuHtml);
+        $this->assertStringContainsString('Visible In Bar', $menuHtml);
+        $this->assertStringContainsString('Retest Link', $menuHtml);
+        $this->assertStringContainsString('menu-item-type-page', $menuHtml);
+        $this->assertStringContainsString('/retest-link', $menuHtml);
+        // Fallback Home item must not replace the assigned menu.
+        $this->assertStringNotContainsString('menu-item-home', $menuHtml);
+    }
+
     public function testAdminMenuListsThemeOptions(): void
     {
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';

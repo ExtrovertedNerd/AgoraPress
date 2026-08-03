@@ -142,15 +142,30 @@ def test_header_applies_body_class_and_a11y() -> None:
 
 
 def test_footer_powered_by_agorapress_is_linked() -> None:
-    """“Powered by AgoraPress” credits the project site with a link on AgoraPress."""
+    """“Powered by AgoraPress” credits the project site with a link on AgoraPress.
+
+    TODO 8.3 / Final checks: the word AgoraPress must link to the project root
+    https://agorapress.extrovertednerd.com (not donate or hall-of-fame subpaths).
+    """
     footer = (AGORA / "footer.php").read_text(encoding="utf-8")
+    project_url = "https://agorapress.extrovertednerd.com"
     assert "Powered by" in footer
-    assert "https://agorapress.extrovertednerd.com" in footer
+    assert project_url in footer
+    # Exact project-root URL in the Powered-by anchor (literal or via ap_esc_url).
+    assert (
+        f"ap_esc_url('{project_url}')" in footer
+        or f'ap_esc_url("{project_url}")' in footer
+        or f'href="{project_url}"' in footer
+        or f"href='{project_url}'" in footer
+    )
     assert re.search(
         r'Powered by\s*<a\s+href="[^"]*agorapress\.extrovertednerd\.com[^"]*"\s*>\s*AgoraPress\s*</a>',
         footer,
         flags=re.I | re.S,
     )
+    powered_chunk = footer.split("Powered by", 1)[1].split("</p>", 1)[0]
+    assert "/donate" not in powered_chunk
+    assert "hall-of-fame" not in powered_chunk
     # Footer menu location + useful-link fallback (Privacy / Login).
     assert "theme_location" in footer
     assert "'footer'" in footer or '"footer"' in footer
