@@ -332,10 +332,8 @@ define('AP_DEBUG_DISPLAY', false);
 define('AP_DEBUG_LOG', false);
 
 // =============================================================================
-// Privacy, cache & optional paths
+// Cache & optional paths
 // =============================================================================
-
-define('AP_TELEMETRY', false);
 
 // Full-page cache drop-in (ap-content/advanced-cache.php) when true.
 define('AP_CACHE', false);
@@ -684,14 +682,14 @@ PHP;
             'forum_posts_per_page' => '15',
             'forum_allow_guest_viewing' => '1',
             'forum_allow_guest_posting' => '0',
-            // Hall of Fame: never auto-joined; donation link unobtrusive default on.
-            // Installer does not ping or register domains (no telemetry).
+            // Hall of Fame: never auto-joined. Installer does not ping or
+            // register domains (no telemetry). Admin-footer donation link is
+            // permanent/non-optional and is not controlled by an option.
             'hall_of_fame_status' => '',
             'hall_of_fame_domain' => '',
             'hall_of_fame_token' => '',
             'hall_of_fame_joined_at' => '',
             'hall_of_fame_dismissed' => '0',
-            'show_donation_button' => '1',
             // Version check: admin-only, cached GET of public version.json (no site id).
             'version_check_enabled' => '1',
             // Lightweight REST API (public JSON at /ap-json/; disable via option).

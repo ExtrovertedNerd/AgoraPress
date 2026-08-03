@@ -82,7 +82,6 @@ final class HallOfFameTest extends TestCase
         AP_Options::update('siteurl', 'https://www.example.com/blog', $this->db);
         AP_Options::update('home', 'https://www.example.com/blog', $this->db);
         AP_Options::update('blogname', 'Example Agora', $this->db);
-        AP_Options::update(AP_Hall_Of_Fame::OPTION_SHOW_DONATION, '1', $this->db);
 
         $admin = AP_User::create([
             'user_login' => 'hofadmin',
@@ -288,29 +287,31 @@ final class HallOfFameTest extends TestCase
         $this->assertFalse(AP_Hall_Of_Fame::shouldShowPrompt($this->adminId, $this->db));
     }
 
-    public function testDonationPreferenceIsLocalOnly(): void
+    public function testDonationLinkIsPermanentNonOptional(): void
     {
-        $this->assertTrue(AP_Hall_Of_Fame::showDonationButton($this->db));
-        $this->installOkTransport();
+        // Constitution: admin-footer tip link is permanent; no toggle option.
+        $ref = new \ReflectionClass(AP_Hall_Of_Fame::class);
+        $this->assertFalse($ref->hasConstant('OPTION_SHOW_DONATION'));
+        $this->assertFalse($ref->hasConstant('ACTION_DONATION'));
+        $this->assertFalse($ref->hasConstant('NONCE_DONATION'));
+        $this->assertFalse($ref->hasMethod('showDonationButton'));
+        $this->assertFalse($ref->hasMethod('setShowDonationButton'));
+        $this->assertFalse($ref->hasMethod('saveDonationPreference'));
+        $this->assertFalse(function_exists('ap_show_donation_button'));
+        $this->assertNotSame('', AP_Hall_Of_Fame::DONATION_URL);
+        $this->assertStringStartsWith('https://', AP_Hall_Of_Fame::DONATION_URL);
 
-        $nonce = ap_create_nonce(AP_Hall_Of_Fame::NONCE_DONATION, $this->adminId);
-        $result = AP_Hall_Of_Fame::saveDonationPreference($this->adminId, [
-            '_ap_nonce' => $nonce,
-            // checkbox absent => off
-        ], $this->db);
-
-        $this->assertTrue($result['ok']);
-        $this->assertFalse(AP_Hall_Of_Fame::showDonationButton($this->db));
-        $this->assertSame([], $this->httpCalls);
+        $status = AP_Hall_Of_Fame::getStatus($this->db);
+        $this->assertArrayNotHasKey('show_donation', $status);
     }
 
     public function testProceduralHelpers(): void
     {
         $this->assertFalse(ap_hall_of_fame_is_joined($this->db));
         $this->assertSame('example.com', ap_hall_of_fame_domain($this->db));
-        $this->assertTrue(ap_show_donation_button($this->db));
         $status = ap_hall_of_fame_status($this->db);
         $this->assertFalse($status['joined']);
+        $this->assertArrayNotHasKey('show_donation', $status);
     }
 
     public function testAdminScreenAndMenuExist(): void
@@ -319,12 +320,22 @@ final class HallOfFameTest extends TestCase
         $this->assertFileIsReadable($this->root . '/ap-includes/class-ap-hall-of-fame.php');
 
         $screen = (string) file_get_contents($this->root . '/ap-admin/options-hall-of-fame.php');
+        // Operator-supplied Hall of Fame description (SPEC / TODO 8.2).
+        $hofDescription = 'AgoraPress is free and open source. It never phones home by default. '
+            . 'The Hall of Fame is the only optional way to count installs: you may '
+            . 'voluntarily register your domain so it can appear in a public counter '
+            . 'and random rotation on the project site. You can withdraw at any time. '
+            . 'Nothing is sent during install or ordinary browsing.';
+        $this->assertStringContainsString($hofDescription, $screen);
         $this->assertStringContainsString('Join the Hall of Fame', $screen);
         $this->assertStringContainsString('Leave Hall of Fame', $screen);
         $this->assertStringContainsString('No telemetry', $screen);
         $this->assertStringContainsString('No installer pings', $screen);
         $this->assertStringContainsString('manage_options', $screen);
         $this->assertStringContainsString('AP_Hall_Of_Fame::join', $screen);
+        $this->assertStringContainsString('permanent and non-optional', $screen);
+        $this->assertStringNotContainsString('show_donation_button', $screen);
+        $this->assertStringNotContainsString('Show donation link in admin footer', $screen);
 
         $admin = (string) file_get_contents($this->root . '/ap-admin/includes/class-ap-admin.php');
         $this->assertStringContainsString('options-hall-of-fame', $admin);
@@ -348,9 +359,13 @@ final class HallOfFameTest extends TestCase
         $this->assertStringContainsString('no installer pings', $index);
 
         $footer = (string) file_get_contents($this->root . '/ap-admin/admin-footer.php');
-        $this->assertStringContainsString('showDonationButton', $footer);
         $this->assertStringContainsString('ap-footer-donate', $footer);
+        $this->assertStringContainsString('DONATION_URL', $footer);
+        $this->assertStringContainsString('Permanent non-optional', $footer);
         $this->assertStringContainsString('Hall of Fame', $footer);
+        $this->assertStringNotContainsString('showDonationButton', $footer);
+        // Donate link is unconditional (not wrapped in a preference check).
+        $this->assertStringNotContainsString('if ($ap_show_donation)', $footer);
     }
 
     public function testInstallerDoesNotPhoneHome(): void
@@ -365,9 +380,9 @@ final class HallOfFameTest extends TestCase
             $this->assertStringNotContainsString('agorapress.extrovertednerd.com/api', $src);
         }
 
-        // Seed defaults never join.
+        // Seed defaults never join; donation footer is not an option.
         $this->assertStringContainsString("'hall_of_fame_status' => ''", $installer);
-        $this->assertStringContainsString("'show_donation_button' => '1'", $installer);
+        $this->assertStringNotContainsString('show_donation_button', $installer);
         $this->assertStringContainsString('no telemetry', strtolower($web));
     }
 

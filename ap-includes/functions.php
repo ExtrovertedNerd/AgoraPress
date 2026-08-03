@@ -2806,8 +2806,7 @@ function ap_hall_of_fame_is_joined(?AP_DB $db = null): bool
  *   domain: string,
  *   token: string,
  *   joined_at: string,
- *   dismissed: bool,
- *   show_donation: bool
+ *   dismissed: bool
  * }
  *
  * @see AP_Hall_Of_Fame::getStatus()
@@ -2815,16 +2814,6 @@ function ap_hall_of_fame_is_joined(?AP_DB $db = null): bool
 function ap_hall_of_fame_status(?AP_DB $db = null): array
 {
     return AP_Hall_Of_Fame::getStatus($db);
-}
-
-/**
- * Whether the unobtrusive admin donation link should show (default on).
- *
- * @see AP_Hall_Of_Fame::showDonationButton()
- */
-function ap_show_donation_button(?AP_DB $db = null): bool
-{
-    return AP_Hall_Of_Fame::showDonationButton($db);
 }
 
 /**

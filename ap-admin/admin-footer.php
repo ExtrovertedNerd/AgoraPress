@@ -9,8 +9,7 @@
 declare(strict_types=1);
 
 $ap_footer_version = defined('AP_VERSION') ? (string) AP_VERSION : '';
-$ap_show_donation = class_exists('AP_Hall_Of_Fame', false)
-    && AP_Hall_Of_Fame::showDonationButton();
+// Permanent non-optional admin-footer tip link (constitution: free CMS price).
 $ap_donation_url = class_exists('AP_Hall_Of_Fame', false)
     ? AP_Hall_Of_Fame::DONATION_URL
     : 'https://agorapress.extrovertednerd.com/donate';
@@ -32,14 +31,12 @@ $ap_hof_footer_url = class_exists('AP_Admin', false)
                 <span class="ap-footer-sep" aria-hidden="true">·</span>
                 <a class="ap-footer-hof" href="<?php echo ap_esc_url($ap_hof_footer_url); ?>">Hall of Fame</a>
             <?php endif; ?>
-            <?php if ($ap_show_donation) : ?>
-                <span class="ap-footer-sep" aria-hidden="true">·</span>
-                <a class="ap-footer-donate" href="<?php echo ap_esc_url($ap_donation_url); ?>"
-                    target="_blank" rel="noopener noreferrer">
-                    Donate
-                    <span class="screen-reader-text">(opens in a new tab)</span>
-                </a>
-            <?php endif; ?>
+            <span class="ap-footer-sep" aria-hidden="true">·</span>
+            <a class="ap-footer-donate" href="<?php echo ap_esc_url($ap_donation_url); ?>"
+                target="_blank" rel="noopener noreferrer">
+                Donate
+                <span class="screen-reader-text">(opens in a new tab)</span>
+            </a>
         </p>
     </footer>
 </div>

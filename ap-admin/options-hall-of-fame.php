@@ -25,7 +25,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $result = match ($action) {
         AP_Hall_Of_Fame::ACTION_JOIN => AP_Hall_Of_Fame::join($userId, $_POST, $db),
         AP_Hall_Of_Fame::ACTION_LEAVE => AP_Hall_Of_Fame::leave($userId, $_POST, $db),
-        AP_Hall_Of_Fame::ACTION_DONATION => AP_Hall_Of_Fame::saveDonationPreference($userId, $_POST, $db),
         default => [
             'ok' => false,
             'message_key' => 'error',
@@ -64,11 +63,7 @@ require __DIR__ . '/admin-header.php';
 </div>
 
 <p>
-    AgoraPress is free forever and never phones home by default.
-    The Hall of Fame is the <strong>only</strong> optional way to count installs:
-    you may voluntarily register your domain so it can appear in a public counter
-    and random rotation on the project site. You can withdraw at any time.
-    Nothing is sent during install or ordinary browsing.
+    AgoraPress is free and open source. It never phones home by default. The Hall of Fame is the only optional way to count installs: you may voluntarily register your domain so it can appear in a public counter and random rotation on the project site. You can withdraw at any time. Nothing is sent during install or ordinary browsing.
 </p>
 
 <section class="ap-metabox ap-hof-status" aria-labelledby="ap-hof-status-title">
@@ -137,7 +132,7 @@ require __DIR__ . '/admin-header.php';
     <h2 id="ap-hof-privacy-title" class="ap-metabox-title">Privacy</h2>
     <div class="ap-metabox-body">
         <ul class="ap-list">
-            <li><strong>No telemetry by default</strong> — <code>AP_TELEMETRY</code> stays false.</li>
+            <li><strong>No telemetry</strong> — core never ships phone-home collectors or a telemetry flag.</li>
             <li><strong>No installer pings</strong> — the web and CLI installers never contact the project site.</li>
             <li><strong>Voluntary only</strong> — registration happens only when an administrator clicks Join.</li>
             <li><strong>Domain only</strong> — the registration payload is domain + action (and a withdrawal token on leave).</li>
@@ -154,27 +149,16 @@ require __DIR__ . '/admin-header.php';
     <h2 id="ap-hof-donation-title" class="ap-metabox-title">Donation link</h2>
     <div class="ap-metabox-body">
         <p>
-            An unobtrusive tip/donation link may appear in the admin footer.
-            It never blocks features or creates a paywall.
+            A subtle tip/donation link always appears in the admin footer.
+            It is permanent and non-optional — the only price for the free CMS —
+            and never blocks features or creates a paywall.
         </p>
-        <form method="post" action="" class="ap-form">
-            <input type="hidden" name="ap_hof_action" value="<?php echo ap_esc_attr(AP_Hall_Of_Fame::ACTION_DONATION); ?>">
-            <?php echo ap_nonce_field(AP_Hall_Of_Fame::NONCE_DONATION, '_ap_nonce', false, $userId); ?>
-            <p class="ap-field ap-field--checkbox">
-                <label>
-                    <input type="checkbox" name="show_donation_button" value="1"
-                        <?php echo $status['show_donation'] ? 'checked' : ''; ?>>
-                    Show donation link in admin footer
-                </label>
-            </p>
-            <p class="ap-card-actions">
-                <button type="submit" class="button button-primary">Save</button>
-                <a class="button" href="<?php echo ap_esc_url($donateUrl); ?>" target="_blank" rel="noopener noreferrer">
-                    Open donation page
-                    <span class="screen-reader-text">(opens in a new tab)</span>
-                </a>
-            </p>
-        </form>
+        <p class="ap-card-actions">
+            <a class="button" href="<?php echo ap_esc_url($donateUrl); ?>" target="_blank" rel="noopener noreferrer">
+                Open donation page
+                <span class="screen-reader-text">(opens in a new tab)</span>
+            </a>
+        </p>
     </div>
 </section>
 <?php

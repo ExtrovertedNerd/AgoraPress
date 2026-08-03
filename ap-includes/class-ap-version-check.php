@@ -12,8 +12,8 @@
  * - No domain, site URL, email, or other identifying query/header data
  * - Transient-cached (success and soft failure) so checks are infrequent
  * - Network/parse failures fail silently (no admin error noise)
- * - Optional site option `version_check_enabled` (default on) and constant
- *   AP_TELEMETRY is unrelated — this path never phones home with identity
+ * - Optional site option `version_check_enabled` (default on)
+ * - This path never phones home with site identity
  *
  * One-click auto-update is handled by {@see AP_Core_Updater} (admin
  * update-core.php) using the download_url (+ optional sha256) from this check.

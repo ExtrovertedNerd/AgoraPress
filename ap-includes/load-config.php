@@ -56,8 +56,6 @@ function ap_default_config_constants(): array
         'AP_DEBUG' => false,
         'AP_DEBUG_DISPLAY' => false,
         'AP_DEBUG_LOG' => false,
-        // Privacy: never enable telemetry unless the site config opts in.
-        'AP_TELEMETRY' => false,
     ];
 }
 

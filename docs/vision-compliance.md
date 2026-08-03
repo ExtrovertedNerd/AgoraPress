@@ -36,7 +36,7 @@ No bloat or phone-home paths were found in core product code. Network egress fro
 
 - `LICENSE` is GPLv2 (or later as stated in product docs / `composer.json` `GPL-2.0-or-later`).
 - No freemium gates, license keys, premium modules, or paid marketplace in core.
-- Admin donation link is optional (`show_donation_button`), unobtrusive, and never blocks features.
+- Admin donation link is permanent and non-optional (subtle footer tip only), unobtrusive, and never blocks features.
 
 ### 2. Lightweight by design
 
@@ -87,7 +87,7 @@ Dedicated forum tables; shared users, roles, capabilities, and media. Hierarchy,
 - PDO prepared statements only  
 - Nonces / caps / escaping helpers  
 - Argon2id passwords, rate limiting, hardened uploads  
-- `AP_TELEMETRY` defaults **false** (config sample, installer, load-config defaults, Site Health check)  
+- No `AP_TELEMETRY` constant, flag, or option — telemetry is never used (config sample, installer, Site Health)  
 - Version check and updater User-Agents are generic (`no-site-id`); they never append domain, email, or site URL  
 
 ### 8. Migration friendly
@@ -125,7 +125,7 @@ These are deliberate engineering choices that differ slightly from early plannin
 ### D2 — Hall of Fame implemented early
 
 **FEATURES** listed Hall of Fame as v1/Later.  
-**Implementation:** Fully voluntary domain registration only; no installer pings; withdrawable; donation footer toggle.
+**Implementation:** Fully voluntary domain registration only; no installer pings; withdrawable. Admin-footer donation link is permanent/non-optional (no toggle).
 
 **Why:** Matches the constitution’s preferred install-counting path over anonymous telemetry.
 

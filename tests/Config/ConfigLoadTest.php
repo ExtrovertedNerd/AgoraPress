@@ -50,7 +50,6 @@ final class ConfigLoadTest extends TestCase
         $this->assertContains('AP_NONCE_SALT', $required);
         // Optional defaults are not in the required list.
         $this->assertNotContains('AP_DEBUG', $required);
-        $this->assertNotContains('AP_TELEMETRY', $required);
     }
 
     public function testSupportedDriversMatchSpec(): void
@@ -125,13 +124,13 @@ final class ConfigLoadTest extends TestCase
         }
     }
 
-    public function testDefaultConfigConstantsIncludePrivacyAndCharset(): void
+    public function testDefaultConfigConstantsIncludeCharsetAndDebug(): void
     {
         $defaults = ap_default_config_constants();
         $this->assertSame('utf8mb4', $defaults['AP_DB_CHARSET']);
         $this->assertSame('utf8mb4_unicode_ci', $defaults['AP_DB_COLLATE']);
         $this->assertFalse($defaults['AP_DEBUG']);
-        $this->assertFalse($defaults['AP_TELEMETRY']);
+        $this->assertArrayNotHasKey('AP_TELEMETRY', $defaults);
     }
 
     public function testInvalidConfigHtmlListsMissingConstants(): void
@@ -189,8 +188,8 @@ if (!defined('AP_DB_CHARSET') || AP_DB_CHARSET !== 'utf8mb4') {
     fwrite(STDERR, "charset default failed\n");
     exit(8);
 }
-if (AP_TELEMETRY !== false) {
-    fwrite(STDERR, "telemetry must be false\n");
+if (defined('AP_TELEMETRY')) {
+    fwrite(STDERR, "AP_TELEMETRY must not exist\n");
     exit(9);
 }
 // Idempotent second call.

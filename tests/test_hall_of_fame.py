@@ -54,18 +54,31 @@ def test_core_class_privacy_api() -> None:
         assert needle in src, f"AP_Hall_Of_Fame missing {needle!r}"
 
 
+# Operator-supplied Hall of Fame description (SPEC / TODO 8.2).
+HOF_DESCRIPTION = (
+    "AgoraPress is free and open source. It never phones home by default. "
+    "The Hall of Fame is the only optional way to count installs: you may "
+    "voluntarily register your domain so it can appear in a public counter "
+    "and random rotation on the project site. You can withdraw at any time. "
+    "Nothing is sent during install or ordinary browsing."
+)
+
+
 def test_admin_screen_and_menu() -> None:
     screen = HOF_SCREEN.read_text(encoding="utf-8")
+    assert HOF_DESCRIPTION in screen, "Hall of Fame description must match operator-supplied paragraph"
     for needle in (
         "Join the Hall of Fame",
         "Leave Hall of Fame",
         "No installer pings",
-        "show_donation_button",
+        "permanent and non-optional",
         "manage_options",
         "AP_Hall_Of_Fame::join",
         "voluntary",
     ):
         assert needle in screen, f"options-hall-of-fame.php missing {needle!r}"
+    assert "show_donation_button" not in screen
+    assert "Show donation link in admin footer" not in screen
 
     admin = ADMIN_CLASS.read_text(encoding="utf-8")
     assert "options-hall-of-fame" in admin
@@ -80,8 +93,11 @@ def test_dashboard_prompt_and_footer() -> None:
     assert "hof-dismiss" in dash
 
     footer = FOOTER.read_text(encoding="utf-8")
-    assert "showDonationButton" in footer
     assert "ap-footer-donate" in footer
+    assert "DONATION_URL" in footer
+    assert "Permanent non-optional" in footer
+    assert "showDonationButton" not in footer
+    assert "if ($ap_show_donation)" not in footer
     assert "no telemetry by default" in footer
 
 
@@ -91,10 +107,14 @@ def test_bootstrap_and_helpers() -> None:
     for needle in (
         "ap_hall_of_fame_is_joined",
         "ap_hall_of_fame_status",
-        "ap_show_donation_button",
         "ap_hall_of_fame_domain",
     ):
         assert needle in functions, f"functions.php missing {needle!r}"
+    assert "ap_show_donation_button" not in functions
+    hof = HOF_CLASS.read_text(encoding="utf-8")
+    assert "OPTION_SHOW_DONATION" not in hof
+    assert "showDonationButton" not in hof
+    assert "saveDonationPreference" not in hof
 
 
 def test_installer_has_no_phone_home() -> None:
@@ -102,7 +122,7 @@ def test_installer_has_no_phone_home() -> None:
     assert "AP_Hall_Of_Fame" not in installer
     assert "agorapress.extrovertednerd.com/api" not in installer
     assert "'hall_of_fame_status' => ''" in installer
-    assert "'show_donation_button' => '1'" in installer
+    assert "show_donation_button" not in installer
 
     web = INSTALL_UI.read_text(encoding="utf-8")
     assert "no telemetry" in web.lower()

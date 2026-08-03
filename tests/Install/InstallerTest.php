@@ -144,7 +144,7 @@ final class InstallerTest extends TestCase
         $this->assertStringContainsString("define('AP_DB_NAME', 'agorapress')", $php);
         $this->assertStringContainsString("define('AP_DB_USER', 'ap_user')", $php);
         $this->assertStringContainsString('$table_prefix = \'ap_\'', $php);
-        $this->assertStringContainsString("define('AP_TELEMETRY', false)", $php);
+        $this->assertStringNotContainsString('AP_TELEMETRY', $php);
         $this->assertStringContainsString("define('AP_AUTH_KEY', 'salt-value-0')", $php);
         // Password with quote must be safely exported.
         $this->assertStringContainsString('AP_DB_PASSWORD', $php);

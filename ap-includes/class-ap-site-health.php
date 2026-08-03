@@ -555,25 +555,17 @@ class AP_Site_Health
     }
 
     /**
+     * Telemetry is never used in core (no constant, flag, or option).
+     *
      * @return array{id: string, label: string, status: string, message: string}
      */
     private static function checkTelemetry(): array
     {
-        $on = defined('AP_TELEMETRY') && AP_TELEMETRY;
-        if (!$on) {
-            return [
-                'id' => 'telemetry',
-                'label' => 'Telemetry',
-                'status' => self::STATUS_GOOD,
-                'message' => 'No telemetry by default (AP_TELEMETRY is off).',
-            ];
-        }
-
         return [
             'id' => 'telemetry',
             'label' => 'Telemetry',
-            'status' => self::STATUS_RECOMMENDED,
-            'message' => 'AP_TELEMETRY is enabled. Core does not ship telemetry collectors; keep this off unless a plugin you trust requires it.',
+            'status' => self::STATUS_GOOD,
+            'message' => 'Core does not include telemetry. No phone-home collectors ship with AgoraPress.',
         ];
     }
 
@@ -1247,7 +1239,6 @@ class AP_Site_Health
             'AP_DEBUG',
             'AP_DEBUG_DISPLAY',
             'AP_DEBUG_LOG',
-            'AP_TELEMETRY',
             'AP_CACHE',
         ];
         $fields = [];

@@ -111,12 +111,9 @@ define('AP_DEBUG_QUERIES', false);
 // Privacy & optional paths
 // =============================================================================
 
-/**
- * Telemetry is never enabled by default. AgoraPress does not phone home with
- * site-identifying data. Leave this false unless an optional future feature
- * explicitly documents an opt-in (e.g. Hall of Fame domain registration).
- */
-define('AP_TELEMETRY', false);
+// Privacy: AgoraPress has no telemetry constant, flag, or option. Core never
+// phones home with site-identifying data. Hall of Fame is voluntary domain
+// registration only (Settings → Hall of Fame).
 
 /**
  * Full-page cache support. When true, AgoraPress loads

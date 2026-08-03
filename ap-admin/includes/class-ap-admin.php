@@ -1014,7 +1014,6 @@ class AP_Admin
                 'warning',
             ],
             'hall_of_fame_dismissed' => ['Hall of Fame prompt dismissed. You can join anytime under Settings → Hall of Fame.', 'success'],
-            'hall_of_fame_donation_saved' => ['Donation link preference saved.', 'success'],
             // Forums
             'forum_created' => ['Forum created.', 'success'],
             'forum_updated' => ['Forum updated.', 'success'],

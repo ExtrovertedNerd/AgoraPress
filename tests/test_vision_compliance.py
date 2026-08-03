@@ -53,14 +53,16 @@ def test_composer_runtime_deps_are_extensions_only() -> None:
         )
 
 
-def test_telemetry_off_in_sample_config() -> None:
-    sample = SAMPLE.read_text(encoding="utf-8")
-    assert re.search(
-        r"define\s*\(\s*['\"]AP_TELEMETRY['\"]\s*,\s*false\s*\)",
-        sample,
-    )
-    loader = (ROOT / "ap-includes" / "load-config.php").read_text(encoding="utf-8")
-    assert "'AP_TELEMETRY' => false" in loader
+def test_telemetry_constant_does_not_exist() -> None:
+    """Constitution: no AP_TELEMETRY constant, flag, or option."""
+    for rel in (
+        "ap-config-sample.php",
+        "ap-includes/load-config.php",
+        "ap-includes/class-ap-installer.php",
+        "ap-includes/class-ap-site-health.php",
+    ):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "AP_TELEMETRY" not in text, f"{rel} must not reference AP_TELEMETRY"
 
 
 def test_version_check_no_site_identity() -> None:

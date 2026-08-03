@@ -37,7 +37,6 @@ REQUIRED_CONSTANTS = (
     "AP_DEBUG",
     "AP_DEBUG_DISPLAY",
     "AP_DEBUG_LOG",
-    "AP_TELEMETRY",
 )
 
 
@@ -91,11 +90,8 @@ def test_default_driver_mysql(sample_text: str) -> None:
     )
 
 
-def test_telemetry_and_debug_off(sample_text: str) -> None:
-    assert re.search(
-        r"define\s*\(\s*['\"]AP_TELEMETRY['\"]\s*,\s*false\s*\)",
-        sample_text,
-    )
+def test_no_telemetry_constant_and_debug_off(sample_text: str) -> None:
+    assert "AP_TELEMETRY" not in sample_text
     assert re.search(
         r"define\s*\(\s*['\"]AP_DEBUG['\"]\s*,\s*false\s*\)",
         sample_text,
@@ -124,14 +120,15 @@ $need = [
     'AP_DB_HOST','AP_DB_CHARSET','AP_DB_COLLATE',
     'AP_AUTH_KEY','AP_SECURE_AUTH_KEY','AP_LOGGED_IN_KEY','AP_NONCE_KEY',
     'AP_AUTH_SALT','AP_SECURE_AUTH_SALT','AP_LOGGED_IN_SALT','AP_NONCE_SALT',
-    'AP_DEBUG','AP_DEBUG_DISPLAY','AP_DEBUG_LOG','AP_TELEMETRY','AP_ABSPATH',
+    'AP_DEBUG','AP_DEBUG_DISPLAY','AP_DEBUG_LOG','AP_ABSPATH',
 ];
 foreach ($need as $c) {
     if (!defined($c)) { fwrite(STDERR, "missing $c\n"); exit(2); }
 }
+if (defined('AP_TELEMETRY')) { fwrite(STDERR, "AP_TELEMETRY must not exist\n"); exit(2); }
 if (!isset($table_prefix) || $table_prefix !== 'ap_') { exit(3); }
 if (AP_DB_DRIVER !== 'mysql') { exit(4); }
-if (AP_TELEMETRY !== false || AP_DEBUG !== false) { exit(5); }
+if (AP_DEBUG !== false) { exit(5); }
 echo "ok\n";
 """
     result = subprocess.run(

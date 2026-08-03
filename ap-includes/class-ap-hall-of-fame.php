@@ -39,22 +39,22 @@ class AP_Hall_Of_Fame
     /** Option: dashboard prompt dismissed without joining. */
     public const OPTION_DISMISSED = 'hall_of_fame_dismissed';
 
-    /** Option: show unobtrusive donation link in admin footer (default on). */
-    public const OPTION_SHOW_DONATION = 'show_donation_button';
-
     public const STATUS_JOINED = 'joined';
 
     public const ACTION_JOIN = 'join';
     public const ACTION_LEAVE = 'leave';
     public const ACTION_DISMISS = 'dismiss';
-    public const ACTION_DONATION = 'donation';
 
     public const NONCE_JOIN = 'hall-of-fame-join';
     public const NONCE_LEAVE = 'hall-of-fame-leave';
     public const NONCE_DISMISS = 'hall-of-fame-dismiss';
-    public const NONCE_DONATION = 'hall-of-fame-donation';
 
-    /** Public donation / tip page on the project site (never blocks features). */
+    /**
+     * Public donation / tip page on the project site.
+     *
+     * The admin-footer donate link is permanent and non-optional (constitution);
+     * it never blocks features.
+     */
     public const DONATION_URL = 'https://agorapress.extrovertednerd.com/donate';
 
     /** Public Hall of Fame page. */
@@ -86,8 +86,7 @@ class AP_Hall_Of_Fame
      *   domain: string,
      *   token: string,
      *   joined_at: string,
-     *   dismissed: bool,
-     *   show_donation: bool
+     *   dismissed: bool
      * }
      */
     public static function getStatus(?AP_DB $db = null): array
@@ -98,26 +97,7 @@ class AP_Hall_Of_Fame
             'token' => (string) self::getOption(self::OPTION_TOKEN, '', $db),
             'joined_at' => (string) self::getOption(self::OPTION_JOINED_AT, '', $db),
             'dismissed' => (string) self::getOption(self::OPTION_DISMISSED, '0', $db) === '1',
-            'show_donation' => self::showDonationButton($db),
         ];
-    }
-
-    /**
-     * Whether the unobtrusive admin donation link should render (default on).
-     */
-    public static function showDonationButton(?AP_DB $db = null): bool
-    {
-        $raw = self::getOption(self::OPTION_SHOW_DONATION, '1', $db);
-
-        return (string) $raw !== '0' && $raw !== false && $raw !== 0;
-    }
-
-    /**
-     * Persist donation button preference.
-     */
-    public static function setShowDonationButton(bool $show, ?AP_DB $db = null): bool
-    {
-        return self::updateOption(self::OPTION_SHOW_DONATION, $show ? '1' : '0', $db);
     }
 
     /**
@@ -428,45 +408,6 @@ class AP_Hall_Of_Fame
         return [
             'ok' => true,
             'message_key' => 'hall_of_fame_dismissed',
-            'errors' => [],
-        ];
-    }
-
-    /**
-     * Save donation-button preference (does not contact any remote service).
-     *
-     * @param array<string, mixed> $input Typically $_POST.
-     *
-     * @return array{ok: bool, message_key: string, errors: list<string>}
-     */
-    public static function saveDonationPreference(int $userId, array $input, ?AP_DB $db = null): array
-    {
-        $empty = [
-            'ok' => false,
-            'message_key' => 'error',
-            'errors' => [],
-        ];
-
-        if (!self::userCanManage($userId, $db)) {
-            $empty['errors'][] = 'You do not have permission to change this setting.';
-
-            return $empty;
-        }
-
-        $nonce = (string) ($input['_ap_nonce'] ?? '');
-        if (!self::checkNonce($nonce, self::NONCE_DONATION, $userId)) {
-            $empty['message_key'] = 'nonce';
-            $empty['errors'][] = 'Security check failed. Please reload and try again.';
-
-            return $empty;
-        }
-
-        $show = !empty($input['show_donation_button']);
-        self::setShowDonationButton($show, $db);
-
-        return [
-            'ok' => true,
-            'message_key' => 'hall_of_fame_donation_saved',
             'errors' => [],
         ];
     }

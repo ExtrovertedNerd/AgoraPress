@@ -68,7 +68,6 @@ final class ConfigSampleTest extends TestCase
             ['AP_DEBUG'],
             ['AP_DEBUG_DISPLAY'],
             ['AP_DEBUG_LOG'],
-            ['AP_TELEMETRY'],
         ];
     }
 
@@ -106,13 +105,13 @@ final class ConfigSampleTest extends TestCase
         );
     }
 
-    public function testTelemetryOffByDefault(): void
+    public function testNoTelemetryConstant(): void
     {
         $src = (string) file_get_contents($this->samplePath);
-        $this->assertMatchesRegularExpression(
-            "/define\s*\(\s*['\"]AP_TELEMETRY['\"]\s*,\s*false\s*\)/",
+        $this->assertStringNotContainsString(
+            'AP_TELEMETRY',
             $src,
-            'No telemetry by default (constitution / SPEC §5)'
+            'There is no AP_TELEMETRY constant (constitution / SPEC privacy)'
         );
     }
 
@@ -147,13 +146,17 @@ $required = [
     'AP_DB_HOST', 'AP_DB_CHARSET', 'AP_DB_COLLATE',
     'AP_AUTH_KEY', 'AP_SECURE_AUTH_KEY', 'AP_LOGGED_IN_KEY', 'AP_NONCE_KEY',
     'AP_AUTH_SALT', 'AP_SECURE_AUTH_SALT', 'AP_LOGGED_IN_SALT', 'AP_NONCE_SALT',
-    'AP_DEBUG', 'AP_DEBUG_DISPLAY', 'AP_DEBUG_LOG', 'AP_TELEMETRY', 'AP_ABSPATH',
+    'AP_DEBUG', 'AP_DEBUG_DISPLAY', 'AP_DEBUG_LOG', 'AP_ABSPATH',
 ];
 foreach ($required as $c) {
     if (!defined($c)) {
         fwrite(STDERR, "missing constant: {$c}\n");
         exit(2);
     }
+}
+if (defined('AP_TELEMETRY')) {
+    fwrite(STDERR, "AP_TELEMETRY must not exist\n");
+    exit(2);
 }
 if (!isset($table_prefix) || $table_prefix !== 'ap_') {
     fwrite(STDERR, "table_prefix must be ap_\n");
@@ -167,8 +170,8 @@ if (AP_DB_CHARSET !== 'utf8mb4' || AP_DB_COLLATE !== 'utf8mb4_unicode_ci') {
     fwrite(STDERR, "charset/collate mismatch\n");
     exit(5);
 }
-if (AP_TELEMETRY !== false || AP_DEBUG !== false) {
-    fwrite(STDERR, "telemetry/debug must default false\n");
+if (AP_DEBUG !== false) {
+    fwrite(STDERR, "debug must default false\n");
     exit(6);
 }
 if (!str_ends_with(AP_ABSPATH, '/')) {

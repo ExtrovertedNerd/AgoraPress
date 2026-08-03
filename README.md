@@ -16,7 +16,7 @@ AgoraPress restores the spirit of early WordPress while adding first-class commu
 
 | Principle | What it means |
 |-----------|----------------|
-| **Free forever** | Core features, starter theme(s), and essential modules under GPLv2-or-later. No official paywalls or freemium tiers for core functionality. Optional unobtrusive donation link in admin only. |
+| **Free forever** | Core features, starter theme(s), and essential modules under GPLv2-or-later. No official paywalls or freemium tiers for core functionality. Permanent unobtrusive donation link in admin footer only (never blocks features). |
 | **Lightweight by design** | Minimal core footprint, optional modules, fast on shared hosting, modern PHP 8.2+ with no legacy cruft. |
 | **Easy self-host & maintain** | 5-minute web installer, CLI install path, Docker Compose one-liner, clear updates, familiar mental model for classic WP users. |
 | **Easy to theme** | Pure PHP template hierarchy and child themes. **Classic WordPress Theme Compatibility Layer** so many pre-block WP themes can run with minimal changes. |
@@ -310,7 +310,7 @@ The zip is recognized by the core updater (`index.php` + `ap-includes/version.ph
 - PDO **prepared statements** only for database access  
 - Nonces / capability checks on privileged actions (as features land)  
 - Password hashing with Argon2id (installer + auth)  
-- **`AP_TELEMETRY` is false by default** — no site identification is sent for version checks by default  
+- **No telemetry** — core has no telemetry constant or collectors; version checks never send site identification  
 - **Version check** (admin-only): GET of the public `version.json` endpoint; transient-cached; fails silently; **never** sends domain or other site identity. Option `version_check_enabled` (default on) can disable checks for offline installs.  
 - **One-click auto-update** (Dashboard → **Update Core**, cap `update_core`): downloads the published package URL from `version.json` (optional SHA-256 verification), applies core files while preserving `ap-config.php` and user content under `ap-content/` (uploads, plugins, mu-plugins, custom themes; default `agora` theme may update), runs pending DB migrations, and uses a brief front-end maintenance page. No site identity is sent on the package GET.
 - **Privacy tools (GDPR-style):** Settings → **Privacy** (policy page selector); Tools → **Export Personal Data** / **Erase Personal Data** — portable JSON export of a user’s personal data, and erase (anonymize content ownership + delete account). Caps `manage_privacy_options`, `export_others_personal_data`, `erase_others_personal_data`.

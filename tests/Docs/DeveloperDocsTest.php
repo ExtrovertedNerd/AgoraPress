@@ -86,7 +86,6 @@ final class DeveloperDocsTest extends TestCase
                 'Classic WordPress Theme Compatibility',
                 'Intentional deviations',
                 'Three independent modules',
-                'AP_TELEMETRY',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(

@@ -90,19 +90,24 @@ final class VisionComplianceTest extends TestCase
         }
     }
 
-    public function testTelemetryConstantDefaultsFalseInSampleAndLoader(): void
+    public function testTelemetryConstantDoesNotExist(): void
     {
-        $sample = (string) file_get_contents($this->root . '/ap-config-sample.php');
-        $this->assertMatchesRegularExpression(
-            "/define\s*\(\s*['\"]AP_TELEMETRY['\"]\s*,\s*false\s*\)/",
-            $sample
-        );
-
-        $loader = (string) file_get_contents($this->root . '/ap-includes/load-config.php');
-        $this->assertStringContainsString("'AP_TELEMETRY' => false", $loader);
-
-        $installer = (string) file_get_contents($this->root . '/ap-includes/class-ap-installer.php');
-        $this->assertStringContainsString("define('AP_TELEMETRY', false)", $installer);
+        // Constitution: there is no AP_TELEMETRY constant, flag, or option.
+        $paths = [
+            $this->root . '/ap-config-sample.php',
+            $this->root . '/ap-includes/load-config.php',
+            $this->root . '/ap-includes/class-ap-installer.php',
+            $this->root . '/ap-includes/class-ap-site-health.php',
+        ];
+        foreach ($paths as $path) {
+            $src = (string) file_get_contents($path);
+            $this->assertStringNotContainsString(
+                'AP_TELEMETRY',
+                $src,
+                basename($path) . ' must not define or reference AP_TELEMETRY'
+            );
+        }
+        $this->assertFalse(defined('AP_TELEMETRY'), 'AP_TELEMETRY must not be defined at runtime');
     }
 
     public function testVersionCheckNeverSendsSiteIdentity(): void

@@ -75,9 +75,6 @@ final class SiteHealthTest extends TestCase
         if (!defined('AP_DEBUG')) {
             define('AP_DEBUG', false);
         }
-        if (!defined('AP_TELEMETRY')) {
-            define('AP_TELEMETRY', false);
-        }
 
         AP_Roles::flushCache();
         AP_Options::flushCache();

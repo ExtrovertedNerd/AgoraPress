@@ -65,8 +65,15 @@ def test_footer_menu_script() -> None:
         "ap-color-mode-toggle",
         "ap_admin_color_mode",
         "localStorage",
+        # Constitution: permanent non-optional ACP footer tip link.
+        "ap-footer-donate",
+        "DONATION_URL",
+        "Permanent non-optional",
     ):
         assert needle in src, f"Footer missing {needle!r}"
+    assert "if ($ap_show_donation)" not in src
+    assert "showDonationButton" not in src
+    assert "Donate" in src
 
 
 def test_admin_css_responsive_rules() -> None:

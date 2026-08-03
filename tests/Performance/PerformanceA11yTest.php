@@ -45,9 +45,6 @@ final class PerformanceA11yTest extends TestCase
         if (!defined('AP_DEBUG')) {
             define('AP_DEBUG', false);
         }
-        if (!defined('AP_TELEMETRY')) {
-            define('AP_TELEMETRY', false);
-        }
         if (!defined('AP_AUTH_KEY')) {
             define('AP_AUTH_KEY', 'test-auth-key-' . str_repeat('a', 32));
         }

@@ -120,10 +120,19 @@ final class AdminUiTest extends TestCase
             'ap-color-mode-toggle',
             'localStorage',
             "nextColorMode",
+            // Constitution: subtle donation/tip link is permanent (non-optional).
+            'ap-footer-donate',
+            'DONATION_URL',
+            'Permanent non-optional',
         ];
         foreach ($needles as $needle) {
             $this->assertStringContainsString($needle, $src, "Footer missing {$needle}");
         }
+        // Must not be gated by a preference toggle.
+        $this->assertStringNotContainsString('if ($ap_show_donation)', $src);
+        $this->assertStringNotContainsString('showDonationButton', $src);
+        $this->assertStringContainsString('ap-footer-donate', $src);
+        $this->assertStringContainsString('Donate', $src);
     }
 
     public function testAdminCssIsResponsive(): void
