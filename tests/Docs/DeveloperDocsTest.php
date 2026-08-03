@@ -35,6 +35,7 @@ final class DeveloperDocsTest extends TestCase
             'hooks' => ['hooks.md'],
             'themes' => ['themes.md'],
             'plugins' => ['plugins.md'],
+            'editor' => ['editor.md'],
             'compatibility' => ['compatibility.md'],
             'schema' => ['schema.md'],
             'vision compliance' => ['vision-compliance.md'],
@@ -63,6 +64,7 @@ final class DeveloperDocsTest extends TestCase
                 'hooks.md',
                 'themes.md',
                 'plugins.md',
+                'editor.md',
                 'compatibility.md',
                 'schema.md',
                 'vision-compliance.md',
@@ -72,6 +74,30 @@ final class DeveloperDocsTest extends TestCase
                 $link,
                 $index,
                 "docs/README.md should link to {$link}"
+            );
+        }
+    }
+
+    public function testEditorDocCoversClassicLightweightContract(): void
+    {
+        $text = $this->readDoc('editor.md');
+        foreach (
+            [
+                'AP_Editor',
+                'classic',
+                'textarea',
+                'non-goal',
+                'block',
+                'markdown',
+                'bbcode',
+                'ap_editor',
+                'no jQuery',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "editor.md should mention: {$needle}"
             );
         }
     }

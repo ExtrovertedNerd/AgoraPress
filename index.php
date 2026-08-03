@@ -91,6 +91,20 @@ if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
             // Fall through to normal render with an error notice if set.
         }
     }
+    // Blog comment form (POST → redirect before render).
+    if (function_exists('ap_handle_comment_form_post') && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        try {
+            $apCommentRedirect = ap_handle_comment_form_post();
+            if (is_string($apCommentRedirect) && $apCommentRedirect !== '') {
+                if (!headers_sent()) {
+                    header('Location: ' . $apCommentRedirect, true, 302);
+                }
+                exit(0);
+            }
+        } catch (Throwable) {
+            // Fall through to normal render.
+        }
+    }
     if (function_exists('ap_set_query') && class_exists('AP_Query', false)) {
         try {
             $apMainQuery = AP_Rewrite::queryFromVars($apRewriteVars);

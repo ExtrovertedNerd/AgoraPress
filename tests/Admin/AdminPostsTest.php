@@ -52,11 +52,16 @@ final class AdminPostsTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-session.php';
         require_once $this->root . '/ap-includes/class-ap-roles.php';
         require_once $this->root . '/ap-includes/class-ap-nonce.php';
+        require_once $this->root . '/ap-includes/class-ap-formatting.php';
+        require_once $this->root . '/ap-includes/class-ap-editor.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';
         require_once $this->root . '/ap-admin/includes/class-ap-posts-list-table.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin-post-edit.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin-terms.php';
+        if (class_exists(\AP_Editor::class, false)) {
+            \AP_Editor::reset();
+        }
 
         if (!defined('AP_NONCE_KEY')) {
             define('AP_NONCE_KEY', 'test-nonce-key-' . str_repeat('n', 32));
@@ -476,6 +481,12 @@ final class AdminPostsTest extends TestCase
         $this->assertStringContainsString('name="visibility"', $html);
         $this->assertStringContainsString('name="sticky"', $html);
         $this->assertStringContainsString('_ap_nonce', $html);
+        // Classic editor toolbar (Markdown formatting buttons).
+        $this->assertStringContainsString('ap-editor__toolbar', $html);
+        $this->assertStringContainsString('data-ap-editor-cmd', $html);
+        $this->assertStringContainsString('data-ap-editor-mode="markdown"', $html);
+        $this->assertStringContainsString('ap-editor.css', $html);
+        $this->assertStringContainsString('ap-editor.js', $html);
 
         $pageHtml = AP_Admin_Post_Edit::renderForm(null, 'page', $this->actorId, $this->db);
         $this->assertStringContainsString('name="post_parent"', $pageHtml);
@@ -484,6 +495,7 @@ final class AdminPostsTest extends TestCase
         $this->assertStringContainsString('name="show_in_nav"', $pageHtml);
         $this->assertStringContainsString('Show in navigation', $pageHtml);
         $this->assertStringContainsString('id="show_in_nav"', $pageHtml);
+        $this->assertStringContainsString('ap-editor__toolbar', $pageHtml);
         // New pages default to shown (checkbox checked).
         $this->assertMatchesRegularExpression(
             '/id="show_in_nav"[^>]*checked|checked[^>]*id="show_in_nav"/',

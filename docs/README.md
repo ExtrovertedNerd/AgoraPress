@@ -11,6 +11,7 @@ AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). Th
 | [Hooks](hooks.md) | Actions, filters, priorities, lifecycle hooks |
 | [Theme hierarchy](themes.md) | Template files, child themes, assets, template tags |
 | [Plugin API](plugins.md) | Headers, activation, MU-plugins, shortcodes, settings |
+| [Classic editor](editor.md) | Lightweight textarea toolbar (no block editor in core) |
 | [Compatibility layer](compatibility.md) | WP shims, hook maps, conversion CLI, limitations |
 | [Database schema](schema.md) | Tables, migrations, prefix, multi-driver notes |
 | [Vision compliance](vision-compliance.md) | Constitution reevaluation, principles checklist, intentional deviations |
@@ -49,6 +50,7 @@ Request
 | Hooks | `ap-includes/hooks.php`, `class-ap-hook.php`, `class-ap-hooks.php` |
 | Themes | `ap-includes/class-ap-theme.php`, `template-tags.php`, `class-ap-assets.php` |
 | Plugins | `ap-includes/class-ap-plugin.php`, procedural helpers in `functions.php` |
+| Classic editor | `ap-includes/class-ap-editor.php`, `css/ap-editor.css`, `js/ap-editor.js` |
 | Compatibility | `ap-includes/compatibility/` |
 | Schema | `ap-includes/schema/migrations/`, `class-ap-migrator.php` |
 | Default theme | `ap-content/themes/agora/` |

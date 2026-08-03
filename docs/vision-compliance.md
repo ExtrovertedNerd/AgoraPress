@@ -102,7 +102,7 @@ Phases 0–7 of the build roadmap are complete for MVP/v1 surface area described
 
 | Item | Stance |
 |------|--------|
-| Full Gutenberg / FSE in core | Non-goal — respected |
+| Full Gutenberg / FSE in core | Non-goal — respected (`AP_Editor` is classic textarea + toolbar only; see [editor.md](editor.md)) |
 | Multisite | Later — not present |
 | Official SaaS / paid marketplace | Non-goal — none |
 | Heavy AI / telemetry | Non-goal — none |

@@ -175,8 +175,27 @@ $nonceAction = 'ap_forum_new_topic_' . $forumId;
                     <input type="text" id="agora-topic-title" name="topic_title" required maxlength="255" placeholder="Topic subject" autocomplete="off">
                 </div>
                 <div class="ap-field">
+                    <?php
+                    if (function_exists('ap_editor')) {
+                        echo ap_editor([
+                            'id' => 'agora-topic-body',
+                            'name' => 'topic_body',
+                            'mode' => class_exists('AP_Editor', false)
+                                ? AP_Editor::modeForContext('forum')
+                                : 'bbcode',
+                            'rows' => 8,
+                            'required' => true,
+                            'label' => 'Message',
+                            'placeholder' => 'Write your message… (BBCode and Markdown supported)',
+                            'class' => '',
+                        ]);
+                    } else {
+                        ?>
                     <label for="agora-topic-body">Message</label>
                     <textarea id="agora-topic-body" name="topic_body" required rows="8" placeholder="Write your message… (BBCode and Markdown supported)"></textarea>
+                        <?php
+                    }
+                    ?>
                 </div>
                 <button type="submit" class="ap-btn">Post topic</button>
             </form>

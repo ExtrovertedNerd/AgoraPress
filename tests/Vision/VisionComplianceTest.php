@@ -360,7 +360,22 @@ final class VisionComplianceTest extends TestCase
         // No Gutenberg / block editor package in core tree.
         $this->assertDirectoryDoesNotExist($this->root . '/ap-includes/blocks');
         $this->assertDirectoryDoesNotExist($this->root . '/ap-includes/gutenberg');
+        $this->assertDirectoryDoesNotExist($this->root . '/ap-includes/block-editor');
         $this->assertFileDoesNotExist($this->root . '/ap-includes/class-ap-block-editor.php');
+        $this->assertFileDoesNotExist($this->root . '/ap-includes/js/block-editor.js');
+        $this->assertFileDoesNotExist($this->root . '/ap-includes/js/blocks.js');
+
+        // Core editor is classic lightweight (see AP_Editor + docs/editor.md).
+        $this->assertFileIsReadable($this->root . '/ap-includes/class-ap-editor.php');
+        require_once $this->root . '/ap-includes/class-ap-editor.php';
+        $this->assertFalse(\AP_Editor::isBlockEditor());
+        $this->assertTrue(\AP_Editor::isLightweight());
+        $this->assertSame('classic', \AP_Editor::architecture());
+        $this->assertFileIsReadable($this->root . '/docs/editor.md');
+        $editorDoc = strtolower((string) file_get_contents($this->root . '/docs/editor.md'));
+        $this->assertStringContainsString('non-goal', $editorDoc);
+        $this->assertStringContainsString('block', $editorDoc);
+        $this->assertStringContainsString('textarea', $editorDoc);
 
         // No multisite bootstrap.
         $this->assertFileDoesNotExist($this->root . '/ap-includes/class-ap-multisite.php');

@@ -1,0 +1,297 @@
+/**
+ * AgoraPress classic editor toolbar styles (admin + front-end).
+ * Lightweight, no images, works with light/dark color schemes.
+ */
+
+.ap-editor {
+  display: block;
+  width: 100%;
+}
+
+.ap-editor__label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.ap-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.4rem;
+  margin: 0;
+  border: 1px solid var(--ap-border, #c5cad3);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+  color: var(--ap-text, var(--ap-fg, #1a1a1a));
+}
+
+.ap-editor__btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.85rem;
+  min-height: 1.85rem;
+  padding: 0.2rem 0.45rem;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ap-editor__btn:hover,
+.ap-editor__btn:focus-visible {
+  border-color: var(--ap-border-strong, var(--ap-border, #9aa3b2));
+  background: var(--ap-surface, #fff);
+  outline: none;
+}
+
+.ap-editor__btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--ap-primary, #1a5fb4);
+}
+
+.ap-editor__btn--weight {
+  font-weight: 700;
+}
+
+.ap-editor__btn--em {
+  font-style: italic;
+}
+
+.ap-editor__btn--underline {
+  text-decoration: underline;
+}
+
+.ap-editor__btn--strike {
+  text-decoration: line-through;
+}
+
+.ap-editor__mode-hint {
+  margin-left: auto;
+  padding: 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.ap-editor__textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  border-radius: 0 0 6px 6px;
+  resize: vertical;
+  line-height: 1.5;
+  font: inherit;
+}
+
+/* When toolbar present, square the top of the textarea */
+.ap-editor .ap-editor__toolbar + .ap-editor__textarea,
+.ap-editor .ap-editor__toolbar + textarea {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.ap-editor__description {
+  margin: 0.4rem 0 0;
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+/* Admin field content: keep large editor height */
+.ap-field-content .ap-editor__textarea,
+.ap-field-content textarea.ap-editor__textarea {
+  min-height: 16rem;
+}
+
+/* Front-end forum / comment forms */
+.ap-forum-form .ap-editor__toolbar,
+.ap-comment-form .ap-editor__toolbar {
+  background: var(--ap-card, var(--ap-bg-muted, #eef0f3));
+  border-color: var(--ap-border, #c5cad3);
+}
+
+.ap-forum-form .ap-editor__textarea,
+.ap-comment-form .ap-editor__textarea {
+  min-height: 8rem;
+}
+
+/* Dark admin mode */
+[data-ap-color-mode="dark"] .ap-editor__toolbar,
+html[data-ap-color-mode="dark"] .ap-editor__toolbar {
+  background: var(--ap-surface-2, #1c1f28);
+  border-color: var(--ap-border, #2a2f3a);
+  color: var(--ap-text, #e8eaed);
+}
+
+[data-ap-color-mode="dark"] .ap-editor__btn:hover,
+[data-ap-color-mode="dark"] .ap-editor__btn:focus-visible,
+html[data-ap-color-mode="dark"] .ap-editor__btn:hover,
+html[data-ap-color-mode="dark"] .ap-editor__btn:focus-visible {
+  background: var(--ap-surface, #12141a);
+  border-color: var(--ap-border-strong, #3a4150);
+}
+
+/* Emoji picker panel */
+.ap-editor {
+  position: relative;
+}
+
+.ap-editor__emoji-picker {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  top: auto;
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem 0.55rem 0.65rem;
+  border: 1px solid var(--ap-border, #c5cad3);
+  border-top: none;
+  border-radius: 0;
+  background: var(--ap-surface, #fff);
+  color: var(--ap-text, var(--ap-fg, #1a1a1a));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.ap-editor__emoji-picker[hidden] {
+  display: none !important;
+}
+
+.ap-editor__emoji-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.ap-editor__emoji-picker-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.ap-editor__emoji-close {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ap-editor__emoji-close:hover,
+.ap-editor__emoji-close:focus-visible {
+  border-color: var(--ap-border-strong, var(--ap-border, #9aa3b2));
+  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+  outline: none;
+}
+
+.ap-editor__emoji-group + .ap-editor__emoji-group {
+  margin-top: 0.55rem;
+}
+
+.ap-editor__emoji-group-label {
+  margin: 0 0 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.ap-editor__emoji-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+}
+
+.ap-editor__emoji-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ap-editor__emoji-btn:hover,
+.ap-editor__emoji-btn:focus-visible {
+  border-color: var(--ap-border-strong, var(--ap-border, #9aa3b2));
+  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+  outline: none;
+}
+
+.ap-editor__emoji-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--ap-primary, #1a5fb4);
+}
+
+.ap-editor__btn--emoji {
+  font-size: 1rem;
+}
+
+/* Dark admin mode — emoji picker */
+[data-ap-color-mode="dark"] .ap-editor__emoji-picker,
+html[data-ap-color-mode="dark"] .ap-editor__emoji-picker {
+  background: var(--ap-surface, #12141a);
+  border-color: var(--ap-border, #2a2f3a);
+  color: var(--ap-text, #e8eaed);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
+[data-ap-color-mode="dark"] .ap-editor__emoji-btn:hover,
+[data-ap-color-mode="dark"] .ap-editor__emoji-btn:focus-visible,
+[data-ap-color-mode="dark"] .ap-editor__emoji-close:hover,
+[data-ap-color-mode="dark"] .ap-editor__emoji-close:focus-visible,
+html[data-ap-color-mode="dark"] .ap-editor__emoji-btn:hover,
+html[data-ap-color-mode="dark"] .ap-editor__emoji-btn:focus-visible,
+html[data-ap-color-mode="dark"] .ap-editor__emoji-close:hover,
+html[data-ap-color-mode="dark"] .ap-editor__emoji-close:focus-visible {
+  background: var(--ap-surface-2, #1c1f28);
+  border-color: var(--ap-border-strong, #3a4150);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .ap-editor__btn,
+  .ap-editor__emoji-btn,
+  .ap-editor__emoji-close {
+    transition: none;
+  }
+}

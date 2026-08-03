@@ -4,8 +4,8 @@
  * Admin create / edit screen logic for posts and pages.
  *
  * Handles form field collection, validation, insert/update, autosave,
- * revision restore, and HTML form rendering. Classic editor is a plain
- * textarea for now (WYSIWYG later).
+ * revision restore, and HTML form rendering. Content uses the lightweight
+ * classic editor toolbar (Markdown formatting buttons via {@see AP_Editor}).
  *
  * @package AgoraPress
  */
@@ -722,13 +722,29 @@ class AP_Admin_Post_Edit
         }
         $html .= '</div>';
 
-        // Content
+        // Content — lightweight classic editor (Markdown toolbar).
         $html .= '<div class="ap-field ap-field-content">';
-        $html .= '<label for="content">Content</label>';
-        $html .= '<p class="description">Classic editor (WYSIWYG + Markdown toggle lands later). '
-            . 'HTML is stored and escaped on public output.</p>';
-        $html .= '<textarea name="post_content" id="content" rows="16" class="large-text">'
-            . ap_esc_textarea($content) . '</textarea>';
+        $editorMode = class_exists('AP_Editor', false)
+            ? AP_Editor::modeForContext($postType === 'page' ? 'page' : 'post')
+            : 'markdown';
+        if (class_exists('AP_Editor', false)) {
+            $html .= AP_Editor::render([
+                'id' => 'content',
+                'name' => 'post_content',
+                'value' => $content,
+                'mode' => $editorMode,
+                'rows' => 16,
+                'class' => 'large-text',
+                'label' => 'Content',
+                'description' => 'Classic editor with Markdown formatting buttons. '
+                    . 'Wrap text with the toolbar or type Markdown / limited HTML directly.',
+                'wrap_class' => 'ap-editor--admin',
+            ]);
+        } else {
+            $html .= '<label for="content">Content</label>';
+            $html .= '<textarea name="post_content" id="content" rows="16" class="large-text">'
+                . ap_esc_textarea($content) . '</textarea>';
+        }
         $html .= '</div>';
 
         // Excerpt (posts primarily; optional for pages)

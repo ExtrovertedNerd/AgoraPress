@@ -4455,6 +4455,119 @@ function ap_insert_comment(array $data, ?AP_DB $db = null, array $args = []): in
 }
 
 /**
+ * Handle front-end comment form POST (ap_comment_action=ap_comment_post).
+ *
+ * Returns a redirect URL on success/handled error, or empty string when not a
+ * comment form request.
+ */
+function ap_handle_comment_form_post(?AP_DB $db = null): string
+{
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        return '';
+    }
+    $action = (string) ($_POST['ap_comment_action'] ?? '');
+    if ($action !== 'ap_comment_post') {
+        return '';
+    }
+
+    $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+    $postId = (int) ($_POST['comment_post_ID'] ?? $_POST['post_ID'] ?? 0);
+    $redirectBase = '';
+    if ($postId > 0 && function_exists('ap_get_permalink') && class_exists('AP_Post', false)) {
+        $post = AP_Post::get($postId, $db);
+        if ($post !== null) {
+            $redirectBase = ap_get_permalink($post);
+        }
+    }
+    if ($redirectBase === '' && function_exists('ap_home_url')) {
+        $redirectBase = ap_home_url('/');
+    }
+    $fail = static function (string $code) use ($redirectBase): string {
+        $sep = str_contains($redirectBase, '?') ? '&' : '?';
+
+        return $redirectBase . $sep . 'comment_error=' . rawurlencode($code) . '#respond';
+    };
+
+    if ($postId < 1) {
+        return $fail('invalid');
+    }
+
+    $userId = function_exists('ap_get_current_user_id') ? ap_get_current_user_id($db) : 0;
+    $nonce = (string) ($_POST['_ap_nonce'] ?? '');
+    $nonceAction = 'ap-comment-post-' . $postId;
+    if (function_exists('ap_check_nonce') && !ap_check_nonce($nonce, $nonceAction, $userId > 0 ? $userId : null)) {
+        return $fail('nonce');
+    }
+
+    // Registration required?
+    $requireReg = false;
+    if (class_exists('AP_Options', false)) {
+        $requireReg = (string) AP_Options::get('comment_registration', '0', $db) === '1';
+    }
+    if ($requireReg && $userId < 1) {
+        return $fail('login');
+    }
+
+    $content = trim((string) ($_POST['comment'] ?? $_POST['comment_content'] ?? ''));
+    if ($content === '') {
+        return $fail('empty');
+    }
+
+    $author = '';
+    $email = '';
+    $url = '';
+    if ($userId > 0 && class_exists('AP_User', false)) {
+        $user = AP_User::get($userId, $db);
+        if ($user !== null) {
+            $author = $user->display_name !== '' ? $user->display_name : $user->user_login;
+            $email = (string) $user->user_email;
+            $url = (string) ($user->user_url ?? '');
+        }
+    } else {
+        $author = ap_sanitize_text_field((string) ($_POST['author'] ?? $_POST['comment_author'] ?? ''));
+        $email = ap_sanitize_text_field((string) ($_POST['email'] ?? $_POST['comment_author_email'] ?? ''));
+        $url = ap_sanitize_text_field((string) ($_POST['url'] ?? $_POST['comment_author_url'] ?? ''));
+        $requireNameEmail = true;
+        if (class_exists('AP_Options', false)) {
+            $requireNameEmail = (string) AP_Options::get('require_name_email', '1', $db) === '1';
+        }
+        if ($requireNameEmail && ($author === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL))) {
+            return $fail('identity');
+        }
+    }
+
+    $parent = max(0, (int) ($_POST['comment_parent'] ?? 0));
+    $ip = '';
+    if (!empty($_SERVER['REMOTE_ADDR']) && is_string($_SERVER['REMOTE_ADDR'])) {
+        $ip = substr($_SERVER['REMOTE_ADDR'], 0, 100);
+    }
+    $agent = '';
+    if (!empty($_SERVER['HTTP_USER_AGENT']) && is_string($_SERVER['HTTP_USER_AGENT'])) {
+        $agent = substr($_SERVER['HTTP_USER_AGENT'], 0, 255);
+    }
+
+    $newId = ap_insert_comment([
+        'comment_post_ID' => $postId,
+        'comment_content' => $content,
+        'comment_author' => $author,
+        'comment_author_email' => $email,
+        'comment_author_url' => $url,
+        'comment_author_IP' => $ip,
+        'comment_agent' => $agent,
+        'comment_parent' => $parent,
+        'user_id' => $userId,
+    ], $db);
+
+    if ($newId < 1) {
+        return $fail('closed');
+    }
+
+    $sep = str_contains($redirectBase, '?') ? '&' : '?';
+
+    return $redirectBase . $sep . 'comment_ok=1#comment-' . $newId;
+}
+
+/**
  * Update a comment.
  *
  * @param array<string, mixed> $data
@@ -6408,6 +6521,65 @@ function ap_markdown_to_html(string $text): string
     }
 
     return AP_Content_Format::markdownToHtml($text);
+}
+
+/**
+ * Render a classic editor (toolbar + textarea).
+ *
+ * @param array<string, mixed> $args See {@see AP_Editor::render()}.
+ *
+ * @see AP_Editor::render()
+ */
+function ap_editor(array $args = []): string
+{
+    if (!class_exists('AP_Editor', false)) {
+        $id = (string) ($args['id'] ?? 'content');
+        $name = (string) ($args['name'] ?? $id);
+        $value = (string) ($args['value'] ?? '');
+        $rows = max(3, (int) ($args['rows'] ?? 12));
+        $class = trim((string) ($args['class'] ?? 'large-text'));
+        $req = !empty($args['required']) ? ' required' : '';
+
+        return '<textarea name="' . ap_esc_attr($name) . '" id="' . ap_esc_attr($id)
+            . '" rows="' . $rows . '" class="' . ap_esc_attr($class) . '"' . $req . '>'
+            . ap_esc_textarea($value) . '</textarea>';
+    }
+
+    return AP_Editor::render($args);
+}
+
+/**
+ * Echo a classic editor control.
+ *
+ * @param array<string, mixed> $args
+ */
+function ap_the_editor(array $args = []): void
+{
+    echo ap_editor($args);
+}
+
+/**
+ * Enqueue classic editor CSS/JS (front-end asset pipeline).
+ *
+ * @see AP_Editor::enqueue()
+ */
+function ap_enqueue_editor(): void
+{
+    if (class_exists('AP_Editor', false)) {
+        AP_Editor::enqueue();
+    }
+}
+
+/**
+ * Print classic editor CSS/JS tags once (admin screens).
+ *
+ * @see AP_Editor::printAssets()
+ */
+function ap_print_editor_assets(): void
+{
+    if (class_exists('AP_Editor', false)) {
+        AP_Editor::printAssets();
+    }
 }
 
 /**

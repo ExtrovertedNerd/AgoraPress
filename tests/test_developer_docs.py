@@ -21,6 +21,7 @@ REQUIRED_DOCS = (
     "hooks.md",
     "themes.md",
     "plugins.md",
+    "editor.md",
     "compatibility.md",
     "schema.md",
     "vision-compliance.md",
@@ -47,6 +48,7 @@ def test_docs_index_links_guides(docs_root: Path) -> None:
         "hooks.md",
         "themes.md",
         "plugins.md",
+        "editor.md",
         "compatibility.md",
         "schema.md",
         "vision-compliance.md",
@@ -65,6 +67,22 @@ def test_vision_compliance_doc_content(docs_root: Path) -> None:
         "three independent modules",
     ):
         assert phrase in text, f"vision-compliance.md missing: {phrase}"
+
+
+def test_editor_doc_content(docs_root: Path) -> None:
+    text = (docs_root / "editor.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "ap_editor",
+        "classic",
+        "textarea",
+        "non-goal",
+        "block",
+        "markdown",
+        "bbcode",
+        "lightweight",
+        "no jquery",
+    ):
+        assert phrase in text, f"editor.md missing: {phrase}"
 
 
 def test_hooks_doc_content(docs_root: Path) -> None:

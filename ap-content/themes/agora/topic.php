@@ -191,8 +191,27 @@ $nonceAction = 'ap_forum_reply_' . $topicId;
                 }
                 ?>
                 <div class="ap-field">
+                    <?php
+                    if (function_exists('ap_editor')) {
+                        echo ap_editor([
+                            'id' => 'agora-reply-body',
+                            'name' => 'reply_body',
+                            'mode' => class_exists('AP_Editor', false)
+                                ? AP_Editor::modeForContext('forum')
+                                : 'bbcode',
+                            'rows' => 6,
+                            'required' => true,
+                            'label' => 'Message',
+                            'placeholder' => 'Write your reply… (BBCode and Markdown supported)',
+                            'class' => '',
+                        ]);
+                    } else {
+                        ?>
                     <label for="agora-reply-body">Message</label>
                     <textarea id="agora-reply-body" name="reply_body" required rows="6" placeholder="Write your reply… (BBCode and Markdown supported)"></textarea>
+                        <?php
+                    }
+                    ?>
                 </div>
                 <button type="submit" class="ap-btn">Post reply</button>
             </form>

@@ -151,6 +151,12 @@ This is not an exhaustive dump of every string. Prefer grepping `ap_do_action` /
 | `ap_pre_comment_insert` / `ap_comment_inserted` / `ap_comment_updated` / `ap_comment_deleted` | action | Comments |
 | `ap_pre_comment_approved` | filter | Return status override / spam hooks |
 | `ap_format_content` | filter | BBCode/Markdown/HTML pipeline |
+| `ap_editor_buttons` | filter | Classic editor toolbar buttons per mode (`markdown` / `bbcode` / `html`) |
+| `ap_editor_emojis` | filter | Unicode emoji catalog for the lightweight picker |
+| `ap_editor_mode` | filter | Default editor mode for a context (`post`, `forum`, …) |
+
+The core editor is classic textarea + toolbar only — see [editor.md](editor.md).
+There is no block-editor hook surface in core.
 
 ### Forums
 

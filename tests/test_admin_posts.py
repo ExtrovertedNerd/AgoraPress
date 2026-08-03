@@ -76,6 +76,7 @@ def test_admin_classes_define_core_api() -> None:
         "post_parent",
         "page_template",
         "visibility",
+        "AP_Editor",
     ):
         assert needle in edit_src, f"Expected {needle!r} in edit class"
 

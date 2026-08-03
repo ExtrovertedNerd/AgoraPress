@@ -299,6 +299,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum.php';
     // Content format: BBCode + Markdown + limited safe HTML (forum posts, etc.).
     require_once AP_ABSPATH . 'ap-includes/class-ap-content-format.php';
+    // Lightweight classic editor toolbar (Markdown / BBCode / HTML insert helpers).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-editor.php';
     // Media library: secure uploads + attachment posts.
     require_once AP_ABSPATH . 'ap-includes/class-ap-media.php';
     // Forum attachments: media linked to forum posts with quotas.
