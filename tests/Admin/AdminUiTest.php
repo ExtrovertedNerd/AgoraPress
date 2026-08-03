@@ -94,6 +94,11 @@ final class AdminUiTest extends TestCase
             'id="ap-admin-content"',
             'ap_nonce_url',
             'log-out',
+            'ap-color-mode-toggle',
+            'data-ap-color-mode-pref',
+            'color-scheme',
+            'ap_admin_color_mode',
+            'AP_Admin::getColorMode',
         ];
         foreach ($needles as $needle) {
             $this->assertStringContainsString($needle, $src, "Header missing {$needle}");
@@ -111,6 +116,10 @@ final class AdminUiTest extends TestCase
             'ap-footer-version',
             'Thank you for creating with',
             'role="contentinfo"',
+            'ap_admin_color_mode',
+            'ap-color-mode-toggle',
+            'localStorage',
+            "nextColorMode",
         ];
         foreach ($needles as $needle) {
             $this->assertStringContainsString($needle, $src, "Footer missing {$needle}");
@@ -122,24 +131,101 @@ final class AdminUiTest extends TestCase
         $css = (string) file_get_contents($this->root . '/ap-admin/css/admin.css');
         $needles = [
             'prefers-color-scheme: dark',
+            'data-ap-color-mode="light"',
+            'data-ap-color-mode="dark"',
             '@media (max-width: 782px)',
             '@media (max-width: 480px)',
             'ap-menu-toggle',
             'ap-menu-open',
             'ap-admin-menu-backdrop',
+            'ap-color-mode-toggle',
             'position: sticky',
             'overflow-x: auto',
             'ap-dashboard-cards',
             'ap-dashboard-grid',
             'ap-glance-list',
             'prefers-reduced-motion',
+            'prefers-contrast: more',
             'min-width: 36rem',
             'hover: none',
             '@media print',
             'ap-form-table',
+            'optimizeLegibility',
+            '--ap-radius-lg',
+            '--ap-primary-soft',
         ];
         foreach ($needles as $needle) {
             $this->assertStringContainsString($needle, $css, "CSS missing {$needle}");
+        }
+    }
+
+    public function testColorModeHelpers(): void
+    {
+        $this->assertSame(['auto', 'light', 'dark'], AP_Admin::colorModes());
+        $this->assertSame('auto', AP_Admin::sanitizeColorMode(''));
+        $this->assertSame('auto', AP_Admin::sanitizeColorMode('neon'));
+        $this->assertSame('light', AP_Admin::sanitizeColorMode('LIGHT'));
+        $this->assertSame('dark', AP_Admin::sanitizeColorMode('dark'));
+        $this->assertSame('light', AP_Admin::nextColorMode('auto'));
+        $this->assertSame('dark', AP_Admin::nextColorMode('light'));
+        $this->assertSame('auto', AP_Admin::nextColorMode('dark'));
+
+        $labels = AP_Admin::colorModeLabels();
+        $this->assertArrayHasKey('auto', $labels);
+        $this->assertArrayHasKey('light', $labels);
+        $this->assertArrayHasKey('dark', $labels);
+
+        // Without usermeta table / user, defaults to auto.
+        $this->assertSame('auto', AP_Admin::getColorMode(0, $this->db));
+        $this->assertSame('auto', AP_Admin::getColorMode(null, $this->db));
+    }
+
+    public function testColorModeUserMetaPersistence(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-user.php';
+
+        $this->db->query(
+            'CREATE TABLE ' . $this->db->quoteIdentifier($this->db->table('usermeta')) . ' (
+                umeta_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                meta_key TEXT NOT NULL,
+                meta_value TEXT NOT NULL DEFAULT \'\'
+            )'
+        );
+
+        $this->assertTrue(AP_Admin::setColorMode(7, 'dark', $this->db));
+        $this->assertSame('dark', AP_Admin::getColorMode(7, $this->db));
+        $this->assertTrue(AP_Admin::setColorMode(7, 'light', $this->db));
+        $this->assertSame('light', AP_Admin::getColorMode(7, $this->db));
+        $this->assertTrue(AP_Admin::setColorMode(7, 'bogus', $this->db));
+        $this->assertSame('auto', AP_Admin::getColorMode(7, $this->db));
+        $this->assertFalse(AP_Admin::setColorMode(0, 'dark', $this->db));
+    }
+
+    public function testProfileFormHasAdminAppearanceFieldset(): void
+    {
+        $src = (string) file_get_contents(
+            $this->root . '/ap-admin/includes/class-ap-admin-user-edit.php'
+        );
+        $this->assertStringContainsString('renderColorModeFieldset', $src);
+        $this->assertStringContainsString('Admin Appearance', $src);
+        $this->assertStringContainsString('ap_admin_color_mode', $src);
+        $this->assertStringContainsString("mode === 'profile'", $src);
+    }
+
+    public function testLoginPageHasColorModeShell(): void
+    {
+        $src = (string) file_get_contents($this->root . '/ap-admin/login.php');
+        $needles = [
+            'ap-color-mode-toggle',
+            'data-ap-color-mode-pref',
+            'color-scheme',
+            'ap_admin_color_mode',
+            'ap-login-tagline',
+            'ap-admin-login',
+        ];
+        foreach ($needles as $needle) {
+            $this->assertStringContainsString($needle, $src, "Login missing {$needle}");
         }
     }
 

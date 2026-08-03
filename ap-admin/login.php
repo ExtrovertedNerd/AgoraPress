@@ -225,17 +225,59 @@ $pageTitle = match ($action) {
 };
 
 ?><!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-ap-color-mode-pref="auto">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
+    <meta name="color-scheme" content="light dark">
     <title><?php echo ap_esc_html($pageTitle); ?> ‹ AgoraPress</title>
     <link rel="stylesheet" href="<?php echo ap_esc_url($cssUrl); ?>?v=<?php echo ap_esc_attr($version); ?>">
+    <script>
+    (function () {
+        try {
+            var key = 'ap_admin_color_mode';
+            var stored = null;
+            try { stored = localStorage.getItem(key); } catch (e) {}
+            var mode = (stored === 'light' || stored === 'dark' || stored === 'auto') ? stored : 'auto';
+            document.documentElement.setAttribute('data-ap-color-mode', mode);
+            var meta = document.querySelector('meta[name="color-scheme"]');
+            if (meta) {
+                meta.setAttribute('content', mode === 'auto' ? 'light dark' : mode);
+            }
+        } catch (e) {}
+    })();
+    </script>
 </head>
 <body class="ap-admin ap-admin-login">
+    <button
+        type="button"
+        class="ap-color-mode-toggle ap-login-color-toggle"
+        id="ap-color-mode-toggle"
+        aria-label="Color mode: System. Click to change."
+        title="Color mode (System / Light / Dark)"
+    >
+        <svg class="ap-color-mode-icon ap-color-mode-icon--sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+        </svg>
+        <svg class="ap-color-mode-icon ap-color-mode-icon--moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true" focusable="false">
+            <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5z"></path>
+        </svg>
+        <svg class="ap-color-mode-icon ap-color-mode-icon--auto" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true" focusable="false">
+            <rect x="2" y="4" width="20" height="14" rx="2"></rect>
+            <path d="M8 21h8M12 18v3"></path>
+        </svg>
+    </button>
     <main class="ap-login-box">
         <h1>AgoraPress</h1>
+        <p class="ap-login-tagline">Sign in to the control panel</p>
         <?php foreach ($messages as $msg) : ?>
             <div class="ap-notice ap-notice--success"><?php echo ap_esc_html($msg); ?></div>
         <?php endforeach; ?>
@@ -361,5 +403,53 @@ $pageTitle = match ($action) {
             </p>
         <?php endif; ?>
     </main>
+    <script>
+    (function () {
+        var COLOR_KEY = 'ap_admin_color_mode';
+        var COLOR_ORDER = ['auto', 'light', 'dark'];
+        var COLOR_LABELS = { auto: 'System', light: 'Light', dark: 'Dark' };
+
+        function readMode() {
+            var attr = document.documentElement.getAttribute('data-ap-color-mode');
+            if (attr === 'light' || attr === 'dark' || attr === 'auto') {
+                return attr;
+            }
+            try {
+                var s = localStorage.getItem(COLOR_KEY);
+                if (s === 'light' || s === 'dark' || s === 'auto') {
+                    return s;
+                }
+            } catch (e) {}
+            return 'auto';
+        }
+
+        function apply(mode) {
+            if (COLOR_ORDER.indexOf(mode) === -1) {
+                mode = 'auto';
+            }
+            document.documentElement.setAttribute('data-ap-color-mode', mode);
+            try { localStorage.setItem(COLOR_KEY, mode); } catch (e) {}
+            var meta = document.querySelector('meta[name="color-scheme"]');
+            if (meta) {
+                meta.setAttribute('content', mode === 'auto' ? 'light dark' : mode);
+            }
+            var btn = document.getElementById('ap-color-mode-toggle');
+            if (btn) {
+                var label = COLOR_LABELS[mode] || 'System';
+                btn.setAttribute('aria-label', 'Color mode: ' + label + '. Click to change.');
+                btn.setAttribute('title', 'Color mode: ' + label);
+            }
+        }
+
+        apply(readMode());
+        var toggle = document.getElementById('ap-color-mode-toggle');
+        if (toggle) {
+            toggle.addEventListener('click', function () {
+                var i = COLOR_ORDER.indexOf(readMode());
+                apply(COLOR_ORDER[(i < 0 ? 0 : i + 1) % COLOR_ORDER.length]);
+            });
+        }
+    })();
+    </script>
 </body>
 </html>

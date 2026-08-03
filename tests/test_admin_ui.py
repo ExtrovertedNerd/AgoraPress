@@ -45,6 +45,11 @@ def test_header_responsive_shell() -> None:
         "menuSectionLabel",
         "ap_nonce_url",
         "log-out",
+        "ap-color-mode-toggle",
+        "data-ap-color-mode-pref",
+        "color-scheme",
+        "AP_Admin::getColorMode",
+        "ap_admin_color_mode",
     ):
         assert needle in src, f"Header missing {needle!r}"
 
@@ -57,6 +62,9 @@ def test_footer_menu_script() -> None:
         "Escape",
         "ap-footer-version",
         "Thank you for creating with",
+        "ap-color-mode-toggle",
+        "ap_admin_color_mode",
+        "localStorage",
     ):
         assert needle in src, f"Footer missing {needle!r}"
 
@@ -65,15 +73,21 @@ def test_admin_css_responsive_rules() -> None:
     css = CSS.read_text(encoding="utf-8")
     for needle in (
         "prefers-color-scheme: dark",
+        'data-ap-color-mode="light"',
+        'data-ap-color-mode="dark"',
         "@media (max-width: 782px)",
         "ap-menu-toggle",
         "ap-menu-open",
         "ap-admin-menu-backdrop",
+        "ap-color-mode-toggle",
         "position: sticky",
         "overflow-x: auto",
         "ap-dashboard-cards",
         "prefers-reduced-motion",
+        "prefers-contrast: more",
         "@media print",
+        "--ap-radius-lg",
+        "optimizeLegibility",
     ):
         assert needle in css, f"admin.css missing {needle!r}"
 
@@ -84,11 +98,28 @@ def test_admin_helpers_in_class() -> None:
         "function siteName",
         "function homeUrl",
         "function menuSectionLabel",
+        "function sanitizeColorMode",
+        "function getColorMode",
+        "function setColorMode",
+        "function nextColorMode",
+        "COLOR_MODE_META",
         "'section' => 'content'",
         "'section' => 'settings'",
         "'section' => 'appearance'",
     ):
         assert needle in src, f"AP_Admin missing {needle!r}"
+
+
+def test_login_color_mode() -> None:
+    login = ADMIN / "login.php"
+    src = login.read_text(encoding="utf-8")
+    for needle in (
+        "ap-color-mode-toggle",
+        "data-ap-color-mode-pref",
+        "color-scheme",
+        "ap-login-tagline",
+    ):
+        assert needle in src, f"Login missing {needle!r}"
 
 
 def test_phpunit_admin_ui() -> None:

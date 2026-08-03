@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Admin page header + sidebar shell (responsive, accessible).
+ * Admin page header + sidebar shell (responsive, accessible, light/dark modes).
  *
  * Expects (optional) before include:
  *   $ap_admin_title  string  Document / H1 title
@@ -31,15 +31,40 @@ $logoutUrl = function_exists('ap_nonce_url')
     : $logoutBase;
 $dashboardUrl = AP_Admin::url('index.php');
 $menuItems = AP_Admin::menuItems($ap_admin_screen);
+$colorModePref = AP_Admin::getColorMode();
+$colorModeLabels = AP_Admin::colorModeLabels();
+$colorModeLabel = $colorModeLabels[$colorModePref] ?? 'System';
 
 ?><!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-ap-color-mode-pref="<?php echo ap_esc_attr($colorModePref); ?>">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
+    <meta name="color-scheme" content="light dark">
     <title><?php echo ap_esc_html($ap_admin_title); ?> ‹ <?php echo ap_esc_html($siteName); ?></title>
     <link rel="stylesheet" href="<?php echo ap_esc_url($cssUrl); ?>?v=<?php echo ap_esc_attr($version); ?>">
+    <?php
+    // Prevent flash of wrong color mode before CSS paints (localStorage → server pref → auto).
+    ?>
+    <script>
+    (function () {
+        try {
+            var key = 'ap_admin_color_mode';
+            var stored = null;
+            try { stored = localStorage.getItem(key); } catch (e) {}
+            var pref = document.documentElement.getAttribute('data-ap-color-mode-pref') || 'auto';
+            var mode = (stored === 'light' || stored === 'dark' || stored === 'auto')
+                ? stored
+                : (pref === 'light' || pref === 'dark' || pref === 'auto' ? pref : 'auto');
+            document.documentElement.setAttribute('data-ap-color-mode', mode);
+            var meta = document.querySelector('meta[name="color-scheme"]');
+            if (meta) {
+                meta.setAttribute('content', mode === 'auto' ? 'light dark' : mode);
+            }
+        } catch (e) {}
+    })();
+    </script>
 </head>
 <body class="ap-admin <?php echo ap_esc_attr($ap_admin_body_class); ?>">
 <a class="skip-link screen-reader-text" href="#ap-admin-content">Skip to main content</a>
@@ -66,6 +91,33 @@ $menuItems = AP_Admin::menuItems($ap_admin_screen);
             </div>
         </div>
         <div class="ap-admin-topbar-end">
+            <button
+                type="button"
+                class="ap-color-mode-toggle"
+                id="ap-color-mode-toggle"
+                aria-label="Color mode: <?php echo ap_esc_attr($colorModeLabel); ?>. Click to change."
+                title="Color mode (System / Light / Dark)"
+                data-ap-color-mode-current="<?php echo ap_esc_attr($colorModePref); ?>"
+            >
+                <svg class="ap-color-mode-icon ap-color-mode-icon--sun" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true" focusable="false">
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+                </svg>
+                <svg class="ap-color-mode-icon ap-color-mode-icon--moon" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true" focusable="false">
+                    <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5z"></path>
+                </svg>
+                <svg class="ap-color-mode-icon ap-color-mode-icon--auto" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true" focusable="false">
+                    <rect x="2" y="4" width="20" height="14" rx="2"></rect>
+                    <path d="M8 21h8M12 18v3"></path>
+                    <path d="M2 12h20" opacity="0.35"></path>
+                </svg>
+            </button>
             <a class="ap-visit-site" href="<?php echo ap_esc_url($homeUrl); ?>" target="_blank" rel="noopener noreferrer">
                 Visit Site
                 <span class="screen-reader-text">(opens in a new tab)</span>

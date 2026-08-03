@@ -1195,6 +1195,48 @@ function ap_get_template_uri(?AP_DB $db = null): string
 }
 
 /**
+ * Public URI of the active theme's style.css (file, not directory).
+ *
+ * @see AP_Theme::getStyleCssUri()
+ */
+function ap_get_style_css_uri(?AP_DB $db = null): string
+{
+    return AP_Theme::getStyleCssUri($db);
+}
+
+/**
+ * Whether the active theme is a child theme (stylesheet ≠ parent template).
+ *
+ * @see AP_Theme::isChildTheme()
+ */
+function ap_is_child_theme(?AP_DB $db = null): bool
+{
+    return AP_Theme::isChildTheme($db);
+}
+
+/**
+ * style.css headers for a theme slug, or null.
+ *
+ * @return array<string, string>|null
+ *
+ * @see AP_Theme::getThemeHeaders()
+ */
+function ap_get_theme_headers(string $slug): ?array
+{
+    return AP_Theme::getThemeHeaders($slug);
+}
+
+/**
+ * Screenshot URI for a theme slug (empty when none).
+ *
+ * @see AP_Theme::getScreenshotUri()
+ */
+function ap_get_theme_screenshot(string $slug, ?AP_DB $db = null): string
+{
+    return AP_Theme::getScreenshotUri($slug, $db);
+}
+
+/**
  * Ordered template hierarchy candidates for the main (or given) query.
  *
  * @return list<string>
@@ -1283,6 +1325,47 @@ function ap_get_themes(): array
 }
 
 /**
+ * Install a classic theme from a zip file path.
+ *
+ * @param array<string, mixed> $args overwrite, allow_block, themes_root, slug
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Theme_Installer::installFromZip()
+ */
+function ap_install_theme_from_zip(string $zipPath, array $args = []): array
+{
+    return AP_Theme_Installer::installFromZip($zipPath, $args);
+}
+
+/**
+ * Handle a theme zip $_FILES upload and install.
+ *
+ * @param array<string, mixed> $file
+ * @param array<string, mixed> $args
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Theme_Installer::handleUpload()
+ */
+function ap_upload_theme(array $file, array $args = []): array
+{
+    return AP_Theme_Installer::handleUpload($file, $args);
+}
+
+/**
+ * Delete an installed theme directory (not active or protected).
+ *
+ * @return array{ok: bool, slug: string, errors: list<string>}
+ *
+ * @see AP_Theme_Installer::deleteTheme()
+ */
+function ap_delete_theme(string $slug, ?AP_DB $db = null): array
+{
+    return AP_Theme_Installer::deleteTheme($slug, $db);
+}
+
+/**
  * Run the front-end template loader for the main query.
  *
  * @see AP_Theme::render()
@@ -1290,6 +1373,787 @@ function ap_get_themes(): array
 function ap_template_loader(?AP_Query $query = null, ?AP_DB $db = null): void
 {
     AP_Theme::render($query, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Classic WordPress Theme Compatibility (thin wrappers; full API in load.php)
+// -----------------------------------------------------------------------------
+
+/**
+ * Ensure classic WP theme shims are loaded.
+ *
+ * @see AP_Theme_Compat::ensureLoaded()
+ */
+function ap_load_theme_compat(bool $force = false, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Theme_Compat', false)) {
+        $path = (defined('AP_ABSPATH') ? AP_ABSPATH : dirname(__DIR__) . '/')
+            . 'ap-includes/compatibility/load.php';
+        if (is_readable($path)) {
+            require_once $path;
+        }
+    }
+    if (!class_exists('AP_Theme_Compat', false)) {
+        return false;
+    }
+
+    return AP_Theme_Compat::ensureLoaded($force, $db);
+}
+
+/**
+ * Whether a theme slug is a block / FSE theme (out of scope for the shim layer).
+ *
+ * @see AP_Theme_Compat::isBlockTheme()
+ */
+function ap_is_block_theme(string $slug): bool
+{
+    return class_exists('AP_Theme_Compat', false) && AP_Theme_Compat::isBlockTheme($slug);
+}
+
+/**
+ * Analyze a classic WP theme directory for AgoraPress compatibility.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Theme_Converter::analyzePath()
+ */
+function ap_analyze_wp_theme(string $path): array
+{
+    if (!class_exists('AP_Theme_Converter', false)) {
+        ap_load_theme_compat(true);
+    }
+    if (!class_exists('AP_Theme_Converter', false)) {
+        return [];
+    }
+
+    return AP_Theme_Converter::analyzePath($path);
+}
+
+// -----------------------------------------------------------------------------
+// Plugins (discovery, headers, activation)
+// -----------------------------------------------------------------------------
+
+/**
+ * Absolute path to the plugins directory (no trailing slash).
+ *
+ * @see AP_Plugin::pluginsRoot()
+ */
+function ap_get_plugins_dir(): string
+{
+    return AP_Plugin::pluginsRoot();
+}
+
+/**
+ * List installed plugins (headers keyed by basename).
+ *
+ * @return array<string, array<string, string>>
+ *
+ * @see AP_Plugin::listPlugins()
+ */
+function ap_get_plugins(): array
+{
+    return AP_Plugin::listPlugins();
+}
+
+/**
+ * Parsed headers for a plugin basename, or null.
+ *
+ * @return array<string, string>|null
+ *
+ * @see AP_Plugin::getPluginHeaders()
+ */
+function ap_get_plugin_data(string $plugin): ?array
+{
+    return AP_Plugin::getPluginHeaders($plugin);
+}
+
+/**
+ * Active plugin basenames.
+ *
+ * @return list<string>
+ *
+ * @see AP_Plugin::getActivePlugins()
+ */
+function ap_get_active_plugins(?AP_DB $db = null): array
+{
+    return AP_Plugin::getActivePlugins($db);
+}
+
+/**
+ * Whether a plugin basename is active.
+ *
+ * @see AP_Plugin::isActive()
+ */
+function ap_is_plugin_active(string $plugin, ?AP_DB $db = null): bool
+{
+    return AP_Plugin::isActive($plugin, $db);
+}
+
+/**
+ * Activate a plugin (loads file, runs activation hooks, updates active list).
+ *
+ * @return array{ok: bool, errors: list<string>}
+ *
+ * @see AP_Plugin::activate()
+ */
+function ap_activate_plugin(string $plugin, ?AP_DB $db = null): array
+{
+    return AP_Plugin::activate($plugin, $db);
+}
+
+/**
+ * Deactivate a plugin (runs deactivation hooks, updates active list).
+ *
+ * @return array{ok: bool, errors: list<string>}
+ *
+ * @see AP_Plugin::deactivate()
+ */
+function ap_deactivate_plugin(string $plugin, ?AP_DB $db = null): array
+{
+    return AP_Plugin::deactivate($plugin, $db);
+}
+
+/**
+ * Plugin basename relative to the plugins root (from __FILE__ or relative path).
+ *
+ * @see AP_Plugin::pluginBasename()
+ */
+function ap_plugin_basename(string $file): string
+{
+    return AP_Plugin::pluginBasename($file);
+}
+
+/**
+ * Absolute path to a plugin's main file.
+ *
+ * @see AP_Plugin::pluginPath()
+ */
+function ap_plugin_path(string $plugin): string
+{
+    return AP_Plugin::pluginPath($plugin);
+}
+
+/**
+ * Absolute directory of a plugin (no trailing slash).
+ *
+ * @see AP_Plugin::pluginDir()
+ */
+function ap_plugin_dir(string $plugin): string
+{
+    return AP_Plugin::pluginDir($plugin);
+}
+
+/**
+ * Public URI for a plugin path under the plugins directory.
+ *
+ * @see AP_Plugin::pluginUrl()
+ */
+function ap_plugin_url(string $plugin, string $path = '', ?AP_DB $db = null): string
+{
+    return AP_Plugin::pluginUrl($plugin, $path, $db);
+}
+
+/**
+ * Register a callback for plugin activation.
+ *
+ * @param callable $callback
+ *
+ * @see AP_Plugin::registerActivationHook()
+ */
+function ap_register_activation_hook(string $file, callable $callback): void
+{
+    AP_Plugin::registerActivationHook($file, $callback);
+}
+
+/**
+ * Register a callback for plugin deactivation.
+ *
+ * @param callable $callback
+ *
+ * @see AP_Plugin::registerDeactivationHook()
+ */
+function ap_register_deactivation_hook(string $file, callable $callback): void
+{
+    AP_Plugin::registerDeactivationHook($file, $callback);
+}
+
+/**
+ * Load all active plugins (normally called from bootstrap).
+ *
+ * @see AP_Plugin::loadActivePlugins()
+ */
+function ap_load_active_plugins(?AP_DB $db = null): void
+{
+    AP_Plugin::loadActivePlugins($db);
+}
+
+/**
+ * Absolute path to the must-use plugins directory (no trailing slash).
+ *
+ * @see AP_Plugin::muPluginsRoot()
+ */
+function ap_get_mu_plugins_dir(): string
+{
+    return AP_Plugin::muPluginsRoot();
+}
+
+/**
+ * List must-use plugins (always-on root-level PHP files).
+ *
+ * @return array<string, array<string, string>>
+ *
+ * @see AP_Plugin::listMuPlugins()
+ */
+function ap_get_mu_plugins(): array
+{
+    return AP_Plugin::listMuPlugins();
+}
+
+/**
+ * Load must-use plugins (normally called from bootstrap before regular plugins).
+ *
+ * @see AP_Plugin::loadMuPlugins()
+ */
+function ap_load_mu_plugins(): void
+{
+    AP_Plugin::loadMuPlugins();
+}
+
+/**
+ * Whether a must-use plugin file was included this request.
+ *
+ * @see AP_Plugin::isMuLoaded()
+ */
+function ap_is_mu_plugin_loaded(string $plugin): bool
+{
+    return AP_Plugin::isMuLoaded($plugin);
+}
+
+// -----------------------------------------------------------------------------
+// Transients API
+// -----------------------------------------------------------------------------
+
+/**
+ * Read a transient (false when missing or expired).
+ *
+ * @param mixed $default
+ *
+ * @return mixed
+ *
+ * @see AP_Transient::get()
+ */
+function ap_get_transient(string $name, mixed $default = false, ?AP_DB $db = null): mixed
+{
+    if (!class_exists('AP_Transient', false)) {
+        return $default;
+    }
+
+    return AP_Transient::get($name, $default, $db);
+}
+
+/**
+ * Store a transient.
+ *
+ * @param mixed $value
+ *
+ * @see AP_Transient::set()
+ */
+function ap_set_transient(string $name, mixed $value, int $expiration = 0, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Transient', false)) {
+        return false;
+    }
+
+    return AP_Transient::set($name, $value, $expiration, $db);
+}
+
+/**
+ * Delete a transient.
+ *
+ * @see AP_Transient::delete()
+ */
+function ap_delete_transient(string $name, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Transient', false)) {
+        return false;
+    }
+
+    return AP_Transient::delete($name, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Shortcode API
+// -----------------------------------------------------------------------------
+
+/**
+ * Register a shortcode handler.
+ *
+ * @param callable $callback function(array $atts, ?string $content, string $tag): string
+ *
+ * @see AP_Shortcode::add()
+ */
+function ap_add_shortcode(string $tag, callable $callback): void
+{
+    if (!class_exists('AP_Shortcode', false)) {
+        return;
+    }
+    AP_Shortcode::add($tag, $callback);
+}
+
+/**
+ * Remove a shortcode handler.
+ *
+ * @see AP_Shortcode::remove()
+ */
+function ap_remove_shortcode(string $tag): void
+{
+    if (!class_exists('AP_Shortcode', false)) {
+        return;
+    }
+    AP_Shortcode::remove($tag);
+}
+
+/**
+ * Whether a shortcode tag is registered.
+ *
+ * @see AP_Shortcode::exists()
+ */
+function ap_shortcode_exists(string $tag): bool
+{
+    if (!class_exists('AP_Shortcode', false)) {
+        return false;
+    }
+
+    return AP_Shortcode::exists($tag);
+}
+
+/**
+ * Expand shortcodes in content.
+ *
+ * @see AP_Shortcode::doShortcode()
+ */
+function ap_do_shortcode(string $content): string
+{
+    if (!class_exists('AP_Shortcode', false)) {
+        return $content;
+    }
+
+    return AP_Shortcode::doShortcode($content);
+}
+
+/**
+ * Strip registered shortcodes from content.
+ *
+ * @see AP_Shortcode::strip()
+ */
+function ap_strip_shortcodes(string $content): string
+{
+    if (!class_exists('AP_Shortcode', false)) {
+        return $content;
+    }
+
+    return AP_Shortcode::strip($content);
+}
+
+/**
+ * Whether content contains a shortcode tag.
+ *
+ * @see AP_Shortcode::has()
+ */
+function ap_has_shortcode(string $content, string $tag): bool
+{
+    if (!class_exists('AP_Shortcode', false)) {
+        return false;
+    }
+
+    return AP_Shortcode::has($content, $tag);
+}
+
+/**
+ * Parse a shortcode attribute string.
+ *
+ * @return array<string, string>
+ *
+ * @see AP_Shortcode::parseAtts()
+ */
+function ap_shortcode_parse_atts(string $text): array
+{
+    if (!class_exists('AP_Shortcode', false)) {
+        return [];
+    }
+
+    return AP_Shortcode::parseAtts($text);
+}
+
+/**
+ * Combine shortcode defaults with user attributes.
+ *
+ * @param array<string, string> $pairs
+ * @param array<string, string> $atts
+ *
+ * @return array<string, string>
+ *
+ * @see AP_Shortcode::atts()
+ */
+function ap_shortcode_atts(array $pairs, array $atts): array
+{
+    if (!class_exists('AP_Shortcode', false)) {
+        return $pairs;
+    }
+
+    return AP_Shortcode::atts($pairs, $atts);
+}
+
+// -----------------------------------------------------------------------------
+// Cron API
+// -----------------------------------------------------------------------------
+
+/**
+ * Recurrence schedules (hourly, daily, …).
+ *
+ * @return array<string, array{interval: int, display: string}>
+ *
+ * @see AP_Cron::schedules()
+ */
+function ap_get_cron_schedules(): array
+{
+    if (!class_exists('AP_Cron', false)) {
+        return [];
+    }
+
+    return AP_Cron::schedules();
+}
+
+/**
+ * Schedule a recurring cron event.
+ *
+ * @param list<mixed> $args
+ *
+ * @see AP_Cron::scheduleEvent()
+ */
+function ap_schedule_event(
+    int $timestamp,
+    string $recurrence,
+    string $hook,
+    array $args = [],
+    ?AP_DB $db = null
+): bool {
+    if (!class_exists('AP_Cron', false)) {
+        return false;
+    }
+
+    return AP_Cron::scheduleEvent($timestamp, $recurrence, $hook, $args, $db);
+}
+
+/**
+ * Schedule a one-time cron event.
+ *
+ * @param list<mixed> $args
+ *
+ * @see AP_Cron::scheduleSingle()
+ */
+function ap_schedule_single_event(
+    int $timestamp,
+    string $hook,
+    array $args = [],
+    ?AP_DB $db = null
+): bool {
+    if (!class_exists('AP_Cron', false)) {
+        return false;
+    }
+
+    return AP_Cron::scheduleSingle($timestamp, $hook, $args, $db);
+}
+
+/**
+ * Unschedule a specific cron event occurrence.
+ *
+ * @param list<mixed> $args
+ *
+ * @see AP_Cron::unschedule()
+ */
+function ap_unschedule_event(
+    int $timestamp,
+    string $hook,
+    array $args = [],
+    ?AP_DB $db = null
+): bool {
+    if (!class_exists('AP_Cron', false)) {
+        return false;
+    }
+
+    return AP_Cron::unschedule($timestamp, $hook, $args, $db);
+}
+
+/**
+ * Clear scheduled events for a hook.
+ *
+ * @param list<mixed>|null $args
+ *
+ * @see AP_Cron::clearHook()
+ */
+function ap_clear_scheduled_hook(string $hook, ?array $args = null, ?AP_DB $db = null): int
+{
+    if (!class_exists('AP_Cron', false)) {
+        return 0;
+    }
+
+    return AP_Cron::clearHook($hook, $args, $db);
+}
+
+/**
+ * Next scheduled timestamp for a hook, or false.
+ *
+ * @param list<mixed> $args
+ *
+ * @return int|false
+ *
+ * @see AP_Cron::nextScheduled()
+ */
+function ap_next_scheduled(string $hook, array $args = [], ?AP_DB $db = null): int|false
+{
+    if (!class_exists('AP_Cron', false)) {
+        return false;
+    }
+
+    return AP_Cron::nextScheduled($hook, $args, $db);
+}
+
+/**
+ * Run due cron events (bounded).
+ *
+ * @see AP_Cron::runDue()
+ */
+function ap_cron_run_due(?AP_DB $db = null, ?int $now = null): int
+{
+    if (!class_exists('AP_Cron', false)) {
+        return 0;
+    }
+
+    return AP_Cron::runDue($db, $now);
+}
+
+/**
+ * Spawn pseudo-cron if any event is due.
+ *
+ * @see AP_Cron::spawn()
+ */
+function ap_spawn_cron(?AP_DB $db = null): int
+{
+    if (!class_exists('AP_Cron', false)) {
+        return 0;
+    }
+
+    return AP_Cron::spawn($db);
+}
+
+// -----------------------------------------------------------------------------
+// Assets / enqueue (styles & scripts)
+// -----------------------------------------------------------------------------
+
+/**
+ * Register a stylesheet.
+ *
+ * @param list<string> $deps
+ * @param string|false|null $ver
+ *
+ * @see AP_Assets::registerStyle()
+ */
+function ap_register_style(
+    string $handle,
+    string $src = '',
+    array $deps = [],
+    string|bool|null $ver = false,
+    string $media = 'all'
+): bool {
+    return AP_Assets::registerStyle($handle, $src, $deps, $ver, $media);
+}
+
+/**
+ * Enqueue a stylesheet (registers when $src is non-empty).
+ *
+ * @param list<string> $deps
+ * @param string|false|null $ver
+ *
+ * @see AP_Assets::enqueueStyle()
+ */
+function ap_enqueue_style(
+    string $handle,
+    string $src = '',
+    array $deps = [],
+    string|bool|null $ver = false,
+    string $media = 'all'
+): bool {
+    return AP_Assets::enqueueStyle($handle, $src, $deps, $ver, $media);
+}
+
+/**
+ * @see AP_Assets::dequeueStyle()
+ */
+function ap_dequeue_style(string $handle): void
+{
+    AP_Assets::dequeueStyle($handle);
+}
+
+/**
+ * @see AP_Assets::deregisterStyle()
+ */
+function ap_deregister_style(string $handle): void
+{
+    AP_Assets::deregisterStyle($handle);
+}
+
+/**
+ * @see AP_Assets::addInlineStyle()
+ */
+function ap_add_inline_style(string $handle, string $data): bool
+{
+    return AP_Assets::addInlineStyle($handle, $data);
+}
+
+/**
+ * Register a script.
+ *
+ * @param list<string> $deps
+ * @param string|false|null $ver
+ *
+ * @see AP_Assets::registerScript()
+ */
+function ap_register_script(
+    string $handle,
+    string $src = '',
+    array $deps = [],
+    string|bool|null $ver = false,
+    bool $inFooter = false
+): bool {
+    return AP_Assets::registerScript($handle, $src, $deps, $ver, $inFooter);
+}
+
+/**
+ * Enqueue a script (registers when $src is non-empty).
+ *
+ * @param list<string> $deps
+ * @param string|false|null $ver
+ *
+ * @see AP_Assets::enqueueScript()
+ */
+function ap_enqueue_script(
+    string $handle,
+    string $src = '',
+    array $deps = [],
+    string|bool|null $ver = false,
+    bool $inFooter = false
+): bool {
+    return AP_Assets::enqueueScript($handle, $src, $deps, $ver, $inFooter);
+}
+
+/**
+ * @see AP_Assets::dequeueScript()
+ */
+function ap_dequeue_script(string $handle): void
+{
+    AP_Assets::dequeueScript($handle);
+}
+
+/**
+ * @see AP_Assets::deregisterScript()
+ */
+function ap_deregister_script(string $handle): void
+{
+    AP_Assets::deregisterScript($handle);
+}
+
+/**
+ * @see AP_Assets::addInlineScript()
+ */
+function ap_add_inline_script(string $handle, string $data, string $position = 'after'): bool
+{
+    return AP_Assets::addInlineScript($handle, $data, $position);
+}
+
+/**
+ * Print enqueued styles (idempotent per request).
+ *
+ * @see AP_Assets::printStyles()
+ */
+function ap_print_styles(): void
+{
+    AP_Assets::printStyles();
+}
+
+/**
+ * Print enqueued scripts for head ($footer=false) or footer ($footer=true).
+ *
+ * @see AP_Assets::printScripts()
+ */
+function ap_print_scripts(bool $footer = false): void
+{
+    AP_Assets::printScripts($footer);
+}
+
+/**
+ * Whether a style is registered / enqueued / done.
+ *
+ * @param string $list registered|enqueued|queue|done
+ *
+ * @see AP_Assets::styleIs()
+ */
+function ap_style_is(string $handle, string $list = 'enqueued'): bool
+{
+    return AP_Assets::styleIs($handle, $list);
+}
+
+/**
+ * Whether a script is registered / enqueued / done.
+ *
+ * @param string $list registered|enqueued|queue|done
+ *
+ * @see AP_Assets::scriptIs()
+ */
+function ap_script_is(string $handle, string $list = 'enqueued'): bool
+{
+    return AP_Assets::scriptIs($handle, $list);
+}
+
+/**
+ * Front-end &lt;head&gt; pipeline: enqueue action, ap_head hooks, print styles + head scripts.
+ *
+ * Call from theme header.php after &lt;title&gt; (or equivalent).
+ */
+function ap_head(): void
+{
+    if (function_exists('ap_do_action')) {
+        /**
+         * Fires when scripts/styles should be enqueued for the front end.
+         */
+        ap_do_action('ap_enqueue_scripts');
+        /**
+         * Fires in the document head after enqueue and before assets print.
+         */
+        ap_do_action('ap_head');
+    }
+    if (class_exists('AP_Assets', false)) {
+        AP_Assets::printStyles();
+        AP_Assets::printScripts(false);
+    }
+}
+
+/**
+ * Front-end footer pipeline: ap_footer hooks, then footer scripts.
+ *
+ * Call from theme footer.php before &lt;/body&gt;.
+ */
+function ap_footer(): void
+{
+    if (function_exists('ap_do_action')) {
+        /**
+         * Fires near the end of the document body.
+         */
+        ap_do_action('ap_footer');
+    }
+    if (class_exists('AP_Assets', false)) {
+        AP_Assets::printScripts(true);
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -1773,6 +2637,103 @@ function ap_get_nav_menu(string $slug, ?AP_DB $db = null): ?array
 function ap_set_nav_menu_locations(array $map, ?AP_DB $db = null): bool
 {
     return AP_Nav_Menu::setLocationAssignments($map, $db);
+}
+
+// -----------------------------------------------------------------------------
+// Widgets / modular areas
+// -----------------------------------------------------------------------------
+
+/**
+ * Register a modular area (sidebar).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Widgets::registerSidebar()
+ */
+function ap_register_sidebar(string $id, array $args = []): void
+{
+    if (!class_exists('AP_Widgets', false)) {
+        return;
+    }
+    AP_Widgets::registerSidebar($id, $args);
+}
+
+/**
+ * Register multiple sidebars.
+ *
+ * @param array<string, array<string, mixed>> $sidebars id => args
+ */
+function ap_register_sidebars(array $sidebars): void
+{
+    if (!class_exists('AP_Widgets', false)) {
+        return;
+    }
+    foreach ($sidebars as $id => $args) {
+        if (is_string($id)) {
+            AP_Widgets::registerSidebar($id, is_array($args) ? $args : []);
+        }
+    }
+}
+
+/**
+ * Register a widget type.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Widgets::registerWidget()
+ */
+function ap_register_widget(string $idBase, array $args = []): void
+{
+    if (!class_exists('AP_Widgets', false)) {
+        return;
+    }
+    AP_Widgets::registerWidget($idBase, $args);
+}
+
+/**
+ * Whether a sidebar has at least one assigned widget.
+ *
+ * @see AP_Widgets::isActiveSidebar()
+ */
+function ap_is_active_sidebar(string $sidebarId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Widgets', false)) {
+        return false;
+    }
+
+    return AP_Widgets::isActiveSidebar($sidebarId, $db);
+}
+
+/**
+ * Render widgets in a modular area.
+ *
+ * @param array{echo?: bool} $args
+ *
+ * @see AP_Widgets::dynamicSidebar()
+ */
+function ap_dynamic_sidebar(string $sidebarId, array $args = [], ?AP_DB $db = null): string
+{
+    if (!class_exists('AP_Widgets', false)) {
+        return '';
+    }
+
+    return AP_Widgets::dynamicSidebar($sidebarId, $args, $db);
+}
+
+/**
+ * Registered sidebars (id => args).
+ *
+ * @return array<string, array<string, string>>
+ *
+ * @see AP_Widgets::getSidebars()
+ */
+function ap_get_sidebars(): array
+{
+    if (!class_exists('AP_Widgets', false)) {
+        return [];
+    }
+
+    return AP_Widgets::getSidebars();
 }
 
 /**

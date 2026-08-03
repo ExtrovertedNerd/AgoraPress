@@ -179,6 +179,11 @@ class AP_Admin_User_Edit
             ];
         }
 
+        // Admin color mode preference (profile only).
+        if ($mode === 'profile' && array_key_exists('ap_admin_color_mode', $input)) {
+            AP_Admin::setColorMode($id, (string) $input['ap_admin_color_mode'], $db);
+        }
+
         return [
             'ok' => true,
             'id' => $id,
@@ -343,6 +348,11 @@ class AP_Admin_User_Edit
             $html .= self::renderAvatarFieldset($id, $user, $db);
         }
 
+        // Admin appearance (color mode) — profile only; self preference.
+        if ($mode === 'profile' && $id > 0) {
+            $html .= self::renderColorModeFieldset($id, $extra, $db);
+        }
+
         // Password.
         $html .= '<fieldset class="ap-fieldset">';
         $html .= '<legend>' . ($isNew ? 'Password' : 'Account Management') . '</legend>';
@@ -407,6 +417,43 @@ class AP_Admin_User_Edit
         $html .= '</p>';
 
         $html .= '</div></form>';
+
+        return $html;
+    }
+
+    /**
+     * Admin color mode fieldset (profile / personal options).
+     *
+     * @param array<string, mixed> $extra Prefill overrides.
+     */
+    public static function renderColorModeFieldset(int $userId, array $extra = [], ?AP_DB $db = null): string
+    {
+        if ($userId < 1) {
+            return '';
+        }
+
+        $current = array_key_exists('ap_admin_color_mode', $extra)
+            ? AP_Admin::sanitizeColorMode((string) $extra['ap_admin_color_mode'])
+            : AP_Admin::getColorMode($userId, $db);
+        $labels = AP_Admin::colorModeLabels();
+
+        $html = '<fieldset class="ap-fieldset ap-color-mode-fieldset">';
+        $html .= '<legend>Admin Appearance</legend>';
+        $html .= '<div class="ap-field">';
+        $html .= '<label for="ap_admin_color_mode">Color mode</label>';
+        $html .= '<select name="ap_admin_color_mode" id="ap_admin_color_mode" class="regular-text">';
+        foreach ($labels as $slug => $label) {
+            $sel = $slug === $current ? ' selected' : '';
+            $html .= '<option value="' . ap_esc_attr($slug) . '"' . $sel . '>'
+                . ap_esc_html($label) . '</option>';
+        }
+        $html .= '</select>';
+        $html .= '<p class="description">Controls the admin control panel theme. '
+            . '<strong>System</strong> follows your device setting; '
+            . '<strong>Light</strong> and <strong>Dark</strong> force a mode. '
+            . 'You can also cycle modes from the sun/moon button in the top bar.</p>';
+        $html .= '</div>';
+        $html .= '</fieldset>';
 
         return $html;
     }

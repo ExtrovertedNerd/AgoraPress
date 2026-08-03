@@ -297,12 +297,26 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-rewrite.php';
     // Theme loader + classic template hierarchy.
     require_once AP_ABSPATH . 'ap-includes/class-ap-theme.php';
+    // Theme zip installer (classic WP theme upload).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-theme-installer.php';
+    // Front-end style/script enqueue (register → queue → print).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-assets.php';
     // Options API + Reading / module helpers.
     require_once AP_ABSPATH . 'ap-includes/class-ap-options.php';
+    // Transients (expiring options-backed values).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-transient.php';
     // Settings API (register_setting / sections / fields / sanitized group save).
     require_once AP_ABSPATH . 'ap-includes/class-ap-settings.php';
+    // Plugin discovery, headers, activation, MU + active-plugin loading.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-plugin.php';
+    // Shortcode API ([tag] expansion in content).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-shortcode.php';
+    // Cron (scheduled events / pseudo-cron).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-cron.php';
     // Navigation menus (locations, items, render).
     require_once AP_ABSPATH . 'ap-includes/class-ap-nav-menu.php';
+    // Widgets / modular areas (sidebars + widget types).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-widgets.php';
     // RSS / Atom syndication feeds.
     require_once AP_ABSPATH . 'ap-includes/class-ap-feed.php';
     // Nonces for state-changing forms (admin + front-end).
@@ -313,6 +327,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/functions.php';
     // Front-end template tags (the_title, body_class, …).
     require_once AP_ABSPATH . 'ap-includes/template-tags.php';
+    // Classic WordPress Theme Compatibility Layer (shims load lazily per theme).
+    require_once AP_ABSPATH . 'ap-includes/compatibility/load.php';
 
     // Register built-in post statuses/types and taxonomies once core is loaded.
     if (class_exists('AP_Post', false)) {
@@ -335,9 +351,51 @@ function ap_bootstrap(): void
         AP_Settings::registerCore();
     }
 
+    // Built-in shortcodes + content filter (escape plain text, expand shortcodes).
+    if (class_exists('AP_Shortcode', false)) {
+        AP_Shortcode::registerCore();
+        if (function_exists('ap_add_filter')) {
+            ap_add_filter(
+                'ap_the_content',
+                static function (mixed $content): string {
+                    return AP_Shortcode::formatContent(is_string($content) ? $content : '');
+                },
+                10,
+                1
+            );
+        }
+    }
+
+    // Built-in widget types (Text, Recent Posts, Categories, Search, Pages, Nav Menu).
+    if (class_exists('AP_Widgets', false)) {
+        AP_Widgets::registerCore();
+    }
+
+    // Must-use plugins load before regular plugins (always-on).
+    if (class_exists('AP_Plugin', false)) {
+        try {
+            AP_Plugin::loadMuPlugins();
+        } catch (Throwable) {
+            // MU plugin failure must not take down the site.
+        }
+        try {
+            AP_Plugin::loadActivePlugins();
+        } catch (Throwable) {
+            // Plugin load must not take down the site; admin can deactivate later.
+        }
+    }
+
+    // Pseudo-cron: fire due scheduled events (bounded per request).
+    if (class_exists('AP_Cron', false)) {
+        try {
+            AP_Cron::spawn();
+        } catch (Throwable) {
+            // Cron must never break the request.
+        }
+    }
+
     /**
-     * Fires after core bootstrap completes (config + base includes loaded).
-     * Full hook system lands in Phase 4; reserved for early extensions.
+     * Fires after core bootstrap completes (config + base includes + plugins loaded).
      */
     if (function_exists('ap_do_action')) {
         ap_do_action('ap_loaded');

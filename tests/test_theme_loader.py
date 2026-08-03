@@ -54,6 +54,10 @@ def test_theme_class_defines_core_api() -> None:
         "function listThemes",
         "function parseStyleCss",
         "function getPageTemplates",
+        "function isChildTheme",
+        "function getStyleCssUri",
+        "function getScreenshotPath",
+        "function isValidTheme",
         "DEFAULT_SLUG",
         "home.php",
         "single.php",
@@ -77,13 +81,66 @@ def test_functions_expose_theme_helpers() -> None:
         "function ap_template_loader",
         "function ap_switch_theme",
         "function ap_get_themes",
+        "function ap_is_child_theme",
+        "function ap_get_style_css_uri",
+        "function ap_enqueue_style",
+        "function ap_enqueue_script",
+        "function ap_register_style",
+        "function ap_register_script",
+        "function ap_head",
+        "function ap_footer",
+        "function ap_print_styles",
+        "function ap_print_scripts",
     ):
         assert needle in src, f"Expected {needle!r} in functions.php"
+
+
+def test_assets_class_exists() -> None:
+    assets = ROOT / "ap-includes" / "class-ap-assets.php"
+    assert assets.is_file()
+    src = assets.read_text(encoding="utf-8")
+    for needle in (
+        "class AP_Assets",
+        "function registerStyle",
+        "function enqueueStyle",
+        "function registerScript",
+        "function enqueueScript",
+        "function printStyles",
+        "function printScripts",
+        "function addInlineStyle",
+        "function addInlineScript",
+    ):
+        assert needle in src, f"Expected {needle!r} in class-ap-assets.php"
+
+
+def test_hooks_api_exists() -> None:
+    hooks = ROOT / "ap-includes" / "hooks.php"
+    src = hooks.read_text(encoding="utf-8")
+    for needle in (
+        "function ap_add_action",
+        "function ap_do_action",
+        "function ap_do_action_ref_array",
+        "function ap_add_filter",
+        "function ap_apply_filters",
+        "function ap_apply_filters_ref_array",
+        "function ap_remove_action",
+        "function ap_remove_filter",
+        "function ap_remove_all_actions",
+        "function ap_remove_all_filters",
+        "function ap_has_action",
+        "function ap_has_filter",
+        "function ap_did_action",
+        "function ap_current_filter",
+        "function ap_doing_filter",
+        "class-ap-hooks.php",
+    ):
+        assert needle in src, f"Expected {needle!r} in hooks.php"
 
 
 def test_bootstrap_loads_theme_class() -> None:
     src = BOOTSTRAP.read_text(encoding="utf-8")
     assert "class-ap-theme.php" in src
+    assert "class-ap-assets.php" in src
 
 
 def test_index_runs_template_loader() -> None:
@@ -115,10 +172,14 @@ def test_theme_runtime_via_php() -> None:
         "require $root . '/ap-includes/class-ap-migrator.php';\n"
         "require $root . '/ap-includes/class-ap-post.php';\n"
         "require $root . '/ap-includes/class-ap-query.php';\n"
+        "require $root . '/ap-includes/hooks.php';\n"
         "require $root . '/ap-includes/class-ap-theme.php';\n"
+        "require $root . '/ap-includes/class-ap-assets.php';\n"
         "require $root . '/ap-includes/functions.php';\n"
+        "if (function_exists('ap_reset_hooks')) { ap_reset_hooks(); }\n"
         "AP_Post::resetRegistry();\n"
         "AP_Theme::reset();\n"
+        "AP_Assets::reset();\n"
         "$pdo = new PDO('sqlite::memory:', null, null, [\n"
         "  PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,\n"
         "  PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_OBJ,\n"

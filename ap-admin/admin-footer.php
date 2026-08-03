@@ -45,6 +45,81 @@ $ap_hof_footer_url = class_exists('AP_Admin', false)
 </div>
 <script>
 (function () {
+    // ----- Color mode (auto → light → dark → auto) -----
+    var COLOR_KEY = 'ap_admin_color_mode';
+    var COLOR_ORDER = ['auto', 'light', 'dark'];
+    var COLOR_LABELS = { auto: 'System', light: 'Light', dark: 'Dark' };
+
+    function readColorMode() {
+        var el = document.documentElement;
+        var attr = el.getAttribute('data-ap-color-mode');
+        if (attr === 'light' || attr === 'dark' || attr === 'auto') {
+            return attr;
+        }
+        try {
+            var stored = localStorage.getItem(COLOR_KEY);
+            if (stored === 'light' || stored === 'dark' || stored === 'auto') {
+                return stored;
+            }
+        } catch (e) {}
+        var pref = el.getAttribute('data-ap-color-mode-pref');
+        if (pref === 'light' || pref === 'dark' || pref === 'auto') {
+            return pref;
+        }
+        return 'auto';
+    }
+
+    function applyColorMode(mode) {
+        if (COLOR_ORDER.indexOf(mode) === -1) {
+            mode = 'auto';
+        }
+        document.documentElement.setAttribute('data-ap-color-mode', mode);
+        try {
+            localStorage.setItem(COLOR_KEY, mode);
+        } catch (e) {}
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta) {
+            meta.setAttribute('content', mode === 'auto' ? 'light dark' : mode);
+        }
+        var btn = document.getElementById('ap-color-mode-toggle');
+        if (btn) {
+            var label = COLOR_LABELS[mode] || 'System';
+            btn.setAttribute('data-ap-color-mode-current', mode);
+            btn.setAttribute('aria-label', 'Color mode: ' + label + '. Click to change.');
+            btn.setAttribute('title', 'Color mode: ' + label + ' (click to cycle System / Light / Dark)');
+        }
+        // Keep profile select in sync when present.
+        var select = document.getElementById('ap_admin_color_mode');
+        if (select && select.value !== mode) {
+            select.value = mode;
+        }
+    }
+
+    function nextColorMode(mode) {
+        var i = COLOR_ORDER.indexOf(mode);
+        if (i < 0) {
+            return 'light';
+        }
+        return COLOR_ORDER[(i + 1) % COLOR_ORDER.length];
+    }
+
+    applyColorMode(readColorMode());
+
+    var colorToggle = document.getElementById('ap-color-mode-toggle');
+    if (colorToggle) {
+        colorToggle.addEventListener('click', function () {
+            applyColorMode(nextColorMode(readColorMode()));
+        });
+    }
+
+    // Profile form: updating the select also applies immediately for preview.
+    var colorSelect = document.getElementById('ap_admin_color_mode');
+    if (colorSelect) {
+        colorSelect.addEventListener('change', function () {
+            applyColorMode(colorSelect.value);
+        });
+    }
+
     // Mobile admin menu toggle (collapsible sidebar).
     var body = document.body;
     var toggle = document.getElementById('ap-menu-toggle');

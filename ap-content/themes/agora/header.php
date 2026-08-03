@@ -10,9 +10,6 @@ declare(strict_types=1);
 
 $siteName = function_exists('agora_site_name') ? agora_site_name() : 'AgoraPress';
 $siteDesc = function_exists('agora_site_description') ? agora_site_description() : '';
-$styleUri = class_exists('AP_Theme', false)
-    ? AP_Theme::getStylesheetUri() . '/style.css'
-    : '';
 $home = (function_exists('ap_home_url') && class_exists('AP_Rewrite', false))
     ? ap_home_url('/')
     : '/';
@@ -22,6 +19,10 @@ $bodyClass = function_exists('ap_get_body_class')
     : $agoraBody;
 $schemeMode = function_exists('agora_get_color_scheme_mode') ? agora_get_color_scheme_mode() : 'light';
 $feedRss = function_exists('ap_get_feed_link') ? ap_get_feed_link('rss2') : '';
+$htmlLang = function_exists('ap_get_bloginfo') ? ap_get_bloginfo('language') : 'en';
+if ($htmlLang === '') {
+    $htmlLang = 'en';
+}
 $esc = static function (string $text): string {
     return function_exists('ap_esc_html')
         ? ap_esc_html($text)
@@ -39,18 +40,22 @@ $escUrl = static function (string $url): string {
 };
 
 ?><!DOCTYPE html>
-<html lang="en" data-agora-scheme-mode="<?php echo $escAttr($schemeMode); ?>">
+<html lang="<?php echo $escAttr($htmlLang); ?>" data-agora-scheme-mode="<?php echo $escAttr($schemeMode); ?>">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="<?php echo $escAttr($schemeMode); ?>">
+    <meta name="theme-color" content="<?php echo $escAttr($schemeMode === 'dark' ? '#0c0c10' : '#f4f5f7'); ?>">
     <title><?php echo $esc($siteName); ?></title>
-<?php if ($styleUri !== '') : ?>
-    <link rel="stylesheet" href="<?php echo $escUrl($styleUri); ?>">
-<?php endif; ?>
 <?php if ($feedRss !== '') : ?>
     <link rel="alternate" type="application/rss+xml" title="<?php echo $escAttr($siteName . ' RSS'); ?>" href="<?php echo $escUrl($feedRss); ?>">
 <?php endif; ?>
+<?php
+// Enqueue pipeline + print styles/scripts (and ap_head action).
+if (function_exists('ap_head')) {
+    ap_head();
+}
+?>
 </head>
 <body class="<?php echo $escAttr($bodyClass); ?>">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -58,7 +63,7 @@ $escUrl = static function (string $url): string {
     <div class="site-header__inner">
         <div class="site-branding">
             <p class="site-title">
-                <a href="<?php echo $escUrl($home); ?>">
+                <a href="<?php echo $escUrl($home); ?>" rel="home">
                     <?php echo $esc($siteName); ?>
                 </a>
             </p>
@@ -79,4 +84,10 @@ if (function_exists('ap_has_nav_menu') && ap_has_nav_menu('primary')) {
 ?>
     </div>
 </header>
-<main class="site-main" id="main">
+<main class="site-main" id="main" tabindex="-1">
+<div class="site-content<?php
+echo (function_exists('ap_is_active_sidebar') && ap_is_active_sidebar('sidebar-1'))
+    ? ' site-content--has-sidebar'
+    : '';
+?>">
+<div class="content-area">

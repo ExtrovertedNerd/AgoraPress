@@ -580,6 +580,8 @@ PHP;
             // Default theme (Agora) — stylesheet may become a child later.
             'stylesheet' => 'agora',
             'template' => 'agora',
+            // Active plugins (JSON list of basenames; empty on fresh install).
+            'active_plugins' => '[]',
             // Agora color scheme: marble|parchment|cloud|obsidian|midnight|charcoal.
             'agora_color_scheme' => 'marble',
             // Reading / front-page settings (options-reading.php).
@@ -613,6 +615,8 @@ PHP;
             // Navigation menus (empty until admin creates them).
             'ap_nav_menus' => '',
             'nav_menu_locations' => '',
+            // Widgets / modular areas (empty placements until admin assigns).
+            'sidebars_widgets' => '',
             // Avatars (Discussion settings).
             'show_avatars' => '1',
             'avatar_default' => 'mystery',

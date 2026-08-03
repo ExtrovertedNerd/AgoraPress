@@ -228,8 +228,11 @@ class AP_Admin
             'upload.php' => 'upload_files',
             'media.php' => 'upload_files',
             'media-new.php' => 'upload_files',
+            'themes.php' => 'switch_themes',
             'theme-options.php' => 'edit_theme_options',
             'nav-menus.php' => 'edit_theme_options',
+            'widgets.php' => 'edit_theme_options',
+            'plugins.php' => 'activate_plugins',
             'options-general.php' => 'manage_options',
             'options-modules.php' => 'manage_options',
             'options-writing.php' => 'manage_options',
@@ -401,6 +404,101 @@ class AP_Admin
     }
 
     /**
+     * Usermeta key for the admin color mode preference (auto|light|dark).
+     */
+    public const COLOR_MODE_META = 'ap_admin_color_mode';
+
+    /**
+     * Allowed admin color modes.
+     *
+     * @return list<string>
+     */
+    public static function colorModes(): array
+    {
+        return ['auto', 'light', 'dark'];
+    }
+
+    /**
+     * Human labels for admin color modes.
+     *
+     * @return array<string, string>
+     */
+    public static function colorModeLabels(): array
+    {
+        return [
+            'auto' => 'System',
+            'light' => 'Light',
+            'dark' => 'Dark',
+        ];
+    }
+
+    /**
+     * Sanitize an admin color mode value (defaults to auto).
+     */
+    public static function sanitizeColorMode(string $mode): string
+    {
+        $mode = strtolower(trim($mode));
+
+        return in_array($mode, self::colorModes(), true) ? $mode : 'auto';
+    }
+
+    /**
+     * Resolve the admin color mode for a user (usermeta), defaulting to auto.
+     *
+     * When $userId is null/0, tries the current logged-in user.
+     */
+    public static function getColorMode(?int $userId = null, ?AP_DB $db = null): string
+    {
+        if ($userId === null || $userId < 1) {
+            // Session helpers require AP_Session; unit tests may load only AP_Admin.
+            if (
+                function_exists('ap_get_current_user_id')
+                && class_exists('AP_Session', false)
+            ) {
+                $userId = ap_get_current_user_id();
+            } else {
+                $userId = 0;
+            }
+        }
+        if ($userId < 1) {
+            return 'auto';
+        }
+        if (!function_exists('ap_get_user_meta') || !class_exists('AP_User', false)) {
+            return 'auto';
+        }
+        $raw = ap_get_user_meta($userId, self::COLOR_MODE_META, $db);
+
+        return self::sanitizeColorMode(is_string($raw) ? $raw : 'auto');
+    }
+
+    /**
+     * Persist the admin color mode for a user.
+     */
+    public static function setColorMode(int $userId, string $mode, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || !function_exists('ap_update_user_meta')) {
+            return false;
+        }
+
+        return ap_update_user_meta($userId, self::COLOR_MODE_META, self::sanitizeColorMode($mode), $db);
+    }
+
+    /**
+     * Next mode when cycling the top-bar theme toggle (auto → light → dark → auto).
+     */
+    public static function nextColorMode(string $mode): string
+    {
+        $modes = self::colorModes();
+        $current = self::sanitizeColorMode($mode);
+        $idx = array_search($current, $modes, true);
+        if ($idx === false) {
+            return 'auto';
+        }
+
+        return $modes[($idx + 1) % count($modes)];
+    }
+
+    /**
      * Site display name for the admin chrome (blogname option, fallback AgoraPress).
      */
     public static function siteName(?AP_DB $db = null): string
@@ -443,6 +541,7 @@ class AP_Admin
         return match ($section) {
             'content' => 'Content',
             'appearance' => 'Appearance',
+            'plugins' => 'Plugins',
             'users' => 'Users',
             'settings' => 'Settings',
             default => '',
@@ -541,6 +640,15 @@ class AP_Admin
                 'section' => 'users',
             ],
             [
+                'id' => 'themes',
+                'label' => 'Themes',
+                'url' => self::url('themes.php'),
+                'active' => $current === 'themes',
+                'cap' => 'switch_themes',
+                'module' => '',
+                'section' => 'appearance',
+            ],
+            [
                 'id' => 'theme-options',
                 'label' => 'Theme Options',
                 'url' => self::url('theme-options.php'),
@@ -557,6 +665,24 @@ class AP_Admin
                 'cap' => 'edit_theme_options',
                 'module' => '',
                 'section' => 'appearance',
+            ],
+            [
+                'id' => 'widgets',
+                'label' => 'Widgets',
+                'url' => self::url('widgets.php'),
+                'active' => $current === 'widgets',
+                'cap' => 'edit_theme_options',
+                'module' => '',
+                'section' => 'appearance',
+            ],
+            [
+                'id' => 'plugins',
+                'label' => 'Installed Plugins',
+                'url' => self::url('plugins.php'),
+                'active' => $current === 'plugins',
+                'cap' => 'activate_plugins',
+                'module' => '',
+                'section' => 'plugins',
             ],
             [
                 'id' => 'options-general',

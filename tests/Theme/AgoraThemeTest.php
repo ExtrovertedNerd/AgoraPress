@@ -38,12 +38,20 @@ final class AgoraThemeTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-query.php';
         require_once $this->root . '/ap-includes/class-ap-rewrite.php';
         require_once $this->root . '/ap-includes/class-ap-nav-menu.php';
+        require_once $this->root . '/ap-includes/hooks.php';
         require_once $this->root . '/ap-includes/class-ap-theme.php';
+        require_once $this->root . '/ap-includes/class-ap-assets.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-includes/template-tags.php';
 
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
         AP_Post::resetRegistry();
         AP_Theme::reset();
+        if (class_exists('AP_Assets', false)) {
+            \AP_Assets::reset();
+        }
         AP_Nav_Menu::reset();
         AP_Options::flushCache();
         AP_Rewrite::resetCache();
@@ -264,5 +272,156 @@ final class AgoraThemeTest extends TestCase
         $installer = (string) file_get_contents($this->root . '/ap-includes/class-ap-installer.php');
         $this->assertStringContainsString("'agora_color_scheme'", $installer);
         $this->assertStringContainsString("'marble'", $installer);
+    }
+
+    public function testForumTemplatesExist(): void
+    {
+        $dir = $this->root . '/ap-content/themes/agora';
+        foreach (['forum.php', 'forum-view.php', 'topic.php'] as $file) {
+            $this->assertFileIsReadable($dir . '/' . $file, "Missing forum template {$file}");
+        }
+    }
+
+    public function testStyleCssHasForumAndA11yPolish(): void
+    {
+        $css = (string) file_get_contents($this->root . '/ap-content/themes/agora/style.css');
+        $this->assertStringContainsString('.ap-forum', $css);
+        $this->assertStringContainsString('.ap-forum-post', $css);
+        $this->assertStringContainsString('.ap-pagination', $css);
+        $this->assertStringContainsString('.ap-breadcrumbs', $css);
+        $this->assertStringContainsString('--ap-on-accent', $css);
+        $this->assertStringContainsString('prefers-reduced-motion', $css);
+        $this->assertStringContainsString('focus-visible', $css);
+        $this->assertStringContainsString('skip-link', $css);
+        $this->assertMatchesRegularExpression('/@media\s*\(\s*max-width:/', $css);
+        $this->assertStringContainsString('Version: 0.3.0', $css);
+    }
+
+    public function testForumTemplateHierarchyIndex(): void
+    {
+        $this->assertTrue(function_exists('agora_get_forum_view'));
+        $this->assertTrue(function_exists('agora_forum_template_hierarchy'));
+
+        $query = new AP_Query([
+            'ap_forum_view' => 'index',
+            'posts_per_page' => 1,
+        ], $this->db);
+        $this->assertSame('index', agora_get_forum_view($query));
+
+        $hierarchy = AP_Theme::getHierarchy($query, $this->db);
+        $this->assertSame('forum.php', $hierarchy[0] ?? null);
+        $this->assertContains('index.php', $hierarchy);
+    }
+
+    public function testForumTemplateHierarchyTopicAndForum(): void
+    {
+        $topicQ = new AP_Query(['topic_id' => 7, 'posts_per_page' => 1], $this->db);
+        $this->assertSame('topic', agora_get_forum_view($topicQ));
+        $topicH = AP_Theme::getHierarchy($topicQ, $this->db);
+        $this->assertSame('topic.php', $topicH[0] ?? null);
+
+        $forumQ = new AP_Query(['forum_id' => 3, 'posts_per_page' => 1], $this->db);
+        $this->assertSame('forum', agora_get_forum_view($forumQ));
+        $forumH = AP_Theme::getHierarchy($forumQ, $this->db);
+        $this->assertSame('forum-view.php', $forumH[0] ?? null);
+    }
+
+    public function testForumBodyClass(): void
+    {
+        $query = new AP_Query(['ap_forum_view' => 'topic', 'topic_id' => 1], $this->db);
+        $GLOBALS['ap_query'] = $query;
+        agora_set_color_scheme('obsidian', $this->db);
+        $classes = agora_body_class($this->db);
+        $this->assertStringContainsString('agora-forum', $classes);
+        $this->assertStringContainsString('agora-forum--topic', $classes);
+        $this->assertStringContainsString('layout-wide', $classes);
+        $this->assertStringContainsString('agora-scheme-obsidian', $classes);
+    }
+
+    public function testRenderForumIndexEmptyState(): void
+    {
+        $query = new AP_Query([
+            'ap_forum_view' => 'index',
+            'posts_per_page' => 1,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('ap-forum', $html);
+        $this->assertStringContainsString('Forums', $html);
+        $this->assertStringContainsString('ap-breadcrumbs', $html);
+        $this->assertStringContainsString('agora-forum', $html);
+        $this->assertStringContainsString('skip-link', $html);
+        $this->assertStringContainsString('No forums have been created yet', $html);
+    }
+
+    public function testRenderForumTopicWithFilteredPosts(): void
+    {
+        if (function_exists('ap_add_filter')) {
+            ap_add_filter('agora_topic_posts_data', static function (array $data, int $topicId): array {
+                if ($topicId !== 42) {
+                    return $data;
+                }
+
+                return [
+                    [
+                        'id' => 1,
+                        'author' => 'Alice',
+                        'date' => '2026-08-01 12:00:00',
+                        'content' => "Hello **world**",
+                        'role' => 'Member',
+                        'number' => 1,
+                    ],
+                ];
+            }, 10, 2);
+        }
+
+        $query = new AP_Query([
+            'ap_forum_view' => 'topic',
+            'topic_id' => 42,
+            'topic_title' => 'Welcome thread',
+            'forum_name' => 'General',
+            'posts_per_page' => 1,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Welcome thread', $html);
+        $this->assertStringContainsString('Alice', $html);
+        $this->assertStringContainsString('ap-forum-post', $html);
+        $this->assertStringContainsString('Hello **world**', $html);
+    }
+
+    public function testBlogRenderUsesExcerptWhenAvailable(): void
+    {
+        agora_set_color_scheme('cloud', $this->db);
+        AP_Post::insert([
+            'post_title' => 'Excerpt Post',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => str_repeat('Word ', 80),
+            'post_excerpt' => 'Short blurb for the card.',
+        ], $this->db);
+
+        $query = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Excerpt Post', $html);
+        $this->assertStringContainsString('Short blurb for the card.', $html);
+        $this->assertStringContainsString('ap-entry__excerpt', $html);
+        $this->assertStringContainsString('agora-scheme-cloud', $html);
     }
 }

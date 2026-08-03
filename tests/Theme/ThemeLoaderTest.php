@@ -42,12 +42,20 @@ final class ThemeLoaderTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-query.php';
         require_once $this->root . '/ap-includes/class-ap-rewrite.php';
         require_once $this->root . '/ap-includes/class-ap-nav-menu.php';
+        require_once $this->root . '/ap-includes/hooks.php';
         require_once $this->root . '/ap-includes/class-ap-theme.php';
+        require_once $this->root . '/ap-includes/class-ap-assets.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-includes/template-tags.php';
 
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
         AP_Post::resetRegistry();
         AP_Theme::reset();
+        if (class_exists('AP_Assets', false)) {
+            \AP_Assets::reset();
+        }
         AP_Nav_Menu::reset();
         if (class_exists('AP_Options', false)) {
             AP_Options::flushCache();

@@ -97,7 +97,10 @@ function ap_get_the_content(AP_Post|int|null $post = null): string
 }
 
 /**
- * Echo post content. MVP: HTML-escape + nl2br (shortcodes/oEmbed later).
+ * Echo post content.
+ *
+ * Runs the `ap_the_content` filter (core registers shortcode expansion + plain-text
+ * escaping there). When no filter is available, falls back to escaped nl2br HTML.
  */
 function ap_the_content(AP_Post|int|null $post = null): void
 {
@@ -111,10 +114,13 @@ function ap_the_content(AP_Post|int|null $post = null): void
         if (is_string($filtered)) {
             $content = $filtered;
         }
+    } elseif (class_exists('AP_Shortcode', false)) {
+        $content = AP_Shortcode::formatContent($content);
+    } else {
+        $content = nl2br(ap_esc_html($content), false);
     }
 
-    // Safe default until a real KSES/shortcode pipeline lands.
-    echo nl2br(ap_esc_html($content), false);
+    echo $content;
 }
 
 /**

@@ -149,17 +149,21 @@ class AP_Theme
     public static function setActive(string $stylesheet, ?string $template = null, ?AP_DB $db = null): bool
     {
         $stylesheet = self::sanitizeSlug($stylesheet);
-        if ($stylesheet === '' || !self::themeDirExists($stylesheet)) {
+        if ($stylesheet === '' || !self::isValidTheme($stylesheet)) {
             return false;
         }
 
         if ($template === null || $template === '') {
-            $headers = self::getThemeHeaders($stylesheet);
-            $parent = is_array($headers) ? self::sanitizeSlug((string) ($headers['Template'] ?? '')) : '';
+            $parent = self::getDeclaredParent($stylesheet);
             $template = $parent !== '' && self::themeDirExists($parent) ? $parent : $stylesheet;
         } else {
             $template = self::sanitizeSlug($template);
             if ($template === '' || !self::themeDirExists($template)) {
+                return false;
+            }
+            // Child themes must declare (and match) their parent Template header.
+            $declared = self::getDeclaredParent($stylesheet);
+            if ($declared !== '' && $declared !== $template) {
                 return false;
             }
         }
@@ -205,6 +209,117 @@ class AP_Theme
         return self::themeUri(self::getTemplate($db), $db);
     }
 
+    /**
+     * Public URI of the active theme's style.css file.
+     *
+     * Classic WP maps get_stylesheet_uri() to this path. Directory URIs are
+     * getStylesheetUri() / getTemplateUri().
+     */
+    public static function getStyleCssUri(?AP_DB $db = null): string
+    {
+        return self::getStylesheetUri($db) . '/style.css';
+    }
+
+    /**
+     * Whether the active theme is a child (stylesheet ≠ template).
+     */
+    public static function isChildTheme(?AP_DB $db = null): bool
+    {
+        return self::getStylesheet($db) !== self::getTemplate($db);
+    }
+
+    /**
+     * Absolute path to a theme's screenshot if present (png/jpg/jpeg/webp/gif).
+     */
+    public static function getScreenshotPath(string $slug): ?string
+    {
+        $slug = self::sanitizeSlug($slug);
+        if ($slug === '' || !self::themeDirExists($slug)) {
+            return null;
+        }
+        $dir = self::themesRoot() . '/' . $slug;
+        $candidates = [
+            'screenshot.png',
+            'screenshot.jpg',
+            'screenshot.jpeg',
+            'screenshot.webp',
+            'screenshot.gif',
+        ];
+        foreach ($candidates as $file) {
+            $path = $dir . '/' . $file;
+            if (is_readable($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Public URI of a theme's screenshot, or empty string when none.
+     */
+    public static function getScreenshotUri(string $slug, ?AP_DB $db = null): string
+    {
+        $path = self::getScreenshotPath($slug);
+        if ($path === null) {
+            return '';
+        }
+        $file = basename($path);
+
+        return self::themeUri($slug, $db) . '/' . $file;
+    }
+
+    /**
+     * Parent slug declared in a theme's style.css Template header (empty if none).
+     */
+    public static function getDeclaredParent(string $slug): string
+    {
+        $headers = self::getThemeHeaders($slug);
+        if ($headers === null) {
+            return '';
+        }
+
+        return self::sanitizeSlug((string) ($headers['Template'] ?? ''));
+    }
+
+    /**
+     * Whether a theme slug is a valid child of its declared Template parent.
+     * Standalone (parent) themes return true when they have style.css + index.php.
+     */
+    public static function isValidTheme(string $slug): bool
+    {
+        $slug = self::sanitizeSlug($slug);
+        $headers = self::getThemeHeaders($slug);
+        if ($headers === null) {
+            return false;
+        }
+
+        $parent = self::sanitizeSlug((string) ($headers['Template'] ?? ''));
+        if ($parent !== '') {
+            if ($parent === $slug) {
+                return false;
+            }
+            // Parent must exist and not itself be a child of this theme (simple cycle guard).
+            if (!self::themeDirExists($parent) || self::getThemeHeaders($parent) === null) {
+                return false;
+            }
+            $grand = self::getDeclaredParent($parent);
+            if ($grand === $slug) {
+                return false;
+            }
+        }
+
+        // Parent themes need index.php; children may inherit it.
+        if ($parent === '') {
+            $index = self::themesRoot() . '/' . $slug . '/index.php';
+            if (!is_file($index)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     // -------------------------------------------------------------------------
     // Discovery & style.css headers
     // -------------------------------------------------------------------------
@@ -240,8 +355,15 @@ class AP_Theme
                 continue;
             }
             $headers = self::getThemeHeaders($entry);
-            if ($headers === null) {
+            if ($headers === null || !self::isValidTheme($entry)) {
                 continue;
+            }
+            $parent = self::sanitizeSlug((string) ($headers['Template'] ?? ''));
+            $headers['Is Child'] = $parent !== '' ? '1' : '0';
+            $headers['Parent'] = $parent;
+            $shot = self::getScreenshotUri($entry);
+            if ($shot !== '') {
+                $headers['Screenshot'] = $shot;
             }
             $out[$entry] = $headers;
         }
@@ -697,6 +819,9 @@ class AP_Theme
 
     /**
      * Load parent then child functions.php once per request.
+     *
+     * When the Classic WP Theme Compatibility Layer is active for the theme,
+     * WP shims load first and functions.php is included via the safe loader.
      */
     public static function setup(?AP_DB $db = null): void
     {
@@ -704,6 +829,11 @@ class AP_Theme
             return;
         }
         self::$setupDone = true;
+
+        // Load WP shims before theme functions.php when compat mode allows.
+        if (class_exists('AP_Theme_Compat', false)) {
+            AP_Theme_Compat::beforeThemeSetup($db);
+        }
 
         $templateDir = self::getTemplateDirectory($db);
         $stylesheetDir = self::getStylesheetDirectory($db);
@@ -720,8 +850,29 @@ class AP_Theme
             }
         }
 
+        $useSafeLoad = class_exists('AP_Theme_Compat', false) && AP_Theme_Compat::isActive($db);
         foreach ($files as $file) {
-            require_once $file;
+            if ($useSafeLoad) {
+                AP_Theme_Compat::safeLoadFunctionsPhp($file, $db);
+            } else {
+                require_once $file;
+            }
+        }
+
+        // Re-register theme hooks after a mid-process hook reset (tests) when the
+        // active theme exposes a conventional {slug}_register_theme_hooks() helper.
+        // Parent first, then child (mirrors functions.php load order).
+        $stylesheet = self::getStylesheet($db);
+        $template = self::getTemplate($db);
+        $hookFns = [];
+        if ($template !== $stylesheet) {
+            $hookFns[] = str_replace('-', '_', $template) . '_register_theme_hooks';
+        }
+        $hookFns[] = str_replace('-', '_', $stylesheet) . '_register_theme_hooks';
+        foreach (array_unique($hookFns) as $fn) {
+            if (function_exists($fn)) {
+                $fn();
+            }
         }
 
         if (function_exists('ap_do_action')) {
@@ -786,6 +937,12 @@ class AP_Theme
         self::$themesRootOverride = null;
         self::$stylesheetOverride = null;
         self::$templateOverride = null;
+        if (class_exists('AP_Assets', false)) {
+            AP_Assets::reset();
+        }
+        if (class_exists('AP_Theme_Compat', false)) {
+            AP_Theme_Compat::reset();
+        }
     }
 
     // -------------------------------------------------------------------------
