@@ -1,0 +1,41 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * AgoraPress command-line interface (ap-cli).
+ *
+ * Manage an installed site from the shell: options, plugins, themes, users,
+ * schema migrations, cache, cron, rewrites, and site health.
+ *
+ * Usage:
+ *   php ap-cli --help
+ *   php ap-cli version
+ *   php ap-cli plugin list
+ *   ./ap-cli option get blogname
+ *
+ * Fresh installs still use the dedicated installer:
+ *   php install/cli.php --help
+ *
+ * @package AgoraPress
+ */
+
+declare(strict_types=1);
+
+if (PHP_SAPI !== 'cli' && PHP_SAPI !== 'phpdbg') {
+    fwrite(STDERR, "ap-cli must be run from the command line.\n");
+    exit(1);
+}
+
+if (!defined('AP_CLI')) {
+    define('AP_CLI', true);
+}
+
+// Default site root = directory containing this script. --path may override before
+// AP_ABSPATH is defined (see AP_Cli::runFromArgv).
+$apCliDefaultRoot = __DIR__ . '/';
+require_once $apCliDefaultRoot . 'ap-includes/class-ap-cli.php';
+
+/** @var list<string> $argv */
+$argv = isset($argv) && is_array($argv) ? $argv : ($_SERVER['argv'] ?? []);
+
+exit(AP_Cli::runFromArgv(is_array($argv) ? $argv : [], null, null, $apCliDefaultRoot));

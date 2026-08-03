@@ -106,9 +106,11 @@ final class CodingStandardsConfigTest extends TestCase
 
         $this->assertContains('ap-includes', $files);
         $this->assertContains('ap-admin', $files);
+        $this->assertContains('install', $files);
         $this->assertContains('tests', $files);
         $this->assertContains('index.php', $files);
         $this->assertContains('ap-config-sample.php', $files);
+        $this->assertContains('ap-cli', $files);
     }
 
     public function testCodingStandardsDocMentionsPsr12AndAdaptations(): void
@@ -148,5 +150,62 @@ final class CodingStandardsConfigTest extends TestCase
             $exit,
             "phpcs reported errors:\n" . implode("\n", $output)
         );
+    }
+
+    public function testPhpstanConfigExistsAndTargetsCore(): void
+    {
+        $path = $this->root . '/phpstan.neon.dist';
+        $this->assertFileIsReadable($path, 'phpstan.neon.dist must exist at project root');
+
+        $raw = file_get_contents($path);
+        $this->assertNotFalse($raw);
+        $this->assertStringContainsString('level: 3', $raw);
+        $this->assertStringContainsString('ap-includes', $raw);
+        $this->assertStringContainsString('tests/phpstan-bootstrap.php', $raw);
+        $this->assertStringContainsString('compatibility', $raw);
+    }
+
+    public function testPhpstanBootstrapExists(): void
+    {
+        $path = $this->root . '/tests/phpstan-bootstrap.php';
+        $this->assertFileIsReadable($path, 'PHPStan bootstrap must exist');
+        $raw = file_get_contents($path);
+        $this->assertNotFalse($raw);
+        $this->assertStringContainsString('declare(strict_types=1)', $raw);
+        $this->assertStringContainsString('AP_ABSPATH', $raw);
+    }
+
+    public function testPhpstanRunsCleanWhenAvailable(): void
+    {
+        $phpstan = $this->root . '/vendor/bin/phpstan';
+        if (!is_executable($phpstan) && !is_file($phpstan)) {
+            $this->markTestSkipped('vendor/bin/phpstan not installed (run composer install)');
+        }
+
+        $config = $this->root . '/phpstan.neon.dist';
+        $cmd = escapeshellarg(PHP_BINARY !== '' ? PHP_BINARY : 'php')
+            . ' ' . escapeshellarg($phpstan)
+            . ' analyse --configuration=' . escapeshellarg($config)
+            . ' --memory-limit=512M --no-progress -q'
+            . ' 2>&1';
+
+        $output = [];
+        $exit = 0;
+        exec($cmd, $output, $exit);
+
+        $this->assertSame(
+            0,
+            $exit,
+            "phpstan reported errors:\n" . implode("\n", $output)
+        );
+    }
+
+    public function testCodingStandardsDocMentionsPhpstan(): void
+    {
+        $path = $this->root . '/CODING_STANDARDS.md';
+        $raw = file_get_contents($path);
+        $this->assertNotFalse($raw);
+        $this->assertStringContainsString('PHPStan', $raw);
+        $this->assertStringContainsString('composer analyse', $raw);
     }
 }

@@ -137,8 +137,10 @@ final class ThemeLoaderTest extends TestCase
 
     public function testListThemesFindsAgora(): void
     {
-        // Use real themes root.
-        AP_Theme::setThemesRootOverride(null);
+        // Pin to the real themes tree. Do not rely on clearing the override alone:
+        // other tests may define AP_CONTENT_DIR to a temp path (process-wide), which
+        // would otherwise make themesRoot() miss the shipped Agora theme.
+        AP_Theme::setThemesRootOverride($this->root . '/ap-content/themes');
         $themes = AP_Theme::listThemes();
         $this->assertArrayHasKey('agora', $themes);
         $this->assertSame('Agora', $themes['agora']['Theme Name']);

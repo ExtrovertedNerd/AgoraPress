@@ -45,6 +45,9 @@ yarn-error.log*
 /temp/
 *.cache
 
+# Release packaging artifacts (php bin/package-release.php)
+/dist/
+
 # Tests & coverage
 /coverage/
 .phpunit.cache/

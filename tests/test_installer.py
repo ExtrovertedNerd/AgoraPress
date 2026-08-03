@@ -34,6 +34,18 @@ def test_installer_files_exist() -> None:
     assert (ROOT / "ap-includes" / "class-ap-cli-install.php").is_file()
 
 
+def test_installer_supports_optional_sample_content() -> None:
+    inst = INSTALLER.read_text(encoding="utf-8")
+    assert "sample_content" in inst
+    assert "AP_Sample_Content" in inst
+    ui = INSTALL.read_text(encoding="utf-8")
+    assert 'name="sample_content"' in ui
+    assert "Add sample content" in ui
+    sample = ROOT / "ap-includes" / "class-ap-sample-content.php"
+    assert sample.is_file()
+    assert "class AP_Sample_Content" in sample.read_text(encoding="utf-8")
+
+
 def test_installer_classes_define_expected_api() -> None:
     req = REQUIREMENTS.read_text(encoding="utf-8")
     assert "class AP_Requirements" in req

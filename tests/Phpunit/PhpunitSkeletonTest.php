@@ -95,9 +95,11 @@ final class PhpunitSkeletonTest extends TestCase
 
     public function testStaticAnalysisConfigPresent(): void
     {
-        // Static analysis for Phase 0 = PHP_CodeSniffer (PSR-12 adapted).
+        // Style: PHP_CodeSniffer (PSR-12 adapted). Types: PHPStan level 3.
         $this->assertFileIsReadable($this->root . '/phpcs.xml.dist');
+        $this->assertFileIsReadable($this->root . '/phpstan.neon.dist');
         $this->assertFileIsReadable($this->root . '/CODING_STANDARDS.md');
+        $this->assertFileIsReadable($this->root . '/tests/phpstan-bootstrap.php');
     }
 
     public function testPhpunitBinaryRunsListTestsWhenAvailable(): void

@@ -189,7 +189,7 @@ class AP_Mail
     }
 
     /**
-     * @return array<string, string>
+     * Quote a display name for a From: header when needed.
      */
     private static function encodeFromName(string $name): string
     {

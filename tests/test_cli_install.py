@@ -58,6 +58,7 @@ def test_cli_help_exits_zero() -> None:
     assert "AgoraPress CLI installer" in combined
     assert "--site-title" in combined
     assert "--db-driver" in combined
+    assert "--sample-content" in combined
     assert "Fatal error" not in combined
     assert "Parse error" not in combined
 

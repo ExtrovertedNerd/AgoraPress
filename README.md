@@ -20,7 +20,7 @@ AgoraPress restores the spirit of early WordPress while adding first-class commu
 | **Lightweight by design** | Minimal core footprint, optional modules, fast on shared hosting, modern PHP 8.2+ with no legacy cruft. |
 | **Easy self-host & maintain** | 5-minute web installer, CLI install path, Docker Compose one-liner, clear updates, familiar mental model for classic WP users. |
 | **Easy to theme** | Pure PHP template hierarchy and child themes. **Classic WordPress Theme Compatibility Layer** so many pre-block WP themes can run with minimal changes. |
-| **Powerful & extensible** | Action/filter hooks, plugins, settings API, shortcodes, custom post types & taxonomies. |
+| **Powerful & extensible** | Action/filter hooks, plugins, settings API, shortcodes, custom post types & taxonomies, lightweight REST API. |
 | **Integrated community** | Forums, topics, groups, moderation, PMs, and attachments share users, roles, and capabilities with the CMS. |
 | **Secure & private by default** | Prepared statements, modern hashing, CSRF/XSS protections, **no telemetry**. |
 | **Migration friendly** | WordPress WXR + phpBB importers under Tools → Import (JSON export or live phpBB database). |
@@ -128,7 +128,59 @@ Useful flags: `--table-prefix=ap_`, `--config-path=/path/to/ap-config.php`, `--s
 Passwords may also come from env: `AP_ADMIN_PASSWORD`, `AP_DB_PASSWORD` (avoids argv history).  
 Exit codes: `0` success, `1` usage, `2` requirements, `3` install failure. Refuses to overwrite an existing `ap-config.php`.
 
-### Option D — Manual config (advanced)
+### Option D — ap-cli (manage an installed site)
+
+After install, use **`ap-cli`** for day-to-day operations (WP-CLI-inspired, no extra dependencies):
+
+```bash
+php ap-cli --help
+php ap-cli version
+php ap-cli cli info
+
+# Options, plugins, themes, users
+php ap-cli option get blogname
+php ap-cli option set blogname "My Site"
+php ap-cli plugin list
+php ap-cli plugin activate my-plugin/plugin.php
+php ap-cli theme list
+php ap-cli theme activate agora
+php ap-cli user list
+php ap-cli user create --user_login=editor --user_email=ed@example.com --user_pass=secretpass --role=editor
+
+# Schema, cache, cron, rewrites, health
+php ap-cli db check
+php ap-cli db migrate
+php ap-cli cache flush
+php ap-cli cron event list
+php ap-cli cron event run
+php ap-cli rewrite flush
+php ap-cli site health
+php ap-cli core check-update
+```
+
+Global flags: `--path=/var/www/site`, `--url=https://example.com`, `--skip-plugins`.  
+Exit codes: `0` ok, `1` usage, `2` error, `3` not installed.  
+Plugins can register commands on the `ap_cli_init` action via `AP_Cli::addCommand()`.
+
+### REST API (lightweight)
+
+JSON API at **`/ap-json/`** (pretty permalinks) or **`?rest_route=/ap/v1/posts`** (plain). Primary namespace: `ap/v1`.
+
+| Endpoint | Methods | Notes |
+|----------|---------|--------|
+| `/ap-json/` | GET | Site index, namespaces, route map |
+| `/ap-json/ap/v1/settings` | GET | Public site settings + module toggles |
+| `/ap-json/ap/v1/posts` | GET, POST | List / create posts |
+| `/ap-json/ap/v1/posts/{id}` | GET, PUT/PATCH, DELETE | Single post (auth for write) |
+| `/ap-json/ap/v1/pages` | GET | Published pages |
+| `/ap-json/ap/v1/comments` | GET | Approved comments |
+| `/ap-json/ap/v1/users` | GET | Public user profiles |
+| `/ap-json/ap/v1/categories`, `/tags` | GET | Taxonomies |
+| `/ap-json/ap/v1/forums`, `/topics` | GET | When Forum module is on |
+
+Auth: browser session cookie (send `X-AP-Nonce` for writes) or HTTP Basic (`username:password`). Disable with option `rest_api_enabled=0`. Plugins register routes on `ap_rest_api_init` via `ap_register_rest_route()`.
+
+### Option E — Manual config (advanced)
 
 ```bash
 cp ap-config-sample.php ap-config.php
@@ -159,6 +211,7 @@ An example reverse-proxy / rewrite config lives at [`docker/nginx.conf.example`]
 ```
 /
 ├── index.php                 # Front controller
+├── ap-cli                    # Operational CLI for installed sites
 ├── ap-config-sample.php      # Sample config (copy → ap-config.php)
 ├── install/                  # Web (index.php) + CLI (cli.php) installer
 ├── ap-admin/                 # Administration UI
@@ -169,20 +222,36 @@ An example reverse-proxy / rewrite config lives at [`docker/nginx.conf.example`]
 │   ├── mu-plugins/
 │   ├── languages/
 │   └── uploads/              # Runtime — not committed
+├── bin/package-release.php   # Build production zip + SHA-256 (not shipped in the zip)
 ├── docker/                   # Dockerfile, Apache vhost, nginx example
 ├── docker-compose.yml
+├── docs/                     # Developer documentation
 ├── composer.json
 ├── tests/
+├── CHANGELOG.md
 ├── LICENSE                   # GPLv2-or-later
 └── README.md
 ```
 
 ---
 
+## Developer documentation
+
+Extending AgoraPress (hooks, themes, plugins, WP theme compatibility, database schema):
+
+| Guide | Path |
+|-------|------|
+| Index | [`docs/README.md`](docs/README.md) |
+| Hooks | [`docs/hooks.md`](docs/hooks.md) |
+| Theme hierarchy | [`docs/themes.md`](docs/themes.md) |
+| Plugin API | [`docs/plugins.md`](docs/plugins.md) |
+| Classic WP compatibility | [`docs/compatibility.md`](docs/compatibility.md) |
+| Database schema | [`docs/schema.md`](docs/schema.md) |
+
 ## Development
 
 ```bash
-# Install dev tools (PHPUnit, PHPCS)
+# Install dev tools (PHPUnit, PHPCS, PHPStan)
 composer install
 
 # Unit / structure tests
@@ -194,15 +263,44 @@ composer test
 composer test:structure
 # or: php tests/Structure/assert-structure.php
 
-# Coding standards / static analysis (PSR-12 adapted PHPCS)
+# Coding standards (PSR-12 adapted PHPCS)
 composer cs
 composer cs:check
 composer cs:fix   # auto-fix where possible
+
+# Static analysis (PHPStan level 3 on ap-includes)
+composer analyse
+
+# Production release package (zip + SHA-256 + version.json.example)
+composer package
+# or: php bin/package-release.php
+# Dry run: composer package:dry-run
 ```
 
-CI (GitHub Actions) runs `composer test` and `composer cs:check` on PHP 8.2, 8.3, and 8.4.
+CI (GitHub Actions) runs `composer test`, `composer cs:check`, and `composer analyse` on PHP 8.2, 8.3, and 8.4.
 
-See [`CODING_STANDARDS.md`](CODING_STANDARDS.md), [`phpunit.xml.dist`](phpunit.xml.dist), and [`CHANGELOG.md`](CHANGELOG.md).
+See [`CODING_STANDARDS.md`](CODING_STANDARDS.md), [`phpunit.xml.dist`](phpunit.xml.dist), [`phpstan.neon.dist`](phpstan.neon.dist), and [`CHANGELOG.md`](CHANGELOG.md).
+
+---
+
+## Release packaging
+
+Operators publish installable core packages for fresh installs and one-click updates (`AP_Core_Updater` + public `version.json`).
+
+```bash
+php bin/package-release.php
+# Options: --output-dir=DIR  --version=VER  --prefix=NAME  --dry-run  --json
+```
+
+| Artifact | Description |
+|----------|-------------|
+| `dist/AgoraPress-{version}.zip` | Production tree under a top-level `AgoraPress/` folder (`index.php`, `ap-admin/`, `ap-includes/`, default Agora theme, installer, docs, …) |
+| `dist/AgoraPress-{version}.sha256` | SHA-256 of the zip (for optional `sha256` in `version.json`) |
+| `dist/version.json.example` | Template for the public version endpoint (edit URLs before serving) |
+
+**Not shipped:** `tests/`, `vendor/`, `.git` / `.github`, `.hephaestus/`, PHPCS/PHPUnit/PHPStan configs, `composer.lock`, secrets (`ap-config.php`, `.env`), runtime upload content, and the packaging script itself (`bin/`).
+
+The zip is recognized by the core updater (`index.php` + `ap-includes/version.php` + `ap-admin/`). Version labels come from `AP_VERSION` in `ap-includes/version.php` unless `--version=` is set. Package artifacts under `dist/` are gitignored.
 
 ---
 

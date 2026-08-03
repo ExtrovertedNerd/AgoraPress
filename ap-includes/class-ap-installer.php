@@ -442,6 +442,7 @@ PHP;
      * @param array{title: string, url: string, email?: string} $site
      * @param array{username: string, email: string, password: string} $admin
      * @param string $configPath Absolute path for ap-config.php
+     * @param array{sample_content?: bool} $options Install options (optional sample content).
      *
      * @return array{
      *     ok: bool,
@@ -450,14 +451,16 @@ PHP;
      *     admin_id: int|null,
      *     config_path: string,
      *     config_written: bool,
-     *     config_php: string|null
+     *     config_php: string|null,
+     *     sample_content: array<string, mixed>|null
      * }
      */
     public static function run(
         array $db,
         array $site,
         array $admin,
-        string $configPath
+        string $configPath,
+        array $options = []
     ): array {
         $result = [
             'ok' => false,
@@ -467,6 +470,7 @@ PHP;
             'config_path' => $configPath,
             'config_written' => false,
             'config_php' => null,
+            'sample_content' => null,
         ];
 
         $errors = array_merge(
@@ -520,6 +524,35 @@ PHP;
             $result['errors'][] = 'Could not create initial site data: ' . $e->getMessage();
 
             return $result;
+        }
+
+        // Optional sample content (FEATURES: optional sample content). Failures are
+        // non-fatal: core install still succeeds; errors are recorded for the UI.
+        $wantSample = !empty($options['sample_content']);
+        if ($wantSample) {
+            if (!class_exists('AP_Sample_Content', false)) {
+                require_once __DIR__ . '/class-ap-sample-content.php';
+            }
+            try {
+                $sample = AP_Sample_Content::seed($connection, [
+                    'author_id' => (int) ($result['admin_id'] ?? 0),
+                    'site_title' => (string) ($site['title'] ?? ''),
+                ]);
+                $result['sample_content'] = $sample;
+                // Sample failures are non-fatal: keep details on sample_content only.
+            } catch (Throwable $e) {
+                $result['sample_content'] = [
+                    'ok' => false,
+                    'skipped' => false,
+                    'posts' => [],
+                    'pages' => [],
+                    'comments' => [],
+                    'forums' => [],
+                    'topics' => [],
+                    'tags' => [],
+                    'errors' => ['Sample content failed: ' . $e->getMessage()],
+                ];
+            }
         }
 
         $salts = self::generateSalts();
@@ -661,6 +694,8 @@ PHP;
             'show_donation_button' => '1',
             // Version check: admin-only, cached GET of public version.json (no site id).
             'version_check_enabled' => '1',
+            // Lightweight REST API (public JSON at /ap-json/; disable via option).
+            'rest_api_enabled' => '1',
             // Rate limiting / login protection (AP_Rate_Limit; overridable per action).
             'rate_limit_login_max' => '5',
             'rate_limit_login_window' => '900',

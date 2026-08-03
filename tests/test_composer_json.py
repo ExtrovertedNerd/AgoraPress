@@ -79,7 +79,8 @@ def test_require_dev_contains_phpunit_and_coding_standards(composer: dict) -> No
     assert "phpunit/phpunit" in require_dev
     assert re.search(r"\^11", require_dev["phpunit/phpunit"])
     assert "squizlabs/php_codesniffer" in require_dev
-    allowed = {"phpunit/phpunit", "squizlabs/php_codesniffer"}
+    assert "phpstan/phpstan" in require_dev
+    allowed = {"phpunit/phpunit", "squizlabs/php_codesniffer", "phpstan/phpstan"}
     assert set(require_dev.keys()) <= allowed, (
         f"Unexpected require-dev packages: {set(require_dev) - allowed}"
     )
@@ -90,6 +91,15 @@ def test_scripts_include_coding_standards(composer: dict) -> None:
     assert "cs" in scripts
     assert "cs:check" in scripts
     assert "cs:fix" in scripts
+    assert "analyse" in scripts
+    assert "phpstan" in scripts
+
+
+def test_scripts_include_package_targets(composer: dict) -> None:
+    scripts = composer.get("scripts") or {}
+    assert "package" in scripts
+    assert "package:dry-run" in scripts
+    assert "bin/package-release.php" in str(scripts["package"])
 
 
 @pytest.mark.parametrize("ext", OPTIONAL_EXTS)

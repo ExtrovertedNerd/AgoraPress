@@ -5,12 +5,14 @@
         core familiar to classic WordPress developers (SPEC §6).
     </description>
 
-    <!-- Scan targets (core product code + tests). -->
+    <!-- Scan targets (core product code + installer + tests). -->
     <file>ap-includes</file>
     <file>ap-admin</file>
+    <file>install</file>
     <file>tests</file>
     <file>index.php</file>
     <file>ap-config-sample.php</file>
+    <file>ap-cli</file>
 
     <!-- Never lint third-party, runtime content, or process state. -->
     <exclude-pattern>*/vendor/*</exclude-pattern>

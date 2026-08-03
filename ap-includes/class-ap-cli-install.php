@@ -49,6 +49,8 @@ class AP_Cli_Install
         'admin-password',
         'config-path',
         'skip-requirements',
+        'sample-content',
+        'no-sample-content',
     ];
 
     /**
@@ -83,15 +85,17 @@ Database:
 Other:
   --config-path=PATH       Write ap-config.php here (default: site root)
   --skip-requirements      Skip PHP/extension/filesystem checks
+  --sample-content         Seed Hello World post, pages, and a welcome forum
+  --no-sample-content      Skip sample content (default for CLI)
   -h, --help               Show this help
 
 Examples:
-  # Zero-config SQLite local demo
+  # Zero-config SQLite local demo with sample content
   php {$script} \\
     --db-driver=sqlite \\
     --site-title="Demo" --site-url=http://localhost:8080 \\
     --admin-user=admin --admin-email=admin@example.com \\
-    --admin-password=changeme123
+    --admin-password=changeme123 --sample-content
 
   # MySQL (Docker Compose service host "db")
   php {$script} \\
@@ -129,7 +133,8 @@ TXT;
      *         admin_email: string,
      *         admin_password: string,
      *         config_path: string,
-     *         skip_requirements: bool
+     *         skip_requirements: bool,
+     *         sample_content: bool
      *     }
      * }
      */
@@ -153,6 +158,7 @@ TXT;
             'admin-password' => (string) (getenv('AP_ADMIN_PASSWORD') ?: ''),
             'config-path' => $root . 'ap-config.php',
             'skip-requirements' => false,
+            'sample-content' => false,
         ];
 
         // Skip script name.
@@ -174,6 +180,16 @@ TXT;
                 $i++;
                 continue;
             }
+            if ($arg === '--sample-content') {
+                $raw['sample-content'] = true;
+                $i++;
+                continue;
+            }
+            if ($arg === '--no-sample-content') {
+                $raw['sample-content'] = false;
+                $i++;
+                continue;
+            }
             if (str_starts_with($arg, '--')) {
                 $eq = strpos($arg, '=');
                 if ($eq !== false) {
@@ -184,6 +200,16 @@ TXT;
                     // Flag or next token as value.
                     if ($name === 'skip-requirements') {
                         $raw['skip-requirements'] = true;
+                        $i++;
+                        continue;
+                    }
+                    if ($name === 'sample-content') {
+                        $raw['sample-content'] = true;
+                        $i++;
+                        continue;
+                    }
+                    if ($name === 'no-sample-content') {
+                        $raw['sample-content'] = false;
                         $i++;
                         continue;
                     }
@@ -221,6 +247,16 @@ TXT;
                     $i++;
                     continue;
                 }
+                if ($name === 'sample-content') {
+                    $raw['sample-content'] = true;
+                    $i++;
+                    continue;
+                }
+                if ($name === 'no-sample-content') {
+                    $raw['sample-content'] = false;
+                    $i++;
+                    continue;
+                }
                 $raw[$name] = $value;
                 $i++;
                 continue;
@@ -240,6 +276,15 @@ TXT;
             $dbName = AP_Installer::defaultSqlitePath($root);
         }
 
+        // --sample-content=0|false|no|off disables; any other value enables.
+        $sampleRaw = $raw['sample-content'];
+        if (is_string($sampleRaw)) {
+            $low = strtolower(trim($sampleRaw));
+            $sampleContent = !in_array($low, ['0', 'false', 'no', 'off', ''], true);
+        } else {
+            $sampleContent = (bool) $sampleRaw;
+        }
+
         $options = [
             'db_driver' => $driver,
             'db_name' => $dbName,
@@ -255,6 +300,7 @@ TXT;
             'admin_password' => (string) $raw['admin-password'],
             'config_path' => (string) $raw['config-path'],
             'skip_requirements' => (bool) $raw['skip-requirements'],
+            'sample_content' => $sampleContent,
         ];
 
         if ($help) {
@@ -309,7 +355,8 @@ TXT;
      *     admin_email: string,
      *     admin_password: string,
      *     config_path: string,
-     *     skip_requirements: bool
+     *     skip_requirements: bool,
+     *     sample_content?: bool
      * } $options
      * @param callable(string): void|null $stdout
      * @param callable(string): void|null $stderr
@@ -399,12 +446,16 @@ TXT;
             $configPath = $root . 'ap-config.php';
         }
 
+        $wantSample = !empty($options['sample_content']);
         $out('Connecting and installing…');
         $out('  Driver:  ' . $db['driver']);
         $out('  Prefix:  ' . AP_Installer::normalizePrefix((string) $db['prefix']));
         $out('  Config:  ' . $configPath);
+        $out('  Sample:  ' . ($wantSample ? 'yes' : 'no'));
 
-        $result = AP_Installer::run($db, $site, $admin, $configPath);
+        $result = AP_Installer::run($db, $site, $admin, $configPath, [
+            'sample_content' => $wantSample,
+        ]);
 
         if (!$result['ok']) {
             foreach ($result['errors'] as $message) {
@@ -429,6 +480,24 @@ TXT;
         }
         if (!empty($result['admin_id'])) {
             $out('Administrator user ID: ' . (int) $result['admin_id']);
+        }
+        if (is_array($result['sample_content'] ?? null)) {
+            $sc = $result['sample_content'];
+            if (!empty($sc['skipped'])) {
+                $out('Sample content: already present (skipped).');
+            } elseif (!empty($sc['ok'])) {
+                $out(sprintf(
+                    'Sample content: %d post(s), %d page(s), %d forum(s), %d topic(s).',
+                    count($sc['posts'] ?? []),
+                    count($sc['pages'] ?? []),
+                    count($sc['forums'] ?? []),
+                    count($sc['topics'] ?? [])
+                ));
+            } elseif (!empty($sc['errors'])) {
+                foreach ($sc['errors'] as $sampleErr) {
+                    $out('Sample content warning: ' . $sampleErr);
+                }
+            }
         }
         $out('Wrote configuration: ' . $configPath);
         $out('Installation complete.');

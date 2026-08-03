@@ -1265,13 +1265,14 @@ HTACCESS;
         $ext = pathinfo($filename, PATHINFO_EXTENSION);
         $base = pathinfo($filename, PATHINFO_FILENAME);
         $i = 1;
+        $candidate = $filename;
         do {
             $candidate = $base . '-' . $i . ($ext !== '' ? '.' . $ext : '');
             $path = $dir . '/' . $candidate;
             $i++;
         } while (file_exists($path) && $i < 10000);
 
-        return $candidate ?? $filename;
+        return $candidate;
     }
 
     /**

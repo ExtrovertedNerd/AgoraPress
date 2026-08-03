@@ -192,53 +192,53 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
  * @param array<string, mixed> $lastResult
  */
 if (!function_exists('ap_admin_phpbb_import_notices')) {
-function ap_admin_phpbb_import_notices(array $lastResult): void
-{
-    if (!empty($lastResult['ok'])) {
-        $parts = [];
-        if ((int) ($lastResult['users'] ?? 0) > 0) {
-            $parts[] = (int) $lastResult['users'] . ' user(s)';
-        }
-        if ((int) ($lastResult['forums'] ?? 0) > 0) {
-            $parts[] = (int) $lastResult['forums'] . ' forum(s)';
-        }
-        if ((int) ($lastResult['topics'] ?? 0) > 0) {
-            $parts[] = (int) $lastResult['topics'] . ' topic(s)';
-        }
-        if ((int) ($lastResult['posts'] ?? 0) > 0) {
-            $parts[] = (int) $lastResult['posts'] . ' post(s)';
-        }
-        $summary = $parts !== []
-            ? 'Imported ' . implode(', ', $parts) . ' from phpBB.'
-            : 'phpBB import finished (no new rows).';
-        if ((int) ($lastResult['skipped'] ?? 0) > 0) {
-            $summary .= ' Skipped ' . (int) $lastResult['skipped'] . ' item(s).';
-        }
-        if ((int) ($lastResult['users_created'] ?? 0) > 0) {
-            $summary .= ' New users need a password reset before they can log in.';
-        }
-        AP_Admin::addNotice($summary, 'success');
-        foreach ($lastResult['warnings'] ?? [] as $warn) {
-            if (is_string($warn) && $warn !== '') {
-                AP_Admin::addNotice($warn, 'warning');
+    function ap_admin_phpbb_import_notices(array $lastResult): void
+    {
+        if (!empty($lastResult['ok'])) {
+            $parts = [];
+            if ((int) ($lastResult['users'] ?? 0) > 0) {
+                $parts[] = (int) $lastResult['users'] . ' user(s)';
             }
-        }
-    } else {
-        $errs = $lastResult['errors'] ?? [];
-        if ($errs === []) {
-            AP_Admin::addNotice('phpBB import failed.', 'error');
+            if ((int) ($lastResult['forums'] ?? 0) > 0) {
+                $parts[] = (int) $lastResult['forums'] . ' forum(s)';
+            }
+            if ((int) ($lastResult['topics'] ?? 0) > 0) {
+                $parts[] = (int) $lastResult['topics'] . ' topic(s)';
+            }
+            if ((int) ($lastResult['posts'] ?? 0) > 0) {
+                $parts[] = (int) $lastResult['posts'] . ' post(s)';
+            }
+            $summary = $parts !== []
+                ? 'Imported ' . implode(', ', $parts) . ' from phpBB.'
+                : 'phpBB import finished (no new rows).';
+            if ((int) ($lastResult['skipped'] ?? 0) > 0) {
+                $summary .= ' Skipped ' . (int) $lastResult['skipped'] . ' item(s).';
+            }
+            if ((int) ($lastResult['users_created'] ?? 0) > 0) {
+                $summary .= ' New users need a password reset before they can log in.';
+            }
+            AP_Admin::addNotice($summary, 'success');
+            foreach ($lastResult['warnings'] ?? [] as $warn) {
+                if (is_string($warn) && $warn !== '') {
+                    AP_Admin::addNotice($warn, 'warning');
+                }
+            }
         } else {
-            foreach ($errs as $err) {
-                AP_Admin::addNotice((string) $err, 'error');
+            $errs = $lastResult['errors'] ?? [];
+            if ($errs === []) {
+                AP_Admin::addNotice('phpBB import failed.', 'error');
+            } else {
+                foreach ($errs as $err) {
+                    AP_Admin::addNotice((string) $err, 'error');
+                }
             }
-        }
-        foreach ($lastResult['warnings'] ?? [] as $warn) {
-            if (is_string($warn) && $warn !== '') {
-                AP_Admin::addNotice($warn, 'warning');
+            foreach ($lastResult['warnings'] ?? [] as $warn) {
+                if (is_string($warn) && $warn !== '') {
+                    AP_Admin::addNotice($warn, 'warning');
+                }
             }
         }
     }
-}
 } // function_exists ap_admin_phpbb_import_notices
 
 $maxBytes = class_exists('AP_Wxr_Importer', false)
@@ -509,7 +509,14 @@ require __DIR__ . '/admin-header.php';
             <tbody>
                 <tr><th scope="row">Board name (source)</th><td><?php echo ap_esc_html((string) ($lastResult['source_name'] ?? '')); ?></td></tr>
                 <tr><th scope="row">phpBB version</th><td><?php echo ap_esc_html((string) ($lastResult['source_version'] ?? '')); ?></td></tr>
-                <tr><th scope="row">Users</th><td><?php echo (int) ($lastResult['users'] ?? 0); ?> (<?php echo (int) ($lastResult['users_created'] ?? 0); ?> created, <?php echo (int) ($lastResult['users_mapped'] ?? 0); ?> mapped)</td></tr>
+                <tr>
+                    <th scope="row">Users</th>
+                    <td>
+                        <?php echo (int) ($lastResult['users'] ?? 0); ?>
+                        (<?php echo (int) ($lastResult['users_created'] ?? 0); ?> created,
+                        <?php echo (int) ($lastResult['users_mapped'] ?? 0); ?> mapped)
+                    </td>
+                </tr>
                 <tr><th scope="row">Forums</th><td><?php echo (int) ($lastResult['forums'] ?? 0); ?></td></tr>
                 <tr><th scope="row">Topics</th><td><?php echo (int) ($lastResult['topics'] ?? 0); ?></td></tr>
                 <tr><th scope="row">Posts</th><td><?php echo (int) ($lastResult['posts'] ?? 0); ?></td></tr>

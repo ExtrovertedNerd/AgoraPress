@@ -26,6 +26,22 @@ ap_bootstrap();
 $apRewriteVars = [];
 if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
     $apRewriteVars = ap_parse_request();
+    // REST API short-circuits before feeds / theme.
+    if (
+        class_exists('AP_Rest', false)
+        && AP_Rest::isRestRequest($apRewriteVars)
+    ) {
+        try {
+            AP_Rest::serve($apRewriteVars);
+        } catch (Throwable) {
+            if (!headers_sent()) {
+                http_response_code(503);
+                header('Content-Type: application/json; charset=utf-8');
+            }
+            echo '{"code":"rest_unavailable","message":"REST API temporarily unavailable.","data":{"status":503}}';
+            exit(0);
+        }
+    }
     // Syndication feeds (RSS/Atom) short-circuit before the theme.
     if (
         class_exists('AP_Feed', false)

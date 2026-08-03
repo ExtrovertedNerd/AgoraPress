@@ -594,10 +594,12 @@ class AP_DB
     /**
      * First row, or null when empty.
      *
+     * Default fetch mode is {@see PDO::FETCH_OBJ} (matches connection default).
+     *
      * @param array<mixed> $params
      * @param int          $fetchMode PDO::FETCH_OBJ or PDO::FETCH_ASSOC.
      *
-     * @return object|array<string, mixed>|null
+     * @return ($fetchMode is PDO::FETCH_ASSOC ? array<string, mixed>|null : object|null)
      */
     public function getRow(string $sql, array $params = [], int $fetchMode = PDO::FETCH_OBJ): object|array|null
     {
@@ -634,10 +636,12 @@ class AP_DB
     /**
      * All rows.
      *
+     * Default fetch mode is {@see PDO::FETCH_OBJ} (matches connection default).
+     *
      * @param array<mixed> $params
      * @param int          $fetchMode PDO::FETCH_OBJ or PDO::FETCH_ASSOC.
      *
-     * @return list<object|array<string, mixed>>
+     * @return ($fetchMode is PDO::FETCH_ASSOC ? list<array<string, mixed>> : list<object>)
      */
     public function getResults(string $sql, array $params = [], int $fetchMode = PDO::FETCH_OBJ): array
     {

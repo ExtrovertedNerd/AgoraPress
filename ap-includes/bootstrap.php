@@ -351,6 +351,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-feed.php';
     // XML sitemaps + robots.txt.
     require_once AP_ABSPATH . 'ap-includes/class-ap-sitemap.php';
+    // Lightweight REST API (/ap-json/ or ?rest_route=).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-rest.php';
     // Canonical URLs + Open Graph meta (printed on ap_head).
     require_once AP_ABSPATH . 'ap-includes/class-ap-seo.php';
     // Nonces for state-changing forms (admin + front-end).
@@ -467,21 +469,25 @@ function ap_bootstrap(): void
     }
 
     // Must-use plugins load before regular plugins (always-on).
+    // ap-cli may set AP_CLI_SKIP_PLUGINS to load MU only (or skip regular actives).
     if (class_exists('AP_Plugin', false)) {
         try {
             AP_Plugin::loadMuPlugins();
         } catch (Throwable) {
             // MU plugin failure must not take down the site.
         }
-        try {
-            AP_Plugin::loadActivePlugins();
-        } catch (Throwable) {
-            // Plugin load must not take down the site; admin can deactivate later.
+        if (!(defined('AP_CLI_SKIP_PLUGINS') && AP_CLI_SKIP_PLUGINS)) {
+            try {
+                AP_Plugin::loadActivePlugins();
+            } catch (Throwable) {
+                // Plugin load must not take down the site; admin can deactivate later.
+            }
         }
     }
 
     // Pseudo-cron: fire due scheduled events (bounded per request).
-    if (class_exists('AP_Cron', false)) {
+    // Skip on ap-cli so management commands have no cron side effects; use `cron event run`.
+    if (class_exists('AP_Cron', false) && !(defined('AP_CLI') && AP_CLI)) {
         try {
             AP_Cron::spawn();
         } catch (Throwable) {

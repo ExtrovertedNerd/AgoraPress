@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PHPUNIT_XML = ROOT / "phpunit.xml.dist"
 BOOTSTRAP = ROOT / "tests" / "bootstrap.php"
 PHPCS_XML = ROOT / "phpcs.xml.dist"
+PHPSTAN_NEON = ROOT / "phpstan.neon.dist"
 COMPOSER = ROOT / "composer.json"
 GITIGNORE = ROOT / ".gitignore"
 
@@ -46,8 +47,10 @@ def test_phpunit_xml_is_valid_and_wires_bootstrap() -> None:
 
 
 def test_phpcs_static_analysis_config_exists() -> None:
-    assert PHPCS_XML.is_file(), "Missing phpcs.xml.dist (static analysis)"
+    assert PHPCS_XML.is_file(), "Missing phpcs.xml.dist (coding standards)"
+    assert PHPSTAN_NEON.is_file(), "Missing phpstan.neon.dist (static analysis)"
     assert (ROOT / "CODING_STANDARDS.md").is_file()
+    assert (ROOT / "tests" / "phpstan-bootstrap.php").is_file()
 
 
 def test_composer_scripts_include_test_and_cs() -> None:
@@ -58,12 +61,17 @@ def test_composer_scripts_include_test_and_cs() -> None:
     assert "test" in scripts
     assert "cs" in scripts
     assert "cs:check" in scripts
+    assert "analyse" in scripts
+    assert "phpstan" in scripts
+    require_dev = data.get("require-dev") or {}
+    assert "phpstan/phpstan" in require_dev
 
 
 def test_gitignore_covers_tool_caches() -> None:
     text = GITIGNORE.read_text(encoding="utf-8")
     assert ".phpunit.cache" in text
     assert ".phpcs.cache" in text or "*.cache" in text
+    assert ".phpstan.cache" in text or "*.cache" in text
 
 
 def test_phpunit_list_tests_when_vendor_present() -> None:

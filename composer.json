@@ -25,6 +25,7 @@
         "ext-zip": "*"
     },
     "require-dev": {
+        "phpstan/phpstan": "^2.0",
         "phpunit/phpunit": "^11.0",
         "squizlabs/php_codesniffer": "^3.10"
     },
@@ -49,9 +50,13 @@
     "scripts": {
         "test": "phpunit",
         "test:structure": "php tests/Structure/assert-structure.php",
+        "package": "php bin/package-release.php",
+        "package:dry-run": "php bin/package-release.php --dry-run",
         "cs": "phpcs",
         "cs:check": "phpcs",
-        "cs:fix": "phpcbf"
+        "cs:fix": "phpcbf",
+        "analyse": "phpstan analyse --memory-limit=512M",
+        "phpstan": "phpstan analyse --memory-limit=512M"
     },
     "config": {
         "sort-packages": true,

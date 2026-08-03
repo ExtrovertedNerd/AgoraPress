@@ -87,6 +87,8 @@ final class CliInstallTest extends TestCase
         $this->assertStringContainsString('--db-driver', $text);
         $this->assertStringContainsString('--admin-password', $text);
         $this->assertStringContainsString('sqlite', $text);
+        $this->assertStringContainsString('--sample-content', $text);
+        $this->assertStringContainsString('--no-sample-content', $text);
     }
 
     public function testParseArgvHelp(): void
@@ -131,10 +133,30 @@ final class CliInstallTest extends TestCase
         $this->assertSame('sqlite', $parsed['options']['db_driver']);
         $this->assertSame('Demo Site', $parsed['options']['site_title']);
         $this->assertSame('demo_', $parsed['options']['table_prefix']);
+        $this->assertFalse($parsed['options']['sample_content']);
         $this->assertStringContainsString(
             'database.sqlite',
             $parsed['options']['db_name']
         );
+    }
+
+    public function testParseArgvSampleContentFlag(): void
+    {
+        $parsed = AP_Cli_Install::parseArgv(
+            [
+                'cli.php',
+                '--db-driver=sqlite',
+                '--site-title=Demo',
+                '--site-url=https://example.com',
+                '--admin-user=admin',
+                '--admin-email=admin@example.com',
+                '--admin-password=password123',
+                '--sample-content',
+            ],
+            $this->root . '/'
+        );
+        $this->assertTrue($parsed['ok'], implode('; ', $parsed['errors']));
+        $this->assertTrue($parsed['options']['sample_content']);
     }
 
     public function testParseArgvUnknownOption(): void

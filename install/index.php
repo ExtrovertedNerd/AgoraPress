@@ -293,6 +293,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     unset($admin['password_confirm']);
                     $_SESSION['ap_install_site'] = $site;
                     $_SESSION['ap_install_admin'] = $admin;
+                    // Optional sample content (FEATURES); default on for a browsable first run.
+                    $_SESSION['ap_install_sample_content'] = !empty($_POST['sample_content']);
                     $step = 'run';
                 }
             }
@@ -304,7 +306,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Install session incomplete. Start from the database step.';
                 $step = 'database';
             } else {
-                $result = AP_Installer::run($db, $site, $admin, $configPath);
+                $installOptions = [
+                    'sample_content' => !empty($_SESSION['ap_install_sample_content']),
+                ];
+                $result = AP_Installer::run($db, $site, $admin, $configPath, $installOptions);
                 if (!$result['ok']) {
                     $errors = array_merge($errors, $result['errors']);
                     // Keep generated config available if tables succeeded.
@@ -317,12 +322,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['ap_install_db'],
                         $_SESSION['ap_install_site'],
                         $_SESSION['ap_install_admin'],
+                        $_SESSION['ap_install_sample_content'],
                         $_SESSION['ap_install_config_fallback']
                     );
                     $_SESSION['ap_install_success'] = [
                         'admin_id' => $result['admin_id'],
                         'migrations' => $result['migrations'],
                         'site_url' => $site['url'] ?? '',
+                        'sample_content' => $result['sample_content'] ?? null,
                     ];
                     $step = 'done';
                     // Redirect to avoid re-POST.
@@ -448,6 +455,14 @@ if ($step === 'site') {
     $url = ap_install_h((string) ($site['url'] ?? ($_POST['site_url'] ?? AP_Installer::guessSiteUrl())));
     $user = ap_install_h((string) ($admin['username'] ?? ($_POST['admin_user'] ?? 'admin')));
     $email = ap_install_h((string) ($admin['email'] ?? ($_POST['admin_email'] ?? '')));
+    // Default sample content on; preserve choice after validation errors / back navigation.
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['step'] ?? '') === 'site') {
+        $sampleChecked = !empty($_POST['sample_content']) ? ' checked' : '';
+    } elseif (array_key_exists('ap_install_sample_content', $_SESSION)) {
+        $sampleChecked = !empty($_SESSION['ap_install_sample_content']) ? ' checked' : '';
+    } else {
+        $sampleChecked = ' checked';
+    }
 
     $body = <<<HTML
         <h2>Site information &amp; administrator</h2>
@@ -481,6 +496,14 @@ if ($step === 'site') {
                     <input type="password" name="admin_password_confirm" id="admin_password_confirm" required minlength="8" autocomplete="new-password">
                 </div>
             </div>
+            <div class="field-group" style="margin-top:1rem">
+                <label for="sample_content" style="font-weight:500">
+                    <input type="checkbox" name="sample_content" id="sample_content" value="1"{$sampleChecked}
+                        style="width:auto;margin-right:0.4rem;vertical-align:middle">
+                    Add sample content
+                    <span class="hint">(Hello World post, About &amp; Privacy pages, welcome forum topic — optional)</span>
+                </label>
+            </div>
             <div class="actions">
                 <a class="button secondary" href="?step=database">Back</a>
                 <button type="submit">Continue to install</button>
@@ -505,6 +528,8 @@ if ($step === 'run') {
     $user = ap_install_h((string) ($admin['username'] ?? ''));
     $driver = ap_install_h((string) ($db['driver'] ?? ''));
     $prefix = ap_install_h(AP_Installer::normalizePrefix((string) ($db['prefix'] ?? 'ap_')));
+    $sampleOn = !empty($_SESSION['ap_install_sample_content']);
+    $sampleLabel = $sampleOn ? 'Yes (posts, pages, forums)' : 'No';
 
     $fallback = '';
     if (!empty($_SESSION['ap_install_config_fallback']) && is_string($_SESSION['ap_install_config_fallback'])) {
@@ -523,6 +548,7 @@ if ($step === 'run') {
                 <tr><td>Site URL</td><td colspan="2">{$url}</td></tr>
                 <tr><td>Admin user</td><td colspan="2">{$user}</td></tr>
                 <tr><td>Database</td><td colspan="2">{$driver} · prefix <code>{$prefix}</code></td></tr>
+                <tr><td>Sample content</td><td colspan="2">{$sampleLabel}</td></tr>
             </tbody>
         </table>
         {$fallback}
@@ -547,6 +573,25 @@ if ($step === 'done') {
         ? count($success['migrations'])
         : 0;
 
+    $sampleNote = '';
+    if (is_array($success) && isset($success['sample_content']) && is_array($success['sample_content'])) {
+        $sc = $success['sample_content'];
+        $posts = count($sc['posts'] ?? []);
+        $pages = count($sc['pages'] ?? []);
+        $forums = count($sc['forums'] ?? []);
+        $topics = count($sc['topics'] ?? []);
+        if (!empty($sc['skipped'])) {
+            $sampleNote = '<p>Sample content was already present and was left unchanged.</p>';
+        } elseif (!empty($sc['ok'])) {
+            $sampleNote = '<p>Sample content added: '
+                . ap_install_h((string) $posts) . ' post(s), '
+                . ap_install_h((string) $pages) . ' page(s), '
+                . ap_install_h((string) $forums) . ' forum(s), '
+                . ap_install_h((string) $topics) . ' topic(s). '
+                . 'Edit or delete them anytime from the admin.</p>';
+        }
+    }
+
     $body = <<<HTML
         <h2>Installation complete</h2>
         <div class="notice success">
@@ -556,8 +601,9 @@ if ($step === 'done') {
                 and <code>ap-config.php</code> was written.
             </p>
         </div>
+        {$sampleNote}
         <p>
-            Authentication screens arrive next; for now you can open the site home.
+            Open the site home or sign in at <code>ap-admin/</code>.
             Keep your admin password safe.
         </p>
         <div class="actions">

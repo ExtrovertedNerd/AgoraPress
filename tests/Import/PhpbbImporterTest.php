@@ -449,8 +449,12 @@ final class PhpbbImporterTest extends TestCase
             (2, 'carol', 'carol@example.com', 0, 1600000000)");
         $pdo->exec("INSERT INTO {$prefix}forums (forum_id, parent_id, forum_name, forum_desc, forum_type, forum_status, left_id, forum_order) VALUES
             (1, 0, 'Main', 'Main forum', 1, 0, 1, 1)");
-        $pdo->exec("INSERT INTO {$prefix}topics (topic_id, forum_id, topic_title, topic_poster, topic_time, topic_views, topic_status, topic_type, topic_first_post_id, topic_last_post_id, topic_visibility) VALUES
-            (5, 1, 'First topic', 2, 1600001000, 7, 0, 0, 20, 20, 1)");
+        $pdo->exec(
+            "INSERT INTO {$prefix}topics (
+                topic_id, forum_id, topic_title, topic_poster, topic_time, topic_views,
+                topic_status, topic_type, topic_first_post_id, topic_last_post_id, topic_visibility
+            ) VALUES (5, 1, 'First topic', 2, 1600001000, 7, 0, 0, 20, 20, 1)"
+        );
         $pdo->exec("INSERT INTO {$prefix}posts (post_id, topic_id, forum_id, poster_id, poster_ip, post_time, post_subject, post_text, bbcode_uid, post_visibility) VALUES
             (20, 5, 1, 2, '10.0.0.1', 1600001000, 'First topic', '[i:uid99]Hi[/i:uid99]', 'uid99', 1)");
     }

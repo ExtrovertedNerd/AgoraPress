@@ -25,6 +25,16 @@ $requiredPaths = [
     'docker-compose.yml',
     'README.md',
     'LICENSE',
+    // Developer documentation (Phase 7)
+    'docs/README.md',
+    'docs/hooks.md',
+    'docs/themes.md',
+    'docs/plugins.md',
+    'docs/compatibility.md',
+    'docs/schema.md',
+    // Release packaging (Phase 7)
+    'bin/package-release.php',
+    'CHANGELOG.md',
     // Nginx example (SPEC: ".htaccess / nginx examples")
     'docker/nginx.conf.example',
     // Docker Compose stack (SPEC §2 / Phase 0)
@@ -90,6 +100,7 @@ $requiredPaths = [
     'ap-includes/class-ap-widgets.php',
     'ap-includes/class-ap-feed.php',
     'ap-includes/class-ap-sitemap.php',
+    'ap-includes/class-ap-rest.php',
     'ap-includes/class-ap-seo.php',
     'ap-includes/template-tags.php',
     // Default theme (Agora)
@@ -106,6 +117,11 @@ $requiredPaths = [
     'ap-includes/class-ap-requirements.php',
     'ap-includes/class-ap-installer.php',
     'ap-includes/class-ap-cli-install.php',
+    // Optional sample content seeder (FEATURES: optional sample content)
+    'ap-includes/class-ap-sample-content.php',
+    // Operational CLI (ap-cli) for installed sites
+    'ap-cli',
+    'ap-includes/class-ap-cli.php',
     // Core includes
     'ap-includes/class-ap-db.php',
     'ap-includes/class-ap-migrator.php',
@@ -182,6 +198,7 @@ $mustBeGitignored = [
     'ap-config.php',
     'ap-content/uploads/',
     '.hephaestus/',
+    '/dist/',
 ];
 
 /**

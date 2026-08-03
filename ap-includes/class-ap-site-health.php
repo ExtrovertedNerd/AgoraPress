@@ -612,7 +612,8 @@ class AP_Site_Health
 
         // Localhost HTTP is acceptable for development.
         $host = strtolower((string) (parse_url($url, PHP_URL_HOST) ?: ''));
-        if (in_array($host, ['localhost', '127.0.0.1', '::1'], true)
+        if (
+            in_array($host, ['localhost', '127.0.0.1', '::1'], true)
             || str_ends_with($host, '.local')
             || str_ends_with($host, '.test')
         ) {

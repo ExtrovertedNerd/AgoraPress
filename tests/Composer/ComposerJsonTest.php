@@ -111,6 +111,7 @@ final class ComposerJsonTest extends TestCase
         $allowed = [
             'phpunit/phpunit',
             'squizlabs/php_codesniffer',
+            'phpstan/phpstan',
         ];
         foreach (array_keys($requireDev) as $name) {
             $this->assertContains(
@@ -119,6 +120,12 @@ final class ComposerJsonTest extends TestCase
                 "Unexpected require-dev package: {$name}"
             );
         }
+
+        $this->assertArrayHasKey(
+            'phpstan/phpstan',
+            $requireDev,
+            'require-dev must include PHPStan for static analysis'
+        );
 
         $constraint = (string) $requireDev['phpunit/phpunit'];
         $this->assertMatchesRegularExpression(
@@ -185,6 +192,18 @@ final class ComposerJsonTest extends TestCase
         $this->assertArrayHasKey('test:structure', $scripts);
     }
 
+    public function testScriptsIncludePackageTargets(): void
+    {
+        $scripts = $this->composer['scripts'] ?? [];
+        $this->assertIsArray($scripts);
+        $this->assertArrayHasKey('package', $scripts);
+        $this->assertArrayHasKey('package:dry-run', $scripts);
+        $this->assertStringContainsString(
+            'bin/package-release.php',
+            (string) $scripts['package']
+        );
+    }
+
     public function testScriptsIncludeCodingStandardsTargets(): void
     {
         $scripts = $this->composer['scripts'] ?? [];
@@ -192,5 +211,7 @@ final class ComposerJsonTest extends TestCase
         $this->assertArrayHasKey('cs', $scripts);
         $this->assertArrayHasKey('cs:check', $scripts);
         $this->assertArrayHasKey('cs:fix', $scripts);
+        $this->assertArrayHasKey('analyse', $scripts);
+        $this->assertArrayHasKey('phpstan', $scripts);
     }
 }

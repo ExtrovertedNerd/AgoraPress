@@ -2327,10 +2327,9 @@ function ap_head(): void
 /**
  * Print resource hint link tags (performance).
  *
- * Plugins/themes filter `ap_resource_hints` with a list of URLs for a relation
- * type. Empty by default — core stays free of third-party network calls.
- *
- * @param string $relation_type dns-prefetch|preconnect|prefetch|prerender|preload
+ * Plugins/themes filter `ap_resource_hints` with a list of URLs for each
+ * relation type (dns-prefetch, preconnect, prefetch, prerender, preload).
+ * Empty by default — core stays free of third-party network calls.
  */
 function ap_print_resource_hints(): void
 {
@@ -7261,4 +7260,92 @@ if (!function_exists('esc_attr_x')) {
     {
         return ap_esc_attr_x($text, $context, $domain);
     }
+}
+
+// -------------------------------------------------------------------------
+// REST API
+// -------------------------------------------------------------------------
+
+/**
+ * Whether the lightweight REST API is enabled.
+ *
+ * @see AP_Rest::isEnabled()
+ */
+function ap_rest_enabled(?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Rest', false)) {
+        return false;
+    }
+
+    return AP_Rest::isEnabled($db);
+}
+
+/**
+ * Public URL for a REST route (pretty /ap-json/… or plain ?rest_route=).
+ *
+ * @see AP_Rest::getUrl()
+ */
+function ap_rest_url(string $route = '/', ?AP_DB $db = null): string
+{
+    if (!class_exists('AP_Rest', false)) {
+        return '';
+    }
+
+    return AP_Rest::getUrl($route, $db);
+}
+
+/**
+ * Register a REST route under a namespace.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Rest::registerRoute()
+ */
+function ap_register_rest_route(string $namespace, string $route, array $args): void
+{
+    if (!class_exists('AP_Rest', false)) {
+        return;
+    }
+    AP_Rest::registerRoute($namespace, $route, $args);
+}
+
+/**
+ * Dispatch a REST request (no HTTP emit). For tests and internal use.
+ *
+ * @param array<string, mixed> $input
+ *
+ * @return array{status: int, data: mixed, headers: array<string, string>}
+ *
+ * @see AP_Rest::dispatch()
+ */
+function ap_rest_dispatch(array $input = [], ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Rest', false)) {
+        return [
+            'status' => 503,
+            'data' => [
+                'code' => 'rest_unavailable',
+                'message' => 'REST API is not loaded.',
+                'data' => ['status' => 503],
+            ],
+            'headers' => [],
+        ];
+    }
+
+    return AP_Rest::dispatch($input, $db);
+}
+
+/**
+ * Create a REST nonce for cookie-authenticated write requests (action ap_rest).
+ */
+function ap_create_rest_nonce(?int $userId = null): string
+{
+    if (!function_exists('ap_create_nonce')) {
+        return '';
+    }
+
+    return ap_create_nonce(
+        class_exists('AP_Rest', false) ? AP_Rest::NONCE_ACTION : 'ap_rest',
+        $userId
+    );
 }

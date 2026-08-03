@@ -55,7 +55,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     } elseif ($action === 'update') {
         if (!ap_check_nonce($nonce, 'update-core-run', $userId > 0 ? $userId : null)) {
             AP_Admin::addNotice('Security check failed. Please try again.', 'error');
-        } elseif (!AP_Admin::userCan($userId, 'update_core', null, $db)
+        } elseif (
+            !AP_Admin::userCan($userId, 'update_core', null, $db)
             && !AP_Admin::userCan($userId, 'manage_options', null, $db)
         ) {
             AP_Admin::addNotice('You do not have permission to update core.', 'error');

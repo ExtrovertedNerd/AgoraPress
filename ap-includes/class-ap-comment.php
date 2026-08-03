@@ -915,7 +915,10 @@ class AP_Comment
     /**
      * Status → count map (optionally for one post). Excludes nothing by default.
      *
-     * @return array<string, int>
+     * Keys are comment_approved values (`1`, `0`, `spam`, `trash`). Numeric string
+     * keys may be stored as ints by PHP; consumers should cast with `(string)`.
+     *
+     * @return array<int|string, int>
      */
     public static function countByStatus(?int $postId = null, ?AP_DB $db = null): array
     {
@@ -931,6 +934,7 @@ class AP_Comment
         $sql .= ' GROUP BY ' . $db->quoteIdentifier('comment_approved');
 
         $rows = $db->getResults($sql, $params);
+        /** @var array<int|string, int> $out */
         $out = [
             self::STATUS_APPROVED => 0,
             self::STATUS_HOLD => 0,

@@ -274,6 +274,14 @@ final class InstallerTest extends TestCase
         );
         $this->assertIsString($caps);
         $this->assertStringContainsString('administrator', (string) $caps);
+
+        // Default install (no sample_content option) leaves content empty.
+        $this->assertNull($result['sample_content'] ?? null);
+        $contentCount = (int) $apdb->getVar(
+            'SELECT COUNT(*) FROM ' . $apdb->quoteIdentifier($apdb->table('posts'))
+            . " WHERE post_type IN ('post','page')"
+        );
+        $this->assertSame(0, $contentCount);
     }
 
     public function testRunRefusesExistingConfig(): void

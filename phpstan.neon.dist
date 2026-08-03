@@ -1,0 +1,21 @@
+# AgoraPress PHPStan configuration (SPEC §6 static analysis).
+# Run: composer analyse   (or: vendor/bin/phpstan analyse)
+#
+# Level 3 catches real type / API mistakes without fighting intentional
+# hybrid defensive checks (class_exists / method_exists) used for partial bootstrap.
+
+parameters:
+    level: 3
+    paths:
+        - ap-includes
+    excludePaths:
+        analyse:
+            # Classic WP compatibility shims intentionally mirror WP symbols.
+            - ap-includes/compatibility/*
+    bootstrapFiles:
+        - tests/phpstan-bootstrap.php
+    # Hybrid core declares many AP_* classes without namespaces; classmap autoload
+    # (via bootstrap) is enough. Avoid treating every PHPDoc as gospel.
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: true
+    tmpDir: .phpstan.cache

@@ -82,11 +82,35 @@ final class PageCacheTest extends TestCase
             $cleanPostIds[] = $id;
         });
 
-        // No DB: still purges ?p= style + home when ap_home_url missing.
+        // No DB / partial bootstrap: must not throw, still signals purge hooks.
+        // When AP_Post is loaded (classmap), get() may fail — urlsForPost catches it.
+        // Plain ?p= token must still be emitted even if AP_Post is not loaded.
         ap_clean_post_cache(42);
 
         $this->assertSame([42], $cleanPostIds);
         $this->assertSame(1, $this->postPurgeCount);
+        $this->assertNotEmpty(
+            array_filter(
+                $this->purgedUrls,
+                static fn (string $u): bool => str_contains($u, 'p=42') || str_contains($u, '?p=42')
+            ),
+            'Expected a ?p=42 purge URL, got: ' . implode(', ', $this->purgedUrls)
+        );
+    }
+
+    public function testUrlsForPostAlwaysIncludesPlainPermalinkToken(): void
+    {
+        // Independent of whether AP_Post autoload has run in this process.
+        $urls = AP_Page_Cache::urlsForPost(99);
+        $this->assertNotEmpty(
+            array_filter(
+                $urls,
+                static fn (string $u): bool => str_contains($u, 'p=99')
+            ),
+            'Expected plain ?p=99 purge token, got: ' . implode(', ', $urls)
+        );
+
+        $this->assertSame([], AP_Page_Cache::urlsForPost(0));
     }
 
     public function testSkipAndShouldCacheRequest(): void
@@ -208,43 +232,43 @@ final class PageCacheTest extends TestCase
 
     public function testStartLoadsAdvancedCacheDropin(): void
     {
-        $content = sys_get_temp_dir() . '/ap-page-cache-test-' . bin2hex(random_bytes(4));
-        mkdir($content, 0777, true);
-        $dropin = $content . '/advanced-cache.php';
+        // Never define AP_CONTENT_DIR to a temp path here: constants are process-wide
+        // and would break later theme discovery (themesRoot uses AP_CONTENT_DIR).
+        if (!defined('AP_ABSPATH')) {
+            define('AP_ABSPATH', $this->root . '/');
+        }
+
+        $contentDir = defined('AP_CONTENT_DIR') && is_string(AP_CONTENT_DIR) && AP_CONTENT_DIR !== ''
+            ? rtrim(str_replace('\\', '/', AP_CONTENT_DIR), '/')
+            : rtrim(str_replace('\\', '/', $this->root), '/') . '/ap-content';
+
+        $this->assertDirectoryExists($contentDir, 'ap-content must exist for drop-in path');
+
+        $dropin = $contentDir . '/advanced-cache.php';
+        $hadDropin = is_file($dropin);
+        $previous = $hadDropin ? (string) file_get_contents($dropin) : null;
+
         file_put_contents(
             $dropin,
             "<?php\n\$GLOBALS['ap_test_advanced_cache_loaded'] = true;\n"
         );
 
-        if (!defined('AP_CONTENT_DIR')) {
-            define('AP_CONTENT_DIR', $content);
-        } else {
-            // AP_CONTENT_DIR already set in this process — write drop-in there if writable.
-            $alt = AP_Page_Cache::dropinPath();
-            if ($alt !== '' && is_dir(dirname($alt))) {
-                file_put_contents($alt, "<?php\n\$GLOBALS['ap_test_advanced_cache_loaded'] = true;\n");
-            }
-        }
-
         // Enable via filter (avoid depending on AP_CACHE constant).
         ap_add_filter('ap_page_cache_enabled', static fn () => true);
 
-        // If AP_CONTENT_DIR was just defined to our temp dir, start should load it.
         ap_reset_page_cache();
         $GLOBALS['ap_test_advanced_cache_loaded'] = false;
 
-        if (defined('AP_CONTENT_DIR') && AP_CONTENT_DIR === $content) {
-            ap_start_page_cache();
-            $this->assertTrue(ap_using_page_cache());
-            $this->assertTrue(!empty($GLOBALS['ap_test_advanced_cache_loaded']));
-        } else {
-            // Constant already bound: exercise start() + usingDropin path without asserting load.
-            ap_start_page_cache();
-            $this->assertTrue(ap_page_cache_enabled());
-        }
+        ap_start_page_cache();
+        $this->assertTrue(ap_page_cache_enabled());
+        $this->assertTrue(ap_using_page_cache());
+        $this->assertTrue(!empty($GLOBALS['ap_test_advanced_cache_loaded']));
 
-        @unlink($dropin);
-        @rmdir($content);
+        if ($hadDropin && $previous !== null) {
+            file_put_contents($dropin, $previous);
+        } else {
+            @unlink($dropin);
+        }
     }
 
     public function testPostLifecycleActionsFireFromModel(): void

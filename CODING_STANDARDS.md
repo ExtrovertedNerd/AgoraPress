@@ -10,6 +10,8 @@
 composer cs          # report style issues (alias of cs:check)
 composer cs:check    # same, non-zero exit on violations
 composer cs:fix     # auto-fix what PHPCBF can safely correct
+composer analyse     # PHPStan static analysis (level 3, ap-includes)
+composer phpstan     # alias of analyse
 composer test        # PHPUnit
 ```
 
@@ -50,11 +52,26 @@ We follow PSR-12 for **formatting and structure** (braces, indentation, visibili
 - Target: **PHP 8.2+** (8.3 / 8.4 recommended).
 - Use modern language features carefully; keep syntax and behavior compatible with 8.2.
 
+## Static analysis (PHPStan)
+
+**Enforcement:** PHPStan via `phpstan.neon.dist`  
+**Level:** 3 (balanced for hybrid procedural + OOP core)
+
+| Area | Policy |
+|------|--------|
+| Paths | `ap-includes/` (core library API) |
+| Excluded | `ap-includes/compatibility/` (classic WP shims) |
+| Bootstrap | `tests/phpstan-bootstrap.php` (constants + classmap, no DB) |
+| Goal | Catch real type / return / PHPDoc mistakes without fighting intentional `class_exists` / `method_exists` guards used for partial bootstrap |
+
+Raise the level gradually when the codebase is ready; do not lower it without a tracked reason. Prefer fixing code and PHPDoc over ignore comments.
+
 ## Tests
 
 - PHPUnit for critical paths (`composer test`).
 - Structure / config smoke tests live under `tests/`.
+- Coding standards + PHPStan contract tests under `tests/CodingStandards/`.
 
 ## Changing the ruleset
 
-Edit `phpcs.xml.dist` and update this document when adaptations change. Prefer small, reviewable rule changes. If a rule is too noisy for scaffold stubs, fix the code when practical rather than permanently weakening the standard.
+Edit `phpcs.xml.dist` / `phpstan.neon.dist` and update this document when adaptations change. Prefer small, reviewable rule changes. If a rule is too noisy for scaffold stubs, fix the code when practical rather than permanently weakening the standard.

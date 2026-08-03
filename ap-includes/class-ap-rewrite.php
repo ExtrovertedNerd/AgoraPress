@@ -281,6 +281,10 @@ class AP_Rewrite
         $rules['sitemap-([a-z0-9_\-]+)\.xml$'] = 'sitemap=$matches[1]';
         $rules['robots\.txt$'] = 'robots=1';
 
+        // REST API (/ap-json/… — before structure / page catch-all).
+        $rules['ap-json/?$'] = 'rest_route=/';
+        $rules['ap-json/(.*)$'] = 'rest_route=/$matches[1]';
+
         // Forum front-end (before structure / page catch-all).
         // Matches AP_Forum::forumUrl / topicUrl / searchUrl:
         // /forums/, /forums/search/, /forums/{slug}/, /topic/{slug}/.
@@ -419,6 +423,20 @@ class AP_Rewrite
             self::$didMatch = true;
 
             return $seoVars;
+        }
+
+        // REST API (/ap-json/…) recognized even with plain permalinks.
+        $restVars = self::matchRestPath($path);
+        if ($restVars !== null) {
+            foreach (self::mapPublicGetVars($get) as $key => $value) {
+                if (!array_key_exists($key, $restVars) || $restVars[$key] === '' || $restVars[$key] === 0) {
+                    $restVars[$key] = $value;
+                }
+            }
+            self::$queryVars = $restVars;
+            self::$didMatch = true;
+
+            return $restVars;
         }
 
         if (!self::usingPermalinks($db) || $path === '') {
@@ -564,7 +582,7 @@ class AP_Rewrite
         $stringKeys = [
             'name', 'pagename', 'author_name', 's', 'category_name', 'tag', 'post_type', 'post_status', 'feed',
             'ap_forum_view', 'forum_slug', 'topic_slug', 'ap_forum', 'forum_s',
-            'sitemap', 'robots',
+            'sitemap', 'robots', 'rest_route',
         ];
 
         foreach ($intKeys as $key) {
@@ -976,6 +994,59 @@ class AP_Rewrite
         return null;
     }
 
+    /**
+     * Match REST API path segments (/ap-json/… — always on).
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function matchRestPath(string $path): ?array
+    {
+        if (class_exists('AP_Rest', false)) {
+            return AP_Rest::matchRestPath($path);
+        }
+        $path = trim($path, '/');
+        if ($path === '') {
+            return null;
+        }
+        if (strcasecmp($path, 'ap-json') === 0) {
+            return ['rest_route' => '/'];
+        }
+        if (preg_match('#^ap-json/(.*)$#i', $path, $m) === 1) {
+            $rest = '/' . trim(rawurldecode($m[1]), '/');
+
+            return ['rest_route' => $rest === '/' ? '/' : $rest];
+        }
+
+        return null;
+    }
+
+    /**
+     * Public REST API URL for a route (pretty /ap-json/… or plain ?rest_route=).
+     */
+    public static function getRestLink(string $route = '/', ?AP_DB $db = null): string
+    {
+        if (class_exists('AP_Rest', false)) {
+            return AP_Rest::getUrl($route, $db);
+        }
+        $route = trim($route);
+        if ($route === '') {
+            $route = '/';
+        }
+        if ($route[0] !== '/') {
+            $route = '/' . $route;
+        }
+        if (self::usingPermalinks($db)) {
+            $path = '/ap-json/';
+            if ($route !== '/') {
+                $path .= ltrim($route, '/') . '/';
+            }
+
+            return self::homeUrl($path, $db);
+        }
+
+        return self::homeUrl('?rest_route=' . rawurlencode($route), $db);
+    }
+
     // -------------------------------------------------------------------------
     // Server config snippets
     // -------------------------------------------------------------------------
@@ -1117,6 +1188,7 @@ NGINX;
             $stringKeys = [
                 'name', 'pagename', 's', 'tag', 'category_name', 'author_name',
                 'ap_forum_view', 'forum_slug', 'topic_slug', 'ap_forum', 'forum_s',
+                'rest_route', 'feed', 'sitemap',
             ];
             $keepString = in_array($key, $stringKeys, true);
             if (is_numeric($value) && !$keepString) {
@@ -1162,6 +1234,8 @@ NGINX;
             'sitemap' => 'string',
             'sitemap_page' => 'int',
             'robots' => 'string',
+            // REST API (plain ?rest_route=/ap/v1/posts).
+            'rest_route' => 'string',
             // Forum front-end (plain + pretty).
             'ap_forum' => 'string',
             'ap_forum_view' => 'string',

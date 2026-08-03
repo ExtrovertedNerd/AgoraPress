@@ -353,8 +353,19 @@ class AP_Page_Cache
     {
         $urls = [];
 
-        if ($postId > 0 && class_exists('AP_Post', false)) {
-            $post = AP_Post::get($postId);
+        if ($postId < 1) {
+            return $urls;
+        }
+
+        // Pretty permalink when the post model + rewrite layer are available.
+        // Cache purge must never fatal on partial bootstrap / missing DB config.
+        if (class_exists('AP_Post', false)) {
+            $post = null;
+            try {
+                $post = AP_Post::get($postId);
+            } catch (Throwable) {
+                $post = null;
+            }
             if (
                 $post !== null
                 && function_exists('ap_get_permalink')
@@ -369,10 +380,19 @@ class AP_Page_Cache
                     // Partial bootstrap / missing rewrite — fall through to ?p=.
                 }
             }
-            // Always include the stable plain permalink form.
-            if (function_exists('ap_home_url')) {
-                $urls[] = ap_home_url('/?p=' . $postId);
+        }
+
+        // Always include the stable plain permalink form (even without AP_Post).
+        // Backends and reverse proxies key on this token when pretty URLs differ.
+        if (function_exists('ap_home_url')) {
+            $plain = ap_home_url('/?p=' . $postId);
+            if (is_string($plain) && $plain !== '') {
+                $urls[] = $plain;
+            } else {
+                $urls[] = '/?p=' . $postId;
             }
+        } else {
+            $urls[] = '/?p=' . $postId;
         }
 
         // Blog / front indexes often list the post.

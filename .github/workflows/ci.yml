@@ -35,3 +35,6 @@ jobs:
 
       - name: Coding standards (PHPCS)
         run: composer cs:check
+
+      - name: Static analysis (PHPStan)
+        run: composer analyse

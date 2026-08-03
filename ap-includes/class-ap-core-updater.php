@@ -350,7 +350,8 @@ class AP_Core_Updater
                 }
             }
 
-            if ($expectedVersion !== '' && $extracted['package_version'] !== ''
+            if (
+                $expectedVersion !== '' && $extracted['package_version'] !== ''
                 && class_exists('AP_Version_Check', false)
                 && !AP_Version_Check::isNewer($extracted['package_version'], $out['from_version'])
                 && AP_Version_Check::compareVersions($extracted['package_version'], $out['from_version']) < 0
@@ -979,15 +980,8 @@ HTML;
         ]);
 
         $body = @file_get_contents($url, false, $context);
-        $status = 0;
-        if (isset($http_response_header) && is_array($http_response_header)) {
-            foreach ($http_response_header as $line) {
-                if (preg_match('#^HTTP/\S+\s+(\d+)#', (string) $line, $m) === 1) {
-                    $status = (int) $m[1];
-                    break;
-                }
-            }
-        }
+        // Populated by the HTTP stream wrapper after file_get_contents().
+        $status = self::statusFromHttpHeaders($http_response_header);
 
         if ($body === false) {
             return [
@@ -1015,6 +1009,22 @@ HTML;
             'body' => (string) $body,
             'error' => $ok ? '' : 'HTTP ' . $status,
         ];
+    }
+
+    /**
+     * Parse status code from HTTP stream response headers.
+     *
+     * @param list<string> $headers Lines from $http_response_header after file_get_contents().
+     */
+    private static function statusFromHttpHeaders(array $headers): int
+    {
+        foreach ($headers as $line) {
+            if (preg_match('#^HTTP/\S+\s+(\d+)#', (string) $line, $m) === 1) {
+                return (int) $m[1];
+            }
+        }
+
+        return 0;
     }
 
     /**

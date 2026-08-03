@@ -29,6 +29,9 @@ REQUIRED_PATHS: list[str] = [
     "docker-compose.yml",
     "README.md",
     "LICENSE",
+    "CHANGELOG.md",
+    # Release packaging (Phase 7)
+    "bin/package-release.php",
     # Nginx example (SPEC: ".htaccess / nginx examples")
     "docker/nginx.conf.example",
     # Docker Compose stack (SPEC §2 / Phase 0)
@@ -44,6 +47,10 @@ REQUIRED_PATHS: list[str] = [
     "ap-includes/class-ap-requirements.php",
     "ap-includes/class-ap-installer.php",
     "ap-includes/class-ap-cli-install.php",
+    "ap-includes/class-ap-sample-content.php",
+    # Operational CLI (ap-cli)
+    "ap-cli",
+    "ap-includes/class-ap-cli.php",
     # Core includes
     "ap-includes/class-ap-db.php",
     "ap-includes/class-ap-migrator.php",
@@ -84,6 +91,7 @@ MUST_BE_GITIGNORED: list[str] = [
     "ap-config.php",
     "ap-content/uploads",
     ".hephaestus",
+    "/dist/",
 ]
 
 # Explicit Hephaestus rules required by constitution (never track process state).

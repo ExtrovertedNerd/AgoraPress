@@ -55,9 +55,11 @@ def test_phpcs_ruleset_scans_core_paths() -> None:
     for expected in (
         "ap-includes",
         "ap-admin",
+        "install",
         "tests",
         "index.php",
         "ap-config-sample.php",
+        "ap-cli",
     ):
         assert expected in files
 
@@ -69,3 +71,22 @@ def test_coding_standards_doc_content() -> None:
     assert re.search(r"\bAP_\b", text) or "AP_" in text
     assert "ap_" in text
     assert "composer cs" in text
+    assert "PHPStan" in text
+    assert "composer analyse" in text
+
+
+def test_phpstan_config_exists_and_targets_core() -> None:
+    path = ROOT / "phpstan.neon.dist"
+    assert path.is_file(), "Missing phpstan.neon.dist"
+    text = path.read_text(encoding="utf-8")
+    assert "level: 3" in text
+    assert "ap-includes" in text
+    assert "tests/phpstan-bootstrap.php" in text
+
+
+def test_phpstan_bootstrap_exists() -> None:
+    path = ROOT / "tests" / "phpstan-bootstrap.php"
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert "declare(strict_types=1)" in text
+    assert "AP_ABSPATH" in text
