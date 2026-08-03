@@ -48,6 +48,7 @@ final class SuiteHealthTest extends TestCase
             ['tests/Forum/ForumModelTest.php'],
             ['tests/Forum/ForumModerationTest.php'],
             ['tests/Theme/ThemeCompatTest.php'],
+            ['tests/Vision/VisionComplianceTest.php'],
             ['tests/Plugin/PluginApiTest.php'],
             ['tests/Rest/RestApiTest.php'],
             ['tests/Cli/CliToolTest.php'],

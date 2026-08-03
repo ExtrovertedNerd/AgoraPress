@@ -37,6 +37,7 @@ final class DeveloperDocsTest extends TestCase
             'plugins' => ['plugins.md'],
             'compatibility' => ['compatibility.md'],
             'schema' => ['schema.md'],
+            'vision compliance' => ['vision-compliance.md'],
         ];
     }
 
@@ -57,11 +58,41 @@ final class DeveloperDocsTest extends TestCase
     public function testIndexLinksAllGuides(): void
     {
         $index = $this->readDoc('README.md');
-        foreach (['hooks.md', 'themes.md', 'plugins.md', 'compatibility.md', 'schema.md'] as $link) {
+        foreach (
+            [
+                'hooks.md',
+                'themes.md',
+                'plugins.md',
+                'compatibility.md',
+                'schema.md',
+                'vision-compliance.md',
+            ] as $link
+        ) {
             $this->assertStringContainsString(
                 $link,
                 $index,
                 "docs/README.md should link to {$link}"
+            );
+        }
+    }
+
+    public function testVisionComplianceDocCoversPrinciplesAndDeviations(): void
+    {
+        $text = $this->readDoc('vision-compliance.md');
+        foreach (
+            [
+                'Free forever',
+                'No telemetry',
+                'Classic WordPress Theme Compatibility',
+                'Intentional deviations',
+                'Three independent modules',
+                'AP_TELEMETRY',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "vision-compliance.md should mention: {$needle}"
             );
         }
     }

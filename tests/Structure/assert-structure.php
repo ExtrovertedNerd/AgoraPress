@@ -32,6 +32,7 @@ $requiredPaths = [
     'docs/plugins.md',
     'docs/compatibility.md',
     'docs/schema.md',
+    'docs/vision-compliance.md',
     // Release packaging (Phase 7)
     'bin/package-release.php',
     'CHANGELOG.md',

@@ -4,7 +4,7 @@
 
 Spiritual successor to classic WordPress + phpBB: easy to self-host, theme, and maintain. No bloat, no paywalls, no telemetry by default.
 
-> **Status:** Early development (Phase 1). Web installer at `/install/` and CLI installer (`php install/cli.php`). Full CMS/forum features continue to land incrementally.
+> **Status:** MVP feature-complete at `0.1.0-dev` (pre-tagged release). Web + CLI installers, blog/pages/forums, admin, Classic WP Theme Compatibility Layer, REST, CLI, and packaging are in tree. See [docs/vision-compliance.md](docs/vision-compliance.md) for the constitution reevaluation and intentional deviations.
 
 ---
 
@@ -247,6 +247,7 @@ Extending AgoraPress (hooks, themes, plugins, WP theme compatibility, database s
 | Plugin API | [`docs/plugins.md`](docs/plugins.md) |
 | Classic WP compatibility | [`docs/compatibility.md`](docs/compatibility.md) |
 | Database schema | [`docs/schema.md`](docs/schema.md) |
+| Vision compliance | [`docs/vision-compliance.md`](docs/vision-compliance.md) |
 
 ## Development
 

@@ -23,6 +23,7 @@ REQUIRED_DOCS = (
     "plugins.md",
     "compatibility.md",
     "schema.md",
+    "vision-compliance.md",
 )
 
 
@@ -42,8 +43,28 @@ def test_doc_file_exists_and_is_substantial(docs_root: Path, name: str) -> None:
 
 def test_docs_index_links_guides(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
-    for name in ("hooks.md", "themes.md", "plugins.md", "compatibility.md", "schema.md"):
+    for name in (
+        "hooks.md",
+        "themes.md",
+        "plugins.md",
+        "compatibility.md",
+        "schema.md",
+        "vision-compliance.md",
+    ):
         assert name in index, f"docs/README.md should link to {name}"
+
+
+def test_vision_compliance_doc_content(docs_root: Path) -> None:
+    text = (docs_root / "vision-compliance.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "free forever",
+        "no telemetry",
+        "classic wordpress theme compatibility",
+        "intentional deviations",
+        "ap_telemetry",
+        "three independent modules",
+    ):
+        assert phrase in text, f"vision-compliance.md missing: {phrase}"
 
 
 def test_hooks_doc_content(docs_root: Path) -> None:

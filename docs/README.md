@@ -13,6 +13,7 @@ AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). Th
 | [Plugin API](plugins.md) | Headers, activation, MU-plugins, shortcodes, settings |
 | [Compatibility layer](compatibility.md) | WP shims, hook maps, conversion CLI, limitations |
 | [Database schema](schema.md) | Tables, migrations, prefix, multi-driver notes |
+| [Vision compliance](vision-compliance.md) | Constitution reevaluation, principles checklist, intentional deviations |
 
 ## Quick mental model
 
@@ -33,6 +34,7 @@ Request
 - **Security:** Prepared statements only; nonces on state-changing forms; capability checks; escape on output (`ap_esc_html`, `ap_esc_attr`, …) and sanitize on input (`ap_sanitize_text_field`, …).
 - **No telemetry by default:** Version checks never send site identity. Do not add phone-home behaviour in core-adjacent plugins without an explicit opt-in.
 - **Modules:** Static Pages, Blog, and Forum can be toggled independently. Check options / `AP_Options::isModuleEnabled()` before assuming a module is on.
+- **Vision fidelity:** Before large features, re-read [vision-compliance.md](vision-compliance.md). Free forever, lightweight, and privacy defaults are non-negotiable.
 
 ## Related product docs
 
