@@ -327,6 +327,52 @@ function ap_require_email_verification(?AP_DB $db = null): bool
 }
 
 /**
+ * Registration CAPTCHA / anti-spam mode (`off` or `math`).
+ *
+ * @see AP_Registration::captchaMode()
+ */
+function ap_registration_captcha_mode(?AP_DB $db = null): string
+{
+    return AP_Registration::captchaMode($db);
+}
+
+/**
+ * Whether optional registration CAPTCHA / anti-spam is enabled.
+ *
+ * @see AP_Registration::isCaptchaEnabled()
+ */
+function ap_registration_captcha_enabled(?AP_DB $db = null): bool
+{
+    return AP_Registration::isCaptchaEnabled($db);
+}
+
+/**
+ * Build a CAPTCHA challenge for the registration form (empty when disabled).
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Registration::createCaptchaChallenge()
+ */
+function ap_registration_create_captcha(?AP_DB $db = null): array
+{
+    return AP_Registration::createCaptchaChallenge($db);
+}
+
+/**
+ * Verify registration CAPTCHA / honeypot fields from form data.
+ *
+ * @param array<string, mixed> $data
+ *
+ * @return array{ok: bool, errors: list<string>}
+ *
+ * @see AP_Registration::verifyCaptcha()
+ */
+function ap_registration_verify_captcha(array $data, ?AP_DB $db = null): array
+{
+    return AP_Registration::verifyCaptcha($data, $db);
+}
+
+/**
  * Register a public account (when users_can_register is enabled).
  *
  * @param array<string, mixed> $data

@@ -10,6 +10,7 @@
  * Gated by options:
  * - users_can_register (0/1)
  * - require_email_verification (0/1, default 1)
+ * - registration_captcha (off|math, default off) — optional anti-spam beyond email verification
  * - default_role (seeded by installer)
  *
  * @package AgoraPress
@@ -28,6 +29,9 @@ class AP_Registration
     /** Activation / reset key lifetime (24 hours). */
     public const KEY_TTL = 86400;
 
+    /** Math CAPTCHA challenge lifetime (30 minutes). */
+    public const CAPTCHA_TTL = 1800;
+
     /** Minimum seconds between password-reset emails for the same account. */
     public const RESET_COOLDOWN = 60;
 
@@ -36,6 +40,12 @@ class AP_Registration
 
     /** Key purpose: password reset. */
     public const PURPOSE_RESET = 'reset';
+
+    /** CAPTCHA mode: disabled (default). */
+    public const CAPTCHA_OFF = 'off';
+
+    /** CAPTCHA mode: built-in arithmetic challenge + honeypot. */
+    public const CAPTCHA_MATH = 'math';
 
     /**
      * Whether anyone may register (option users_can_register).
@@ -55,10 +65,203 @@ class AP_Registration
     }
 
     /**
+     * Registration CAPTCHA / anti-spam mode.
+     *
+     * Values: {@see self::CAPTCHA_OFF} (default), {@see self::CAPTCHA_MATH}.
+     * Plugins may filter via `ap_registration_captcha_mode` when hooks are loaded.
+     */
+    public static function captchaMode(?AP_DB $db = null): string
+    {
+        $raw = strtolower(trim((string) self::readOption('registration_captcha', self::CAPTCHA_OFF, $db)));
+        if ($raw === '' || $raw === '0' || $raw === 'false' || $raw === 'no' || $raw === 'disabled') {
+            $raw = self::CAPTCHA_OFF;
+        }
+        if ($raw === '1' || $raw === 'true' || $raw === 'yes' || $raw === 'on') {
+            $raw = self::CAPTCHA_MATH;
+        }
+
+        $allowed = [self::CAPTCHA_OFF, self::CAPTCHA_MATH];
+        if (!in_array($raw, $allowed, true)) {
+            // Unknown provider string is treated as a custom/plugin mode (still "enabled").
+            // Built-in verification only handles off|math; plugins use the filter.
+        }
+
+        if (function_exists('ap_apply_filters')) {
+            $filtered = ap_apply_filters('ap_registration_captcha_mode', $raw, $db);
+            if (is_string($filtered) && $filtered !== '') {
+                $raw = strtolower(trim($filtered));
+            }
+        }
+
+        return $raw !== '' ? $raw : self::CAPTCHA_OFF;
+    }
+
+    /**
+     * Whether optional registration anti-spam (CAPTCHA or equivalent) is active.
+     */
+    public static function isCaptchaEnabled(?AP_DB $db = null): bool
+    {
+        return self::captchaMode($db) !== self::CAPTCHA_OFF;
+    }
+
+    /**
+     * Create a built-in math challenge for the registration form.
+     *
+     * @return array{
+     *     mode: string,
+     *     a: int,
+     *     b: int,
+     *     prompt: string,
+     *     token: string,
+     *     field_answer: string,
+     *     field_token: string,
+     *     field_honeypot: string
+     * }
+     */
+    public static function createMathChallenge(): array
+    {
+        $a = random_int(1, 9);
+        $b = random_int(1, 9);
+        $ts = time();
+        $token = self::encodeCaptchaToken($a, $b, $ts);
+
+        return [
+            'mode' => self::CAPTCHA_MATH,
+            'a' => $a,
+            'b' => $b,
+            'prompt' => sprintf('What is %d + %d?', $a, $b),
+            'token' => $token,
+            'field_answer' => 'captcha_answer',
+            'field_token' => 'captcha_token',
+            'field_honeypot' => 'ap_hp',
+        ];
+    }
+
+    /**
+     * Build challenge data for the current CAPTCHA mode (empty when off).
+     *
+     * @return array<string, mixed>
+     */
+    public static function createCaptchaChallenge(?AP_DB $db = null): array
+    {
+        $mode = self::captchaMode($db);
+        if ($mode === self::CAPTCHA_OFF) {
+            return ['mode' => self::CAPTCHA_OFF];
+        }
+
+        $challenge = $mode === self::CAPTCHA_MATH
+            ? self::createMathChallenge()
+            : [
+                'mode' => $mode,
+                'field_answer' => 'captcha_answer',
+                'field_token' => 'captcha_token',
+                'field_honeypot' => 'ap_hp',
+            ];
+
+        if (function_exists('ap_apply_filters')) {
+            $filtered = ap_apply_filters('ap_registration_captcha_challenge', $challenge, $mode, $db);
+            if (is_array($filtered)) {
+                return $filtered;
+            }
+        }
+
+        return $challenge;
+    }
+
+    /**
+     * Verify CAPTCHA / honeypot from registration form data.
+     *
+     * Expected keys when math mode is on: captcha_answer, captcha_token, ap_hp (must be empty).
+     * Always succeeds when CAPTCHA mode is off.
+     * Plugins may override via `ap_registration_verify_captcha`.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array{ok: bool, errors: list<string>}
+     */
+    public static function verifyCaptcha(array $data, ?AP_DB $db = null): array
+    {
+        $mode = self::captchaMode($db);
+        $result = ['ok' => true, 'errors' => []];
+
+        if ($mode === self::CAPTCHA_OFF) {
+            if (function_exists('ap_apply_filters')) {
+                $filtered = ap_apply_filters('ap_registration_verify_captcha', $result, $data, $mode, $db);
+                if (is_array($filtered) && array_key_exists('ok', $filtered)) {
+                    return [
+                        'ok' => (bool) $filtered['ok'],
+                        'errors' => self::normalizeErrorList($filtered['errors'] ?? []),
+                    ];
+                }
+            }
+
+            return $result;
+        }
+
+        // Honeypot: bots often fill hidden "website" fields.
+        $honeypot = trim((string) ($data['ap_hp'] ?? $data['website'] ?? ''));
+        if ($honeypot !== '') {
+            $result = [
+                'ok' => false,
+                'errors' => ['Could not complete registration. Please try again.'],
+            ];
+        } elseif ($mode === self::CAPTCHA_MATH) {
+            $answerRaw = trim((string) ($data['captcha_answer'] ?? ''));
+            $token = trim((string) ($data['captcha_token'] ?? ''));
+            if ($answerRaw === '' || $token === '') {
+                $result = [
+                    'ok' => false,
+                    'errors' => ['Please answer the anti-spam question.'],
+                ];
+            } elseif (!is_numeric($answerRaw)) {
+                $result = [
+                    'ok' => false,
+                    'errors' => ['Incorrect anti-spam answer. Please try again.'],
+                ];
+            } else {
+                $parsed = self::decodeCaptchaToken($token);
+                if ($parsed === null) {
+                    $result = [
+                        'ok' => false,
+                        'errors' => ['The anti-spam check expired. Please try again.'],
+                    ];
+                } else {
+                    $expected = $parsed['a'] + $parsed['b'];
+                    if ((int) $answerRaw !== $expected) {
+                        $result = [
+                            'ok' => false,
+                            'errors' => ['Incorrect anti-spam answer. Please try again.'],
+                        ];
+                    }
+                }
+            }
+        } else {
+            // Unknown / plugin modes: fail closed unless a filter approves.
+            $result = [
+                'ok' => false,
+                'errors' => ['Anti-spam verification is not configured correctly.'],
+            ];
+        }
+
+        if (function_exists('ap_apply_filters')) {
+            $filtered = ap_apply_filters('ap_registration_verify_captcha', $result, $data, $mode, $db);
+            if (is_array($filtered) && array_key_exists('ok', $filtered)) {
+                return [
+                    'ok' => (bool) $filtered['ok'],
+                    'errors' => self::normalizeErrorList($filtered['errors'] ?? []),
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Register a new public account.
      *
      * Required keys: user_login, user_email, user_pass (or password).
      * Optional: display_name.
+     * When CAPTCHA is enabled: captcha_answer, captcha_token, ap_hp (empty).
      *
      * When email verification is required the account is created with
      * STATUS_PENDING and a verification email is sent. When not required the
@@ -92,6 +295,25 @@ class AP_Registration
             return $empty;
         }
 
+        // Optional CAPTCHA / honeypot (beyond email verification).
+        $captcha = self::verifyCaptcha($data, $db);
+        if (!$captcha['ok']) {
+            $empty['errors'] = $captcha['errors'] !== []
+                ? $captcha['errors']
+                : ['Could not complete registration. Please try again.'];
+
+            // Count CAPTCHA failures toward the registration rate limit.
+            if (class_exists('AP_Rate_Limit', false)) {
+                AP_Rate_Limit::hit(
+                    AP_Rate_Limit::ACTION_REGISTER,
+                    AP_Rate_Limit::ipBucket(),
+                    $db
+                );
+            }
+
+            return $empty;
+        }
+
         // IP rate limit (registration floods / bot sign-ups).
         if (class_exists('AP_Rate_Limit', false)) {
             $gate = AP_Rate_Limit::check(
@@ -112,7 +334,7 @@ class AP_Registration
         $needsVerification = self::requireEmailVerification($db);
         $payload = $data;
         // Public registration always uses default_role (ignore client-supplied role).
-        unset($payload['role']);
+        unset($payload['role'], $payload['captcha_answer'], $payload['captcha_token'], $payload['ap_hp'], $payload['website']);
         $payload['user_status'] = $needsVerification ? self::STATUS_PENDING : 0;
 
         $result = AP_User::create($payload, $db);
@@ -594,6 +816,93 @@ class AP_Registration
         $material = $purpose . '|' . $userId . '|' . $timestamp . '|' . $plainKey;
 
         return hash_hmac('sha256', $material, self::signingSecret());
+    }
+
+    /**
+     * Signed captcha token: base64url(ts:a:b:hmac).
+     */
+    private static function encodeCaptchaToken(int $a, int $b, int $timestamp): string
+    {
+        $hmac = hash_hmac(
+            'sha256',
+            'captcha|' . $timestamp . '|' . $a . '|' . $b,
+            self::signingSecret()
+        );
+        $payload = $timestamp . ':' . $a . ':' . $b . ':' . $hmac;
+
+        return rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+    }
+
+    /**
+     * @return array{a: int, b: int, ts: int}|null
+     */
+    private static function decodeCaptchaToken(string $token): ?array
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return null;
+        }
+
+        $b64 = strtr($token, '-_', '+/');
+        $pad = strlen($b64) % 4;
+        if ($pad > 0) {
+            $b64 .= str_repeat('=', 4 - $pad);
+        }
+        $payload = base64_decode($b64, true);
+        if ($payload === false || $payload === '') {
+            return null;
+        }
+
+        $parts = explode(':', $payload, 4);
+        if (count($parts) !== 4) {
+            return null;
+        }
+
+        [$tsRaw, $aRaw, $bRaw, $hmac] = $parts;
+        if (!ctype_digit($tsRaw) || !ctype_digit($aRaw) || !ctype_digit($bRaw) || $hmac === '') {
+            return null;
+        }
+
+        $ts = (int) $tsRaw;
+        $a = (int) $aRaw;
+        $b = (int) $bRaw;
+        if ($ts < 1 || $a < 1 || $b < 1 || $a > 99 || $b > 99) {
+            return null;
+        }
+        if ((time() - $ts) > self::CAPTCHA_TTL || $ts > (time() + 60)) {
+            return null;
+        }
+
+        $expected = hash_hmac(
+            'sha256',
+            'captcha|' . $ts . '|' . $a . '|' . $b,
+            self::signingSecret()
+        );
+        if (!hash_equals($expected, $hmac)) {
+            return null;
+        }
+
+        return ['a' => $a, 'b' => $b, 'ts' => $ts];
+    }
+
+    /**
+     * @param mixed $errors
+     *
+     * @return list<string>
+     */
+    private static function normalizeErrorList(mixed $errors): array
+    {
+        if (!is_array($errors)) {
+            return [];
+        }
+        $out = [];
+        foreach ($errors as $e) {
+            if (is_string($e) && $e !== '') {
+                $out[] = $e;
+            }
+        }
+
+        return $out;
     }
 
     private static function signingSecret(): string

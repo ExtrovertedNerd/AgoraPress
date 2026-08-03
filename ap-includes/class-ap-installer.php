@@ -594,6 +594,8 @@ PHP;
             'admin_email' => $email,
             'users_can_register' => '0',
             'require_email_verification' => '1',
+            // Optional registration CAPTCHA: off|math (disableable; off by default).
+            'registration_captcha' => 'off',
             'default_role' => 'subscriber',
             'ap_db_version' => $dbVersion,
             'ap_version' => $version,

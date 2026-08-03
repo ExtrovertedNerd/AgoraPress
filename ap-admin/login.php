@@ -50,6 +50,12 @@ if ($action !== 'verifyemail' && ap_is_user_logged_in()) {
 $errors = [];
 $messages = [];
 $canRegister = ap_users_can_register();
+$captchaEnabled = $canRegister && function_exists('ap_registration_captcha_enabled')
+    && ap_registration_captcha_enabled();
+$captchaChallenge = null;
+if ($captchaEnabled && function_exists('ap_registration_create_captcha')) {
+    $captchaChallenge = ap_registration_create_captcha();
+}
 
 // ---------------------------------------------------------------------------
 // POST handlers
@@ -119,9 +125,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'user_email' => (string) ($_POST['user_email'] ?? ''),
                     'user_pass' => $password,
                     'display_name' => (string) ($_POST['display_name'] ?? ''),
+                    'captcha_answer' => (string) ($_POST['captcha_answer'] ?? ''),
+                    'captcha_token' => (string) ($_POST['captcha_token'] ?? ''),
+                    'ap_hp' => (string) ($_POST['ap_hp'] ?? ''),
                 ]);
                 if (!$result['ok']) {
                     $errors = array_merge($errors, $result['errors']);
+                    // Fresh challenge after failed attempt (token is one-shot UX).
+                    if ($captchaEnabled && function_exists('ap_registration_create_captcha')) {
+                        $captchaChallenge = ap_registration_create_captcha();
+                    }
                 } elseif ($result['needs_verification']) {
                     AP_Admin::redirect(AP_Admin::url('login.php', [
                         'checkemail' => 'confirm',
@@ -367,6 +380,30 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                         <label for="reg_user_pass2">Confirm password</label>
                         <input type="password" name="user_pass2" id="reg_user_pass2" autocomplete="new-password" required minlength="8" />
                     </div>
+                    <?php if ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? '') === 'math') : ?>
+                        <div class="ap-field">
+                            <label for="reg_captcha_answer"><?php echo ap_esc_html((string) ($captchaChallenge['prompt'] ?? 'Anti-spam check')); ?></label>
+                            <input type="text" name="captcha_answer" id="reg_captcha_answer" inputmode="numeric"
+                                   autocomplete="off" required value="" />
+                            <input type="hidden" name="captcha_token"
+                                   value="<?php echo ap_esc_attr((string) ($captchaChallenge['token'] ?? '')); ?>" />
+                        </div>
+                        <div class="ap-hp" aria-hidden="true">
+                            <label for="ap_hp">Website</label>
+                            <input type="text" name="ap_hp" id="ap_hp" value="" tabindex="-1" autocomplete="off" />
+                        </div>
+                    <?php elseif ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? 'off') !== 'off') : ?>
+                        <?php
+                        // Custom/plugin CAPTCHA modes: expose honeypot + hooks for markup.
+                        if (function_exists('ap_do_action')) {
+                            ap_do_action('ap_registration_captcha_fields', $captchaChallenge);
+                        }
+                        ?>
+                        <div class="ap-hp" aria-hidden="true">
+                            <label for="ap_hp">Website</label>
+                            <input type="text" name="ap_hp" id="ap_hp" value="" tabindex="-1" autocomplete="off" />
+                        </div>
+                    <?php endif; ?>
                     <button type="submit" class="button button-primary">Register</button>
                 </form>
                 <p class="ap-login-links">

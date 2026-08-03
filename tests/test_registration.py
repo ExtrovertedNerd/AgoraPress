@@ -46,6 +46,13 @@ def test_registration_class_defines_api() -> None:
         "function validateKey",
         "function usersCanRegister",
         "function requireEmailVerification",
+        "function captchaMode",
+        "function isCaptchaEnabled",
+        "function createMathChallenge",
+        "function verifyCaptcha",
+        "CAPTCHA_OFF",
+        "CAPTCHA_MATH",
+        "registration_captcha",
         "PURPOSE_ACTIVATE",
         "PURPOSE_RESET",
         "hash_hmac",
@@ -69,6 +76,10 @@ def test_functions_expose_registration_helpers() -> None:
     for needle in (
         "function ap_users_can_register",
         "function ap_require_email_verification",
+        "function ap_registration_captcha_mode",
+        "function ap_registration_captcha_enabled",
+        "function ap_registration_create_captcha",
+        "function ap_registration_verify_captcha",
         "function ap_register_user",
         "function ap_verify_user_email",
         "function ap_request_password_reset",
@@ -95,8 +106,25 @@ def test_login_handles_register_and_reset_actions() -> None:
         "ap_request_password_reset",
         "ap_reset_password",
         "ap_verify_user_email",
+        "captcha_answer",
+        "captcha_token",
+        "ap_hp",
+        "ap_registration_captcha_enabled",
     ):
         assert needle in src, f"Expected {needle!r} in login.php"
+
+
+def test_general_settings_exposes_registration_captcha() -> None:
+    general = ROOT / "ap-admin" / "options-general.php"
+    src = general.read_text(encoding="utf-8")
+    assert "registration_captcha" in src
+    assert "Simple math question" in src
+
+
+def test_installer_seeds_registration_captcha_off() -> None:
+    src = INSTALLER.read_text(encoding="utf-8")
+    assert "registration_captcha" in src
+    assert "'registration_captcha' => 'off'" in src
 
 
 def test_installer_seeds_email_verification_option() -> None:

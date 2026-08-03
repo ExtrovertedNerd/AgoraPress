@@ -501,7 +501,8 @@ class AP_Options
             // Prefer Settings API sanitizers when available.
             $map = [
                 'blogname', 'blogdescription', 'siteurl', 'home', 'admin_email',
-                'users_can_register', 'require_email_verification', 'default_role',
+                'users_can_register', 'require_email_verification', 'registration_captcha',
+                'default_role',
                 'timezone_string', 'WPLANG', 'date_format', 'time_format', 'start_of_week',
             ];
             $input = [];
@@ -515,6 +516,9 @@ class AP_Options
                 if (!array_key_exists($cb, $input)) {
                     $input[$cb] = '0';
                 }
+            }
+            if (!array_key_exists('registration_captcha', $input)) {
+                $input['registration_captcha'] = 'off';
             }
 
             return AP_Settings::save('general', $input, $db);
@@ -552,6 +556,16 @@ class AP_Options
             self::truthy($settings['require_email_verification'] ?? '0') ? '1' : '0',
             $db
         ) && $ok;
+        $cap = strtolower(trim((string) ($settings['registration_captcha'] ?? 'off')));
+        if ($cap === '' || $cap === '0' || $cap === 'false' || $cap === 'no' || $cap === 'disabled') {
+            $cap = 'off';
+        } elseif ($cap === '1' || $cap === 'true' || $cap === 'yes' || $cap === 'on') {
+            $cap = 'math';
+        }
+        if (!in_array($cap, ['off', 'math'], true)) {
+            $cap = 'off';
+        }
+        $ok = self::update('registration_captcha', $cap, $db) && $ok;
         if (isset($settings['default_role'])) {
             $role = strtolower(preg_replace('/[^a-z0-9_\-]/', '', (string) $settings['default_role']) ?? '');
             if ($role !== '' && $role !== 'administrator') {

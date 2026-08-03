@@ -185,6 +185,7 @@ final class SettingsApiTest extends TestCase
             'admin_email' => 'admin@example.test',
             'users_can_register' => '1',
             'require_email_verification' => '0',
+            'registration_captcha' => 'math',
             'default_role' => 'author',
             'timezone_string' => 'Europe/Paris',
             'date_format' => 'F j, Y',
@@ -200,9 +201,22 @@ final class SettingsApiTest extends TestCase
         $this->assertSame('admin@example.test', AP_Options::get('admin_email', '', $this->db));
         $this->assertSame('1', (string) AP_Options::get('users_can_register', '0', $this->db));
         $this->assertSame('0', (string) AP_Options::get('require_email_verification', '1', $this->db));
+        $this->assertSame('math', (string) AP_Options::get('registration_captcha', 'off', $this->db));
         $this->assertSame('author', AP_Options::get('default_role', '', $this->db));
         $this->assertSame('Europe/Paris', AP_Options::get('timezone_string', '', $this->db));
         $this->assertSame('0', (string) AP_Options::get('start_of_week', '1', $this->db));
+
+        // Disable CAPTCHA again via settings save.
+        $ok2 = AP_Options::updateGeneralSettings([
+            'blogname' => 'New Title',
+            'admin_email' => 'admin@example.test',
+            'users_can_register' => '1',
+            'require_email_verification' => '0',
+            'registration_captcha' => 'off',
+            'default_role' => 'author',
+        ], $this->db);
+        $this->assertTrue($ok2);
+        $this->assertSame('off', (string) AP_Options::get('registration_captcha', 'math', $this->db));
     }
 
     public function testModulesAtLeastOneRequired(): void

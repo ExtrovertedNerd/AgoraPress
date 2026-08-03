@@ -1661,6 +1661,16 @@ body.ap-admin-login .ap-login-color-toggle:focus-visible {
     font-size: 0.85em;
 }
 
+/* Registration honeypot — off-screen, not keyboard-focusable (tabindex=-1 on input). */
+.ap-login-box .ap-hp {
+    position: absolute;
+    left: -10000px;
+    top: auto;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
 /* Media Library */
 .ap-list-toolbar-right {
     display: flex;

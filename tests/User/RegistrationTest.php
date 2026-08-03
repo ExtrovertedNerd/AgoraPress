@@ -110,6 +110,111 @@ final class RegistrationTest extends TestCase
         $this->assertFalse(AP_Registration::requireEmailVerification($this->db));
     }
 
+    public function testCaptchaDisabledByDefault(): void
+    {
+        $this->assertSame(AP_Registration::CAPTCHA_OFF, AP_Registration::captchaMode($this->db));
+        $this->assertFalse(AP_Registration::isCaptchaEnabled($this->db));
+        $this->assertFalse(ap_registration_captcha_enabled($this->db));
+        $this->assertSame('off', ap_registration_captcha_mode($this->db));
+
+        $challenge = AP_Registration::createCaptchaChallenge($this->db);
+        $this->assertSame('off', $challenge['mode'] ?? null);
+
+        // Registration succeeds without captcha fields when mode is off.
+        $result = AP_Registration::register([
+            'user_login' => 'nocapuser',
+            'user_email' => 'nocap@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+    }
+
+    public function testMathCaptchaRequiredWhenEnabled(): void
+    {
+        $this->setOption('registration_captcha', 'math');
+        $this->assertTrue(AP_Registration::isCaptchaEnabled($this->db));
+        $this->assertSame(AP_Registration::CAPTCHA_MATH, AP_Registration::captchaMode($this->db));
+
+        // Missing answer → reject.
+        $missing = AP_Registration::register([
+            'user_login' => 'capmiss',
+            'user_email' => 'capmiss@example.test',
+            'user_pass' => 'securepass1',
+        ], $this->db);
+        $this->assertFalse($missing['ok']);
+        $this->assertNotEmpty($missing['errors']);
+        $this->assertNull(AP_User::getByLogin('capmiss', $this->db));
+
+        $challenge = AP_Registration::createMathChallenge();
+        $this->assertSame('math', $challenge['mode']);
+        $this->assertNotSame('', $challenge['token']);
+        $answer = (string) ($challenge['a'] + $challenge['b']);
+
+        // Wrong answer → reject.
+        $wrong = AP_Registration::register([
+            'user_login' => 'capwrong',
+            'user_email' => 'capwrong@example.test',
+            'user_pass' => 'securepass1',
+            'captcha_token' => $challenge['token'],
+            'captcha_answer' => (string) ((int) $answer + 1),
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertFalse($wrong['ok']);
+        $this->assertNull(AP_User::getByLogin('capwrong', $this->db));
+
+        // Honeypot filled → reject (generic message).
+        $challenge2 = AP_Registration::createMathChallenge();
+        $answer2 = (string) ($challenge2['a'] + $challenge2['b']);
+        $hp = AP_Registration::register([
+            'user_login' => 'caphp',
+            'user_email' => 'caphp@example.test',
+            'user_pass' => 'securepass1',
+            'captcha_token' => $challenge2['token'],
+            'captcha_answer' => $answer2,
+            'ap_hp' => 'http://spam.example',
+        ], $this->db);
+        $this->assertFalse($hp['ok']);
+        $this->assertNull(AP_User::getByLogin('caphp', $this->db));
+
+        // Correct answer + empty honeypot → ok.
+        $challenge3 = AP_Registration::createMathChallenge();
+        $answer3 = (string) ($challenge3['a'] + $challenge3['b']);
+        $ok = AP_Registration::register([
+            'user_login' => 'capok',
+            'user_email' => 'capok@example.test',
+            'user_pass' => 'securepass1',
+            'captcha_token' => $challenge3['token'],
+            'captcha_answer' => $answer3,
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($ok['ok'], implode('; ', $ok['errors']));
+        $this->assertNotNull(AP_User::getByLogin('capok', $this->db));
+    }
+
+    public function testVerifyCaptchaHelpers(): void
+    {
+        $this->setOption('registration_captcha', 'off');
+        $pass = ap_registration_verify_captcha([], $this->db);
+        $this->assertTrue($pass['ok']);
+
+        $this->setOption('registration_captcha', 'math');
+        $challenge = ap_registration_create_captcha($this->db);
+        $this->assertSame('math', $challenge['mode'] ?? '');
+        $fail = ap_registration_verify_captcha([
+            'captcha_token' => (string) ($challenge['token'] ?? ''),
+            'captcha_answer' => '999',
+        ], $this->db);
+        $this->assertFalse($fail['ok']);
+
+        $sum = (int) ($challenge['a'] ?? 0) + (int) ($challenge['b'] ?? 0);
+        $ok = ap_registration_verify_captcha([
+            'captcha_token' => (string) ($challenge['token'] ?? ''),
+            'captcha_answer' => (string) $sum,
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($ok['ok'], implode('; ', $ok['errors']));
+    }
+
     public function testRegisterClosedWhenOptionOff(): void
     {
         $this->setOption('users_can_register', '0');
@@ -295,6 +400,10 @@ final class RegistrationTest extends TestCase
         $this->assertTrue(function_exists('ap_request_password_reset'));
         $this->assertTrue(function_exists('ap_check_password_reset_key'));
         $this->assertTrue(function_exists('ap_reset_password'));
+        $this->assertTrue(function_exists('ap_registration_captcha_mode'));
+        $this->assertTrue(function_exists('ap_registration_captcha_enabled'));
+        $this->assertTrue(function_exists('ap_registration_create_captcha'));
+        $this->assertTrue(function_exists('ap_registration_verify_captcha'));
         $this->assertTrue(function_exists('ap_mail'));
 
         $this->assertTrue(ap_mail('x@example.test', 'Subject', 'Body'));
@@ -357,6 +466,8 @@ final class RegistrationTest extends TestCase
                 'ap_request_password_reset',
                 'ap_reset_password',
                 'ap_verify_user_email',
+                'captcha_answer',
+                'ap_hp',
             ] as $needle
         ) {
             $this->assertStringContainsString($needle, $src);

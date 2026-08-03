@@ -577,6 +577,25 @@ class AP_Settings
             'default' => '1',
             'sanitize_callback' => [self::class, 'sanitizeCheckbox'],
         ]);
+        self::registerSetting('general', 'registration_captcha', [
+            'type' => 'string',
+            'default' => 'off',
+            'sanitize_callback' => static function (mixed $v): string {
+                $mode = strtolower(trim((string) ($v ?? 'off')));
+                if ($mode === '' || $mode === '0' || $mode === 'false' || $mode === 'no' || $mode === 'disabled') {
+                    return 'off';
+                }
+                if ($mode === '1' || $mode === 'true' || $mode === 'yes' || $mode === 'on') {
+                    return 'math';
+                }
+                // Built-in modes only; plugins may still filter at verify time for custom strings.
+                if (in_array($mode, ['off', 'math'], true)) {
+                    return $mode;
+                }
+
+                return 'off';
+            },
+        ]);
         self::registerSetting('general', 'default_role', [
             'type' => 'string',
             'default' => 'subscriber',
