@@ -1,0 +1,20 @@
+# AgoraPress Apache rewrite rules (scaffold).
+# Full permalink routing is implemented with the installer / rewrite layer.
+
+# Deny access to sensitive files
+<FilesMatch "^(ap-config\.php|composer\.(json|lock)|\.env)">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Do not rewrite existing files or directories
+    RewriteRule ^index\.php$ - [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+
+    # Front controller
+    RewriteRule . /index.php [L]
+</IfModule>

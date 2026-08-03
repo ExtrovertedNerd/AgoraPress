@@ -1,0 +1,30 @@
+# AgoraPress — example Nginx server block (scaffold).
+# Adjust root, server_name, and PHP-FPM socket for your environment.
+
+server {
+    listen 80;
+    server_name example.com;
+    root /var/www/agorapress;
+    index index.php;
+
+    client_max_body_size 64m;
+
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    }
+
+    # Deny access to sensitive files
+    location ~* ^/(ap-config\.php|composer\.(json|lock)|\.env) {
+        deny all;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+}

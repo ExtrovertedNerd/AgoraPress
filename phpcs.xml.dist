@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<ruleset name="AgoraPress">
+    <description>
+        AgoraPress coding standards: PSR-12 adapted for a hybrid procedural + OOP
+        core familiar to classic WordPress developers (SPEC §6).
+    </description>
+
+    <!-- Scan targets (core product code + tests). -->
+    <file>ap-includes</file>
+    <file>ap-admin</file>
+    <file>tests</file>
+    <file>index.php</file>
+    <file>ap-config-sample.php</file>
+
+    <!-- Never lint third-party, runtime content, or process state. -->
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/ap-content/*</exclude-pattern>
+    <exclude-pattern>*/.hephaestus/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+
+    <arg name="basepath" value="."/>
+    <arg name="extensions" value="php"/>
+    <arg name="parallel" value="4"/>
+    <arg name="cache" value=".phpcs.cache"/>
+    <arg name="colors"/>
+    <arg value="sp"/>
+
+    <!--
+        Base standard: PSR-12 (includes PSR-1 / PSR-2 style rules).
+
+        Adaptations (see CODING_STANDARDS.md):
+        - Core classes use WordPress-style names (AP_DB, AP_Query) without
+          namespaces so the API stays familiar to classic WP developers.
+        - Procedural files (functions.php, hooks.php, bootstrap) may declare
+          symbols and later perform load-time registration — SideEffects is
+          too strict for this hybrid model.
+        - File naming remains class-ap-*.php (SPEC directory layout), not
+          PSR-4 path-to-class mapping for core includes.
+    -->
+    <rule ref="PSR12">
+        <exclude name="PSR1.Classes.ClassDeclaration.MissingNamespace"/>
+        <exclude name="Squiz.Classes.ValidClassName"/>
+        <exclude name="PSR1.Files.SideEffects"/>
+    </rule>
+
+    <!-- SPEC §6: strict types where practical. -->
+    <rule ref="Generic.PHP.RequireStrictTypes"/>
+
+    <!-- Soft line length guidance (PSR-12 recommends 120). -->
+    <rule ref="Generic.Files.LineLength">
+        <properties>
+            <property name="lineLimit" value="120"/>
+            <property name="absoluteLineLimit" value="200"/>
+            <property name="ignoreComments" value="true"/>
+        </properties>
+    </rule>
+</ruleset>

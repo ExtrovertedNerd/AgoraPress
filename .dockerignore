@@ -1,0 +1,28 @@
+# Keep Docker build context small and free of secrets / process state.
+.git
+.hephaestus
+**/.hephaestus
+.gitignore
+.dockerignore
+
+# Local env / generated config
+.env
+.env.*
+ap-config.php
+
+# Dependencies & caches (mounted or installed on host as needed)
+vendor
+node_modules
+.phpunit.cache
+.pytest_cache
+.phpcs.cache
+coverage
+
+# Runtime / uploads
+ap-content/uploads
+
+# Editor / OS noise
+.idea
+.vscode
+*.swp
+.DS_Store
