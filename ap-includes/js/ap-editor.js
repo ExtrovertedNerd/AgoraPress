@@ -272,7 +272,24 @@
                     .replace(/"/g, '&quot;')
                     .replace(/</g, '&lt;')
                     .replace(/>/g, '&gt;');
-                insertHtml('<img src="' + safe + '" alt="">');
+                // Optional display width so huge images do not blow out the layout.
+                var widthHint = '';
+                try {
+                    var wRaw = window.prompt(
+                        'Display width in pixels (optional, leave blank for auto):',
+                        ''
+                    );
+                    if (wRaw !== null && String(wRaw).trim() !== '') {
+                        var wNum = parseInt(String(wRaw).trim(), 10);
+                        if (wNum > 0 && wNum <= 10000) {
+                            widthHint = ' width="' + wNum + '" style="max-width:100%;height:auto"';
+                        }
+                    }
+                } catch (eImg) { /* ignore */ }
+                if (widthHint === '') {
+                    widthHint = ' style="max-width:100%;height:auto"';
+                }
+                insertHtml('<img src="' + safe + '" alt="" class="ap-content-image"' + widthHint + '>');
                 break;
             }
             case 'insert':
@@ -302,12 +319,19 @@
             if (!t || !t.closest) {
                 return;
             }
+            // Mode switch is handled separately.
+            if (t.closest('[data-ap-editor-set-mode]')) {
+                return;
+            }
             var btn = t.closest('[data-ap-editor-cmd]');
             if (!btn || !toolbar.contains(btn)) {
                 return;
             }
             e.preventDefault();
             var wrap = closestWrap(toolbar);
+            if (!wrap || getActiveMode(wrap) === 'html') {
+                return;
+            }
             var surface = getSurface(wrap);
             if (!surface) {
                 return;
@@ -347,6 +371,133 @@
         });
     }
 
+    function syncTextareaToSurface(wrap) {
+        var surface = getSurface(wrap);
+        var ta = getTextarea(wrap);
+        if (!surface || !ta) {
+            return;
+        }
+        surface.innerHTML = ta.value || '';
+    }
+
+    function getActiveMode(wrap) {
+        if (!wrap) {
+            return 'visual';
+        }
+        var m = wrap.getAttribute('data-ap-editor-ui-mode') || 'visual';
+        return m === 'html' ? 'html' : 'visual';
+    }
+
+    function updateModeButtons(wrap, mode) {
+        var switcher = wrap.querySelector('[data-ap-editor-mode-switch]');
+        if (!switcher) {
+            return;
+        }
+        var buttons = switcher.querySelectorAll('[data-ap-editor-set-mode]');
+        for (var i = 0; i < buttons.length; i++) {
+            var btn = buttons[i];
+            var isOn = btn.getAttribute('data-ap-editor-set-mode') === mode;
+            if (isOn) {
+                btn.classList.add('is-active');
+                btn.setAttribute('aria-pressed', 'true');
+            } else {
+                btn.classList.remove('is-active');
+                btn.setAttribute('aria-pressed', 'false');
+            }
+        }
+    }
+
+    /**
+     * Switch between Visual (contenteditable) and Text/HTML source (textarea).
+     * @param {Element} wrap
+     * @param {string} mode 'visual' | 'html'
+     */
+    function setMode(wrap, mode) {
+        if (!wrap) {
+            return;
+        }
+        mode = mode === 'html' ? 'html' : 'visual';
+        var ta = getTextarea(wrap);
+        var surface = getSurface(wrap);
+        if (!ta || !surface) {
+            return;
+        }
+
+        var prev = getActiveMode(wrap);
+        if (prev === mode && wrap.getAttribute('data-ap-editor-enhanced') === '1') {
+            updateModeButtons(wrap, mode);
+            return;
+        }
+
+        if (mode === 'html') {
+            // Push visual surface → textarea before showing source.
+            if (prev === 'visual' || wrap.classList.contains('ap-editor--visual-active')) {
+                syncSurfaceToTextarea(wrap);
+            }
+            wrap.setAttribute('data-ap-editor-ui-mode', 'html');
+            wrap.classList.remove('ap-editor--visual-active');
+            wrap.classList.add('ap-editor--html-active');
+            surface.setAttribute('hidden', 'hidden');
+            surface.removeAttribute('contenteditable');
+            surface.setAttribute('aria-hidden', 'true');
+
+            ta.classList.remove('ap-editor__textarea--hidden');
+            ta.removeAttribute('aria-hidden');
+            ta.tabIndex = 0;
+            ta.setAttribute('data-ap-editor-mode', 'html');
+            try {
+                ta.focus({ preventScroll: true });
+            } catch (e) {
+                ta.focus();
+            }
+        } else {
+            // Text → visual: load textarea into surface.
+            if (prev === 'html' || wrap.classList.contains('ap-editor--html-active')) {
+                syncTextareaToSurface(wrap);
+            }
+            wrap.setAttribute('data-ap-editor-ui-mode', 'visual');
+            wrap.classList.remove('ap-editor--html-active');
+            wrap.classList.add('ap-editor--visual-active');
+            surface.removeAttribute('hidden');
+            surface.removeAttribute('aria-hidden');
+            surface.setAttribute('contenteditable', 'true');
+            surface.setAttribute('role', 'textbox');
+            surface.setAttribute('aria-multiline', 'true');
+
+            ta.classList.add('ap-editor__textarea--hidden');
+            ta.setAttribute('aria-hidden', 'true');
+            ta.tabIndex = -1;
+            ta.setAttribute('data-ap-editor-mode', 'visual');
+            focusSurface(surface);
+            syncSurfaceToTextarea(wrap);
+        }
+
+        updateModeButtons(wrap, mode);
+    }
+
+    function bindModeSwitch(wrap) {
+        if (!wrap || wrap.getAttribute('data-ap-editor-mode-bound') === '1') {
+            return;
+        }
+        var switcher = wrap.querySelector('[data-ap-editor-mode-switch]');
+        if (!switcher) {
+            return;
+        }
+        wrap.setAttribute('data-ap-editor-mode-bound', '1');
+        switcher.addEventListener('click', function (e) {
+            var t = e.target;
+            if (!t || !t.closest) {
+                return;
+            }
+            var btn = t.closest('[data-ap-editor-set-mode]');
+            if (!btn || !switcher.contains(btn)) {
+                return;
+            }
+            e.preventDefault();
+            setMode(wrap, btn.getAttribute('data-ap-editor-set-mode') || 'visual');
+        });
+    }
+
     function enhanceWrap(wrap) {
         if (!wrap || wrap.getAttribute('data-ap-editor-enhanced') === '1') {
             return;
@@ -358,6 +509,7 @@
         }
         wrap.setAttribute('data-ap-editor-enhanced', '1');
         wrap.classList.add('ap-editor--visual-active');
+        wrap.setAttribute('data-ap-editor-ui-mode', 'visual');
 
         // Show visual surface; keep textarea for submit (visually hidden).
         surface.removeAttribute('hidden');
@@ -383,6 +535,9 @@
         ta.tabIndex = -1;
 
         var sync = function () {
+            if (getActiveMode(wrap) !== 'visual') {
+                return;
+            }
             syncSurfaceToTextarea(wrap);
         };
         surface.addEventListener('input', sync);
@@ -415,10 +570,15 @@
             form.addEventListener('submit', function () {
                 var wraps = form.querySelectorAll('[data-ap-editor-wrap]');
                 for (var i = 0; i < wraps.length; i++) {
-                    syncSurfaceToTextarea(wraps[i]);
+                    if (getActiveMode(wraps[i]) === 'visual') {
+                        syncSurfaceToTextarea(wraps[i]);
+                    }
                 }
             });
         }
+
+        bindModeSwitch(wrap);
+        updateModeButtons(wrap, 'visual');
 
         // Initial sync so saved HTML matches what is shown.
         sync();
@@ -473,6 +633,8 @@
         bindEmojiPicker: bindEmojiPicker,
         closeEmojiPickers: closeAllPickers,
         sync: syncSurfaceToTextarea,
+        setMode: setMode,
+        getMode: getActiveMode,
         placeCaretAtEnd: placeCaretAtEnd
     };
 

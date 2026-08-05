@@ -512,6 +512,11 @@ class AP_Forum
             return false;
         }
 
+        // Drop per-forum ACL rows (never touches blog post/page visibility).
+        if (class_exists('AP_Forum_Permissions', false)) {
+            AP_Forum_Permissions::deleteForForum($id, $db);
+        }
+
         if (function_exists('ap_do_action')) {
             ap_do_action('ap_forum_deleted', $id);
         }

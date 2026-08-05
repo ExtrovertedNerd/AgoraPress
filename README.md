@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** MVP feature-complete at `0.1.2-dev` (pre-tagged) and **ready for live-site install**. See [docs/vision-compliance.md](docs/vision-compliance.md) for product principles and intentional deviations.
+> **Status:** MVP feature-complete at `0.1.3-dev` (pre-tagged) and **ready for live-site install**. See [docs/vision-compliance.md](docs/vision-compliance.md) for product principles and intentional deviations.
 
 ---
 

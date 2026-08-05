@@ -90,6 +90,70 @@
   opacity: 0.55;
 }
 
+/* Visual | Text mode switcher */
+.ap-editor__mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  margin-left: auto;
+  border: 1px solid var(--ap-border, #c5cad3);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--ap-surface, #fff);
+}
+
+.ap-editor__mode-btn {
+  appearance: none;
+  margin: 0;
+  padding: 0.2rem 0.55rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.35;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.ap-editor__mode-btn + .ap-editor__mode-btn {
+  border-left: 1px solid var(--ap-border, #c5cad3);
+}
+
+.ap-editor__mode-btn:hover,
+.ap-editor__mode-btn:focus-visible {
+  opacity: 1;
+  outline: none;
+  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+}
+
+.ap-editor__mode-btn.is-active {
+  opacity: 1;
+  background: var(--ap-primary, #1a5fb4);
+  color: #fff;
+}
+
+.ap-editor--html-active .ap-editor__btn:not([data-ap-editor-set-mode]) {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.ap-editor--html-active .ap-editor__mode-switch .ap-editor__mode-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ap-editor--html-active .ap-editor__textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  tab-size: 2;
+}
+
 /* Visual editing surface — what-you-see-is-what-you-get */
 .ap-editor__surface {
   display: block;

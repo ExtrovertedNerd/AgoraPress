@@ -100,7 +100,7 @@ class AP_Admin_Media
     }
 
     /**
-     * Save attachment details form.
+     * Save attachment details form (metadata and/or image scale/crop).
      *
      * @param array<string, mixed> $input
      *
@@ -162,6 +162,33 @@ class AP_Admin_Media
             ];
         }
 
+        $saveAction = (string) ($input['save_action'] ?? 'save');
+
+        // Image scale / crop (destructive on the original file).
+        if ($saveAction === 'edit_image') {
+            $maxW = max(0, (int) ($input['image_scale_w'] ?? 0));
+            $maxH = max(0, (int) ($input['image_scale_h'] ?? 0));
+            $crop = !empty($input['image_crop']);
+            $edit = AP_Media::editImage($id, $maxW, $maxH, $crop, $db);
+            if (!$edit['ok']) {
+                return [
+                    'ok' => false,
+                    'id' => $id,
+                    'message_key' => 'error',
+                    'errors' => [$edit['error'] !== '' ? $edit['error'] : 'Could not edit the image.'],
+                    'post' => AP_Post::get($id, $db),
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'id' => $id,
+                'message_key' => 'image_edited',
+                'errors' => [],
+                'post' => AP_Post::get($id, $db),
+            ];
+        }
+
         $title = ap_sanitize_text_field((string) ($input['post_title'] ?? ''));
         $caption = ap_sanitize_textarea_field((string) ($input['post_excerpt'] ?? ''));
         $description = ap_sanitize_textarea_field((string) ($input['post_content'] ?? ''));
@@ -215,13 +242,13 @@ class AP_Admin_Media
     /**
      * Attachment details edit form HTML.
      */
-    public static function renderEditForm(AP_Post $post, int $userId = 0): string
+    public static function renderEditForm(AP_Post $post, int $userId = 0, ?AP_DB $db = null): string
     {
         $id = (int) $post->ID;
-        $url = AP_Media::getAttachmentUrl($id);
-        $relative = AP_Media::getAttachedFileRelative($id);
-        $meta = AP_Media::getMetadata($id);
-        $alt = AP_Media::getAltText($id);
+        $url = AP_Media::getAttachmentUrl($id, $db);
+        $relative = AP_Media::getAttachedFileRelative($id, $db);
+        $meta = AP_Media::getMetadata($id, $db);
+        $alt = AP_Media::getAltText($id, $db);
         $isImage = AP_Media::isImageMime($post->post_mime_type);
 
         $action = ap_esc_url(AP_Admin::url('media.php', ['item' => $id]));
@@ -307,7 +334,55 @@ class AP_Admin_Media
         $html .= '<a class="button ap-button-danger" href="' . ap_esc_url($deleteUrl)
             . '" onclick="return confirm(\'Delete this file permanently?\');">Delete permanently</a>';
         $html .= '</p>';
-        $html .= '</div></div></form>';
+        $html .= '</div>'; // .ap-media-edit-fields
+
+        // Image scale / crop (attachment details).
+        if ($isImage && !str_contains(strtolower($post->post_mime_type), 'svg')) {
+            $curW = (int) ($meta['width'] ?? 0);
+            $curH = (int) ($meta['height'] ?? 0);
+            $gdOk = AP_Media::gdAvailable();
+            $html .= '<div class="ap-media-edit-image ap-media-edit-fields">';
+            $html .= '<h2 class="ap-media-edit-image-title">Scale / crop</h2>';
+            if (!$gdOk) {
+                $html .= '<p class="description">Image editing requires the PHP <code>gd</code> extension.</p>';
+            } else {
+                $html .= '<p class="description">'
+                    . 'Resize the original file on disk. Leave one dimension empty to preserve aspect ratio. '
+                    . 'Optional crop uses the width and height as exact target dimensions (center crop). '
+                    . 'This cannot be undone — download a copy first if you need the original.'
+                    . '</p>';
+                $html .= '<p class="ap-field ap-media-scale-fields">';
+                $html .= '<label for="image_scale_w">Max width</label> ';
+                $html .= '<input type="number" class="small-text" name="image_scale_w" id="image_scale_w" '
+                    . 'min="0" max="10000" value="' . ($curW > 0 ? $curW : '') . '" placeholder="px"> ';
+                $html .= '<label for="image_scale_h">Max height</label> ';
+                $html .= '<input type="number" class="small-text" name="image_scale_h" id="image_scale_h" '
+                    . 'min="0" max="10000" value="' . ($curH > 0 ? $curH : '') . '" placeholder="px">';
+                $html .= '</p>';
+                $html .= '<p class="ap-field">';
+                $html .= '<label class="ap-inline-option">'
+                    . '<input type="checkbox" name="image_crop" id="image_crop" value="1"> '
+                    . 'Crop to exact dimensions (center)</label>';
+                $html .= '</p>';
+                if ($curW > 0 && $curH > 0) {
+                    $html .= '<p class="description">Current size: '
+                        . $curW . ' × ' . $curH . ' px</p>';
+                }
+                $maxDisplay = AP_Media::maxDisplayWidth($db);
+                if ($maxDisplay > 0) {
+                    $html .= '<p class="description">Site max display width for content images: '
+                        . $maxDisplay . ' px (Settings → Media).</p>';
+                }
+                $html .= '<p class="ap-media-edit-actions">';
+                $html .= '<button type="submit" class="button" name="save_action" value="edit_image"'
+                    . ' onclick="return confirm(\'Scale or crop the original image file? This cannot be undone.\');">'
+                    . 'Apply scale / crop</button>';
+                $html .= '</p>';
+            }
+            $html .= '</div>';
+        }
+
+        $html .= '</div></form>'; // .ap-media-edit-layout + form
 
         return $html;
     }

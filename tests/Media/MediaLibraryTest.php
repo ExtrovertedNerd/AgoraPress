@@ -398,6 +398,102 @@ final class MediaLibraryTest extends TestCase
         $this->assertStringContainsString('MB', AP_Media::formatBytes(2 * 1024 * 1024));
     }
 
+    public function testGdScaleAndCropAndMaxDisplayWidth(): void
+    {
+        if (!AP_Media::gdAvailable()) {
+            $this->markTestSkipped('GD extension required for image scale/crop tests.');
+        }
+
+        // Build a 40×20 solid PNG so scale/crop is observable.
+        $src = imagecreatetruecolor(40, 20);
+        $this->assertNotFalse($src);
+        $blue = imagecolorallocate($src, 0, 80, 200);
+        imagefilledrectangle($src, 0, 0, 39, 19, $blue);
+        $tmp = sys_get_temp_dir() . '/ap-scale-' . bin2hex(random_bytes(4)) . '.png';
+        imagepng($src, $tmp);
+        imagedestroy($src);
+
+        $result = AP_Media::handleUpload([
+            'name' => 'scale-me.png',
+            'type' => 'image/png',
+            'tmp_name' => $tmp,
+            'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($tmp),
+        ], [
+            'test_mode' => true,
+            'post_author' => 1,
+            'skip_rate_limit' => true,
+        ], $this->db);
+        @unlink($tmp);
+
+        $this->assertTrue($result['ok'], $result['error']);
+        $id = $result['id'];
+        $meta = AP_Media::getMetadata($id, $this->db);
+        $this->assertSame(40, (int) ($meta['width'] ?? 0));
+        $this->assertSame(20, (int) ($meta['height'] ?? 0));
+
+        // Scale down (fit): max width 20 → 20×10.
+        $edit = AP_Media::editImage($id, 20, 0, false, $this->db);
+        $this->assertTrue($edit['ok'], $edit['error']);
+        $this->assertSame(20, $edit['width']);
+        $this->assertSame(10, $edit['height']);
+        $meta2 = AP_Media::getMetadata($id, $this->db);
+        $this->assertSame(20, (int) ($meta2['width'] ?? 0));
+        $this->assertSame(10, (int) ($meta2['height'] ?? 0));
+
+        // Center crop to exact 8×8.
+        $edit2 = AP_Media::editImage($id, 8, 8, true, $this->db);
+        $this->assertTrue($edit2['ok'], $edit2['error']);
+        $this->assertSame(8, $edit2['width']);
+        $this->assertSame(8, $edit2['height']);
+
+        // Max display width option + CSS printer.
+        AP_Options::update(AP_Media::OPTION_MAX_DISPLAY_WIDTH, '900', $this->db);
+        $this->assertSame(900, AP_Media::maxDisplayWidth($this->db));
+        ob_start();
+        AP_Media::printContentImageCss($this->db);
+        $css = (string) ob_get_clean();
+        $this->assertStringContainsString('ap-content-image-max', $css);
+        $this->assertStringContainsString('900px', $css);
+        $this->assertStringContainsString('max-width:min(100%', $css);
+
+        // Admin form exposes scale/crop controls.
+        $post = AP_Post::get($id, $this->db);
+        $this->assertNotNull($post);
+        $form = AP_Admin_Media::renderEditForm($post, $this->actorId, $this->db);
+        $this->assertStringContainsString('image_scale_w', $form);
+        $this->assertStringContainsString('image_crop', $form);
+        $this->assertStringContainsString('edit_image', $form);
+        $this->assertStringContainsString('Scale / crop', $form);
+    }
+
+    public function testResampleFileFitOnlyScalesDown(): void
+    {
+        if (!AP_Media::gdAvailable()) {
+            $this->markTestSkipped('GD extension required.');
+        }
+        $src = imagecreatetruecolor(100, 50);
+        $this->assertNotFalse($src);
+        imagefilledrectangle($src, 0, 0, 99, 49, imagecolorallocate($src, 10, 20, 30));
+        $in = sys_get_temp_dir() . '/ap-in-' . bin2hex(random_bytes(3)) . '.png';
+        $out = sys_get_temp_dir() . '/ap-out-' . bin2hex(random_bytes(3)) . '.png';
+        imagepng($src, $in);
+        imagedestroy($src);
+
+        $r = AP_Media::resampleFile($in, $out, 'image/png', 50, 0, false);
+        $this->assertTrue($r['ok'], $r['error']);
+        $this->assertSame(50, $r['width']);
+        $this->assertSame(25, $r['height']);
+        $this->assertFileExists($out);
+        $info = getimagesize($out);
+        $this->assertIsArray($info);
+        $this->assertSame(50, $info[0]);
+        $this->assertSame(25, $info[1]);
+
+        @unlink($in);
+        @unlink($out);
+    }
+
     public function testUploadProtectionFiles(): void
     {
         $dir = self::$uploadsTmp;

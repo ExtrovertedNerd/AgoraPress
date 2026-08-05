@@ -55,6 +55,13 @@ def test_media_class_api_surface() -> None:
         "function checkFileType",
         "function query",
         "function mimeTypeCounts",
+        "function gdAvailable",
+        "function editImage",
+        "function resampleFile",
+        "function generateIntermediateSizes",
+        "function maxDisplayWidth",
+        "function printContentImageCss",
+        "OPTION_MAX_DISPLAY_WIDTH",
         "ATTACHED_FILE_META",
         "ALT_META",
     ):
@@ -85,6 +92,9 @@ def test_media_admin_api_surface() -> None:
         "function renderUploadForm",
         "function renderEditForm",
         "function normalizeFilesArray",
+        "image_scale_w",
+        "edit_image",
+        "Scale / crop",
     ):
         assert needle in edit_src, f"Expected {needle!r} in admin media class"
 

@@ -150,6 +150,7 @@ class AP_Forums_List_Table
             'name' => 'Name',
             'type' => 'Type',
             'status' => 'Status',
+            'access' => 'Access',
             'topics' => 'Topics',
             'posts' => 'Posts',
             'order' => 'Order',
@@ -269,6 +270,13 @@ class AP_Forums_List_Table
                 case 'status':
                     $row .= '<td class="column-status" data-colname="Status">'
                         . ap_esc_html(ucfirst((string) $forum->forum_status)) . '</td>';
+                    break;
+                case 'access':
+                    $access = class_exists('AP_Forum_Permissions', false)
+                        ? AP_Forum_Permissions::summarizeAccess($id, $this->resolveDb())
+                        : '—';
+                    $row .= '<td class="column-access" data-colname="Access">'
+                        . ap_esc_html($access) . '</td>';
                     break;
                 case 'topics':
                     $row .= '<td class="column-topics" data-colname="Topics">'

@@ -208,6 +208,28 @@ final class EditorTest extends TestCase
         $this->assertStringNotContainsString('[b]Bold[/b]', $html);
         $this->assertStringContainsString('required', $html);
         $this->assertStringContainsString('Visual', $html);
+        $this->assertStringContainsString('data-ap-editor-mode-switch', $html);
+        $this->assertStringContainsString('data-ap-editor-set-mode="visual"', $html);
+        $this->assertStringContainsString('data-ap-editor-set-mode="html"', $html);
+        $this->assertStringContainsString('Text', $html);
+    }
+
+    public function testRenderHasVisualTextModeSwitcher(): void
+    {
+        $html = AP_Editor::render([
+            'id' => 'post_content',
+            'name' => 'post_content',
+            'value' => '<p>Hello</p>',
+            'mode' => 'visual',
+        ]);
+        $this->assertStringContainsString('data-ap-editor-mode-switch', $html);
+        $this->assertStringContainsString('data-ap-editor-set-mode="html"', $html);
+        $this->assertStringContainsString('aria-label="Editor mode"', $html);
+        // Text mode label for raw HTML / source editing.
+        $this->assertMatchesRegularExpression(
+            '/data-ap-editor-set-mode="html"[^>]*>\s*Text\s*</',
+            $html
+        );
     }
 
     public function testRenderEmojiPickerStandalone(): void
@@ -265,6 +287,10 @@ final class EditorTest extends TestCase
         $this->assertStringContainsString('contenteditable', strtolower($js));
         $this->assertStringContainsString('data-ap-editor-surface', $js);
         $this->assertStringContainsString('execCommand', $js);
+        // Visual | Text (HTML source) mode switcher.
+        $this->assertStringContainsString('setMode', $js);
+        $this->assertStringContainsString('data-ap-editor-set-mode', $js);
+        $this->assertStringContainsString('ap-editor--html-active', $js);
         // No heavy third-party / block stacks.
         $lower = strtolower($js);
         $this->assertStringNotContainsString('prosemirror', $lower);
@@ -285,6 +311,8 @@ final class EditorTest extends TestCase
         $this->assertStringContainsString('.ap-editor__emoji-picker', $css);
         $this->assertStringContainsString('.ap-editor__emoji-btn', $css);
         $this->assertStringContainsString('prefers-reduced-motion', $css);
+        $this->assertStringContainsString('.ap-editor__mode-switch', $css);
+        $this->assertStringContainsString('.ap-editor--html-active', $css);
     }
 
     public function testContentFormatAvailableForDisplay(): void

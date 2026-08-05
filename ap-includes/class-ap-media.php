@@ -659,6 +659,11 @@ HTACCESS;
             self::setAltText($id, $alt, $db);
         }
 
+        // Generate thumbnail / medium / large when GD is available.
+        if (self::isImageMime($mime) && !str_contains(strtolower($mime), 'svg')) {
+            self::generateIntermediateSizes($id, $db);
+        }
+
         return $id;
     }
 
@@ -682,12 +687,15 @@ HTACCESS;
         }
 
         $file = self::getAttachedFile($id, $db);
+        $meta = self::getMetadata($id, $db);
         $ok = AP_Post::delete($id, true, $db);
         if (!$ok) {
             return false;
         }
 
         if ($file !== '' && is_file($file)) {
+            // Intermediate sizes first (same directory as original).
+            self::deleteIntermediateFiles($meta, $file);
             // Only unlink files that still live under the uploads basedir.
             $base = realpath(self::basedir());
             $real = realpath($file);
@@ -1326,6 +1334,641 @@ HTACCESS;
         }
 
         return $meta;
+    }
+
+    // -------------------------------------------------------------------------
+    // Image editing (GD) — scale / crop / intermediate sizes / max display width
+    // -------------------------------------------------------------------------
+
+    /** Option: max CSS display width for content images (px). 0 = no fixed cap. */
+    public const OPTION_MAX_DISPLAY_WIDTH = 'max_image_display_width';
+
+    /** Default max display width when option is unset. */
+    public const DEFAULT_MAX_DISPLAY_WIDTH = 1200;
+
+    /** @var bool Whether content-image CSS printer was registered. */
+    private static bool $contentCssRegistered = false;
+
+    /**
+     * Whether GD can load/save common raster formats used by AgoraPress.
+     */
+    public static function gdAvailable(): bool
+    {
+        return extension_loaded('gd')
+            && function_exists('imagecreatetruecolor')
+            && function_exists('imagecopyresampled');
+    }
+
+    /**
+     * Register ap_head printer for content image max-width CSS (idempotent).
+     */
+    public static function registerContentImageCss(): void
+    {
+        if (self::$contentCssRegistered) {
+            return;
+        }
+        self::$contentCssRegistered = true;
+
+        if (!function_exists('ap_add_action')) {
+            return;
+        }
+
+        ap_add_action('ap_head', [self::class, 'printContentImageCss'], 20);
+    }
+
+    /**
+     * Max display width in pixels (0 = no fixed pixel cap; still max-width:100%).
+     */
+    public static function maxDisplayWidth(?AP_DB $db = null): int
+    {
+        $raw = null;
+        if (function_exists('ap_get_option')) {
+            $raw = ap_get_option(self::OPTION_MAX_DISPLAY_WIDTH, self::DEFAULT_MAX_DISPLAY_WIDTH, $db);
+        } elseif (class_exists('AP_Options', false)) {
+            $raw = AP_Options::get(self::OPTION_MAX_DISPLAY_WIDTH, self::DEFAULT_MAX_DISPLAY_WIDTH, $db);
+        }
+        $n = (int) $raw;
+
+        return max(0, min(10000, $n));
+    }
+
+    /**
+     * Print CSS so content images respect max display width and never overflow.
+     */
+    public static function printContentImageCss(?AP_DB $db = null): void
+    {
+        $max = self::maxDisplayWidth($db);
+        $rules = [
+            '.ap-the-content img',
+            '.entry-content img',
+            '.post-content img',
+            '.ap-content img',
+            '.ap-entry-content img',
+            'article .content img',
+            'img.ap-content-image',
+        ];
+        $sel = implode(', ', $rules);
+        if ($max > 0) {
+            $css = $sel . '{max-width:min(100%,' . $max . 'px);height:auto;}';
+        } else {
+            $css = $sel . '{max-width:100%;height:auto;}';
+        }
+
+        echo '<style id="ap-content-image-max">' . $css . '</style>' . "\n";
+    }
+
+    /**
+     * Registered image size definitions from Media settings.
+     *
+     * @return array<string, array{width: int, height: int, crop: bool}>
+     */
+    public static function registeredImageSizes(?AP_DB $db = null): array
+    {
+        $get = static function (string $key, int $default) use ($db): int {
+            $v = null;
+            if (function_exists('ap_get_option')) {
+                $v = ap_get_option($key, $default, $db);
+            } elseif (class_exists('AP_Options', false)) {
+                $v = AP_Options::get($key, $default, $db);
+            }
+
+            return max(0, min(10000, (int) ($v ?? $default)));
+        };
+        $crop = '1';
+        if (function_exists('ap_get_option')) {
+            $crop = (string) ap_get_option('thumbnail_crop', '1', $db);
+        } elseif (class_exists('AP_Options', false)) {
+            $crop = (string) AP_Options::get('thumbnail_crop', '1', $db);
+        }
+
+        return [
+            'thumbnail' => [
+                'width' => $get('thumbnail_size_w', 150),
+                'height' => $get('thumbnail_size_h', 150),
+                'crop' => $crop === '1',
+            ],
+            'medium' => [
+                'width' => $get('medium_size_w', 300),
+                'height' => $get('medium_size_h', 300),
+                'crop' => false,
+            ],
+            'large' => [
+                'width' => $get('large_size_w', 1024),
+                'height' => $get('large_size_h', 1024),
+                'crop' => false,
+            ],
+        ];
+    }
+
+    /**
+     * Generate intermediate sizes (thumbnail / medium / large) for an attachment.
+     *
+     * Skips when GD is unavailable or dimensions are 0. Updates attachment metadata.
+     *
+     * @return array<string, mixed> Updated metadata (or existing when nothing done)
+     */
+    public static function generateIntermediateSizes(int $attachmentId, ?AP_DB $db = null): array
+    {
+        $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        $meta = self::getMetadata($attachmentId, $db);
+        if (!self::gdAvailable()) {
+            return $meta;
+        }
+
+        $abs = self::getAttachedFile($attachmentId, $db);
+        if ($abs === '' || !is_file($abs)) {
+            return $meta;
+        }
+
+        $post = AP_Post::get($attachmentId, $db);
+        $mime = $post !== null ? (string) $post->post_mime_type : '';
+        if ($mime === '' || !self::isImageMime($mime) || str_contains(strtolower($mime), 'svg')) {
+            return $meta;
+        }
+
+        $srcW = (int) ($meta['width'] ?? 0);
+        $srcH = (int) ($meta['height'] ?? 0);
+        if ($srcW < 1 || $srcH < 1) {
+            $info = @getimagesize($abs);
+            if (!is_array($info) || !isset($info[0], $info[1])) {
+                return $meta;
+            }
+            $srcW = (int) $info[0];
+            $srcH = (int) $info[1];
+            $meta['width'] = $srcW;
+            $meta['height'] = $srcH;
+        }
+
+        // Remove previous intermediate files before regenerating.
+        self::deleteIntermediateFiles($meta, $abs);
+
+        $sizes = [];
+        $dir = dirname($abs);
+        $baseName = pathinfo($abs, PATHINFO_FILENAME);
+        $ext = strtolower(pathinfo($abs, PATHINFO_EXTENSION));
+
+        foreach (self::registeredImageSizes($db) as $name => $def) {
+            $maxW = (int) $def['width'];
+            $maxH = (int) $def['height'];
+            $crop = !empty($def['crop']);
+            if ($maxW < 1 && $maxH < 1) {
+                continue;
+            }
+            // Skip when source already fits inside the box (non-crop).
+            if (!$crop && ($maxW < 1 || $srcW <= $maxW) && ($maxH < 1 || $srcH <= $maxH)) {
+                continue;
+            }
+            if ($crop && $srcW === $maxW && $srcH === $maxH) {
+                continue;
+            }
+
+            $destName = $baseName . '-' . $name . ($ext !== '' ? '.' . $ext : '');
+            $destPath = $dir . '/' . $destName;
+            $result = self::resampleFile($abs, $destPath, $mime, $maxW, $maxH, $crop);
+            if (!$result['ok']) {
+                continue;
+            }
+
+            $rel = self::relativeFromAbs($destPath);
+            $sizes[$name] = [
+                'file' => $rel !== '' ? basename($rel) : $destName,
+                'width' => $result['width'],
+                'height' => $result['height'],
+                'mime-type' => $mime,
+            ];
+        }
+
+        $meta['sizes'] = $sizes;
+        if ($db !== null) {
+            AP_Post::updateMeta($attachmentId, self::ATTACHMENT_META, (string) json_encode($meta), $db);
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Scale (and optionally crop) the original attachment file in place.
+     *
+     * @return array{ok: bool, error: string, width: int, height: int, meta: array<string, mixed>}
+     */
+    public static function editImage(
+        int $attachmentId,
+        int $maxWidth,
+        int $maxHeight,
+        bool $crop = false,
+        ?AP_DB $db = null
+    ): array {
+        $fail = static fn (string $error): array => [
+            'ok' => false,
+            'error' => $error,
+            'width' => 0,
+            'height' => 0,
+            'meta' => [],
+        ];
+
+        if (!self::gdAvailable()) {
+            return $fail('Image editing requires the PHP GD extension.');
+        }
+
+        $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        $post = AP_Post::get($attachmentId, $db);
+        if ($post === null || $post->post_type !== 'attachment') {
+            return $fail('Attachment not found.');
+        }
+
+        $mime = (string) $post->post_mime_type;
+        if (!self::isImageMime($mime) || str_contains(strtolower($mime), 'svg')) {
+            return $fail('Only raster images can be scaled or cropped.');
+        }
+
+        $abs = self::getAttachedFile($attachmentId, $db);
+        if ($abs === '' || !is_file($abs)) {
+            return $fail('Image file is missing on disk.');
+        }
+
+        $maxWidth = max(0, min(10000, $maxWidth));
+        $maxHeight = max(0, min(10000, $maxHeight));
+        if ($maxWidth < 1 && $maxHeight < 1) {
+            return $fail('Enter a width and/or height greater than zero.');
+        }
+
+        // Work on a temp file then replace original.
+        $tmp = $abs . '.ap-edit-' . bin2hex(random_bytes(4));
+        $result = self::resampleFile($abs, $tmp, $mime, $maxWidth, $maxHeight, $crop);
+        if (!$result['ok'] || !is_file($tmp)) {
+            @unlink($tmp);
+
+            return $fail($result['error'] !== '' ? $result['error'] : 'Could not process the image.');
+        }
+
+        // Replace original.
+        if (!@rename($tmp, $abs)) {
+            $copied = @copy($tmp, $abs);
+            @unlink($tmp);
+            if (!$copied) {
+                return $fail('Could not save the edited image.');
+            }
+        }
+        @chmod($abs, 0644);
+
+        $meta = self::generateMetadata($attachmentId, $abs, $mime, $db);
+        // Drop old intermediate files (dimensions changed).
+        $oldMeta = self::getMetadata($attachmentId, $db);
+        self::deleteIntermediateFiles($oldMeta, $abs);
+        $meta['sizes'] = [];
+        if ($db !== null) {
+            AP_Post::updateMeta($attachmentId, self::ATTACHMENT_META, (string) json_encode($meta), $db);
+        }
+
+        // Rebuild intermediates from the new original.
+        $meta = self::generateIntermediateSizes($attachmentId, $db);
+
+        return [
+            'ok' => true,
+            'error' => '',
+            'width' => (int) ($meta['width'] ?? $result['width']),
+            'height' => (int) ($meta['height'] ?? $result['height']),
+            'meta' => $meta,
+        ];
+    }
+
+    /**
+     * URL for a named intermediate size, or full attachment URL as fallback.
+     */
+    public static function getAttachmentImageUrl(
+        int $id,
+        string $size = 'full',
+        ?AP_DB $db = null
+    ): string {
+        $full = self::getAttachmentUrl($id, $db);
+        if ($size === '' || $size === 'full' || $size === 'original') {
+            return $full;
+        }
+
+        $meta = self::getMetadata($id, $db);
+        $sizes = is_array($meta['sizes'] ?? null) ? $meta['sizes'] : [];
+        if (!isset($sizes[$size]) || !is_array($sizes[$size])) {
+            return $full;
+        }
+        $file = (string) ($sizes[$size]['file'] ?? '');
+        if ($file === '') {
+            return $full;
+        }
+
+        $relative = self::getAttachedFileRelative($id, $db);
+        if ($relative === '') {
+            return $full;
+        }
+        $dir = str_replace('\\', '/', dirname($relative));
+        $sub = ($dir === '.' || $dir === '') ? $file : ($dir . '/' . $file);
+
+        return self::baseurl() . '/' . implode('/', array_map('rawurlencode', explode('/', $sub)));
+    }
+
+    /**
+     * Resample a source image file to a destination path.
+     *
+     * @return array{ok: bool, error: string, width: int, height: int}
+     */
+    public static function resampleFile(
+        string $srcPath,
+        string $destPath,
+        string $mime,
+        int $maxWidth,
+        int $maxHeight,
+        bool $crop = false
+    ): array {
+        $fail = static fn (string $error): array => [
+            'ok' => false,
+            'error' => $error,
+            'width' => 0,
+            'height' => 0,
+        ];
+
+        if (!self::gdAvailable()) {
+            return $fail('GD is not available.');
+        }
+        if (!is_readable($srcPath)) {
+            return $fail('Source image is not readable.');
+        }
+
+        $info = @getimagesize($srcPath);
+        if (!is_array($info) || !isset($info[0], $info[1]) || (int) $info[0] < 1 || (int) $info[1] < 1) {
+            return $fail('Source is not a valid image.');
+        }
+        $srcW = (int) $info[0];
+        $srcH = (int) $info[1];
+        $mime = $mime !== '' ? $mime : (string) ($info['mime'] ?? '');
+
+        $src = self::createImageFromFile($srcPath, $mime);
+        if ($src === null) {
+            return $fail('Could not load the image (unsupported format or corrupt file).');
+        }
+
+        $maxWidth = max(0, $maxWidth);
+        $maxHeight = max(0, $maxHeight);
+
+        if ($crop && $maxWidth > 0 && $maxHeight > 0) {
+            // Center-crop to exact dimensions (cover).
+            $scale = max($maxWidth / $srcW, $maxHeight / $srcH);
+            $cropW = (int) round($maxWidth / $scale);
+            $cropH = (int) round($maxHeight / $scale);
+            $cropW = min($srcW, max(1, $cropW));
+            $cropH = min($srcH, max(1, $cropH));
+            $srcX = (int) max(0, floor(($srcW - $cropW) / 2));
+            $srcY = (int) max(0, floor(($srcH - $cropH) / 2));
+            $dstW = $maxWidth;
+            $dstH = $maxHeight;
+        } else {
+            // Fit inside box (scale down only).
+            $dstW = $srcW;
+            $dstH = $srcH;
+            if ($maxWidth > 0 && $dstW > $maxWidth) {
+                $dstH = (int) max(1, round($dstH * ($maxWidth / $dstW)));
+                $dstW = $maxWidth;
+            }
+            if ($maxHeight > 0 && $dstH > $maxHeight) {
+                $dstW = (int) max(1, round($dstW * ($maxHeight / $dstH)));
+                $dstH = $maxHeight;
+            }
+            $srcX = 0;
+            $srcY = 0;
+            $cropW = $srcW;
+            $cropH = $srcH;
+
+            if ($dstW === $srcW && $dstH === $srcH) {
+                // No change needed — copy file as-is when paths differ.
+                if ($srcPath !== $destPath) {
+                    if (!@copy($srcPath, $destPath)) {
+                        imagedestroy($src);
+
+                        return $fail('Could not copy image file.');
+                    }
+                }
+                imagedestroy($src);
+
+                return [
+                    'ok' => true,
+                    'error' => '',
+                    'width' => $srcW,
+                    'height' => $srcH,
+                ];
+            }
+        }
+
+        $dst = imagecreatetruecolor($dstW, $dstH);
+        if ($dst === false) {
+            imagedestroy($src);
+
+            return $fail('Could not allocate destination image.');
+        }
+
+        // Preserve alpha for PNG / WebP / GIF.
+        if (self::mimeSupportsAlpha($mime)) {
+            imagealphablending($dst, false);
+            imagesavealpha($dst, true);
+            $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+            if ($transparent !== false) {
+                imagefilledrectangle($dst, 0, 0, $dstW, $dstH, $transparent);
+            }
+        }
+
+        $ok = imagecopyresampled(
+            $dst,
+            $src,
+            0,
+            0,
+            $srcX,
+            $srcY,
+            $dstW,
+            $dstH,
+            $cropW,
+            $cropH
+        );
+        imagedestroy($src);
+        if (!$ok) {
+            imagedestroy($dst);
+
+            return $fail('Resampling failed.');
+        }
+
+        $saved = self::saveImageToFile($dst, $destPath, $mime);
+        imagedestroy($dst);
+        if (!$saved) {
+            return $fail('Could not write the processed image.');
+        }
+        @chmod($destPath, 0644);
+
+        return [
+            'ok' => true,
+            'error' => '',
+            'width' => $dstW,
+            'height' => $dstH,
+        ];
+    }
+
+    /**
+     * @return \GdImage|resource|null
+     */
+    private static function createImageFromFile(string $path, string $mime)
+    {
+        $mime = strtolower($mime);
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        if (
+            str_contains($mime, 'jpeg') || str_contains($mime, 'jpg')
+            || in_array($ext, ['jpg', 'jpeg', 'jpe'], true)
+        ) {
+            $img = @imagecreatefromjpeg($path);
+
+            return $img !== false ? $img : null;
+        }
+        if (str_contains($mime, 'png') || $ext === 'png') {
+            $img = @imagecreatefrompng($path);
+
+            return $img !== false ? $img : null;
+        }
+        if (str_contains($mime, 'gif') || $ext === 'gif') {
+            $img = @imagecreatefromgif($path);
+
+            return $img !== false ? $img : null;
+        }
+        if (str_contains($mime, 'webp') || $ext === 'webp') {
+            if (!function_exists('imagecreatefromwebp')) {
+                return null;
+            }
+            $img = @imagecreatefromwebp($path);
+
+            return $img !== false ? $img : null;
+        }
+        if (str_contains($mime, 'bmp') || $ext === 'bmp') {
+            if (!function_exists('imagecreatefrombmp')) {
+                return null;
+            }
+            $img = @imagecreatefrombmp($path);
+
+            return $img !== false ? $img : null;
+        }
+        if (str_contains($mime, 'avif') || $ext === 'avif') {
+            if (!function_exists('imagecreatefromavif')) {
+                return null;
+            }
+            $img = @imagecreatefromavif($path);
+
+            return $img !== false ? $img : null;
+        }
+
+        // Last resort: let GD sniff.
+        if (function_exists('imagecreatefromstring')) {
+            $blob = @file_get_contents($path);
+            if (is_string($blob) && $blob !== '') {
+                $img = @imagecreatefromstring($blob);
+
+                return $img !== false ? $img : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param \GdImage|resource $image
+     */
+    private static function saveImageToFile($image, string $path, string $mime): bool
+    {
+        $mime = strtolower($mime);
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        if (
+            str_contains($mime, 'jpeg') || str_contains($mime, 'jpg')
+            || in_array($ext, ['jpg', 'jpeg', 'jpe'], true)
+        ) {
+            return @imagejpeg($image, $path, 90);
+        }
+        if (str_contains($mime, 'png') || $ext === 'png') {
+            return @imagepng($image, $path, 6);
+        }
+        if (str_contains($mime, 'gif') || $ext === 'gif') {
+            return @imagegif($image, $path);
+        }
+        if (str_contains($mime, 'webp') || $ext === 'webp') {
+            if (!function_exists('imagewebp')) {
+                return false;
+            }
+
+            return @imagewebp($image, $path, 90);
+        }
+        if (str_contains($mime, 'bmp') || $ext === 'bmp') {
+            if (!function_exists('imagebmp')) {
+                return false;
+            }
+
+            return @imagebmp($image, $path);
+        }
+        if (str_contains($mime, 'avif') || $ext === 'avif') {
+            if (!function_exists('imageavif')) {
+                return false;
+            }
+
+            return @imageavif($image, $path, 80);
+        }
+
+        // Default to PNG for unknown.
+        return @imagepng($image, $path, 6);
+    }
+
+    private static function mimeSupportsAlpha(string $mime): bool
+    {
+        $mime = strtolower($mime);
+
+        return str_contains($mime, 'png')
+            || str_contains($mime, 'webp')
+            || str_contains($mime, 'gif')
+            || str_contains($mime, 'avif');
+    }
+
+    /**
+     * @param array<string, mixed> $meta
+     */
+    private static function deleteIntermediateFiles(array $meta, string $originalAbs): void
+    {
+        $sizes = is_array($meta['sizes'] ?? null) ? $meta['sizes'] : [];
+        if ($sizes === []) {
+            return;
+        }
+        $dir = dirname($originalAbs);
+        $base = realpath(self::basedir());
+        foreach ($sizes as $sizeMeta) {
+            if (!is_array($sizeMeta)) {
+                continue;
+            }
+            $file = (string) ($sizeMeta['file'] ?? '');
+            if ($file === '' || str_contains($file, '..') || str_contains($file, '/')) {
+                // Only basenames stored under the original directory.
+                if ($file === '' || str_contains($file, '..')) {
+                    continue;
+                }
+            }
+            $path = $dir . '/' . basename($file);
+            if (!is_file($path)) {
+                continue;
+            }
+            $real = realpath($path);
+            if ($base !== false && $real !== false && str_starts_with($real, $base)) {
+                @unlink($real);
+            }
+        }
+    }
+
+    private static function relativeFromAbs(string $absPath): string
+    {
+        $base = str_replace('\\', '/', self::basedir());
+        $norm = str_replace('\\', '/', $absPath);
+        if (str_starts_with($norm, $base . '/')) {
+            return self::normalizeRelativePath(substr($norm, strlen($base) + 1));
+        }
+
+        return '';
     }
 
     // -------------------------------------------------------------------------

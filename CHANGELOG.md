@@ -3,10 +3,14 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.1.2-dev**).  
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.1.3-dev**).  
 No tagged public release yet — everything below is **[Unreleased]**.
 
 ## [Unreleased]
+
+### Package
+
+- Dev package `0.1.3-dev` (zip + SHA-256 under `dist/`).
 
 ### Changed
 
@@ -19,6 +23,16 @@ No tagged public release yet — everything below is **[Unreleased]**.
 - Default theme primary/footer menus could render twice when no custom menu was assigned.
 
 ### Added
+
+**Forums**
+
+- ACP **visibility & permissions** per forum by user level (Guest → Registered → Moderator → Administrator): presets (Public, Members only, Read only, Moderators only, Administrators only) plus a full custom matrix. Forum-only — blog posts/pages still use publish status.
+
+**Appearance & editor**
+
+- **Additional CSS** on Appearance → Theme Options (`custom_css` option) so site owners can add rules without editing theme files (printed on `ap_head`)
+- **Visual | Text** mode switcher on the classic editor (raw HTML source for embeds, long addresses, fine-grained markup)
+- Media: scale/crop on attachment details (GD), intermediate sizes on upload, **max display width** for content images (Settings → Media)
 
 **Install & ops**
 

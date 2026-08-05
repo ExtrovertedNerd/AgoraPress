@@ -23,7 +23,7 @@ if (
     if ($result['ok']) {
         AP_Admin::redirect(AP_Admin::url('media.php', [
             'item' => $result['id'],
-            'message' => 'updated',
+            'message' => $result['message_key'] !== '' ? $result['message_key'] : 'updated',
         ]));
     }
     foreach ($result['errors'] as $err) {

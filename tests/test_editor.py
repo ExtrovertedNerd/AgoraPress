@@ -64,6 +64,8 @@ def test_editor_class_api() -> None:
         "ap_editor_emojis",
         "data-ap-editor-architecture",
         "data-ap-editor-surface",
+        "data-ap-editor-mode-switch",
+        "data-ap-editor-set-mode",
         "Not a block",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-editor.php"

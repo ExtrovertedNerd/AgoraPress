@@ -18,6 +18,9 @@ vision).
 - **Editing surface:** a `contenteditable` div that shows **formatted HTML as you
   type** (bold looks bold, headings look like headings). A hidden `<textarea>`
   holds the HTML submitted with the form.
+- **Visual | Text modes:** toolbar switcher toggles between the WYSIWYG surface
+  and raw HTML source (Text) for long crypto addresses, embeds, and fine-grained
+  markup. Both modes store the same HTML.
 - **Storage:** HTML (whitelist-sanitized on display via `AP_Content_Format`).
   Legacy Markdown / BBCode content is converted when opened in the editor and
   when published via `ap_the_content`.
@@ -60,9 +63,10 @@ $html = AP_Editor::valueToHtml($raw); // auto: Markdown/BBCode/HTML → kses HTM
 With JavaScript disabled the plain textarea still submits (pre-filled with
 formatted HTML). With JS enabled the visual surface is shown and toolbar buttons
 apply formatting via the browser’s editing API (`document.execCommand` +
-selection helpers). Assets are enqueued via `AP_Assets` when available, with an
-idempotent print fallback so forms that render after `ap_head()` still get CSS/JS
-once.
+selection helpers). The **Visual / Text** switcher (`AP_Editor.setMode`) flips
+between contenteditable and monospace HTML source without losing content.
+Assets are enqueued via `AP_Assets` when available, with an idempotent print
+fallback so forms that render after `ap_head()` still get CSS/JS once.
 
 ## Display pipeline
 

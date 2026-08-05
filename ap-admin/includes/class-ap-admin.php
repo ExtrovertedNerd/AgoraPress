@@ -967,6 +967,7 @@ class AP_Admin
             'bulk_deleted' => ['Selected items permanently deleted.', 'success'],
             'uploaded' => ['File uploaded.', 'success'],
             'bulk_uploaded' => ['Files uploaded.', 'success'],
+            'image_edited' => ['Image scaled or cropped.', 'success'],
             'term_created' => ['Term created.', 'success'],
             'term_updated' => ['Term updated.', 'success'],
             'term_deleted' => ['Term deleted.', 'success'],

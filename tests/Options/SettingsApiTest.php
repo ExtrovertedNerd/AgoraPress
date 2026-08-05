@@ -269,10 +269,12 @@ final class SettingsApiTest extends TestCase
             'medium_size_h' => 400,
             'large_size_w' => 1200,
             'large_size_h' => 1200,
+            'max_image_display_width' => 900,
             'uploads_use_yearmonth_folders' => '0',
         ], $this->db);
         $this->assertTrue($ok);
         $this->assertSame('200', (string) AP_Options::get('thumbnail_size_w', '0', $this->db));
+        $this->assertSame('900', (string) AP_Options::get('max_image_display_width', '0', $this->db));
         $this->assertSame('0', (string) AP_Options::get('uploads_use_yearmonth_folders', '1', $this->db));
 
         require_once $this->root . '/ap-includes/class-ap-media.php';
@@ -352,6 +354,8 @@ final class SettingsApiTest extends TestCase
                 'default_comment_status',
                 'require_name_email',
                 'thumbnail_size_w',
+                'max_image_display_width',
+                'custom_css',
                 'uploads_use_yearmonth_folders',
                 'use_smilies',
             ] as $opt

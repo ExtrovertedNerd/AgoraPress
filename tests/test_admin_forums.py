@@ -84,8 +84,12 @@ def test_admin_forum_classes_define_core_api() -> None:
         "function save",
         "function delete",
         "function renderForm",
+        "function renderPermissionsFieldset",
         "function parentOptions",
         "manage_forums",
+        "forum_access_level",
+        "AP_Forum_Permissions",
+        "Visibility",
     ):
         assert needle in edit_src, f"Expected {needle!r} in forum edit class"
 

@@ -17,6 +17,7 @@ use AP_DB;
 use AP_Forum;
 use AP_Forum_Moderation;
 use AP_Forum_Moderation_Queue;
+use AP_Forum_Permissions;
 use AP_Forum_Topics_List_Table;
 use AP_Forums_List_Table;
 use AP_Group;
@@ -60,6 +61,7 @@ final class AdminForumsTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-forum.php';
         require_once $this->root . '/ap-includes/class-ap-forum-moderation.php';
         require_once $this->root . '/ap-includes/class-ap-group.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-permissions.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';
         require_once $this->root . '/ap-admin/includes/class-ap-forums-list-table.php';
@@ -84,6 +86,12 @@ final class AdminForumsTest extends TestCase
         AP_Roles::flushCache();
         AP_Options::flushCache();
         AP_Admin::clearNotices();
+        if (class_exists('AP_Group', false)) {
+            AP_Group::flushCache();
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            AP_Forum_Permissions::flushCache();
+        }
         if (class_exists('AP_Settings', false) && method_exists('AP_Settings', 'reset')) {
             AP_Settings::reset();
         }
@@ -123,6 +131,12 @@ final class AdminForumsTest extends TestCase
         AP_Roles::flushCache();
         AP_Options::flushCache();
         AP_Admin::clearNotices();
+        if (class_exists('AP_Group', false)) {
+            AP_Group::flushCache();
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            AP_Forum_Permissions::flushCache();
+        }
     }
 
     public function testScreenFilesAndCapsExist(): void
@@ -191,12 +205,17 @@ final class AdminForumsTest extends TestCase
             'forum_status' => AP_Forum::FORUM_STATUS_CLOSED,
             'parent_id' => 0,
             'forum_order' => 1,
+            'forum_access_level' => AP_Forum_Permissions::ACCESS_MEMBERS_READONLY,
         ], $this->actorId, $this->db);
         $this->assertTrue($updated['ok']);
         $this->assertSame('forum_updated', $updated['message_key']);
         $forum = AP_Forum::getForum($id, $this->db);
         $this->assertSame('General', $forum?->forum_name);
         $this->assertSame('closed', $forum?->forum_status);
+        $this->assertSame(
+            AP_Forum_Permissions::ACCESS_MEMBERS_READONLY,
+            AP_Forum_Permissions::detectAccessLevel($id, $this->db)
+        );
 
         $delNonce = ap_create_nonce('delete-forum-' . $id, $this->actorId);
         $deleted = AP_Admin_Forum_Edit::delete([
@@ -256,6 +275,18 @@ final class AdminForumsTest extends TestCase
         $form = AP_Admin_Forum_Edit::renderForm(null, $this->actorId, $this->db);
         $this->assertStringContainsString('forum_name', $form);
         $this->assertStringContainsString('Add Forum', $form);
+        $this->assertStringContainsString('forum_access_level', $form);
+        $this->assertStringContainsString('Visibility', $form);
+        $this->assertStringContainsString('forum_perm[', $form);
+        $this->assertStringContainsString('Members only', $form);
+        $this->assertStringContainsString('Administrators only', $form);
+        $this->assertStringContainsString('Guest', $form);
+        $this->assertStringContainsString('Registered', $form);
+        // Blog posts/pages are explicitly out of scope.
+        $this->assertStringContainsString('blog posts and pages', strtolower($form));
+
+        $this->assertStringContainsString('Access', $html);
+        $this->assertStringContainsString('column-access', $html);
 
         $nonce = ap_create_nonce('bulk-forums', $this->actorId);
         $bulk = $table->processBulkAction([

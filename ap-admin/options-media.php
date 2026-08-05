@@ -37,6 +37,7 @@ $medW = (int) AP_Options::get('medium_size_w', 300, $db);
 $medH = (int) AP_Options::get('medium_size_h', 300, $db);
 $largeW = (int) AP_Options::get('large_size_w', 1024, $db);
 $largeH = (int) AP_Options::get('large_size_h', 1024, $db);
+$maxDisplayW = (int) AP_Options::get('max_image_display_width', 1200, $db);
 $organize = (string) AP_Options::get('uploads_use_yearmonth_folders', '1', $db) === '1';
 
 $maxUpload = class_exists('AP_Media', false) ? AP_Media::maxUploadBytes() : 0;
@@ -98,6 +99,18 @@ require __DIR__ . '/admin-header.php';
             Max Height
             <input type="number" name="large_size_h" min="0" max="10000"
                 value="<?php echo (int) $largeH; ?>" class="small-text">
+        </p>
+
+        <p class="ap-field">
+            <label for="max_image_display_width">Max display width</label>
+            <input type="number" name="max_image_display_width" id="max_image_display_width"
+                min="0" max="10000" value="<?php echo (int) $maxDisplayW; ?>" class="small-text">
+            px
+            <span class="description">
+                CSS cap so content images never blow out the layout
+                (<code>max-width: min(100%, Npx)</code>). Set to <code>0</code> for
+                full-width only (<code>max-width: 100%</code>).
+            </span>
         </p>
     </fieldset>
 

@@ -620,6 +620,8 @@ PHP;
             'active_plugins' => '[]',
             // Agora color scheme: marble|parchment|cloud|obsidian|midnight|charcoal.
             'agora_color_scheme' => 'marble',
+            // Appearance → Theme Options: Additional CSS (empty until site owner adds rules).
+            'custom_css' => '',
             // Reading / front-page settings (options-reading.php).
             'show_on_front' => 'posts',
             'page_on_front' => '0',
@@ -651,6 +653,8 @@ PHP;
             'medium_size_h' => '300',
             'large_size_w' => '1024',
             'large_size_h' => '1024',
+            // Max CSS display width for content images (0 = no fixed cap; still max-width:100%).
+            'max_image_display_width' => '1200',
             'uploads_use_yearmonth_folders' => '1',
             // Navigation menus (empty until admin creates them).
             'ap_nav_menus' => '',

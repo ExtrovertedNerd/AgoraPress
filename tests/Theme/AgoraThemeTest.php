@@ -280,12 +280,39 @@ final class AgoraThemeTest extends TestCase
         $src = (string) file_get_contents($path);
         $this->assertStringContainsString('agora_color_scheme', $src);
         $this->assertStringContainsString('agora_set_color_scheme', $src);
+        $this->assertStringContainsString('Additional CSS', $src);
+        $this->assertStringContainsString('custom_css', $src);
+        $this->assertStringContainsString('AP_Theme::updateCustomCss', $src);
 
         foreach (['Marble', 'Parchment', 'Cloud', 'Obsidian', 'Midnight', 'Charcoal'] as $label) {
             // Labels come from agora_get_color_schemes() at runtime; file wires the form.
             unset($label);
         }
         $this->assertStringContainsString('Theme Options', $src);
+    }
+
+    public function testCustomCssSanitizeAndPrint(): void
+    {
+        $dirty = "body { color: red; }</style><script>alert(1)</script>";
+        $clean = AP_Theme::sanitizeCustomCss($dirty);
+        $this->assertStringContainsString('body { color: red; }', $clean);
+        $this->assertStringNotContainsString('</style>', $clean);
+        $this->assertStringNotContainsString('<script', strtolower($clean));
+
+        AP_Options::update(AP_Theme::OPTION_CUSTOM_CSS, '.site-footer { opacity: 0.9; }', $this->db);
+        $this->assertSame('.site-footer { opacity: 0.9; }', AP_Theme::getCustomCss($this->db));
+
+        ob_start();
+        AP_Theme::printCustomCss($this->db);
+        $out = (string) ob_get_clean();
+        $this->assertStringContainsString('id="ap-custom-css"', $out);
+        $this->assertStringContainsString('.site-footer { opacity: 0.9; }', $out);
+
+        // Empty CSS prints nothing.
+        AP_Options::update(AP_Theme::OPTION_CUSTOM_CSS, '', $this->db);
+        ob_start();
+        AP_Theme::printCustomCss($this->db);
+        $this->assertSame('', (string) ob_get_clean());
     }
 
     public function testPrimaryNavLocationIsControllableFromMenus(): void

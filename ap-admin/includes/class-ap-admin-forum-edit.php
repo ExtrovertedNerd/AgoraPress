@@ -82,12 +82,32 @@ class AP_Admin_Forum_Edit
                 ];
             }
             $ok = AP_Forum::updateForum($id, $data, $db);
+            if (!$ok) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'forum_id' => $id,
+                    'errors' => ['Could not update the forum.'],
+                ];
+            }
+
+            // Forum ACL only — never applies to blog posts or pages.
+            if (class_exists('AP_Forum_Permissions', false) && array_key_exists('forum_access_level', $post)) {
+                if (!AP_Forum_Permissions::saveAccessFromForm($id, $post, $db)) {
+                    return [
+                        'ok' => false,
+                        'message_key' => 'error',
+                        'forum_id' => $id,
+                        'errors' => ['Forum saved, but permissions could not be updated.'],
+                    ];
+                }
+            }
 
             return [
-                'ok' => $ok,
-                'message_key' => $ok ? 'forum_updated' : 'error',
+                'ok' => true,
+                'message_key' => 'forum_updated',
                 'forum_id' => $id,
-                'errors' => $ok ? [] : ['Could not update the forum.'],
+                'errors' => [],
             ];
         }
 
@@ -99,6 +119,19 @@ class AP_Admin_Forum_Edit
                 'forum_id' => 0,
                 'errors' => ['Could not create the forum.'],
             ];
+        }
+
+        // Apply access level / custom matrix on create (defaults to public when omitted).
+        if (class_exists('AP_Forum_Permissions', false)) {
+            if (array_key_exists('forum_access_level', $post)) {
+                AP_Forum_Permissions::saveAccessFromForm($newId, $post, $db);
+            } else {
+                AP_Forum_Permissions::applyAccessLevel(
+                    $newId,
+                    AP_Forum_Permissions::ACCESS_PUBLIC,
+                    $db
+                );
+            }
         }
 
         return [
@@ -300,6 +333,9 @@ class AP_Admin_Forum_Edit
             . 'value="' . $order . '">'
             . '</p>';
 
+        // Visibility & permissions by user level (forums only — not posts/pages).
+        $html .= self::renderPermissionsFieldset($id, $db);
+
         $html .= '<p class="ap-submit">'
             . '<button type="submit" class="button button-primary">'
             . ($isEdit ? 'Update Forum' : 'Add Forum')
@@ -308,6 +344,148 @@ class AP_Admin_Forum_Edit
             $html .= ' <a class="button" href="' . ap_esc_url(AP_Admin::url('forums.php')) . '">Cancel</a>';
         }
         $html .= '</p></form>';
+
+        return $html;
+    }
+
+    /**
+     * Access level preset + per-level permission matrix for a forum.
+     *
+     * Levels (increasing ability): Guest → Registered → Moderator → Administrator.
+     * Does not affect blog posts or static pages.
+     */
+    public static function renderPermissionsFieldset(int $forumId = 0, ?AP_DB $db = null): string
+    {
+        if (!class_exists('AP_Forum_Permissions', false)) {
+            return '';
+        }
+
+        $db = self::resolveDb($db);
+        AP_Forum_Permissions::ensureDefaults($db);
+
+        $accessLevel = $forumId > 0
+            ? AP_Forum_Permissions::detectAccessLevel($forumId, $db)
+            : AP_Forum_Permissions::ACCESS_PUBLIC;
+        $matrix = $forumId > 0
+            ? AP_Forum_Permissions::getLevelMatrix($forumId, true, $db)
+            : AP_Forum_Permissions::matrixForAccessLevel(AP_Forum_Permissions::ACCESS_PUBLIC);
+
+        $levelLabels = AP_Forum_Permissions::systemLevelLabels();
+        $permLabels = AP_Forum_Permissions::permissionLabels();
+        $accessLabels = AP_Forum_Permissions::accessLevelLabels();
+        $accessDescs = AP_Forum_Permissions::accessLevelDescriptions();
+
+        $html = '<fieldset class="ap-fieldset ap-forum-permissions-fieldset">'
+            . '<legend>Visibility &amp; permissions</legend>'
+            . '<p class="ap-help">'
+            . 'Controls who can <strong>see</strong> and <strong>use</strong> this forum. '
+            . 'These rules apply only to forums — blog posts and pages use publish status instead '
+            . '(published is visible to everyone; drafts are not). '
+            . 'Each level has increasing ability: Guest → Registered → Moderator → Administrator.'
+            . '</p>';
+
+        $html .= '<p class="ap-field">'
+            . '<label for="forum_access_level"><strong>Access level</strong></label><br>'
+            . '<select id="forum_access_level" name="forum_access_level" class="ap-forum-access-level">';
+        foreach ($accessLabels as $slug => $label) {
+            $sel = $accessLevel === $slug ? ' selected' : '';
+            $html .= '<option value="' . ap_esc_attr($slug) . '"' . $sel . '>'
+                . ap_esc_html($label) . '</option>';
+        }
+        $html .= '</select></p>';
+
+        $html .= '<div class="ap-forum-access-desc-list" id="ap-forum-access-descs">';
+        foreach ($accessDescs as $slug => $desc) {
+            $hidden = $accessLevel === $slug ? '' : ' hidden';
+            $html .= '<p class="ap-help ap-forum-access-desc" data-access-level="'
+                . ap_esc_attr($slug) . '"' . $hidden . '>'
+                . ap_esc_html($desc) . '</p>';
+        }
+        $html .= '</div>';
+
+        $html .= '<p class="ap-help" style="margin-top:0.75rem;">'
+            . '<strong>Custom matrix</strong> (used when Access level is “Custom”, '
+            . 'or as a preview of the selected preset). '
+            . 'Unchecked = denied for that level.'
+            . '</p>';
+
+        $html .= '<div class="ap-forum-perm-table-wrap">'
+            . '<table class="ap-list-table striped widefat ap-forum-perm-table">'
+            . '<thead><tr><th scope="col">Permission</th>';
+        foreach (AP_Forum_Permissions::systemLevels() as $level) {
+            $html .= '<th scope="col" class="ap-forum-perm-level">'
+                . ap_esc_html($levelLabels[$level] ?? $level) . '</th>';
+        }
+        $html .= '</tr></thead><tbody>';
+
+        foreach ($permLabels as $perm => $label) {
+            $html .= '<tr><th scope="row">' . ap_esc_html($label) . '</th>';
+            foreach (AP_Forum_Permissions::systemLevels() as $level) {
+                $checked = !empty($matrix[$level][$perm]) ? ' checked' : '';
+                // Administrators always retain full access in the UI (locked on).
+                $disabled = $level === AP_Forum_Permissions::LEVEL_ADMINISTRATOR ? ' disabled' : '';
+                $name = 'forum_perm[' . $level . '][' . $perm . ']';
+                $id = 'forum_perm_' . $level . '_' . $perm;
+                $html .= '<td class="ap-forum-perm-cell">';
+                if ($level === AP_Forum_Permissions::LEVEL_ADMINISTRATOR) {
+                    // Disabled checkboxes are not submitted — send hidden allow=1.
+                    $html .= '<input type="hidden" name="' . ap_esc_attr($name) . '" value="1">';
+                }
+                $html .= '<label class="screen-reader-text" for="' . ap_esc_attr($id) . '">'
+                    . ap_esc_html(($levelLabels[$level] ?? $level) . ': ' . $label)
+                    . '</label>'
+                    . '<input type="checkbox" id="' . ap_esc_attr($id) . '" name="'
+                    . ap_esc_attr($name) . '" value="1"' . $checked . $disabled
+                    . ' data-perm="' . ap_esc_attr($perm) . '" data-level="'
+                    . ap_esc_attr($level) . '">'
+                    . '</td>';
+            }
+            $html .= '</tr>';
+        }
+        $html .= '</tbody></table></div>';
+
+        // Lightweight progressive enhancement: selecting a preset fills checkboxes.
+        $presetsJson = [];
+        foreach (AP_Forum_Permissions::accessLevels() as $slug) {
+            if ($slug === AP_Forum_Permissions::ACCESS_CUSTOM) {
+                continue;
+            }
+            $presetsJson[$slug] = AP_Forum_Permissions::matrixForAccessLevel($slug);
+        }
+        $json = (string) json_encode($presetsJson, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
+
+        $html .= '<script>(function(){'
+            . 'var sel=document.getElementById("forum_access_level");'
+            . 'if(!sel)return;'
+            . 'var presets=' . $json . ';'
+            . 'function showDesc(level){'
+            . 'var nodes=document.querySelectorAll(".ap-forum-access-desc");'
+            . 'for(var i=0;i<nodes.length;i++){'
+            . 'nodes[i].hidden=nodes[i].getAttribute("data-access-level")!==level;'
+            . '}}'
+            . 'function applyPreset(level){'
+            . 'if(level==="custom"||!presets[level])return;'
+            . 'var m=presets[level];'
+            . 'var boxes=document.querySelectorAll(".ap-forum-perm-table input[type=checkbox][data-level]");'
+            . 'for(var i=0;i<boxes.length;i++){'
+            . 'var b=boxes[i],lv=b.getAttribute("data-level"),p=b.getAttribute("data-perm");'
+            . 'if(b.disabled)continue;'
+            . 'b.checked=!!(m[lv]&&m[lv][p]);'
+            . '}}'
+            . 'sel.addEventListener("change",function(){'
+            . 'showDesc(sel.value);'
+            . 'if(sel.value!=="custom")applyPreset(sel.value);'
+            . '});'
+            . 'var boxes=document.querySelectorAll(".ap-forum-perm-table input[type=checkbox]:not([disabled])");'
+            . 'for(var j=0;j<boxes.length;j++){'
+            . 'boxes[j].addEventListener("change",function(){'
+            . 'if(sel.value!=="custom"){sel.value="custom";showDesc("custom");}'
+            . '});'
+            . '}'
+            . 'showDesc(sel.value);'
+            . '})();</script>';
+
+        $html .= '</fieldset>';
 
         return $html;
     }

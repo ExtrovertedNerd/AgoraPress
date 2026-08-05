@@ -494,6 +494,16 @@ function ap_bootstrap(): void
         AP_Seo::register();
     }
 
+    // Appearance → Theme Options: Additional CSS printed late in ap_head.
+    if (class_exists('AP_Theme', false)) {
+        AP_Theme::registerCustomCss();
+    }
+
+    // Media: content image max-display-width CSS on ap_head.
+    if (class_exists('AP_Media', false) && method_exists('AP_Media', 'registerContentImageCss')) {
+        AP_Media::registerContentImageCss();
+    }
+
     // Must-use plugins load before regular plugins (always-on).
     // ap-cli may set AP_CLI_SKIP_PLUGINS to load MU only (or skip regular actives).
     if (class_exists('AP_Plugin', false)) {

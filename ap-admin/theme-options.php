@@ -1,10 +1,11 @@
 <?php
 
 /**
- * Appearance — Theme Options (Agora color schemes).
+ * Appearance — Theme Options (color schemes + Additional CSS).
  *
- * Selectable schemes for the default Agora theme: 3 light + 3 dark.
- * Stored as option `agora_color_scheme`.
+ * Agora color schemes when the default theme is active.
+ * Additional CSS is available for any theme so site owners can add rules
+ * without editing theme files.
  *
  * @package AgoraPress
  */
@@ -32,14 +33,35 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['agora_save
     $nonce = (string) ($_POST['_ap_nonce'] ?? '');
     if (!ap_check_nonce($nonce, 'agora_theme_options', $userId > 0 ? $userId : null)) {
         AP_Admin::addNotice('Security check failed. Please try again.', 'error');
-    } elseif (!function_exists('agora_set_color_scheme')) {
-        AP_Admin::addNotice('Theme options are not available for the active theme.', 'error');
     } else {
-        $scheme = (string) ($_POST['agora_color_scheme'] ?? '');
-        if (agora_set_color_scheme($scheme, $db)) {
+        $schemeOk = true;
+        $schemeChanged = false;
+
+        // Color scheme only applies when Agora exposes the API.
+        if (function_exists('agora_set_color_scheme') && $isAgora) {
+            $scheme = (string) ($_POST['agora_color_scheme'] ?? '');
+            if ($scheme !== '') {
+                $schemeOk = agora_set_color_scheme($scheme, $db);
+                $schemeChanged = $schemeOk;
+                if (!$schemeOk) {
+                    AP_Admin::addNotice('Please choose a valid color scheme.', 'error');
+                }
+            }
+        }
+
+        $cssOk = true;
+        if (class_exists('AP_Theme', false) && array_key_exists('custom_css', $_POST)) {
+            $cssOk = AP_Theme::updateCustomCss((string) $_POST['custom_css'], $db);
+            if (!$cssOk) {
+                AP_Admin::addNotice('Could not save Additional CSS.', 'error');
+            }
+        }
+
+        if ($schemeOk && $cssOk) {
             AP_Admin::redirect(AP_Admin::url('theme-options.php', ['message' => 'theme_options_saved']));
         }
-        AP_Admin::addNotice('Please choose a valid color scheme.', 'error');
+        // Notices already added for partial failures; fall through to re-render.
+        unset($schemeChanged);
     }
 }
 
@@ -49,6 +71,9 @@ $schemes = function_exists('agora_get_color_schemes')
 $current = function_exists('agora_get_color_scheme')
     ? agora_get_color_scheme($db)
     : 'marble';
+$customCss = class_exists('AP_Theme', false)
+    ? AP_Theme::getCustomCss($db)
+    : '';
 
 // Preview swatches (approximate; pure CSS admin previews).
 $swatches = [
@@ -68,23 +93,23 @@ require __DIR__ . '/admin-header.php';
     <h1>Theme Options</h1>
 </div>
 
+<form method="post" action="" class="ap-theme-options-form">
+    <?php
+    $nonce = ap_create_nonce('agora_theme_options', $userId > 0 ? $userId : null);
+    echo '<input type="hidden" name="_ap_nonce" value="' . ap_esc_attr($nonce) . '">';
+    echo '<input type="hidden" name="agora_save_theme_options" value="1">';
+    ?>
+
 <?php if (!$isAgora || $schemes === []) : ?>
     <div class="ap-notice ap-notice--info">
         Color schemes are provided by the default <strong>Agora</strong> theme.
-        Activate Agora to select a scheme.
+        Activate Agora to select a scheme. Additional CSS below works with any theme.
     </div>
 <?php else : ?>
     <p>
         Choose one of six pure-CSS color schemes for the public site
         (3 light and 3 dark). No images are used.
     </p>
-
-    <form method="post" action="" class="ap-theme-options-form">
-        <?php
-        $nonce = ap_create_nonce('agora_theme_options', $userId > 0 ? $userId : null);
-        echo '<input type="hidden" name="_ap_nonce" value="' . ap_esc_attr($nonce) . '">';
-        echo '<input type="hidden" name="agora_save_theme_options" value="1">';
-        ?>
 
         <fieldset class="ap-scheme-fieldset">
             <legend class="screen-reader-text">Color scheme</legend>
@@ -133,107 +158,139 @@ require __DIR__ . '/admin-header.php';
                 <?php endforeach; ?>
             </div>
         </fieldset>
-
-        <p class="ap-submit-row" style="margin-top:1.25rem;">
-            <button type="submit" class="button button-primary">Save changes</button>
-        </p>
-    </form>
-
-    <style>
-        .ap-scheme-fieldset { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
-        .ap-scheme-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
-            gap: 0.85rem;
-            margin-top: 0.75rem;
-        }
-        .ap-scheme-card {
-            display: flex;
-            flex-direction: column;
-            gap: 0.45rem;
-            padding: 0.75rem;
-            border: 2px solid var(--ap-border, #c3c4c7);
-            border-radius: 8px;
-            background: var(--ap-surface, #fff);
-            cursor: pointer;
-            transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        }
-        .ap-scheme-card:hover { border-color: var(--ap-primary, #2271b1); }
-        .ap-scheme-card.is-selected,
-        .ap-scheme-card:has(input:checked) {
-            border-color: var(--ap-primary, #2271b1);
-            box-shadow: 0 0 0 1px var(--ap-primary, #2271b1);
-        }
-        .ap-scheme-card input {
-            position: absolute;
-            opacity: 0;
-            pointer-events: none;
-        }
-        .ap-scheme-swatch {
-            display: block;
-            position: relative;
-            height: 4.25rem;
-            border-radius: 6px;
-            overflow: hidden;
-            border: 1px solid rgb(0 0 0 / 0.08);
-            background: var(--s0);
-        }
-        .ap-scheme-swatch__bg { position: absolute; inset: 0; background: var(--s0); }
-        .ap-scheme-swatch__card {
-            position: absolute;
-            left: 12%; right: 12%; top: 28%; bottom: 18%;
-            background: var(--s1);
-            border-radius: 4px;
-            box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
-        }
-        .ap-scheme-swatch__accent {
-            position: absolute;
-            left: 18%;
-            top: 40%;
-            width: 36%;
-            height: 0.35rem;
-            border-radius: 2px;
-            background: var(--s2);
-        }
-        .ap-scheme-meta {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 0.35rem;
-        }
-        .ap-scheme-name { font-weight: 600; color: var(--ap-text, #1d2327); }
-        .ap-scheme-mode {
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            padding: 0.15rem 0.4rem;
-            border-radius: 999px;
-            background: #e8f0fe;
-            color: #1a4d8c;
-        }
-        .ap-scheme-mode--dark {
-            background: #1e1e2a;
-            color: #d0c8f0;
-        }
-        .ap-scheme-desc {
-            font-size: 0.82rem;
-            color: var(--ap-muted, #646970);
-            line-height: 1.35;
-        }
-        .screen-reader-text {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            white-space: nowrap;
-            border: 0;
-        }
-    </style>
 <?php endif; ?>
+
+    <fieldset class="ap-fieldset ap-custom-css-fieldset" style="margin-top:1.75rem;">
+        <legend><strong>Additional CSS</strong></legend>
+        <p class="ap-help">
+            Add custom CSS rules for the public site without editing theme files.
+            Rules are printed on every front-end page. Keep selectors specific to avoid
+            clobbering core or theme styles.
+        </p>
+        <p class="ap-field">
+            <label class="screen-reader-text" for="custom_css">Additional CSS</label>
+            <textarea
+                name="custom_css"
+                id="custom_css"
+                class="large-text code ap-custom-css-textarea"
+                rows="12"
+                spellcheck="false"
+                placeholder="/* Example:&#10;.site-header { border-bottom: 2px solid #2271b1; } */"
+            ><?php echo ap_esc_textarea($customCss); ?></textarea>
+        </p>
+        <p class="description">
+            Maximum size <?php echo (int) (AP_Theme::CUSTOM_CSS_MAX_BYTES / 1024); ?> KiB.
+            Do not paste full HTML documents — CSS only.
+        </p>
+    </fieldset>
+
+    <p class="ap-submit-row" style="margin-top:1.25rem;">
+        <button type="submit" class="button button-primary">Save changes</button>
+    </p>
+</form>
+
+<style>
+    .ap-scheme-fieldset { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
+    .ap-scheme-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+        gap: 0.85rem;
+        margin-top: 0.75rem;
+    }
+    .ap-scheme-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        padding: 0.75rem;
+        border: 2px solid var(--ap-border, #c3c4c7);
+        border-radius: 8px;
+        background: var(--ap-surface, #fff);
+        cursor: pointer;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .ap-scheme-card:hover { border-color: var(--ap-primary, #2271b1); }
+    .ap-scheme-card.is-selected,
+    .ap-scheme-card:has(input:checked) {
+        border-color: var(--ap-primary, #2271b1);
+        box-shadow: 0 0 0 1px var(--ap-primary, #2271b1);
+    }
+    .ap-scheme-card input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .ap-scheme-swatch {
+        display: block;
+        position: relative;
+        height: 4.25rem;
+        border-radius: 6px;
+        overflow: hidden;
+        border: 1px solid rgb(0 0 0 / 0.08);
+        background: var(--s0);
+    }
+    .ap-scheme-swatch__bg { position: absolute; inset: 0; background: var(--s0); }
+    .ap-scheme-swatch__card {
+        position: absolute;
+        left: 12%; right: 12%; top: 28%; bottom: 18%;
+        background: var(--s1);
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+    }
+    .ap-scheme-swatch__accent {
+        position: absolute;
+        left: 18%;
+        top: 40%;
+        width: 36%;
+        height: 0.35rem;
+        border-radius: 2px;
+        background: var(--s2);
+    }
+    .ap-scheme-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.35rem;
+    }
+    .ap-scheme-name { font-weight: 600; color: var(--ap-text, #1d2327); }
+    .ap-scheme-mode {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 0.15rem 0.4rem;
+        border-radius: 999px;
+        background: #e8f0fe;
+        color: #1a4d8c;
+    }
+    .ap-scheme-mode--dark {
+        background: #1e1e2a;
+        color: #d0c8f0;
+    }
+    .ap-scheme-desc {
+        font-size: 0.82rem;
+        color: var(--ap-muted, #646970);
+        line-height: 1.35;
+    }
+    .ap-custom-css-textarea {
+        width: 100%;
+        max-width: 48rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.85rem;
+        line-height: 1.45;
+        tab-size: 2;
+    }
+    .screen-reader-text {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+</style>
 
 <?php
 require __DIR__ . '/admin-footer.php';

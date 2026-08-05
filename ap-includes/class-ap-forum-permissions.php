@@ -148,6 +148,481 @@ class AP_Forum_Permissions
     }
 
     // -------------------------------------------------------------------------
+    // Access levels (user ladder: guest → registered → moderator → administrator)
+    // Applies only to forums — never to blog posts or static pages.
+    // -------------------------------------------------------------------------
+
+    /** Public: guests view/read; members post; staff moderate. */
+    public const ACCESS_PUBLIC = 'public';
+
+    /** Members-only: guests cannot see; registered can post. */
+    public const ACCESS_MEMBERS = 'members';
+
+    /** Read-only for guests + members; only staff may post. */
+    public const ACCESS_MEMBERS_READONLY = 'members_readonly';
+
+    /** Moderators and administrators only (hidden from guests/members). */
+    public const ACCESS_MODERATORS = 'moderators';
+
+    /** Administrators only. */
+    public const ACCESS_ADMINISTRATORS = 'administrators';
+
+    /** Custom matrix (per-level checkboxes in ACP). */
+    public const ACCESS_CUSTOM = 'custom';
+
+    public const LEVEL_GUEST = 'guest';
+
+    public const LEVEL_REGISTERED = 'registered';
+
+    public const LEVEL_MODERATOR = 'moderator';
+
+    public const LEVEL_ADMINISTRATOR = 'administrator';
+
+    /**
+     * Known access-level presets (excludes custom).
+     *
+     * @return list<string>
+     */
+    public static function accessLevels(): array
+    {
+        return [
+            self::ACCESS_PUBLIC,
+            self::ACCESS_MEMBERS,
+            self::ACCESS_MEMBERS_READONLY,
+            self::ACCESS_MODERATORS,
+            self::ACCESS_ADMINISTRATORS,
+            self::ACCESS_CUSTOM,
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function accessLevelLabels(): array
+    {
+        return [
+            self::ACCESS_PUBLIC => 'Public',
+            self::ACCESS_MEMBERS => 'Members only',
+            self::ACCESS_MEMBERS_READONLY => 'Read only (members)',
+            self::ACCESS_MODERATORS => 'Moderators only',
+            self::ACCESS_ADMINISTRATORS => 'Administrators only',
+            self::ACCESS_CUSTOM => 'Custom',
+        ];
+    }
+
+    /**
+     * Short descriptions for ACP help text.
+     *
+     * @return array<string, string>
+     */
+    public static function accessLevelDescriptions(): array
+    {
+        return [
+            self::ACCESS_PUBLIC => 'Anyone can view and read. Registered users can post. Moderators can moderate.',
+            self::ACCESS_MEMBERS => 'Hidden from guests. Registered users can post. Moderators can moderate.',
+            self::ACCESS_MEMBERS_READONLY => 'Guests and members can view/read but not post. Only moderators and admins can create topics or reply.',
+            self::ACCESS_MODERATORS => 'Visible only to moderators and administrators. Guests and regular members cannot see this forum.',
+            self::ACCESS_ADMINISTRATORS => 'Visible only to administrators. Moderators and members cannot see this forum.',
+            self::ACCESS_CUSTOM => 'Set each permission for Guest, Registered, Moderator, and Administrator individually.',
+        ];
+    }
+
+    /**
+     * Ordered user levels (increasing privilege).
+     *
+     * @return list<string>
+     */
+    public static function systemLevels(): array
+    {
+        return [
+            self::LEVEL_GUEST,
+            self::LEVEL_REGISTERED,
+            self::LEVEL_MODERATOR,
+            self::LEVEL_ADMINISTRATOR,
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function systemLevelLabels(): array
+    {
+        return [
+            self::LEVEL_GUEST => 'Guest',
+            self::LEVEL_REGISTERED => 'Registered',
+            self::LEVEL_MODERATOR => 'Moderator',
+            self::LEVEL_ADMINISTRATOR => 'Administrator',
+        ];
+    }
+
+    public static function normalizeAccessLevel(string $level): string
+    {
+        $level = strtolower(trim($level));
+        $level = preg_replace('/[^a-z0-9_]/', '', $level) ?? '';
+        if ($level === '' || !in_array($level, self::accessLevels(), true)) {
+            return self::ACCESS_PUBLIC;
+        }
+
+        return $level;
+    }
+
+    public static function normalizeSystemLevel(string $level): string
+    {
+        $level = strtolower(trim($level));
+        $level = preg_replace('/[^a-z0-9_]/', '', $level) ?? '';
+        if ($level === '' || !in_array($level, self::systemLevels(), true)) {
+            return '';
+        }
+
+        return $level;
+    }
+
+    /**
+     * Map level slug → system group id (0 when missing).
+     *
+     * @return array<string, int>
+     */
+    public static function systemLevelGroupIds(?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+        if (!class_exists('AP_Group', false)) {
+            return [
+                self::LEVEL_GUEST => 0,
+                self::LEVEL_REGISTERED => 0,
+                self::LEVEL_MODERATOR => 0,
+                self::LEVEL_ADMINISTRATOR => 0,
+            ];
+        }
+
+        $ids = AP_Group::ensureSystemGroups($db);
+
+        return [
+            self::LEVEL_GUEST => (int) ($ids[AP_Group::SLUG_GUESTS] ?? 0),
+            self::LEVEL_REGISTERED => (int) ($ids[AP_Group::SLUG_REGISTERED] ?? 0),
+            self::LEVEL_MODERATOR => (int) ($ids[AP_Group::SLUG_GLOBAL_MODERATORS] ?? 0),
+            self::LEVEL_ADMINISTRATOR => (int) ($ids[AP_Group::SLUG_ADMINISTRATORS] ?? 0),
+        ];
+    }
+
+    /**
+     * Baseline permissions for a level (increasing ladder). Used when building presets.
+     *
+     * @return list<string>
+     */
+    public static function baselinePermissionsForLevel(string $level): array
+    {
+        $level = self::normalizeSystemLevel($level);
+        $guest = [self::PERM_VIEW, self::PERM_READ];
+        $registered = array_values(array_unique(array_merge($guest, [
+            self::PERM_POST_TOPICS,
+            self::PERM_POST_REPLIES,
+            self::PERM_EDIT_OWN,
+            self::PERM_DELETE_OWN,
+            self::PERM_ATTACH,
+        ])));
+        $moderator = array_values(array_unique(array_merge(
+            $registered,
+            self::moderationPermissions()
+        )));
+        $admin = self::allPermissions();
+
+        return match ($level) {
+            self::LEVEL_GUEST => $guest,
+            self::LEVEL_REGISTERED => $registered,
+            self::LEVEL_MODERATOR => $moderator,
+            self::LEVEL_ADMINISTRATOR => $admin,
+            default => [],
+        };
+    }
+
+    /**
+     * Full allow/deny map for every system level under an access preset.
+     *
+     * @return array<string, array<string, bool>> level => perm => allow
+     */
+    public static function matrixForAccessLevel(string $accessLevel): array
+    {
+        $accessLevel = self::normalizeAccessLevel($accessLevel);
+        if ($accessLevel === self::ACCESS_CUSTOM) {
+            // Empty signal: caller should use the posted custom matrix.
+            return self::emptyLevelMatrix(false);
+        }
+
+        $matrix = self::emptyLevelMatrix(false);
+
+        $allowSet = static function (array &$row, array $perms): void {
+            foreach ($perms as $p) {
+                $row[$p] = true;
+            }
+        };
+
+        switch ($accessLevel) {
+            case self::ACCESS_PUBLIC:
+                $allowSet($matrix[self::LEVEL_GUEST], self::baselinePermissionsForLevel(self::LEVEL_GUEST));
+                $allowSet($matrix[self::LEVEL_REGISTERED], self::baselinePermissionsForLevel(self::LEVEL_REGISTERED));
+                $allowSet($matrix[self::LEVEL_MODERATOR], self::baselinePermissionsForLevel(self::LEVEL_MODERATOR));
+                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                break;
+
+            case self::ACCESS_MEMBERS:
+                // Guests: all deny (already false).
+                $allowSet($matrix[self::LEVEL_REGISTERED], self::baselinePermissionsForLevel(self::LEVEL_REGISTERED));
+                $allowSet($matrix[self::LEVEL_MODERATOR], self::baselinePermissionsForLevel(self::LEVEL_MODERATOR));
+                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                break;
+
+            case self::ACCESS_MEMBERS_READONLY:
+                $allowSet($matrix[self::LEVEL_GUEST], [self::PERM_VIEW, self::PERM_READ]);
+                $allowSet($matrix[self::LEVEL_REGISTERED], [self::PERM_VIEW, self::PERM_READ]);
+                $allowSet($matrix[self::LEVEL_MODERATOR], self::baselinePermissionsForLevel(self::LEVEL_MODERATOR));
+                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                break;
+
+            case self::ACCESS_MODERATORS:
+                $allowSet($matrix[self::LEVEL_MODERATOR], self::baselinePermissionsForLevel(self::LEVEL_MODERATOR));
+                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                break;
+
+            case self::ACCESS_ADMINISTRATORS:
+                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                break;
+        }
+
+        return $matrix;
+    }
+
+    /**
+     * @return array<string, array<string, bool>>
+     */
+    public static function emptyLevelMatrix(bool $allow = false): array
+    {
+        $row = [];
+        foreach (self::allPermissions() as $perm) {
+            $row[$perm] = $allow;
+        }
+        $out = [];
+        foreach (self::systemLevels() as $level) {
+            $out[$level] = $row;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Persist a full level × permission matrix for a forum (or global when forum_id=0).
+     *
+     * Replaces only system-level group rows; custom groups are left untouched.
+     *
+     * @param array<string, array<string, bool>> $matrix level => perm => allow
+     */
+    public static function applyLevelMatrix(int $forumId, array $matrix, ?AP_DB $db = null): bool
+    {
+        $forumId = max(0, $forumId);
+        $db = self::resolveDb($db);
+        $groupIds = self::systemLevelGroupIds($db);
+        $ok = true;
+
+        foreach (self::systemLevels() as $level) {
+            $gid = (int) ($groupIds[$level] ?? 0);
+            if ($gid < 1) {
+                $ok = false;
+                continue;
+            }
+            $levelPerms = is_array($matrix[$level] ?? null) ? $matrix[$level] : [];
+            $full = [];
+            foreach (self::allPermissions() as $perm) {
+                $full[$perm] = !empty($levelPerms[$perm]);
+            }
+            if (!self::setGroupPermissions($forumId, $gid, $full, $db)) {
+                $ok = false;
+            }
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Apply a named access-level preset to a forum (or global defaults when forum_id=0).
+     */
+    public static function applyAccessLevel(int $forumId, string $accessLevel, ?AP_DB $db = null): bool
+    {
+        $accessLevel = self::normalizeAccessLevel($accessLevel);
+        if ($accessLevel === self::ACCESS_CUSTOM) {
+            return false;
+        }
+
+        return self::applyLevelMatrix($forumId, self::matrixForAccessLevel($accessLevel), $db);
+    }
+
+    /**
+     * Effective level matrix for a forum (forum rows override global for system groups).
+     *
+     * @return array<string, array<string, bool>>
+     */
+    public static function getLevelMatrix(
+        int $forumId,
+        bool $includeGlobal = true,
+        ?AP_DB $db = null
+    ): array {
+        $forumId = max(0, $forumId);
+        $db = self::resolveDb($db);
+        $groupIds = self::systemLevelGroupIds($db);
+        $matrix = self::emptyLevelMatrix(false);
+
+        foreach (self::systemLevels() as $level) {
+            $gid = (int) ($groupIds[$level] ?? 0);
+            if ($gid < 1) {
+                continue;
+            }
+            foreach (self::allPermissions() as $perm) {
+                $setting = null;
+                if ($forumId > 0) {
+                    $setting = self::getRawSetting($forumId, $gid, $perm, $db);
+                }
+                if ($setting === null && $includeGlobal && $forumId !== self::FORUM_GLOBAL) {
+                    $setting = self::getRawSetting(self::FORUM_GLOBAL, $gid, $perm, $db);
+                } elseif ($setting === null && $forumId === self::FORUM_GLOBAL) {
+                    $setting = self::getRawSetting(self::FORUM_GLOBAL, $gid, $perm, $db);
+                }
+                $matrix[$level][$perm] = $setting === self::SETTING_ALLOW;
+            }
+        }
+
+        return $matrix;
+    }
+
+    /**
+     * Detect which preset matches the stored matrix, or custom.
+     */
+    public static function detectAccessLevel(int $forumId, ?AP_DB $db = null): string
+    {
+        $current = self::getLevelMatrix($forumId, false, $db);
+        // If no forum-specific rows, fall back to comparing merged (global) matrix
+        // only for display of "inherited" public defaults.
+        $hasLocal = false;
+        $groupIds = self::systemLevelGroupIds($db);
+        $db = self::resolveDb($db);
+        foreach ($groupIds as $gid) {
+            if ($gid < 1 || $forumId < 1) {
+                continue;
+            }
+            if (self::getGroupPermissions($forumId, $gid, $db) !== []) {
+                $hasLocal = true;
+                break;
+            }
+        }
+        if (!$hasLocal && $forumId > 0) {
+            // No overrides: treat as public default (inherits global).
+            return self::ACCESS_PUBLIC;
+        }
+        if (!$hasLocal && $forumId === 0) {
+            $current = self::getLevelMatrix(0, true, $db);
+        }
+
+        foreach (self::accessLevels() as $level) {
+            if ($level === self::ACCESS_CUSTOM) {
+                continue;
+            }
+            $expected = self::matrixForAccessLevel($level);
+            if (self::levelMatricesEqual($current, $expected)) {
+                return $level;
+            }
+        }
+
+        return self::ACCESS_CUSTOM;
+    }
+
+    /**
+     * Human-readable access summary for list tables.
+     */
+    public static function summarizeAccess(int $forumId, ?AP_DB $db = null): string
+    {
+        $level = self::detectAccessLevel($forumId, $db);
+        $labels = self::accessLevelLabels();
+
+        return $labels[$level] ?? 'Custom';
+    }
+
+    /**
+     * Parse ACP form fields into a level matrix.
+     *
+     * Expected POST shape:
+     *   forum_access_level = public|members|…
+     *   forum_perm[guest][view_forum] = 1
+     *   forum_perm[registered][post_topics] = 1
+     *   …
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{level: string, matrix: array<string, array<string, bool>>}
+     */
+    public static function parseAccessFormInput(array $input): array
+    {
+        $level = self::normalizeAccessLevel((string) ($input['forum_access_level'] ?? self::ACCESS_PUBLIC));
+        if ($level !== self::ACCESS_CUSTOM) {
+            return [
+                'level' => $level,
+                'matrix' => self::matrixForAccessLevel($level),
+            ];
+        }
+
+        $raw = $input['forum_perm'] ?? [];
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        $matrix = self::emptyLevelMatrix(false);
+        foreach (self::systemLevels() as $sysLevel) {
+            $levelRaw = is_array($raw[$sysLevel] ?? null) ? $raw[$sysLevel] : [];
+            foreach (self::allPermissions() as $perm) {
+                $val = $levelRaw[$perm] ?? null;
+                $matrix[$sysLevel][$perm] = $val === '1' || $val === 1 || $val === true || $val === 'on';
+            }
+        }
+
+        // Enforce ladder: administrator always keeps all perms (site owners expect this).
+        foreach (self::allPermissions() as $perm) {
+            $matrix[self::LEVEL_ADMINISTRATOR][$perm] = true;
+        }
+
+        return [
+            'level' => self::ACCESS_CUSTOM,
+            'matrix' => $matrix,
+        ];
+    }
+
+    /**
+     * Apply access settings from an ACP form bag to a forum.
+     *
+     * @param array<string, mixed> $input
+     */
+    public static function saveAccessFromForm(int $forumId, array $input, ?AP_DB $db = null): bool
+    {
+        $parsed = self::parseAccessFormInput($input);
+
+        return self::applyLevelMatrix($forumId, $parsed['matrix'], $db);
+    }
+
+    /**
+     * @param array<string, array<string, bool>> $a
+     * @param array<string, array<string, bool>> $b
+     */
+    private static function levelMatricesEqual(array $a, array $b): bool
+    {
+        foreach (self::systemLevels() as $level) {
+            foreach (self::allPermissions() as $perm) {
+                $av = !empty($a[$level][$perm]);
+                $bv = !empty($b[$level][$perm]);
+                if ($av !== $bv) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
     // Defaults seed
     // -------------------------------------------------------------------------
 

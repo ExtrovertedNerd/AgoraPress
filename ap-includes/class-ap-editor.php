@@ -33,7 +33,10 @@ class AP_Editor
     /** @deprecated Prefer visual; kept for legacy content conversion. */
     public const MODE_BBCODE = 'bbcode';
 
-    /** @deprecated Prefer visual; raw HTML source fallback. */
+    /**
+     * Text / HTML source mode — raw HTML in the textarea (no contenteditable surface).
+     * Useful for long crypto addresses, embeds, and fine-grained markup.
+     */
     public const MODE_HTML = 'html';
 
     /** Stable architecture id: classic visual editor (never "blocks"). */
@@ -479,8 +482,20 @@ class AP_Editor
             $html .= '>' . $esc($label) . '</button>';
         }
 
-        $html .= '<span class="ap-editor__mode-hint" aria-hidden="true">'
-            . $esc('Visual') . '</span>';
+        // Visual | Text mode switcher (right side of toolbar).
+        $html .= '<span class="ap-editor__mode-switch" role="group" aria-label="Editor mode"'
+            . ' data-ap-editor-mode-switch>';
+        $html .= '<button type="button" class="ap-editor__mode-btn is-active"'
+            . ' data-ap-editor-set-mode="visual"'
+            . ' aria-pressed="true"'
+            . ' title="' . $escAttr('Visual editor') . '">'
+            . $esc('Visual') . '</button>';
+        $html .= '<button type="button" class="ap-editor__mode-btn"'
+            . ' data-ap-editor-set-mode="html"'
+            . ' aria-pressed="false"'
+            . ' title="' . $escAttr('Text / HTML source') . '">'
+            . $esc('Text') . '</button>';
+        $html .= '</span>';
         $html .= '</div>';
 
         $html .= self::renderEmojiPicker($forId);

@@ -651,6 +651,7 @@ class AP_Options
             $keys = [
                 'thumbnail_size_w', 'thumbnail_size_h', 'thumbnail_crop',
                 'medium_size_w', 'medium_size_h', 'large_size_w', 'large_size_h',
+                'max_image_display_width',
                 'uploads_use_yearmonth_folders',
             ];
             $input = [];

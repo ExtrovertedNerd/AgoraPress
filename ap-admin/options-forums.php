@@ -64,6 +64,15 @@ require __DIR__ . '/admin-header.php';
 
 <p>Defaults for listing, guests, attachments, flood control, and moderation.</p>
 
+<div class="ap-notice ap-notice--info" style="margin-bottom:1.25rem;">
+    <strong>Per-forum visibility &amp; permissions</strong> are set on each forum’s edit screen
+    (Forums → Edit): choose Public, Members only, Read only, Moderators only, Administrators only,
+    or a custom matrix for Guest / Registered / Moderator / Administrator.
+    These rules apply only to forums — not to blog posts or pages
+    (those use publish status: published is visible to all).
+    <a href="<?php echo ap_esc_url(AP_Admin::url('forums.php')); ?>">Manage forums →</a>
+</div>
+
 <form method="post" action="" class="ap-form ap-form--settings">
     <?php AP_Settings::settingsFields('forums'); ?>
 

@@ -942,12 +942,109 @@ class AP_Theme
         self::$themesRootOverride = null;
         self::$stylesheetOverride = null;
         self::$templateOverride = null;
+        self::$customCssRegistered = false;
         if (class_exists('AP_Assets', false)) {
             AP_Assets::reset();
         }
         if (class_exists('AP_Theme_Compat', false)) {
             AP_Theme_Compat::reset();
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Additional CSS (Appearance → Theme Options)
+    // -------------------------------------------------------------------------
+
+    /** Option: site-owner Additional CSS (printed in ap_head). */
+    public const OPTION_CUSTOM_CSS = 'custom_css';
+
+    /** Soft cap for stored Additional CSS (bytes). */
+    public const CUSTOM_CSS_MAX_BYTES = 102400;
+
+    /** @var bool Whether custom CSS printer was registered this request. */
+    private static bool $customCssRegistered = false;
+
+    /**
+     * Register ap_head printer for Additional CSS (idempotent).
+     */
+    public static function registerCustomCss(): void
+    {
+        if (self::$customCssRegistered) {
+            return;
+        }
+        self::$customCssRegistered = true;
+
+        if (!function_exists('ap_add_action')) {
+            return;
+        }
+
+        ap_add_action('ap_head', [self::class, 'printCustomCss'], 99);
+    }
+
+    /**
+     * Read Additional CSS from options.
+     */
+    public static function getCustomCss(?AP_DB $db = null): string
+    {
+        $raw = self::readOption(self::OPTION_CUSTOM_CSS, '', $db);
+
+        return is_string($raw) ? $raw : '';
+    }
+
+    /**
+     * Sanitize Additional CSS for storage.
+     *
+     * Strips null bytes, closes out of any accidental </style>, and blocks
+     * common XSS vectors. Does not attempt a full CSS parser.
+     */
+    public static function sanitizeCustomCss(string $css): string
+    {
+        $css = str_replace("\0", '', $css);
+        // Normalize newlines.
+        $css = str_replace(["\r\n", "\r"], "\n", $css);
+        // Prevent breaking out of the <style> wrapper.
+        $css = preg_replace('/<\/\s*style\b[^>]*>/i', '', $css) ?? $css;
+        // Block HTML/script injection patterns that should never appear in CSS.
+        $css = preg_replace('/<\s*script\b[^>]*>.*?<\s*\/\s*script\s*>/is', '', $css) ?? $css;
+        $css = preg_replace('/<\s*\/?\s*(script|iframe|object|embed|link|meta|base)\b[^>]*>/i', '', $css) ?? $css;
+        $css = preg_replace('/expression\s*\(/i', '', $css) ?? $css;
+        $css = preg_replace('/javascript\s*:/i', '', $css) ?? $css;
+        $css = preg_replace('/vbscript\s*:/i', '', $css) ?? $css;
+        $css = preg_replace('/-moz-binding\s*:/i', '', $css) ?? $css;
+        $css = preg_replace('/behavior\s*:/i', '', $css) ?? $css;
+
+        if (strlen($css) > self::CUSTOM_CSS_MAX_BYTES) {
+            $css = substr($css, 0, self::CUSTOM_CSS_MAX_BYTES);
+        }
+
+        return $css;
+    }
+
+    /**
+     * Persist Additional CSS. Returns true when saved (or unchanged empty).
+     */
+    public static function updateCustomCss(string $css, ?AP_DB $db = null): bool
+    {
+        $clean = self::sanitizeCustomCss($css);
+
+        return self::writeOption(self::OPTION_CUSTOM_CSS, $clean, $db);
+    }
+
+    /**
+     * Print Additional CSS inside a style tag on the public front-end.
+     */
+    public static function printCustomCss(?AP_DB $db = null): void
+    {
+        $css = self::getCustomCss($db);
+        $css = self::sanitizeCustomCss($css);
+        if (trim($css) === '') {
+            return;
+        }
+
+        // Final safety: never emit closing style / script tags.
+        $css = str_replace(['</style', '</STYLE', '</script', '</SCRIPT'], '', $css);
+
+        echo '<style id="ap-custom-css">' . "\n" . $css . "\n" . '</style>' . "\n";
     }
 
     // -------------------------------------------------------------------------

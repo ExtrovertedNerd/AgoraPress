@@ -828,6 +828,15 @@ class AP_Settings
             'default' => '1',
             'sanitize_callback' => [self::class, 'sanitizeCheckbox'],
         ]);
+        self::registerSetting('media', 'max_image_display_width', [
+            'type' => 'integer',
+            'default' => '1200',
+            'sanitize_callback' => static function (mixed $v): string {
+                $n = (int) ($v ?? 1200);
+
+                return (string) max(0, min(10000, $n));
+            },
+        ]);
         self::registerSetting('media', 'uploads_use_yearmonth_folders', [
             'type' => 'boolean',
             'default' => '1',

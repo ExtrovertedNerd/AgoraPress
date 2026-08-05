@@ -318,6 +318,165 @@ final class ForumGroupsPermissionsTest extends TestCase
         $this->assertTrue($map[AP_Forum_Permissions::PERM_MODERATE]);
     }
 
+    public function testAccessLevelPresetsAndLadder(): void
+    {
+        AP_Forum_Permissions::ensureDefaults($this->db);
+        $guestUser = 0;
+        $member = $this->createUser('lvl_member', 'lvl_m@example.test', 'subscriber');
+        $mod = $this->createUser('lvl_mod', 'lvl_mod@example.test', 'editor'); // moderate_forums
+        $admin = $this->createUser('lvl_admin', 'lvl_a@example.test', 'administrator');
+
+        // --- Members only: guests cannot view; members can post ---
+        $membersForum = AP_Forum::insertForum(['forum_name' => 'Members Board'], $this->db);
+        $this->assertTrue(AP_Forum_Permissions::applyAccessLevel(
+            $membersForum,
+            AP_Forum_Permissions::ACCESS_MEMBERS,
+            $this->db
+        ));
+        $this->assertSame(
+            AP_Forum_Permissions::ACCESS_MEMBERS,
+            AP_Forum_Permissions::detectAccessLevel($membersForum, $this->db)
+        );
+        $this->assertFalse(AP_Forum_Permissions::userCanViewForum($guestUser, $membersForum, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($member, $membersForum, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanPostTopic($member, $membersForum, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($admin, $membersForum, $this->db));
+
+        // --- Read only: members view but cannot post; mods can post ---
+        $roForum = AP_Forum::insertForum(['forum_name' => 'Announcements'], $this->db);
+        AP_Forum_Permissions::applyAccessLevel(
+            $roForum,
+            AP_Forum_Permissions::ACCESS_MEMBERS_READONLY,
+            $this->db
+        );
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($guestUser, $roForum, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($member, $roForum, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanPostTopic($member, $roForum, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanPostReply($member, $roForum, $this->db));
+        // Editor has moderate_forums bypass for moderation family, but post_topics is not
+        // in that list — mods group ACL grants post for this preset.
+        $this->assertTrue(AP_Forum_Permissions::userCanPostTopic($mod, $roForum, $this->db));
+
+        // --- Moderators only ---
+        $modForum = AP_Forum::insertForum(['forum_name' => 'Staff'], $this->db);
+        AP_Forum_Permissions::applyAccessLevel(
+            $modForum,
+            AP_Forum_Permissions::ACCESS_MODERATORS,
+            $this->db
+        );
+        $this->assertSame(
+            AP_Forum_Permissions::ACCESS_MODERATORS,
+            AP_Forum_Permissions::detectAccessLevel($modForum, $this->db)
+        );
+        $this->assertFalse(AP_Forum_Permissions::userCanViewForum($guestUser, $modForum, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanViewForum($member, $modForum, $this->db));
+        // Global moderators group grants view; editor role maps to virtual global_moderators.
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($mod, $modForum, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($admin, $modForum, $this->db));
+
+        // --- Administrators only ---
+        $adminForum = AP_Forum::insertForum(['forum_name' => 'Root'], $this->db);
+        AP_Forum_Permissions::applyAccessLevel(
+            $adminForum,
+            AP_Forum_Permissions::ACCESS_ADMINISTRATORS,
+            $this->db
+        );
+        $this->assertSame(
+            'Administrators only',
+            AP_Forum_Permissions::summarizeAccess($adminForum, $this->db)
+        );
+        $this->assertFalse(AP_Forum_Permissions::userCanViewForum($member, $adminForum, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanViewForum($mod, $adminForum, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($admin, $adminForum, $this->db));
+
+        // Ladder: administrator baseline is a superset of moderator, etc.
+        $adminPerms = AP_Forum_Permissions::baselinePermissionsForLevel(
+            AP_Forum_Permissions::LEVEL_ADMINISTRATOR
+        );
+        $modPerms = AP_Forum_Permissions::baselinePermissionsForLevel(
+            AP_Forum_Permissions::LEVEL_MODERATOR
+        );
+        foreach ($modPerms as $p) {
+            $this->assertContains($p, $adminPerms);
+        }
+        $regPerms = AP_Forum_Permissions::baselinePermissionsForLevel(
+            AP_Forum_Permissions::LEVEL_REGISTERED
+        );
+        foreach ($regPerms as $p) {
+            $this->assertContains($p, $modPerms);
+        }
+    }
+
+    public function testParseAndSaveAccessFormCustomMatrix(): void
+    {
+        AP_Forum_Permissions::ensureDefaults($this->db);
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Custom ACL'], $this->db);
+
+        $input = [
+            'forum_access_level' => 'custom',
+            'forum_perm' => [
+                'guest' => [
+                    'view_forum' => '1',
+                    'read_forum' => '1',
+                ],
+                'registered' => [
+                    'view_forum' => '1',
+                    'read_forum' => '1',
+                    // no post — read-only members
+                ],
+                'moderator' => [
+                    'view_forum' => '1',
+                    'read_forum' => '1',
+                    'post_topics' => '1',
+                    'post_replies' => '1',
+                    'moderate_forum' => '1',
+                ],
+                'administrator' => [
+                    // forced full even if omitted
+                ],
+            ],
+        ];
+        $this->assertTrue(AP_Forum_Permissions::saveAccessFromForm($forumId, $input, $this->db));
+        $this->assertSame(
+            AP_Forum_Permissions::ACCESS_CUSTOM,
+            AP_Forum_Permissions::detectAccessLevel($forumId, $this->db)
+        );
+
+        $member = $this->createUser('custom_m', 'cm@example.test', 'subscriber');
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($member, $forumId, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanPostTopic($member, $forumId, $this->db));
+
+        $matrix = AP_Forum_Permissions::getLevelMatrix($forumId, false, $this->db);
+        foreach (AP_Forum_Permissions::allPermissions() as $perm) {
+            $this->assertTrue(
+                $matrix[AP_Forum_Permissions::LEVEL_ADMINISTRATOR][$perm],
+                "Admin must have {$perm}"
+            );
+        }
+    }
+
+    public function testForumAclDoesNotApplyToPostsOrPagesConceptually(): void
+    {
+        // Guard: permission API is forum-scoped (forum_id), not post_type=post|page.
+        $this->assertStringContainsString(
+            'view_forum',
+            AP_Forum_Permissions::PERM_VIEW
+        );
+        $perms = AP_Forum_Permissions::allPermissions();
+        foreach ($perms as $p) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/^(edit_post|publish_posts|read_private_posts|edit_pages)/',
+                $p
+            );
+        }
+        // Source of admin post edit must not call forum ACL.
+        $postEdit = (string) file_get_contents(
+            $this->root . '/ap-admin/includes/class-ap-admin-post-edit.php'
+        );
+        $this->assertStringNotContainsString('AP_Forum_Permissions', $postEdit);
+        $this->assertStringNotContainsString('forum_access_level', $postEdit);
+    }
+
     public function testProceduralHelpers(): void
     {
         $ids = ap_ensure_system_groups($this->db);

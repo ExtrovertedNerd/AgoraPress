@@ -205,6 +205,8 @@ Forum user groups (permission foundation). System groups include guests, registe
 
 ACL: **group × forum × capability**. `forum_id = 0` means global defaults. Capabilities include view/read/post/edit/attach/moderate/sticky/announce/lock/move (resolved by `AP_Forum_Permissions`).
 
+ACP manages this via **user levels** (Guest → Registered → Moderator → Administrator) with increasing ability, plus presets (Public, Members only, Read only, Moderators only, Administrators only, Custom). Forum ACL never applies to blog posts or pages (those use publish status only).
+
 ### forum_attachments
 
 Links media library files to forum posts/topics (quotas, download counts).
