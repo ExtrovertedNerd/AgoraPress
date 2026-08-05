@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03  
 **Scope:** Full codebase reevaluation against the project constitution (`VISION.md`, `FEATURES.md`, `SPEC.md` under the operator’s private process tree).  
-**Version under review:** `AP_VERSION` `0.1.3-dev`
+**Version under review:** `AP_VERSION` `0.1.4-dev`
 
 This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves.
 
@@ -158,7 +158,7 @@ Users, forums, topics, and posts import; attachments, private messages, and rank
 
 ### D7 — README / status language
 
-Product README status is kept honest for `0.1.3-dev` (pre-tagged release) while reflecting that installer, CMS, forums, admin, compatibility layer, and packaging are **implemented**, not Phase-1 stubs.
+Product README status is kept honest for `0.1.4-dev` (pre-tagged release) while reflecting that installer, CMS, forums, admin, compatibility layer, and packaging are **implemented**, not Phase-1 stubs.
 
 ---
 

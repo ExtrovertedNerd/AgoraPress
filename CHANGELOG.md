@@ -3,24 +3,27 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.1.3-dev**).  
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.1.4-dev**).  
 No tagged public release yet — everything below is **[Unreleased]**.
 
 ## [Unreleased]
 
 ### Package
 
-- Dev package `0.1.3-dev` (zip + SHA-256 under `dist/`).
+- Dev package `0.1.4-dev` (zip + SHA-256 under `dist/`).
 
 ### Changed
 
 - Visual **WYSIWYG editor** for posts, pages, comments, and forums (formatted preview while editing; HTML on save). Legacy Markdown/BBCode still converts on display.
 - Concise public docs: this changelog and the README install guide.
+- Core one-click updater no longer rewrites the `install/` directory or `ap-config-sample.php` on disk (fresh-install assets only).
 
 ### Fixed
 
 - Published posts showed raw markup (`**bold**`, `[b]…[/b]`) instead of formatted HTML.
 - Default theme primary/footer menus could render twice when no custom menu was assigned.
+- Default **Agora** theme wraps extremely long unbroken strings (e.g. Monero donation addresses) so they no longer stretch the page.
+- Comment and forum text fields (including the visual editor) use scheme-matched dark field backgrounds and contrasting text in dark color schemes instead of light browser defaults.
 
 ### Added
 

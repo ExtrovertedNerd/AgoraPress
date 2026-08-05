@@ -107,7 +107,11 @@ final class CoreUpdaterTest extends TestCase
     public function testShouldApplyRelativePreservesUserContent(): void
     {
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-config.php'));
+        $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-config-sample.php'));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('.maintenance'));
+        $this->assertFalse(AP_Core_Updater::shouldApplyRelative('install'));
+        $this->assertFalse(AP_Core_Updater::shouldApplyRelative('install/index.php'));
+        $this->assertFalse(AP_Core_Updater::shouldApplyRelative('install/cli.php'));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/uploads/2026/x.jpg'));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/plugins/my-plugin/plugin.php'));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/mu-plugins/must.php'));

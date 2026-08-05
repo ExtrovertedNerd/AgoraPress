@@ -11,7 +11,7 @@ declare(strict_types=1);
 /**
  * Current core version (SemVer). Pre-release suffix while building MVP.
  */
-define('AP_VERSION', '0.1.3-dev');
+define('AP_VERSION', '0.1.4-dev');
 
 /**
  * Database schema version expected by this codebase.

@@ -50,6 +50,8 @@ def test_updater_class_api() -> None:
         "function setHttpTransport",
         "no-site-id",
         "ap-config.php",
+        "ap-config-sample.php",
+        "install/",
         "ap-content/uploads",
         "ap-content/plugins",
         "ap-content/themes/agora",

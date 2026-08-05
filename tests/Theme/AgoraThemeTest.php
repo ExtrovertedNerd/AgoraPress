@@ -556,7 +556,12 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('focus-visible', $css);
         $this->assertStringContainsString('skip-link', $css);
         $this->assertMatchesRegularExpression('/@media\s*\(\s*max-width:/', $css);
-        $this->assertStringContainsString('Version: 0.3.1', $css);
+        $this->assertStringContainsString('Version: 0.3.2', $css);
+        $this->assertStringContainsString('overflow-wrap: anywhere', $css);
+        $this->assertStringContainsString('--ap-field-bg', $css);
+        $this->assertStringContainsString('--ap-surface:', $css);
+        $this->assertStringContainsString('.ap-comment-form input', $css);
+        $this->assertStringContainsString('color-scheme: inherit', $css);
         $this->assertStringContainsString('.site-account', $css);
         $this->assertStringContainsString('.site-account__welcome', $css);
         $this->assertStringContainsString('.site-account__logout', $css);

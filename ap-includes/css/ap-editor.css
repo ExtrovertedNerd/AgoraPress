@@ -25,7 +25,7 @@
   border: 1px solid var(--ap-border, #c5cad3);
   border-bottom: none;
   border-radius: 6px 6px 0 0;
-  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+  background: var(--ap-surface-2, var(--ap-bg-muted, var(--ap-code-bg, var(--ap-bg-accent, #eef0f3))));
   color: var(--ap-text, var(--ap-fg, #1a1a1a));
 }
 
@@ -52,7 +52,7 @@
 .ap-editor__btn:hover,
 .ap-editor__btn:focus-visible {
   border-color: var(--ap-border-strong, var(--ap-border, #9aa3b2));
-  background: var(--ap-surface, #fff);
+  background: var(--ap-surface, var(--ap-card, var(--ap-bg, #fff)));
   outline: none;
 }
 
@@ -99,7 +99,8 @@
   border: 1px solid var(--ap-border, #c5cad3);
   border-radius: 4px;
   overflow: hidden;
-  background: var(--ap-surface, #fff);
+  background: var(--ap-surface, var(--ap-card, var(--ap-bg, #fff)));
+  color: var(--ap-text, var(--ap-fg, inherit));
 }
 
 .ap-editor__mode-btn {
@@ -127,7 +128,7 @@
 .ap-editor__mode-btn:focus-visible {
   opacity: 1;
   outline: none;
-  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+  background: var(--ap-surface-2, var(--ap-bg-muted, var(--ap-code-bg, var(--ap-bg-accent, #eef0f3))));
 }
 
 .ap-editor__mode-btn.is-active {
@@ -165,13 +166,15 @@
   min-height: 10rem;
   border: 1px solid var(--ap-border, #c5cad3);
   border-radius: 0 0 6px 6px;
-  background: var(--ap-surface, #fff);
+  background: var(--ap-surface, var(--ap-field-bg, var(--ap-card, var(--ap-bg, #fff))));
   color: var(--ap-text, var(--ap-fg, #1a1a1a));
   font: inherit;
   line-height: 1.55;
   overflow-wrap: break-word;
   word-wrap: break-word;
   outline: none;
+  color-scheme: inherit;
+  caret-color: currentColor;
 }
 
 .ap-editor .ap-editor__toolbar + .ap-editor__surface {
@@ -192,7 +195,7 @@
 /* Placeholder when empty (visual mode) */
 .ap-editor__surface--empty:before {
   content: attr(data-placeholder);
-  color: var(--ap-text-muted, #6b7280);
+  color: var(--ap-text-muted, var(--ap-muted, #6b7280));
   opacity: 0.85;
   pointer-events: none;
   font-style: italic;
@@ -248,7 +251,7 @@
 .ap-editor__surface code {
   padding: 0.1em 0.3em;
   border-radius: 3px;
-  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+  background: var(--ap-surface-2, var(--ap-bg-muted, var(--ap-code-bg, #eef0f3)));
 }
 
 .ap-editor__surface pre {
@@ -256,7 +259,7 @@
   padding: 0.65em 0.75em;
   border-radius: 4px;
   overflow: auto;
-  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+  background: var(--ap-surface-2, var(--ap-bg-muted, var(--ap-code-bg, #eef0f3)));
 }
 
 .ap-editor__surface pre code {
@@ -270,7 +273,7 @@
 }
 
 .ap-editor__surface a {
-  color: var(--ap-primary, #1a5fb4);
+  color: var(--ap-primary, var(--ap-link, var(--ap-accent, #1a5fb4)));
 }
 
 .ap-editor__surface hr {
@@ -293,8 +296,10 @@
   font: inherit;
   padding: 0.65rem 0.75rem;
   min-height: 10rem;
-  background: var(--ap-surface, #fff);
+  background: var(--ap-surface, var(--ap-field-bg, var(--ap-card, var(--ap-bg, #fff))));
   color: var(--ap-text, var(--ap-fg, #1a1a1a));
+  color-scheme: inherit;
+  caret-color: currentColor;
 }
 
 .ap-editor .ap-editor__toolbar + .ap-editor__textarea,
@@ -335,8 +340,9 @@
 /* Front-end forum / comment forms */
 .ap-forum-form .ap-editor__toolbar,
 .ap-comment-form .ap-editor__toolbar {
-  background: var(--ap-card, var(--ap-bg-muted, #eef0f3));
+  background: var(--ap-surface-2, var(--ap-code-bg, var(--ap-bg-muted, var(--ap-bg-accent, #eef0f3))));
   border-color: var(--ap-border, #c5cad3);
+  color: var(--ap-text, var(--ap-fg, inherit));
 }
 
 .ap-forum-form .ap-editor__surface,
@@ -344,6 +350,47 @@
 .ap-forum-form .ap-editor__textarea,
 .ap-comment-form .ap-editor__textarea {
   min-height: 8rem;
+  background: var(--ap-surface, var(--ap-field-bg, var(--ap-bg-accent, var(--ap-bg, #fff))));
+  color: var(--ap-text, var(--ap-fg, #1a1a1a));
+}
+
+/* Front-end dark color schemes (Agora body.agora-mode-dark, or any color-scheme: dark host) */
+body.agora-mode-dark .ap-editor__toolbar,
+body.agora-mode-dark .ap-forum-form .ap-editor__toolbar,
+body.agora-mode-dark .ap-comment-form .ap-editor__toolbar {
+  background: var(--ap-surface-2, var(--ap-code-bg, #1c1f28));
+  border-color: var(--ap-border, #2a2f3a);
+  color: var(--ap-text, var(--ap-fg, #e8eaed));
+}
+
+body.agora-mode-dark .ap-editor__surface,
+body.agora-mode-dark .ap-editor__textarea,
+body.agora-mode-dark .ap-forum-form .ap-editor__surface,
+body.agora-mode-dark .ap-comment-form .ap-editor__surface,
+body.agora-mode-dark .ap-forum-form .ap-editor__textarea,
+body.agora-mode-dark .ap-comment-form .ap-editor__textarea {
+  background: var(--ap-surface, var(--ap-field-bg, var(--ap-bg-accent, #12141a)));
+  border-color: var(--ap-border, #2a2f3a);
+  color: var(--ap-text, var(--ap-fg, #e8eaed));
+}
+
+body.agora-mode-dark .ap-editor__mode-switch {
+  background: var(--ap-surface, var(--ap-field-bg, #12141a));
+  border-color: var(--ap-border, #2a2f3a);
+  color: var(--ap-text, var(--ap-fg, #e8eaed));
+}
+
+body.agora-mode-dark .ap-editor__btn:hover,
+body.agora-mode-dark .ap-editor__btn:focus-visible {
+  background: var(--ap-surface, var(--ap-field-bg, #12141a));
+  border-color: var(--ap-border-strong, var(--ap-border, #3a4150));
+  color: var(--ap-text, var(--ap-fg, #e8eaed));
+}
+
+body.agora-mode-dark .ap-editor__emoji-picker {
+  background: var(--ap-surface, var(--ap-field-bg, #12141a));
+  border-color: var(--ap-border, #2a2f3a);
+  color: var(--ap-text, var(--ap-fg, #e8eaed));
 }
 
 /* Dark admin mode */
@@ -392,7 +439,7 @@ html[data-ap-color-mode="dark"] .ap-editor__surface pre {
   border: 1px solid var(--ap-border, #c5cad3);
   border-top: none;
   border-radius: 0;
-  background: var(--ap-surface, #fff);
+  background: var(--ap-surface, var(--ap-field-bg, var(--ap-card, var(--ap-bg, #fff))));
   color: var(--ap-text, var(--ap-fg, #1a1a1a));
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
 }

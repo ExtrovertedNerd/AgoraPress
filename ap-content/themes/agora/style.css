@@ -4,7 +4,7 @@ Theme URI: https://agorapress.extrovertednerd.com/
 Author: ExtrovertedNerd
 Author URI: https://extrovertednerd.com/
 Description: Default lightweight, image-free theme for AgoraPress. Accessible, responsive, pure CSS with six selectable color schemes (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal. Works with blog and forum templates.
-Version: 0.3.1
+Version: 0.3.2
 Requires at least: 0.1.0
 Requires PHP: 8.2
 License: GNU General Public License v2 or later
@@ -76,6 +76,7 @@ body.agora-scheme-marble {
   --ap-table-stripe: #f8f9fb;
   --ap-badge-bg: #e8eef9;
   --ap-badge-fg: #1e3f82;
+  --ap-field-bg: #eef0f4;
   --ap-shadow: 0 1px 2px rgb(28 31 38 / 0.04), 0 10px 28px rgb(28 31 38 / 0.06);
 }
 
@@ -105,6 +106,7 @@ body.agora-scheme-parchment {
   --ap-table-stripe: #faf4e8;
   --ap-badge-bg: #f3e4d4;
   --ap-badge-fg: #6e3018;
+  --ap-field-bg: #efe4d0;
   --ap-font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --ap-shadow: 0 1px 2px rgb(58 47 36 / 0.05), 0 10px 28px rgb(58 47 36 / 0.07);
 }
@@ -135,6 +137,7 @@ body.agora-scheme-cloud {
   --ap-table-stripe: #f3f8fb;
   --ap-badge-bg: #d9eef6;
   --ap-badge-fg: #065f7c;
+  --ap-field-bg: #e4eef5;
   --ap-shadow: 0 1px 2px rgb(26 42 54 / 0.04), 0 12px 32px rgb(11 126 164 / 0.08);
 }
 
@@ -164,6 +167,8 @@ body.agora-scheme-obsidian {
   --ap-table-stripe: #18181f;
   --ap-badge-bg: #2a2240;
   --ap-badge-fg: #d6bcfa;
+  /* Inset field surface — complementary dark, not light browser chrome */
+  --ap-field-bg: #0f0f16;
   --ap-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 36px rgb(0 0 0 / 0.45);
 }
 
@@ -193,6 +198,7 @@ body.agora-scheme-midnight {
   --ap-table-stripe: #0d1628;
   --ap-badge-bg: #153048;
   --ap-badge-fg: #9adcff;
+  --ap-field-bg: #0c1524;
   --ap-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 14px 40px rgb(8 40 80 / 0.35);
 }
 
@@ -222,7 +228,23 @@ body.agora-scheme-charcoal {
   --ap-table-stripe: #1f1c19;
   --ap-badge-bg: #3a3020;
   --ap-badge-fg: #f5d29a;
+  --ap-field-bg: #1e1b18;
   --ap-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 36px rgb(0 0 0 / 0.4);
+}
+
+/*
+ * Editor / form token aliases used by ap-editor.css and form controls.
+ * Maps scheme tokens so comment/forum fields stay readable in dark modes
+ * (avoids light #fff fallbacks when --ap-surface is undefined).
+ */
+body.agora-theme {
+  --ap-surface: var(--ap-field-bg, var(--ap-card));
+  --ap-surface-2: var(--ap-code-bg, var(--ap-bg-accent));
+  --ap-bg-muted: var(--ap-code-bg, var(--ap-bg-accent));
+  --ap-text: var(--ap-fg);
+  --ap-text-muted: var(--ap-muted);
+  --ap-primary: var(--ap-accent);
+  --ap-border-strong: var(--ap-border);
 }
 
 /* --------------------------------------------------------------------------
@@ -256,6 +278,9 @@ body.agora-theme {
     radial-gradient(900px 500px at 100% 0%, var(--ap-accent-soft) 0%, transparent 50%),
     var(--ap-bg);
   color: var(--ap-fg);
+  /* Wrap ultra-long unbroken strings (e.g. Monero addresses) without horizontal scroll */
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -888,6 +913,9 @@ body.agora-forum .site-footer__inner {
 
 .ap-entry__content {
   color: var(--ap-fg);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
 }
 
 .ap-entry__content > *:first-child {
@@ -1159,6 +1187,8 @@ body.agora-forum .site-footer__inner {
 
 .ap-comment__body {
   line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .ap-comment__body p:last-child {
@@ -1172,6 +1202,7 @@ body.agora-forum .site-footer__inner {
   background: var(--ap-card);
   border: 1px solid var(--ap-card-border);
   border-radius: var(--ap-radius);
+  color: var(--ap-fg);
 }
 
 .ap-comment-form label,
@@ -1180,6 +1211,7 @@ body.agora-forum .site-footer__inner {
   font-weight: 600;
   font-size: var(--ap-text-sm);
   margin-bottom: 0.35rem;
+  color: var(--ap-fg);
 }
 
 .ap-comment-form .ap-field,
@@ -1187,29 +1219,96 @@ body.agora-forum .site-footer__inner {
   margin-bottom: 0.9rem;
 }
 
+/* Comment / forum controls: scheme-matched field bg + contrasting text (esp. dark modes) */
 .ap-comment-form input[type="text"],
 .ap-comment-form input[type="email"],
 .ap-comment-form input[type="url"],
+.ap-comment-form input[type="password"],
+.ap-comment-form input[type="search"],
+.ap-comment-form input[type="number"],
 .ap-comment-form textarea,
+.ap-comment-form select,
 .ap-forum-form input[type="text"],
+.ap-forum-form input[type="email"],
+.ap-forum-form input[type="url"],
+.ap-forum-form input[type="password"],
+.ap-forum-form input[type="search"],
+.ap-forum-form input[type="number"],
 .ap-forum-form textarea,
-.ap-forum-form select {
+.ap-forum-form select,
+.ap-comment-form .ap-editor__surface,
+.ap-comment-form .ap-editor__textarea,
+.ap-forum-form .ap-editor__surface,
+.ap-forum-form .ap-editor__textarea {
   width: 100%;
   max-width: 100%;
   min-height: 2.5rem;
   padding: 0.5rem 0.7rem;
   border: 1px solid var(--ap-border);
   border-radius: var(--ap-radius-sm);
-  background: var(--ap-bg);
+  background: var(--ap-field-bg, var(--ap-bg-accent, var(--ap-bg)));
+  background-color: var(--ap-field-bg, var(--ap-bg-accent, var(--ap-bg)));
   color: var(--ap-fg);
   font: inherit;
+  color-scheme: inherit;
+  caret-color: var(--ap-fg);
+  overflow-wrap: anywhere;
+}
+
+.ap-comment-form input::placeholder,
+.ap-comment-form textarea::placeholder,
+.ap-forum-form input::placeholder,
+.ap-forum-form textarea::placeholder {
+  color: var(--ap-muted);
+  opacity: 0.9;
 }
 
 .ap-comment-form textarea,
-.ap-forum-form textarea {
+.ap-forum-form textarea,
+.ap-comment-form .ap-editor__surface,
+.ap-comment-form .ap-editor__textarea,
+.ap-forum-form .ap-editor__surface,
+.ap-forum-form .ap-editor__textarea {
   min-height: 8rem;
   resize: vertical;
   line-height: 1.5;
+}
+
+/* Toolbar chrome on comment/forum editors stays dark in dark schemes */
+.ap-comment-form .ap-editor__toolbar,
+.ap-forum-form .ap-editor__toolbar {
+  background: var(--ap-surface-2, var(--ap-code-bg, var(--ap-bg-accent)));
+  color: var(--ap-fg);
+  border-color: var(--ap-border);
+}
+
+.ap-comment-form .ap-editor__mode-switch,
+.ap-forum-form .ap-editor__mode-switch {
+  background: var(--ap-field-bg, var(--ap-bg-accent));
+  border-color: var(--ap-border);
+  color: var(--ap-fg);
+}
+
+.ap-comment-form .ap-editor__btn:hover,
+.ap-comment-form .ap-editor__btn:focus-visible,
+.ap-forum-form .ap-editor__btn:hover,
+.ap-forum-form .ap-editor__btn:focus-visible {
+  background: var(--ap-field-bg, var(--ap-bg-accent));
+  border-color: var(--ap-border);
+  color: var(--ap-fg);
+}
+
+/* Autofill must not force a light white box over dark schemes */
+.ap-comment-form input:-webkit-autofill,
+.ap-comment-form input:-webkit-autofill:hover,
+.ap-comment-form input:-webkit-autofill:focus,
+.ap-forum-form input:-webkit-autofill,
+.ap-forum-form input:-webkit-autofill:hover,
+.ap-forum-form input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--ap-fg);
+  caret-color: var(--ap-fg);
+  box-shadow: 0 0 0 1000px var(--ap-field-bg, var(--ap-bg-accent, var(--ap-bg))) inset;
+  transition: background-color 99999s ease-out 0s;
 }
 
 /* --------------------------------------------------------------------------

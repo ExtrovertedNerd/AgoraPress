@@ -17,8 +17,9 @@
  * - Zip path-traversal / zip-bomb soft limits
  * - Optional SHA-256 verification when version.json provides sha256
  * - Maintenance mode during apply
- * - Never overwrites ap-config.php or user content under ap-content/
- *   (uploads, plugins, mu-plugins, non-default themes)
+ * - Never overwrites ap-config.php, ap-config-sample.php, the install/
+ *   directory, or user content under ap-content/ (uploads, plugins,
+ *   mu-plugins, non-default themes)
  *
  * @package AgoraPress
  */
@@ -56,6 +57,7 @@ class AP_Core_Updater
      */
     public const PRESERVE_EXACT = [
         'ap-config.php',
+        'ap-config-sample.php',
         '.maintenance',
     ];
 
@@ -564,6 +566,10 @@ HTML;
             return false;
         }
         if ($rel === '.hephaestus' || str_starts_with($rel, '.hephaestus/')) {
+            return false;
+        }
+        // Installer is for fresh installs only — never rewrite on update.
+        if ($rel === 'install' || str_starts_with($rel, 'install/')) {
             return false;
         }
         if ($rel === 'ap-content/uploads' || str_starts_with($rel, 'ap-content/uploads/')) {
