@@ -3,20 +3,26 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.1.4-dev**).  
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.1.5-dev**).  
 No tagged public release yet — everything below is **[Unreleased]**.
 
 ## [Unreleased]
 
 ### Package
 
-- Dev package `0.1.4-dev` (zip + SHA-256 under `dist/`).
+- Dev package `0.1.5-dev` (zip + SHA-256 under `dist/`).
+
+### Added
+
+- **ap-cli `post`**: list / get / create / update posts and pages from the shell using local `--file` paths only (no remote URLs).
+- Default **Agora** theme header: guests see **Log in** (and **Register** when public registration is enabled).
 
 ### Changed
 
 - Visual **WYSIWYG editor** for posts, pages, comments, and forums (formatted preview while editing; HTML on save). Legacy Markdown/BBCode still converts on display.
 - Concise public docs: this changelog and the README install guide.
 - Core one-click updater no longer rewrites the `install/` directory or `ap-config-sample.php` on disk (fresh-install assets only).
+- Product README and developer docs refreshed for the current MVP surface (CLI content, updater safety, Agora theme auth/forms, live-site install).
 
 ### Fixed
 
@@ -25,7 +31,7 @@ No tagged public release yet — everything below is **[Unreleased]**.
 - Default **Agora** theme wraps extremely long unbroken strings (e.g. Monero donation addresses) so they no longer stretch the page.
 - Comment and forum text fields (including the visual editor) use scheme-matched dark field backgrounds and contrasting text in dark color schemes instead of light browser defaults.
 
-### Added
+### Added (MVP surface)
 
 **Forums**
 
@@ -43,7 +49,7 @@ No tagged public release yet — everything below is **[Unreleased]**.
 - Config sample (`ap-config-sample.php`), table prefix `ap_`, multi-driver DB (MySQL/MariaDB, SQLite, PostgreSQL)
 - Release packaging (`bin/package-release.php` → zip + SHA-256 + `version.json.example`)
 - One-click core update + version check (no site identity sent)
-- `ap-cli` for options, plugins, themes, users, DB migrate, cache, cron, health
+- `ap-cli` for options, plugins, themes, users, posts/pages, DB migrate, cache, cron, health
 - Live-site install readiness: production hardening denies secrets, SQLite/DB downloads, and direct `ap-includes/` access (Apache `.htaccess`, Nginx example)
 
 **CMS**

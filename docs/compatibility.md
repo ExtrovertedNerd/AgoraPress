@@ -160,6 +160,8 @@ echo ap_theme_compat_report('/path/to/theme');
 
 ## Related
 
-- [Theme hierarchy](themes.md) — native loader behaviour  
+- [Theme hierarchy](themes.md) — native loader behaviour and Agora defaults  
 - [Hooks](hooks.md) — full action/filter API  
 - [Plugin API](plugins.md) — plugins always use `ap_*` (no bare WP plugin runtime)  
+- [Vision compliance](vision-compliance.md) — why the layer is a first-class differentiator  
+

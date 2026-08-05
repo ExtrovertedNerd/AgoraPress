@@ -4,7 +4,7 @@ Theme URI: https://agorapress.extrovertednerd.com/
 Author: ExtrovertedNerd
 Author URI: https://extrovertednerd.com/
 Description: Default lightweight, image-free theme for AgoraPress. Accessible, responsive, pure CSS with six selectable color schemes (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal. Works with blog and forum templates.
-Version: 0.3.2
+Version: 0.3.3
 Requires at least: 0.1.0
 Requires PHP: 8.2
 License: GNU General Public License v2 or later
@@ -474,7 +474,7 @@ body.agora-forum .site-footer__inner {
   border-bottom-color: var(--ap-link);
 }
 
-/* Logged-in welcome / account indicator (header) */
+/* Header account area: logged-in welcome, or guest Log in / Register */
 .site-account {
   display: flex;
   flex-wrap: wrap;
@@ -507,7 +507,9 @@ body.agora-forum .site-footer__inner {
   outline-offset: 2px;
 }
 
-.site-account__logout {
+.site-account__logout,
+.site-account__login,
+.site-account__register {
   color: var(--ap-muted, var(--ap-fg));
   text-decoration: none;
   font-weight: 500;
@@ -521,15 +523,36 @@ body.agora-forum .site-footer__inner {
     border-color var(--ap-transition);
 }
 
-.site-account__logout:hover {
+.site-account__logout:hover,
+.site-account__login:hover,
+.site-account__register:hover {
   color: var(--ap-link);
   background: var(--ap-accent-soft);
   border-color: color-mix(in srgb, var(--ap-link) 35%, var(--ap-border));
 }
 
-.site-account__logout:focus-visible {
+.site-account__logout:focus-visible,
+.site-account__login:focus-visible,
+.site-account__register:focus-visible {
   outline: var(--ap-focus-ring) solid var(--ap-accent);
   outline-offset: 2px;
+}
+
+.site-account--guest {
+  gap: 0.25rem 0.4rem;
+}
+
+.site-account__sep {
+  color: var(--ap-muted);
+  opacity: 0.65;
+  user-select: none;
+  padding: 0 0.1rem;
+}
+
+.site-account__register {
+  font-weight: 600;
+  color: var(--ap-link);
+  border-color: color-mix(in srgb, var(--ap-link) 30%, var(--ap-border));
 }
 
 /* Small screens: nav wraps under branding with full-width touch targets */

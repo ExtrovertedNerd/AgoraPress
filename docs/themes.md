@@ -213,11 +213,20 @@ Admin: Appearance → Menus, Appearance → Widgets.
 
 ## Default theme: Agora
 
-- Lightweight, **image-free**, pure CSS  
-- **Six color schemes** (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal  
-- Option `agora_color_scheme` (admin Theme Options)  
-- Body classes: `agora-scheme-{slug}`, `agora-mode-light|dark`  
-- Blog + forum templates, landmarks for accessibility, reduced-motion / contrast support  
+Current stylesheet version: **0.3.3** (`AGORA_THEME_VERSION` / `style.css` header).
+
+| Feature | Detail |
+|---------|--------|
+| Weight | Lightweight, **image-free**, pure CSS |
+| Schemes | **Six** (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal |
+| Selection | Option `agora_color_scheme` (Appearance → Theme Options) |
+| Body classes | `agora-theme`, `agora-scheme-{slug}`, `agora-mode-light\|dark` |
+| Account chrome | Guests: **Log in** (+ **Register** when `users_can_register` is on). Logged-in: welcome, profile, log out (`agora_the_account_indicator`) |
+| Forms | Comment/forum fields and the visual editor use scheme tokens (`--ap-field-bg`, `--ap-surface`, …) so dark modes keep dark fields and contrasting text |
+| Long strings | `overflow-wrap: anywhere` so unbroken strings (e.g. Monero addresses) wrap instead of stretching the layout |
+| Custom CSS | Appearance → Theme Options → Additional CSS (`custom_css` / `AP_Theme::printCustomCss` on `ap_head`) |
+| Templates | Blog + forum templates, landmarks, reduced-motion / contrast support |
+| Nav | Primary + footer menu locations; fallbacks list published pages and useful login/register links when open |
 
 ## Theme installer
 
@@ -238,3 +247,12 @@ CLI conversion report for classic WP themes: see [compatibility](compatibility.m
 4. Override hierarchy templates as needed  
 5. Register menus/sidebars if used  
 6. Activate via admin or `php ap-cli theme activate my-theme`  
+7. If supporting dark schemes, define field/surface tokens so form controls stay readable  
+
+## Related
+
+- [Hooks](hooks.md) — `ap_enqueue_scripts`, `ap_head`, template filters  
+- [Compatibility](compatibility.md) — classic WP themes  
+- [Editor](editor.md) — front-end comment/forum editor styling  
+- [README](../README.md) — install and default-theme notes  
+

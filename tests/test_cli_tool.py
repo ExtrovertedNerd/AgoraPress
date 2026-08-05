@@ -40,9 +40,12 @@ def test_cli_class_defines_expected_api() -> None:
     assert "cmdOption" in src
     assert "cmdDb" in src
     assert "cmdUser" in src
+    assert "cmdPost" in src
     assert "cmdCron" in src
     assert "cmdSite" in src
     assert "ap_cli_init" in src
+    assert "readLocalBodyFile" in src
+    assert "remote URLs" in src or "stream wrappers" in src
 
 
 def test_entry_script_is_cli() -> None:
@@ -150,3 +153,45 @@ def test_cli_help_plugin() -> None:
     assert proc.returncode == 0
     assert "plugin" in proc.stdout.lower()
     assert "activate" in proc.stdout.lower()
+
+
+def test_cli_help_post() -> None:
+    proc = subprocess.run(
+        [_php_bin(), str(CLI), "help", "post"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0
+    combined = (proc.stdout + proc.stderr).lower()
+    assert "post" in combined
+    assert "list" in combined
+    assert "create" in combined
+    assert "update" in combined
+
+
+def test_cli_help_lists_post_command() -> None:
+    proc = subprocess.run(
+        [_php_bin(), str(CLI), "--help"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0
+    assert "post" in (proc.stdout + proc.stderr)
+
+
+def test_cli_post_not_installed() -> None:
+    if (ROOT / "ap-config.php").is_file():
+        pytest.skip("ap-config.php present; cannot assert not-installed exit")
+    proc = subprocess.run(
+        [_php_bin(), str(CLI), "post", "list"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 3
+    assert "not installed" in (proc.stdout + proc.stderr).lower()

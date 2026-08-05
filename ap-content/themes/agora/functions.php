@@ -19,7 +19,7 @@ const AGORA_COLOR_SCHEME_OPTION = 'agora_color_scheme';
 const AGORA_DEFAULT_COLOR_SCHEME = 'marble';
 
 /** Stylesheet version (fallback when style.css header is unavailable). */
-const AGORA_THEME_VERSION = '0.3.2';
+const AGORA_THEME_VERSION = '0.3.3';
 
 /**
  * Register theme chrome: nav locations + modular sidebars (idempotent).
@@ -788,6 +788,124 @@ function agora_admin_path_url(string $file, array $query = [], ?AP_DB $db = null
 }
 
 /**
+ * Whether the current visitor is logged in (theme helper).
+ */
+function agora_is_user_logged_in(?AP_DB $db = null): bool
+{
+    if (function_exists('ap_is_user_logged_in') && class_exists('AP_Session', false)) {
+        try {
+            return ap_is_user_logged_in($db);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+    if (function_exists('ap_get_current_user_id') && class_exists('AP_Session', false)) {
+        try {
+            return ap_get_current_user_id($db) > 0;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Whether public registration is open for the guest Register link.
+ */
+function agora_users_can_register(?AP_DB $db = null): bool
+{
+    if (function_exists('ap_users_can_register')) {
+        try {
+            return ap_users_can_register($db);
+        } catch (Throwable) {
+            // fall through
+        }
+    }
+    if (class_exists('AP_Registration', false) && method_exists('AP_Registration', 'usersCanRegister')) {
+        try {
+            return (bool) AP_Registration::usersCanRegister($db);
+        } catch (Throwable) {
+            // fall through
+        }
+    }
+
+    $raw = agora_read_option('users_can_register', '0', $db);
+
+    return $raw === '1' || $raw === 'true' || $raw === 'yes' || $raw === 'on';
+}
+
+/**
+ * Guest login / register URLs for the header (null when logged in).
+ *
+ * Register is only included when settings allow public registration.
+ *
+ * @return array{
+ *     login_url: string,
+ *     register_url: string,
+ *     can_register: bool
+ * }|null
+ */
+function agora_get_guest_auth_links(?AP_DB $db = null): ?array
+{
+    if (agora_is_user_logged_in($db)) {
+        return null;
+    }
+
+    $loginUrl = '';
+    if (class_exists('AP_Registration', false) && method_exists('AP_Registration', 'loginActionUrl')) {
+        try {
+            $loginUrl = (string) AP_Registration::loginActionUrl('login', [], $db);
+        } catch (Throwable) {
+            $loginUrl = '';
+        }
+    }
+    if ($loginUrl === '') {
+        $loginUrl = agora_admin_path_url('login.php', [], $db);
+    }
+
+    $canRegister = agora_users_can_register($db);
+    $registerUrl = '';
+    if ($canRegister) {
+        if (class_exists('AP_Registration', false) && method_exists('AP_Registration', 'loginActionUrl')) {
+            try {
+                $registerUrl = (string) AP_Registration::loginActionUrl('register', [], $db);
+            } catch (Throwable) {
+                $registerUrl = '';
+            }
+        }
+        if ($registerUrl === '') {
+            $registerUrl = agora_admin_path_url('login.php', ['action' => 'register'], $db);
+        }
+    }
+
+    $data = [
+        'login_url' => $loginUrl,
+        'register_url' => $canRegister ? $registerUrl : '',
+        'can_register' => $canRegister && $registerUrl !== '',
+    ];
+
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('agora_guest_auth_links', $data, $db);
+        if (is_array($filtered)) {
+            $can = !empty($filtered['can_register']);
+            $reg = (string) ($filtered['register_url'] ?? '');
+            $data = [
+                'login_url' => (string) ($filtered['login_url'] ?? $data['login_url']),
+                'register_url' => $can ? $reg : '',
+                'can_register' => $can && $reg !== '',
+            ];
+        }
+    }
+
+    if ($data['login_url'] === '' && !$data['can_register']) {
+        return null;
+    }
+
+    return $data;
+}
+
+/**
  * Logged-in account indicator data for the header, or null for guests.
  *
  * @return array{
@@ -799,22 +917,7 @@ function agora_admin_path_url(string $file, array $query = [], ?AP_DB $db = null
  */
 function agora_get_account_indicator(?AP_DB $db = null): ?array
 {
-    $loggedIn = false;
-    if (function_exists('ap_is_user_logged_in') && class_exists('AP_Session', false)) {
-        try {
-            $loggedIn = ap_is_user_logged_in($db);
-        } catch (Throwable) {
-            $loggedIn = false;
-        }
-    } elseif (function_exists('ap_get_current_user_id') && class_exists('AP_Session', false)) {
-        try {
-            $loggedIn = ap_get_current_user_id($db) > 0;
-        } catch (Throwable) {
-            $loggedIn = false;
-        }
-    }
-
-    if (!$loggedIn) {
+    if (!agora_is_user_logged_in($db)) {
         return null;
     }
 
@@ -873,31 +976,57 @@ function agora_get_account_indicator(?AP_DB $db = null): ?array
 }
 
 /**
- * Print the header account indicator when the visitor is logged in.
+ * Print the header account area: welcome/log out when logged in, or
+ * Log in (+ Register when public registration is open) for guests.
  */
 function agora_the_account_indicator(?AP_DB $db = null): void
 {
     $info = agora_get_account_indicator($db);
-    if ($info === null) {
+    if ($info !== null) {
+        $name = (string) ($info['display_name'] ?? '');
+        $profileUrl = (string) ($info['profile_url'] ?? '');
+        $logoutUrl = (string) ($info['logout_url'] ?? '');
+
+        echo '<div class="site-account site-account--user" role="navigation" aria-label="Account">';
+        echo '<span class="site-account__welcome">Welcome, ';
+        if ($profileUrl !== '' && $name !== '') {
+            echo '<a class="site-account__name" href="' . agora_esc_url($profileUrl) . '">'
+                . agora_esc($name) . '</a>';
+        } else {
+            echo agora_esc($name !== '' ? $name : 'Member');
+        }
+        echo '</span>';
+
+        if ($logoutUrl !== '') {
+            echo '<a class="site-account__logout" href="' . agora_esc_url($logoutUrl) . '">Log out</a>';
+        }
+        echo '</div>';
+
         return;
     }
 
-    $name = (string) ($info['display_name'] ?? '');
-    $profileUrl = (string) ($info['profile_url'] ?? '');
-    $logoutUrl = (string) ($info['logout_url'] ?? '');
-
-    echo '<div class="site-account" role="navigation" aria-label="Account">';
-    echo '<span class="site-account__welcome">Welcome, ';
-    if ($profileUrl !== '' && $name !== '') {
-        echo '<a class="site-account__name" href="' . agora_esc_url($profileUrl) . '">'
-            . agora_esc($name) . '</a>';
-    } else {
-        echo agora_esc($name !== '' ? $name : 'Member');
+    $guest = agora_get_guest_auth_links($db);
+    if ($guest === null) {
+        return;
     }
-    echo '</span>';
 
-    if ($logoutUrl !== '') {
-        echo '<a class="site-account__logout" href="' . agora_esc_url($logoutUrl) . '">Log out</a>';
+    $loginUrl = (string) ($guest['login_url'] ?? '');
+    $registerUrl = (string) ($guest['register_url'] ?? '');
+    $canRegister = !empty($guest['can_register']) && $registerUrl !== '';
+
+    if ($loginUrl === '' && !$canRegister) {
+        return;
+    }
+
+    echo '<div class="site-account site-account--guest" role="navigation" aria-label="Account">';
+    if ($loginUrl !== '') {
+        echo '<a class="site-account__login" href="' . agora_esc_url($loginUrl) . '">Log in</a>';
+    }
+    if ($canRegister) {
+        if ($loginUrl !== '') {
+            echo '<span class="site-account__sep" aria-hidden="true">·</span>';
+        }
+        echo '<a class="site-account__register" href="' . agora_esc_url($registerUrl) . '">Register</a>';
     }
     echo '</div>';
 }

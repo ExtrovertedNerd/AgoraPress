@@ -1,8 +1,8 @@
 # Vision & Features Compliance
 
-**Date:** 2026-08-03  
+**Date:** 2026-08-05  
 **Scope:** Full codebase reevaluation against the project constitution (`VISION.md`, `FEATURES.md`, `SPEC.md` under the operator’s private process tree).  
-**Version under review:** `AP_VERSION` `0.1.4-dev`
+**Version under review:** `AP_VERSION` `0.1.5-dev`
 
 This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves.
 
@@ -21,6 +21,7 @@ AgoraPress still matches the mission: a **free, lightweight, privacy-respecting*
 | Classic WP Theme Compatibility Layer | Pass (solid for classic PHP themes) |
 | Secure & private defaults | Pass |
 | Non-goals respected (Gutenberg, SaaS marketplace, heavy AI, PHP &lt; 8.2) | Pass |
+| Live-site install readiness (hardening, installer, Site Health) | Pass |
 
 No bloat or phone-home paths were found in core product code. Network egress from core is limited to:
 
@@ -44,12 +45,15 @@ No bloat or phone-home paths were found in core product code. Network egress fro
 - Dev tools (PHPUnit, PHPStan, PHPCS) are `require-dev` only.
 - Default **Agora** theme: pure CSS, **no image assets**, exactly **six** color schemes (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal.
 - Optional modules keep unused surfaces out of admin and front routing.
+- Classic visual editor only (no Gutenberg runtime in core).
 
 ### 3. Easy self-host & maintain
 
 - Web installer (`install/`), CLI install (`install/cli.php`), Docker Compose.
-- Versioned migrations (`AP_DB_VERSION`), Site Health, Update Core screen.
+- Versioned migrations (`AP_DB_VERSION` = 9), Site Health, Update Core screen.
 - Familiar `ap-admin` / `ap-includes` / `ap-content` layout for classic WP operators.
+- Zero-dependency `ap-cli` for options, plugins, themes, users, **posts/pages**, DB, cache, cron, rewrites, health.
+- Production hardening examples (Apache `.htaccess`, Nginx) deny secrets, SQLite downloads, and direct `ap-includes/` PHP.
 
 ### 4. Easy to theme + Classic WP Compatibility Layer
 
@@ -76,11 +80,11 @@ Documented limitations: [compatibility.md](compatibility.md).
 
 ### 5. Powerful & extensible
 
-Hooks, plugins, Settings API, shortcodes, CPT/taxonomies, REST (`AP_Rest`), CLI (`ap-cli`).
+Hooks, plugins, Settings API, shortcodes, CPT/taxonomies, REST (`AP_Rest`), CLI (`ap-cli` including content management).
 
 ### 6. Integrated community
 
-Dedicated forum tables; shared users, roles, capabilities, and media. Hierarchy, topics, replies, attachments, groups/ACL, moderation, PMs, online/unread, search/flood/approval.
+Dedicated forum tables; shared users, roles, capabilities, and media. Hierarchy, topics, replies, attachments, groups/ACL (per-forum presets and custom matrix), moderation, PMs, online/unread, search/flood/approval.
 
 ### 7. Secure & private by default
 
@@ -118,7 +122,7 @@ These are deliberate engineering choices that differ slightly from early plannin
 ### D1 — One-click core auto-update shipped early
 
 **FEATURES** listed full one-click auto-update as **Later**.  
-**Implementation:** `AP_Core_Updater` + admin Update Core, privacy-preserving GET download + optional SHA-256, preserves `ap-config.php` and site content.
+**Implementation:** `AP_Core_Updater` + admin Update Core, privacy-preserving GET download + optional SHA-256. Preserves `ap-config.php`, site content, and (from 0.1.4-dev) never rewrites `install/` or `ap-config-sample.php` so admins can remove those post-install.
 
 **Why:** Maintainability is a core principle; a privacy-safe update path is more important than deferring it. Still admin-initiated only.
 
@@ -152,13 +156,13 @@ Users, forums, topics, and posts import; attachments, private messages, and rank
 ### D6 — REST API and operational CLI delivered with polish phase
 
 **FEATURES** tagged REST + CLI as v1.  
-**Implementation:** Lightweight `AP_Rest` and zero-dep `ap-cli` ship in the 0.1.x-dev tree.
+**Implementation:** Lightweight `AP_Rest` and zero-dep `ap-cli` ship in the 0.1.x-dev tree, including shell content management (`post list|get|create|update` with local `--file` only).
 
 **Why:** Extensibility and ops tools belong with a usable MVP, not a later bolt-on.
 
 ### D7 — README / status language
 
-Product README status is kept honest for `0.1.4-dev` (pre-tagged release) while reflecting that installer, CMS, forums, admin, compatibility layer, and packaging are **implemented**, not Phase-1 stubs.
+Product README status is kept honest for `0.1.5-dev` (pre-tagged release) while reflecting that installer, CMS, forums, admin, compatibility layer, packaging, and live-site hardening are **implemented**, not Phase-1 stubs.
 
 ---
 
@@ -169,6 +173,7 @@ Product README status is kept honest for `0.1.4-dev` (pre-tagged release) while 
 - No image assets under the default Agora theme  
 - No paywall or license-key enforcement paths  
 - Compatibility layer does not claim block/FSE parity (documented out of scope)  
+- `ap-cli post --file` never fetches remote URLs (local filesystem only)  
 
 ---
 
@@ -178,7 +183,7 @@ Product README status is kept honest for `0.1.4-dev` (pre-tagged release) while 
 |-------|----------------|
 | `tests/Vision/VisionComplianceTest.php` | Principles, telemetry defaults, compat files, Agora schemes, modules, LICENSE, no jQuery |
 | `tests/test_vision_compliance.py` | Same surface for pytest smoke |
-| Existing Hall of Fame / Version check / Theme compat / Site Health / Readme tests | Privacy and differentiator detail |
+| Existing Hall of Fame / Version check / Theme compat / Site Health / Readme / Live-site readiness tests | Privacy, install hardening, and differentiator detail |
 
 Re-run after large features land:
 

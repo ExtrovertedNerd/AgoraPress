@@ -5,7 +5,7 @@
  * AgoraPress command-line interface (ap-cli).
  *
  * Manage an installed site from the shell: options, plugins, themes, users,
- * schema migrations, cache, cron, rewrites, and site health.
+ * posts/pages, schema migrations, cache, cron, rewrites, and site health.
  *
  * Usage:
  *   php ap-cli --help

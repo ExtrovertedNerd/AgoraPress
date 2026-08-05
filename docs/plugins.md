@@ -119,9 +119,18 @@ ap_add_action('ap_footer', static function (): void {
 Activate: Admin → Plugins, or:
 
 ```bash
+php ap-cli plugin list
 php ap-cli plugin activate site-notice/site-notice.php
 # or single-file:
 php ap-cli plugin activate hello.php
+php ap-cli plugin deactivate hello.php
+```
+
+Content automation (core CLI, not a plugin API) uses local files only:
+
+```bash
+php ap-cli post create --type=page --title="About" --file=./about.html
+php ap-cli help post
 ```
 
 ## Shortcodes

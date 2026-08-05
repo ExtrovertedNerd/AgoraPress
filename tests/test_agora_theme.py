@@ -93,10 +93,13 @@ def test_style_css_polish_responsive_accessible_forum() -> None:
     assert ".ap-pagination" in css
     # On-accent for dark-scheme button contrast
     assert "--ap-on-accent" in css
-    # Logged-in account indicator in header
+    # Account indicator in header (logged-in + guest auth links)
     assert ".site-account" in css
     assert ".site-account__welcome" in css
     assert ".site-account__logout" in css
+    assert ".site-account__login" in css
+    assert ".site-account__register" in css
+    assert ".site-account--guest" in css
     for slug in SCHEMES:
         assert f"agora-scheme-{slug}" in css
 
@@ -118,6 +121,11 @@ def test_functions_define_scheme_and_forum_api() -> None:
         "function agora_the_entry_meta",
         "function agora_get_account_indicator",
         "function agora_the_account_indicator",
+        "function agora_get_guest_auth_links",
+        "function agora_users_can_register",
+        "site-account--guest",
+        "site-account__login",
+        "site-account__register",
         "AGORA_COLOR_SCHEME_OPTION",
         "AGORA_DEFAULT_COLOR_SCHEME",
         "marble",

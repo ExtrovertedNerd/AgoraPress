@@ -198,9 +198,21 @@ final class CoreUpdaterTest extends TestCase
         }
         file_put_contents($site . '/ap-content/themes/custom/style.css', '/* custom */');
 
+        // Site deliberately has no install/ tree and no ap-config-sample.php
+        // (admin removed them post-install) — update must not bring them back.
+        $this->assertFileDoesNotExist($site . '/ap-config-sample.php');
+        $this->assertDirectoryDoesNotExist($site . '/install');
+
         $pkgDir = $this->buildMinimalPackageDir('9.9.9');
         // Package tries to overwrite config + custom theme (must be ignored).
         file_put_contents($pkgDir . '/ap-config.php', "<?php\n// evil\n");
+        // Fresh-install assets ship in release zips but must never be applied on update.
+        file_put_contents($pkgDir . '/ap-config-sample.php', "<?php\n// sample should not land on live site\n");
+        if (!is_dir($pkgDir . '/install')) {
+            mkdir($pkgDir . '/install', 0700, true);
+        }
+        file_put_contents($pkgDir . '/install/index.php', "<?php\n// installer should not land on live site\n");
+        file_put_contents($pkgDir . '/install/cli.php', "<?php\n// cli installer should not land on live site\n");
         if (!is_dir($pkgDir . '/ap-content/themes/custom')) {
             mkdir($pkgDir . '/ap-content/themes/custom', 0700, true);
         }
@@ -238,11 +250,62 @@ final class CoreUpdaterTest extends TestCase
         $this->assertSame('<?php // keep', (string) file_get_contents($site . '/ap-content/plugins/keepme/plugin.php'));
         $this->assertSame('/* custom */', (string) file_get_contents($site . '/ap-content/themes/custom/style.css'));
 
+        // Fresh-install assets must not be written (or re-created) by an update.
+        $this->assertFileDoesNotExist($site . '/ap-config-sample.php');
+        $this->assertDirectoryDoesNotExist($site . '/install');
+        $this->assertFileDoesNotExist($site . '/install/index.php');
+        $this->assertFileDoesNotExist($site . '/install/cli.php');
+
         // Applied.
         $this->assertFileExists($site . '/ap-includes/marker.php');
         $this->assertStringContainsString('updated marker', (string) file_get_contents($site . '/ap-includes/marker.php'));
         $this->assertStringContainsString('agora 9.9.9', (string) file_get_contents($site . '/ap-content/themes/agora/style.css'));
         $this->assertStringContainsString('9.9.9', (string) file_get_contents($site . '/ap-includes/version.php'));
+    }
+
+    public function testUpdateDoesNotRewriteExistingInstallAssets(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $site = $this->workDir . '/site-with-install';
+        $this->seedFakeSite($site, '0.1.0-dev');
+
+        // Site still has install assets (not yet removed) — content must not be overwritten.
+        file_put_contents($site . '/ap-config-sample.php', "<?php\n// original sample on disk\n");
+        mkdir($site . '/install', 0700, true);
+        file_put_contents($site . '/install/index.php', "<?php\n// original installer\n");
+
+        $pkgDir = $this->buildMinimalPackageDir('3.0.0');
+        file_put_contents($pkgDir . '/ap-config-sample.php', "<?php\n// package sample rewrite attempt\n");
+        mkdir($pkgDir . '/install', 0700, true);
+        file_put_contents($pkgDir . '/install/index.php', "<?php\n// package installer rewrite attempt\n");
+        file_put_contents($pkgDir . '/ap-includes/marker.php', "<?php\n// core update\n");
+
+        $zipPath = $this->workDir . '/release-3.0.0.zip';
+        $this->zipDirectory($pkgDir, $zipPath, 'AgoraPress-3.0.0');
+
+        $result = AP_Core_Updater::run($this->db, [
+            'abspath' => $site,
+            'package_path' => $zipPath,
+            'expected_version' => '3.0.0',
+            'skip_migrate' => true,
+        ]);
+
+        $this->assertTrue($result['ok'], implode(' ', $result['errors']));
+        $this->assertStringContainsString(
+            'original sample on disk',
+            (string) file_get_contents($site . '/ap-config-sample.php')
+        );
+        $this->assertStringContainsString(
+            'original installer',
+            (string) file_get_contents($site . '/install/index.php')
+        );
+        $this->assertStringContainsString(
+            'core update',
+            (string) file_get_contents($site . '/ap-includes/marker.php')
+        );
     }
 
     public function testRunDownloadsViaTransportAndVerifiesSha256(): void

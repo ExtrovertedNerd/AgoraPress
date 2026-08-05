@@ -16,6 +16,7 @@ use AP_DB;
 use AP_Migrator;
 use AP_Options;
 use AP_Plugin;
+use AP_Post;
 use AP_Roles;
 use AP_Theme;
 use AP_User;
@@ -66,6 +67,9 @@ final class CliToolTest extends TestCase
         }
         if (class_exists('AP_Roles', false)) {
             AP_Roles::flushCache();
+        }
+        if (class_exists('AP_Post', false)) {
+            AP_Post::resetRegistry();
         }
         unset($GLOBALS['apdb']);
         $this->removeDir($this->tempDir);
@@ -123,6 +127,7 @@ final class CliToolTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-plugin.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-roles.php';
+        require_once $this->root . '/ap-includes/class-ap-post.php';
         require_once $this->root . '/ap-includes/class-ap-theme.php';
         require_once $this->root . '/ap-includes/class-ap-cron.php';
         require_once $this->root . '/ap-includes/class-ap-formatting.php';
@@ -136,6 +141,8 @@ final class CliToolTest extends TestCase
         AP_Cron::reset();
         AP_Theme::reset();
         AP_Roles::flushCache();
+        AP_Post::resetRegistry();
+        AP_Post::ensureBuiltins();
 
         $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -178,6 +185,7 @@ final class CliToolTest extends TestCase
         $this->assertStringContainsString('plugin', $text);
         $this->assertStringContainsString('option', $text);
         $this->assertStringContainsString('db', $text);
+        $this->assertStringContainsString('post', $text);
         $this->assertStringContainsString('install/cli.php', $text);
     }
 
@@ -543,6 +551,259 @@ final class CliToolTest extends TestCase
         $this->assertNotEmpty($this->stdout);
     }
 
+    public function testPostCreateGetListUpdatePageAndPost(): void
+    {
+        $this->bootSqliteCore();
+        $out = $this->captureOut();
+        $err = $this->captureErr();
+
+        $pageBody = $this->tempDir . '/about-body.html';
+        file_put_contents($pageBody, "<p>About page body</p>\n");
+        $postBody = $this->tempDir . '/hello-body.html';
+        file_put_contents($postBody, "<p>Hello world</p>\n");
+
+        // Create page (default status publish).
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            [
+                'type' => 'page',
+                'title' => 'About',
+                'slug' => 'about',
+                'file' => $pageBody,
+            ],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $this->assertStringContainsString('Created page ID', implode("\n", $this->stdout));
+        $this->assertStringContainsString('about', implode("\n", $this->stdout));
+
+        // Create post (default status draft).
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            [
+                'type' => 'post',
+                'title' => 'Hello',
+                'file' => $postBody,
+            ],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $this->assertStringContainsString('Created post ID', implode("\n", $this->stdout));
+
+        // List pages.
+        $this->stdout = [];
+        $code = AP_Cli::cmdPost(['list'], ['type' => 'page'], $out, $err);
+        $this->assertSame(AP_Cli::EXIT_OK, $code);
+        $list = implode("\n", $this->stdout);
+        $this->assertStringContainsString("\tpage\tabout\tAbout\tpublish", $list);
+
+        // List posts includes draft.
+        $this->stdout = [];
+        $code = AP_Cli::cmdPost(['list'], ['type' => 'post'], $out, $err);
+        $this->assertSame(AP_Cli::EXIT_OK, $code);
+        $this->assertStringContainsString("\tpost\t", implode("\n", $this->stdout));
+        $this->assertStringContainsString("\tdraft", implode("\n", $this->stdout));
+        $this->assertStringContainsString('Hello', implode("\n", $this->stdout));
+
+        // Get by slug + type.
+        $this->stdout = [];
+        $code = AP_Cli::cmdPost(
+            ['get'],
+            ['slug' => 'about', 'type' => 'page'],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code);
+        $got = implode("\n", $this->stdout);
+        $this->assertStringContainsString('post_type: page', $got);
+        $this->assertStringContainsString('post_name: about', $got);
+        $this->assertStringContainsString('post_title: About', $got);
+        $this->assertStringContainsString('post_status: publish', $got);
+        $this->assertStringContainsString('<p>About page body</p>', $got);
+
+        // Update body by slug.
+        $updatedBody = $this->tempDir . '/about-v2.html';
+        file_put_contents($updatedBody, "<p>Updated about</p>\n");
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['update'],
+            [
+                'slug' => 'about',
+                'type' => 'page',
+                'file' => $updatedBody,
+            ],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $this->assertStringContainsString('Updated page ID', implode("\n", $this->stdout));
+
+        $page = AP_Post::getBySlug('about', 'page', $GLOBALS['apdb']);
+        $this->assertNotNull($page);
+        $this->assertStringContainsString('Updated about', (string) $page->post_content);
+        $this->assertSame('About', (string) $page->post_title);
+
+        // Update title by id only (body preserved).
+        $this->stdout = [];
+        $code = AP_Cli::cmdPost(
+            ['update'],
+            [
+                'id' => (string) $page->ID,
+                'title' => 'About Us',
+            ],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code);
+        $page = AP_Post::get((int) $page->ID, $GLOBALS['apdb']);
+        $this->assertNotNull($page);
+        $this->assertSame('About Us', (string) $page->post_title);
+        $this->assertStringContainsString('Updated about', (string) $page->post_content);
+
+        // Publish the draft post via --id.
+        $this->stdout = [];
+        $code = AP_Cli::cmdPost(['list'], ['type' => 'post'], $out, $err);
+        $this->assertSame(AP_Cli::EXIT_OK, $code);
+        $postLine = '';
+        foreach ($this->stdout as $line) {
+            if (str_contains($line, "\tpost\t") && str_contains($line, 'Hello')) {
+                $postLine = $line;
+                break;
+            }
+        }
+        $this->assertNotSame('', $postLine);
+        $postId = (int) explode("\t", $postLine)[0];
+        $this->assertGreaterThan(0, $postId);
+
+        $this->stdout = [];
+        $code = AP_Cli::cmdPost(
+            ['update'],
+            ['id' => (string) $postId, 'status' => 'publish'],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code);
+        $post = AP_Post::get($postId, $GLOBALS['apdb']);
+        $this->assertNotNull($post);
+        $this->assertSame('publish', (string) $post->post_status);
+        $this->assertStringContainsString('Hello world', (string) $post->post_content);
+    }
+
+    public function testPostGetMissingTargetFails(): void
+    {
+        $this->bootSqliteCore();
+        $code = AP_Cli::cmdPost(
+            ['get'],
+            ['id' => '99999'],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_ERROR, $code);
+        $this->assertStringContainsString('not found', implode("\n", $this->stderr));
+
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['update'],
+            ['slug' => 'no-such-page', 'type' => 'page', 'title' => 'X'],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_ERROR, $code);
+        $this->assertStringContainsString('not found', implode("\n", $this->stderr));
+
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['get'],
+            [],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_USAGE, $code);
+    }
+
+    public function testPostBadFileFails(): void
+    {
+        $this->bootSqliteCore();
+        $out = $this->captureOut();
+        $err = $this->captureErr();
+
+        // Remote URL rejected.
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            [
+                'type' => 'page',
+                'title' => 'Remote',
+                'file' => 'https://example.test/body.html',
+            ],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_ERROR, $code);
+        $this->assertStringContainsString('URL', implode("\n", $this->stderr));
+
+        // Missing path.
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            [
+                'type' => 'post',
+                'title' => 'Missing file',
+                'file' => $this->tempDir . '/does-not-exist.html',
+            ],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_ERROR, $code);
+        $this->assertStringContainsString('not a readable regular file', implode("\n", $this->stderr));
+
+        // Directory rejected.
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            [
+                'type' => 'post',
+                'title' => 'Dir file',
+                'file' => $this->tempDir,
+            ],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_ERROR, $code);
+        $this->assertStringContainsString('directory', strtolower(implode("\n", $this->stderr)));
+
+        // Create without title.
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            ['type' => 'page'],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_USAGE, $code);
+        $this->assertStringContainsString('Title is required', implode("\n", $this->stderr));
+    }
+
+    public function testPostCommandHelpMentionsSubcommands(): void
+    {
+        $code = AP_Cli::runFromArgv(
+            ['ap-cli', 'help', 'post'],
+            $this->captureOut(),
+            $this->captureErr(),
+            $this->root . '/'
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code);
+        $combined = implode("\n", $this->stdout);
+        $this->assertStringContainsString('post', $combined);
+        $this->assertStringContainsString('list', $combined);
+        $this->assertStringContainsString('create', $combined);
+        $this->assertStringContainsString('update', $combined);
+    }
+
     public function testEntryScriptExistsAndIsCli(): void
     {
         $entry = $this->root . '/ap-cli';
@@ -551,6 +812,8 @@ final class CliToolTest extends TestCase
         $this->assertStringContainsString('AP_Cli::runFromArgv', $src);
         $this->assertStringContainsString('AP_CLI', $src);
         $this->assertStringContainsString('#!/usr/bin/env php', $src);
+        $this->assertStringContainsString('PHP_SAPI', $src);
+        $this->assertStringContainsString('posts/pages', $src);
     }
 
     public function testProcessHelpViaPhp(): void

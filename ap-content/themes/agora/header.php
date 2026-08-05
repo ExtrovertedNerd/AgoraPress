@@ -97,7 +97,7 @@ if (function_exists('ap_nav_menu')) {
     ]);
 }
 
-// Logged-in welcome / account indicator (profile + log out).
+// Account area: welcome/log out when logged in; Log in (+ Register if open) for guests.
 if (function_exists('agora_the_account_indicator')) {
     agora_the_account_indicator();
 }

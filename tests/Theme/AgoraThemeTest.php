@@ -38,6 +38,7 @@ final class AgoraThemeTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-session.php';
+        require_once $this->root . '/ap-includes/class-ap-registration.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
         require_once $this->root . '/ap-includes/class-ap-query.php';
         require_once $this->root . '/ap-includes/class-ap-rewrite.php';
@@ -556,7 +557,7 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('focus-visible', $css);
         $this->assertStringContainsString('skip-link', $css);
         $this->assertMatchesRegularExpression('/@media\s*\(\s*max-width:/', $css);
-        $this->assertStringContainsString('Version: 0.3.2', $css);
+        $this->assertStringContainsString('Version: 0.3.3', $css);
         $this->assertStringContainsString('overflow-wrap: anywhere', $css);
         $this->assertStringContainsString('--ap-field-bg', $css);
         $this->assertStringContainsString('--ap-surface:', $css);
@@ -565,18 +566,54 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('.site-account', $css);
         $this->assertStringContainsString('.site-account__welcome', $css);
         $this->assertStringContainsString('.site-account__logout', $css);
+        $this->assertStringContainsString('.site-account__login', $css);
+        $this->assertStringContainsString('.site-account__register', $css);
+        $this->assertStringContainsString('.site-account--guest', $css);
     }
 
-    public function testAccountIndicatorNullForGuests(): void
+    public function testGuestAuthLinksLoginOnlyWhenRegistrationClosed(): void
     {
-        $this->assertTrue(function_exists('agora_get_account_indicator'));
+        $this->assertTrue(function_exists('agora_get_guest_auth_links'));
         $this->assertTrue(function_exists('agora_the_account_indicator'));
         $this->assertNull(agora_get_account_indicator($this->db));
+
+        // Default: registration closed → Log in only.
+        AP_Options::update('users_can_register', '0', $this->db);
+        $guest = agora_get_guest_auth_links($this->db);
+        $this->assertIsArray($guest);
+        $this->assertStringContainsString('login.php', $guest['login_url']);
+        $this->assertFalse($guest['can_register']);
+        $this->assertSame('', $guest['register_url']);
 
         ob_start();
         agora_the_account_indicator($this->db);
         $html = (string) ob_get_clean();
-        $this->assertSame('', $html);
+        $this->assertStringContainsString('site-account--guest', $html);
+        $this->assertStringContainsString('site-account__login', $html);
+        $this->assertStringContainsString('Log in', $html);
+        $this->assertStringNotContainsString('site-account__register', $html);
+        $this->assertStringNotContainsString('Register', $html);
+        $this->assertStringNotContainsString('Welcome,', $html);
+    }
+
+    public function testGuestAuthLinksIncludeRegisterWhenOpen(): void
+    {
+        AP_Options::update('users_can_register', '1', $this->db);
+
+        $guest = agora_get_guest_auth_links($this->db);
+        $this->assertIsArray($guest);
+        $this->assertTrue($guest['can_register']);
+        $this->assertStringContainsString('login.php', $guest['login_url']);
+        $this->assertStringContainsString('action=register', $guest['register_url']);
+
+        ob_start();
+        agora_the_account_indicator($this->db);
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('site-account--guest', $html);
+        $this->assertStringContainsString('Log in', $html);
+        $this->assertStringContainsString('Register', $html);
+        $this->assertStringContainsString('site-account__register', $html);
+        $this->assertStringContainsString('action=register', $html);
     }
 
     public function testAccountIndicatorShowsWelcomeWhenLoggedIn(): void
@@ -627,8 +664,9 @@ final class AgoraThemeTest extends TestCase
         $this->assertSame($user->ID, ap_get_current_user_id($this->db));
     }
 
-    public function testGuestRenderHidesAccountIndicator(): void
+    public function testGuestRenderShowsLoginAndOptionalRegister(): void
     {
+        AP_Options::update('users_can_register', '0', $this->db);
         AP_Post::insert([
             'post_title' => 'Guest Probe',
             'post_type' => 'post',
@@ -642,10 +680,23 @@ final class AgoraThemeTest extends TestCase
         ap_set_query($query);
         ob_start();
         AP_Theme::render($query, $this->db);
-        $html = (string) ob_get_clean();
+        $htmlClosed = (string) ob_get_clean();
 
-        $this->assertStringNotContainsString('site-account', $html);
-        $this->assertStringNotContainsString('Welcome,', $html);
+        $this->assertStringContainsString('site-account--guest', $htmlClosed);
+        $this->assertStringContainsString('Log in', $htmlClosed);
+        $this->assertStringContainsString('login.php', $htmlClosed);
+        $this->assertStringNotContainsString('Register', $htmlClosed);
+        $this->assertStringNotContainsString('Welcome,', $htmlClosed);
+
+        AP_Options::update('users_can_register', '1', $this->db);
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $htmlOpen = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Log in', $htmlOpen);
+        $this->assertStringContainsString('Register', $htmlOpen);
+        $this->assertStringContainsString('action=register', $htmlOpen);
+        $this->assertStringNotContainsString('Welcome,', $htmlOpen);
     }
 
     public function testForumTemplateHierarchyIndex(): void

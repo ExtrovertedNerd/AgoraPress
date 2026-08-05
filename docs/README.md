@@ -1,20 +1,22 @@
 # AgoraPress Developer Documentation
 
-Guides for extending AgoraPress with plugins, themes, hooks, and database knowledge.
+Guides for extending and operating AgoraPress: plugins, themes, hooks, schema, and the Classic WordPress Theme Compatibility Layer.
 
 AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). The public API uses the `ap_` prefix. The [Classic WordPress Theme Compatibility Layer](compatibility.md) optionally exposes many bare WordPress names for classic PHP themes.
+
+**Current core:** `AP_VERSION` **0.1.5-dev** · schema `AP_DB_VERSION` **9** · product status: MVP feature-complete, ready for live-site install.
 
 ## Guides
 
 | Guide | What it covers |
 |-------|----------------|
 | [Hooks](hooks.md) | Actions, filters, priorities, lifecycle hooks |
-| [Theme hierarchy](themes.md) | Template files, child themes, assets, template tags |
-| [Plugin API](plugins.md) | Headers, activation, MU-plugins, shortcodes, settings |
+| [Theme hierarchy](themes.md) | Template files, child themes, Agora defaults, assets, template tags |
+| [Plugin API](plugins.md) | Headers, activation, MU-plugins, shortcodes, settings, REST registration |
 | [Visual editor](editor.md) | Lightweight visual WYSIWYG (no block editor in core) |
 | [Compatibility layer](compatibility.md) | WP shims, hook maps, conversion CLI, limitations |
 | [Database schema](schema.md) | Tables, migrations, prefix, multi-driver notes |
-| [Vision compliance](vision-compliance.md) | Constitution reevaluation, principles checklist, intentional deviations |
+| [Vision compliance](vision-compliance.md) | Principles checklist, intentional deviations, test guards |
 
 ## Quick mental model
 
@@ -22,11 +24,30 @@ AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). Th
 Request
   → bootstrap (config, DB, roles, options, …)
   → MU plugins → active plugins
-  → ap_loaded
+  → ap_plugins_loaded → ap_loaded
   → rewrite / query (front) or admin bootstrap
   → theme setup (functions.php) → ap_after_setup_theme
   → template hierarchy → locate → render
+     (themes call ap_enqueue_scripts, ap_head, ap_footer)
 ```
+
+CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches built-in or plugin-registered commands (`ap_cli_init`).
+
+## Feature map (for integrators)
+
+| Surface | Entry points |
+|---------|----------------|
+| Options / Settings | `AP_Options`, Settings API (`ap_register_setting`, …) |
+| Posts / pages | `AP_Post`, `AP_Query`, admin screens, `ap-cli post` |
+| Media | `AP_Media`, uploads under `ap-content/uploads/` |
+| Comments | `AP_Comment`, discussion settings |
+| Forums | `AP_Forum*`, dedicated tables (see [schema](schema.md)) |
+| Themes | `AP_Theme`, default `ap-content/themes/agora/` |
+| Plugins | `AP_Plugin`, `ap-content/plugins/`, `mu-plugins/` |
+| REST | `AP_Rest` → `/ap-json/` namespace `ap/v1` |
+| CLI | `ap-cli` → option, plugin, theme, user, **post**, db, cache, cron, rewrite, site, core |
+| Compat | `ap-includes/compatibility/` |
+| Updates | `AP_Version_Check`, `AP_Core_Updater` (no site identity) |
 
 ## Conventions
 
@@ -39,7 +60,7 @@ Request
 
 ## Related product docs
 
-- [README.md](../README.md) — install, Docker, CLI, REST overview  
+- [README.md](../README.md) — install, Docker, CLI, REST, production checklist  
 - [CODING_STANDARDS.md](../CODING_STANDARDS.md) — PSR-12 adapted style  
 - [CHANGELOG.md](../CHANGELOG.md) — notable changes  
 
@@ -50,10 +71,14 @@ Request
 | Hooks | `ap-includes/hooks.php`, `class-ap-hook.php`, `class-ap-hooks.php` |
 | Themes | `ap-includes/class-ap-theme.php`, `template-tags.php`, `class-ap-assets.php` |
 | Plugins | `ap-includes/class-ap-plugin.php`, procedural helpers in `functions.php` |
+| Posts / CLI content | `class-ap-post.php`, `class-ap-cli.php` (`cmdPost`) |
 | Visual editor | `ap-includes/class-ap-editor.php`, `css/ap-editor.css`, `js/ap-editor.js` |
 | Compatibility | `ap-includes/compatibility/` |
 | Schema | `ap-includes/schema/migrations/`, `class-ap-migrator.php` |
 | Default theme | `ap-content/themes/agora/` |
+| Forums | `class-ap-forum*.php`, `class-ap-forum-front.php` |
+| REST | `class-ap-rest.php` |
+| Install / update | `install/`, `class-ap-installer.php`, `class-ap-core-updater.php` |
 
 ---
 

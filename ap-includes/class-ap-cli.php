@@ -62,6 +62,11 @@ class AP_Cli
     private static string $abspath = '';
 
     /**
+     * Exit code hint from {@see resolvePostTarget()} (USAGE vs ERROR).
+     */
+    private static int $lastResolveExit = 1;
+
+    /**
      * Register a command (or replace an existing one).
      *
      * Callback signature:
@@ -704,6 +709,13 @@ class AP_Cli
             true
         );
         self::addCommand(
+            'post',
+            [self::class, 'cmdPost'],
+            'Manage posts and pages (list, get, create, update)',
+            'post <list|get|create|update> [--type=post|page] [--id=N] [--slug=…] [--title=…] [--file=path] [--status=…]',
+            true
+        );
+        self::addCommand(
             'cache',
             [self::class, 'cmdCache'],
             'Object cache (flush)',
@@ -1336,6 +1348,496 @@ class AP_Cli
         $err('Usage: user <list|get|create> ...');
 
         return self::EXIT_USAGE;
+    }
+
+    /**
+     * Manage posts and pages from the shell (local files only; no remote I/O).
+     *
+     * Subcommands: list, get, create, update.
+     * Defaults on create: status=draft for posts, publish for pages.
+     *
+     * @param list<string> $args
+     * @param array<string, string|bool> $assoc
+     * @param callable(string): void $out
+     * @param callable(string): void $err
+     */
+    public static function cmdPost(array $args, array $assoc, callable $out, callable $err): int
+    {
+        if (!class_exists('AP_Post', false)) {
+            $err('Post API is not available (AP_Post not loaded).');
+
+            return self::EXIT_ERROR;
+        }
+
+        $sub = strtolower((string) ($args[0] ?? ''));
+
+        if ($sub === '' || $sub === 'list') {
+            return self::cmdPostList($assoc, $out, $err);
+        }
+        if ($sub === 'get') {
+            return self::cmdPostGet($assoc, $out, $err);
+        }
+        if ($sub === 'create') {
+            return self::cmdPostCreate($assoc, $out, $err);
+        }
+        if ($sub === 'update') {
+            return self::cmdPostUpdate($assoc, $out, $err);
+        }
+
+        $err('Unknown post subcommand: ' . ($sub !== '' ? $sub : '(empty)'));
+        $err('Usage: post <list|get|create|update> ...');
+
+        return self::EXIT_USAGE;
+    }
+
+    /**
+     * @param array<string, string|bool> $assoc
+     * @param callable(string): void $out
+     * @param callable(string): void $err
+     */
+    private static function cmdPostList(array $assoc, callable $out, callable $err): int
+    {
+        $typeRaw = self::assocString($assoc, 'type', '');
+        $types = self::resolvePostTypesForCli($typeRaw, $err, true);
+        if ($types === null) {
+            return self::EXIT_USAGE;
+        }
+
+        $statusRaw = self::assocString($assoc, 'status', 'any');
+        $statusArg = $statusRaw === '' || strtolower($statusRaw) === 'any'
+            ? 'any'
+            : $statusRaw;
+
+        $number = (int) ($assoc['number'] ?? $assoc['limit'] ?? 100);
+        if ($number < 0) {
+            $number = 100;
+        }
+
+        $queryArgs = [
+            'post_type' => $types,
+            'post_status' => $statusArg,
+            'orderby' => 'ID',
+            'order' => 'ASC',
+            'limit' => $number,
+        ];
+
+        $posts = AP_Post::query($queryArgs);
+        if ($posts === []) {
+            $out('(no posts)');
+
+            return self::EXIT_OK;
+        }
+
+        foreach ($posts as $post) {
+            $out(sprintf(
+                "%d\t%s\t%s\t%s\t%s",
+                (int) $post->ID,
+                (string) $post->post_type,
+                (string) $post->post_name,
+                self::cliSingleLine((string) $post->post_title),
+                (string) $post->post_status
+            ));
+        }
+
+        return self::EXIT_OK;
+    }
+
+    /**
+     * @param array<string, string|bool> $assoc
+     * @param callable(string): void $out
+     * @param callable(string): void $err
+     */
+    private static function cmdPostGet(array $assoc, callable $out, callable $err): int
+    {
+        $post = self::resolvePostTarget($assoc, $err, false);
+        if ($post === null) {
+            // resolvePostTarget already wrote usage or not-found.
+            return self::lastResolveExitCode($err);
+        }
+
+        $out('ID: ' . (int) $post->ID);
+        $out('post_type: ' . (string) $post->post_type);
+        $out('post_name: ' . (string) $post->post_name);
+        $out('post_title: ' . (string) $post->post_title);
+        $out('post_status: ' . (string) $post->post_status);
+        $out('post_date: ' . (string) $post->post_date);
+        $out('post_modified: ' . (string) $post->post_modified);
+        $out('post_author: ' . (int) $post->post_author);
+        $out('post_parent: ' . (int) $post->post_parent);
+        $out('---');
+        $out((string) $post->post_content);
+
+        return self::EXIT_OK;
+    }
+
+    /**
+     * @param array<string, string|bool> $assoc
+     * @param callable(string): void $out
+     * @param callable(string): void $err
+     */
+    private static function cmdPostCreate(array $assoc, callable $out, callable $err): int
+    {
+        $title = self::assocString($assoc, 'title', '');
+        if ($title === '') {
+            $err('Usage: post create --title=TITLE [--type=post|page] [--slug=SLUG] [--status=STATUS] [--file=PATH]');
+            $err('Title is required.');
+
+            return self::EXIT_USAGE;
+        }
+
+        $typeRaw = self::assocString($assoc, 'type', 'post');
+        if ($typeRaw === '') {
+            $typeRaw = 'post';
+        }
+        $types = self::resolvePostTypesForCli($typeRaw, $err, false);
+        if ($types === null || $types === []) {
+            return self::EXIT_USAGE;
+        }
+        $type = $types[0];
+
+        $slug = self::assocString($assoc, 'slug', '');
+        $status = self::assocString($assoc, 'status', '');
+        if ($status === '') {
+            // Documented defaults: draft for posts, publish for pages.
+            $status = $type === 'page' ? 'publish' : 'draft';
+        }
+
+        $content = '';
+        if (array_key_exists('file', $assoc)) {
+            $read = self::readLocalBodyFile(self::assocString($assoc, 'file', ''), $err);
+            if ($read === null) {
+                return self::EXIT_ERROR;
+            }
+            $content = $read;
+        }
+
+        $data = [
+            'post_type' => $type,
+            'post_title' => $title,
+            'post_content' => $content,
+            'post_status' => $status,
+        ];
+        if ($slug !== '') {
+            $data['post_name'] = $slug;
+        }
+
+        $id = AP_Post::insert($data);
+        if ($id < 1) {
+            $err('Failed to create ' . $type . ' (invalid type/status or database error).');
+
+            return self::EXIT_ERROR;
+        }
+
+        $created = AP_Post::get($id);
+        $finalSlug = $created !== null ? (string) $created->post_name : $slug;
+        $out(sprintf(
+            'Created %s ID %d (%s)',
+            $type,
+            $id,
+            $finalSlug !== '' ? $finalSlug : 'no-slug'
+        ));
+
+        return self::EXIT_OK;
+    }
+
+    /**
+     * @param array<string, string|bool> $assoc
+     * @param callable(string): void $out
+     * @param callable(string): void $err
+     */
+    private static function cmdPostUpdate(array $assoc, callable $out, callable $err): int
+    {
+        $post = self::resolvePostTarget($assoc, $err, true);
+        if ($post === null) {
+            return self::lastResolveExitCode($err);
+        }
+
+        $data = [];
+        if (array_key_exists('title', $assoc)) {
+            $title = self::assocString($assoc, 'title', '');
+            if ($title === '') {
+                $err('Title cannot be empty when --title is provided.');
+
+                return self::EXIT_USAGE;
+            }
+            $data['post_title'] = $title;
+        }
+        if (array_key_exists('status', $assoc)) {
+            $status = self::assocString($assoc, 'status', '');
+            if ($status === '') {
+                $err('Status cannot be empty when --status is provided.');
+
+                return self::EXIT_USAGE;
+            }
+            $data['post_status'] = $status;
+        }
+        // --slug is only a locator here; rename with --name / --post_name.
+        if (array_key_exists('name', $assoc) || array_key_exists('post_name', $assoc)) {
+            $newSlug = self::assocString($assoc, 'name', '');
+            if ($newSlug === '') {
+                $newSlug = self::assocString($assoc, 'post_name', '');
+            }
+            if ($newSlug === '') {
+                $err('Slug cannot be empty when --name/--post_name is provided.');
+
+                return self::EXIT_USAGE;
+            }
+            $data['post_name'] = $newSlug;
+        }
+        if (array_key_exists('file', $assoc)) {
+            $read = self::readLocalBodyFile(self::assocString($assoc, 'file', ''), $err);
+            if ($read === null) {
+                return self::EXIT_ERROR;
+            }
+            $data['post_content'] = $read;
+        }
+
+        if ($data === []) {
+            $err('Usage: post update (--id=N | --slug=SLUG [--type=post|page]) [--title=…] [--file=PATH] [--status=…] [--name=NEW_SLUG]');
+            $err('Provide at least one field to change: --title, --file, --status, or --name.');
+
+            return self::EXIT_USAGE;
+        }
+
+        $id = (int) $post->ID;
+        $ok = AP_Post::update($id, $data);
+        if (!$ok) {
+            $err('Failed to update post ID ' . $id . '.');
+
+            return self::EXIT_ERROR;
+        }
+
+        $updated = AP_Post::get($id);
+        $type = $updated !== null ? (string) $updated->post_type : (string) $post->post_type;
+        $slugOut = $updated !== null ? (string) $updated->post_name : (string) $post->post_name;
+        $out(sprintf('Updated %s ID %d (%s)', $type, $id, $slugOut !== '' ? $slugOut : 'no-slug'));
+
+        return self::EXIT_OK;
+    }
+
+    /**
+     * Resolve a post by --id or --slug (+ optional --type).
+     *
+     * Sets a transient exit hint via a static flag for callers that need
+     * USAGE vs ERROR distinction without re-parsing messages.
+     *
+     * @param array<string, string|bool> $assoc
+     * @param callable(string): void $err
+     */
+    private static function resolvePostTarget(array $assoc, callable $err, bool $forUpdate): ?AP_Post
+    {
+        self::$lastResolveExit = self::EXIT_USAGE;
+
+        $idRaw = self::assocString($assoc, 'id', '');
+        $slug = self::assocString($assoc, 'slug', '');
+        $typeRaw = self::assocString($assoc, 'type', '');
+
+        if ($idRaw !== '') {
+            if (!ctype_digit($idRaw) || (int) $idRaw < 1) {
+                $err('Invalid --id (expected a positive integer).');
+
+                return null;
+            }
+            $post = AP_Post::get((int) $idRaw);
+            if ($post === null) {
+                self::$lastResolveExit = self::EXIT_ERROR;
+                $err('Post not found: ID ' . $idRaw);
+
+                return null;
+            }
+            if ($typeRaw !== '') {
+                $types = self::resolvePostTypesForCli($typeRaw, $err, false);
+                if ($types === null) {
+                    return null;
+                }
+                if (!in_array((string) $post->post_type, $types, true)) {
+                    self::$lastResolveExit = self::EXIT_ERROR;
+                    $err('Post ID ' . $idRaw . ' is type "' . $post->post_type
+                        . '", not "' . implode('|', $types) . '".');
+
+                    return null;
+                }
+            }
+
+            return $post;
+        }
+
+        if ($slug !== '') {
+            $type = '';
+            if ($typeRaw !== '') {
+                $types = self::resolvePostTypesForCli($typeRaw, $err, false);
+                if ($types === null) {
+                    return null;
+                }
+                $type = $types[0];
+            }
+            $post = AP_Post::getBySlug($slug, $type);
+            if ($post === null) {
+                self::$lastResolveExit = self::EXIT_ERROR;
+                $err('Post not found: slug "' . $slug . '"'
+                    . ($type !== '' ? ' (type ' . $type . ')' : ''));
+
+                return null;
+            }
+
+            return $post;
+        }
+
+        $usage = $forUpdate
+            ? 'Usage: post update (--id=N | --slug=SLUG [--type=post|page]) [--title=…] [--file=PATH] [--status=…] [--name=NEW_SLUG]'
+            : 'Usage: post get (--id=N | --slug=SLUG [--type=post|page])';
+        $err($usage);
+        $err('Provide --id or --slug to select a post/page.');
+
+        return null;
+    }
+
+    /**
+     * @param callable(string): void $err Unused; kept for call-site symmetry.
+     */
+    private static function lastResolveExitCode(callable $err): int
+    {
+        unset($err);
+
+        return self::$lastResolveExit === self::EXIT_ERROR
+            ? self::EXIT_ERROR
+            : self::EXIT_USAGE;
+    }
+
+    /**
+     * Allowed content types for ap-cli post commands.
+     *
+     * @param callable(string): void $err
+     *
+     * @return list<string>|null null on validation failure
+     */
+    private static function resolvePostTypesForCli(string $typeRaw, callable $err, bool $allowEmptyAsBoth): ?array
+    {
+        $typeRaw = strtolower(trim($typeRaw));
+        if ($typeRaw === '' || $typeRaw === 'any') {
+            if ($allowEmptyAsBoth) {
+                return ['post', 'page'];
+            }
+            $err('Invalid --type (use post or page).');
+
+            return null;
+        }
+
+        if ($typeRaw === 'post' || $typeRaw === 'page') {
+            return [$typeRaw];
+        }
+
+        // Comma-separated for list: --type=post,page
+        if (str_contains($typeRaw, ',')) {
+            $parts = array_values(array_filter(array_map(
+                static fn (string $p): string => strtolower(trim($p)),
+                explode(',', $typeRaw)
+            )));
+            $allowed = [];
+            foreach ($parts as $p) {
+                if ($p !== 'post' && $p !== 'page') {
+                    $err('Invalid --type "' . $p . '" (allowed: post, page).');
+
+                    return null;
+                }
+                if (!in_array($p, $allowed, true)) {
+                    $allowed[] = $p;
+                }
+            }
+            if ($allowed === []) {
+                $err('Invalid --type (use post or page).');
+
+                return null;
+            }
+
+            return $allowed;
+        }
+
+        $err('Invalid --type "' . $typeRaw . '" (allowed: post, page).');
+
+        return null;
+    }
+
+    /**
+     * Read a local filesystem body file. Rejects URLs and non-regular files.
+     *
+     * @param callable(string): void $err
+     */
+    private static function readLocalBodyFile(string $path, callable $err): ?string
+    {
+        $path = trim($path);
+        if ($path === '' || $path === '1' || $path === 'true') {
+            $err('Invalid --file: provide a local filesystem path to a regular file.');
+
+            return null;
+        }
+
+        // Reject remote / stream wrappers (no HTTP, ftp, php://, data:, etc.).
+        if (preg_match('#^[a-z][a-z0-9+.-]*://#i', $path) === 1 || str_contains($path, '://')) {
+            $err('Invalid --file: remote URLs and stream wrappers are not allowed.');
+
+            return null;
+        }
+
+        // Disallow NUL bytes in path.
+        if (str_contains($path, "\0")) {
+            $err('Invalid --file path.');
+
+            return null;
+        }
+
+        if (is_dir($path)) {
+            $err('Invalid --file: path is a directory, not a file: ' . $path);
+
+            return null;
+        }
+
+        if (!is_file($path)) {
+            $err('Invalid --file: not a readable regular file: ' . $path);
+
+            return null;
+        }
+
+        if (!is_readable($path)) {
+            $err('Invalid --file: file is not readable: ' . $path);
+
+            return null;
+        }
+
+        $content = @file_get_contents($path);
+        if ($content === false) {
+            $err('Invalid --file: could not read file: ' . $path);
+
+            return null;
+        }
+
+        return $content;
+    }
+
+    /**
+     * @param array<string, string|bool> $assoc
+     */
+    private static function assocString(array $assoc, string $key, string $default = ''): string
+    {
+        if (!array_key_exists($key, $assoc)) {
+            return $default;
+        }
+        $val = $assoc[$key];
+        if (is_bool($val)) {
+            return $val ? '1' : '';
+        }
+
+        return (string) $val;
+    }
+
+    /**
+     * Collapse whitespace for one-line list output.
+     */
+    private static function cliSingleLine(string $text): string
+    {
+        $text = str_replace(["\r\n", "\r", "\n", "\t"], ' ', $text);
+
+        return preg_replace('/\s+/u', ' ', $text) ?? $text;
     }
 
     /**

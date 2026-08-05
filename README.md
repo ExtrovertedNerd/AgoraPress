@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** MVP feature-complete at `0.1.4-dev` (pre-tagged) and **ready for live-site install**. See [docs/vision-compliance.md](docs/vision-compliance.md) for product principles and intentional deviations.
+> **Status:** MVP feature-complete at `0.1.5-dev` (pre-tagged) and **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 
@@ -26,6 +26,18 @@ AgoraPress is named after the ancient Greek *agora* — a public square for idea
 
 Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog only, forums only, or all three.
 
+### What ships today (MVP)
+
+| Area | Capabilities |
+|------|----------------|
+| **CMS** | Posts, pages, revisions, media library, comments, categories/tags, menus, widgets, feeds, sitemaps, Open Graph |
+| **Editor** | Lightweight visual WYSIWYG (Visual \| Text modes); HTML storage; legacy Markdown/BBCode still converts on display |
+| **Forums** | Hierarchy, topics/replies, attachments, groups & ACL by user level, moderation, search, flood guards, PMs, online/unread |
+| **Default theme** | Agora — six pure-CSS schemes (3 light + 3 dark), guest Log in / Register, dark-mode form contrast, long-string wrapping |
+| **Admin** | Responsive light/dark UI, roles/caps, users, Site Health, Import (WXR + phpBB), privacy export/erase |
+| **Ops** | Installers, one-click core update (no site identity), `ap-cli`, release packaging, Apache/Nginx hardening examples |
+| **Extensibility** | Hooks, plugins/mu-plugins, shortcodes, Settings/Options API, REST (`/ap-json/`), Classic WP theme shims |
+
 ### Non-goals (v1)
 
 - Gutenberg / Full Site Editing in core  
@@ -45,7 +57,7 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 | **Web server** | Apache with `mod_rewrite`, or Nginx with rewrite rules |
 | **Disk** | Writable site root (for `ap-config.php`) and `ap-content/` (including `uploads/`) |
 
-Default table prefix: `ap_` (changeable at install).
+Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **9** (see [docs/schema.md](docs/schema.md)).
 
 ---
 
@@ -183,7 +195,9 @@ Use this checklist for a public host (shared hosting, VPS, or container):
 
 ## After install
 
-### Admin & site CLI
+### Admin & site CLI (`ap-cli`)
+
+Manage an installed site from the shell (CLI only — not a remote API):
 
 ```bash
 php ap-cli --help
@@ -192,12 +206,35 @@ php ap-cli site health
 php ap-cli option get blogname
 php ap-cli plugin list
 php ap-cli theme list
+php ap-cli user list
+php ap-cli db check
 php ap-cli db migrate
 php ap-cli cache flush
 php ap-cli rewrite flush
+php ap-cli cron event list
+php ap-cli core check-update
 ```
 
-Global flags: `--path=/var/www/site`, `--url=https://example.com`, `--skip-plugins`.
+**Content (posts & pages)** — local files only; `--file` rejects URLs:
+
+```bash
+php ap-cli post list --type=page
+php ap-cli post get --slug=about --type=page
+php ap-cli post create --type=page --title="About" --slug=about --file=./about.html
+php ap-cli post create --type=post --title="Hello" --file=./hello.html --status=publish
+php ap-cli post update --slug=about --type=page --file=./about.html
+php ap-cli post update --id=123 --title="New title"
+php ap-cli help post
+```
+
+Defaults on create: **posts → draft**, **pages → publish**. Update only changes fields you pass (`--title`, `--file`, `--status`, `--name` for rename).
+
+Global flags: `--path=/var/www/site`, `--url=https://example.com`, `--skip-plugins`, `--skip-themes`.  
+Exit codes: `0` ok · `1` usage · `2` error · `3` not installed.
+
+### Front-end account links
+
+The default **Agora** theme shows **Log in** for guests (and **Register** when Settings → General allows registration). Logged-in visitors see welcome / profile / log out.
 
 ### REST API
 
@@ -207,8 +244,9 @@ Auth: session cookie + `X-AP-Nonce`, or HTTP Basic. Disable with option `rest_ap
 
 ### Updates
 
-- Admin **Tools → Update Core** (optional one-click from public `version.json`)  
+- Admin **Tools → Update Core** (optional one-click from public `version.json`; no site identity sent)  
 - Or deploy a new package / git pull and run `php ap-cli db migrate` if needed  
+- Updates **do not** rewrite `ap-config.php`, user uploads/plugins/custom themes, or (from `0.1.4-dev`) the `install/` directory and `ap-config-sample.php` — safe to remove those after a production install  
 
 ---
 
@@ -228,7 +266,7 @@ php bin/package-release.php
 | `dist/AgoraPress-{version}.sha256` | Checksum for `version.json` |
 | `dist/version.json.example` | Template for the public version endpoint |
 
-Excludes tests, vendor, secrets, and runtime uploads. `dist/` is gitignored.
+Excludes tests, vendor, secrets, and runtime uploads. `dist/` is gitignored. Fresh-install assets (`install/`, `ap-config-sample.php`) remain in the zip; the updater simply does not re-apply them onto a live site.
 
 ---
 
@@ -271,7 +309,24 @@ composer package          # Production zip
 ```
 
 CI runs tests, CS, and analysis on PHP 8.2–8.4.  
-See [`CODING_STANDARDS.md`](CODING_STANDARDS.md) and [`docs/README.md`](docs/README.md) (hooks, themes, plugins, schema, compatibility).
+See [`CODING_STANDARDS.md`](CODING_STANDARDS.md) for style rules.
+
+---
+
+## Developer documentation
+
+Full extension guides live under [`docs/`](docs/README.md):
+
+| Guide | Topic |
+|-------|--------|
+| [docs/README.md](docs/README.md) | Index, conventions, source map |
+| [docs/hooks.md](docs/hooks.md) | Actions, filters, lifecycle |
+| [docs/themes.md](docs/themes.md) | Template hierarchy, Agora theme, assets |
+| [docs/plugins.md](docs/plugins.md) | Plugin headers, shortcodes, settings |
+| [docs/editor.md](docs/editor.md) | Visual editor contract (no blocks in core) |
+| [docs/compatibility.md](docs/compatibility.md) | Classic WordPress Theme Compatibility Layer |
+| [docs/schema.md](docs/schema.md) | Tables, migrations, multi-driver notes |
+| [docs/vision-compliance.md](docs/vision-compliance.md) | Principles checklist & intentional deviations |
 
 ---
 
@@ -282,6 +337,7 @@ See [`CODING_STANDARDS.md`](CODING_STANDARDS.md) and [`docs/README.md`](docs/REA
 - **No telemetry** — version check and updates never send your domain or site identity  
 - Optional Hall of Fame domain listing is voluntary only (Settings → Hall of Fame)  
 - Privacy tools: export / erase personal data under Tools  
+- Production hardening: deny web access to `ap-config.php`, `.env`, SQLite/DB files, and raw `ap-includes/` PHP (Apache `.htaccess`, Nginx example)  
 
 ---
 

@@ -1,8 +1,8 @@
 # AgoraPress Visual Editor
 
 The core content editor is a **lightweight classic visual WYSIWYG**. Full block /
-Gutenberg editors remain a **non-goal for core** (see FEATURES.md and the product
-vision).
+Gutenberg editors remain a **non-goal for core** (product vision / FEATURES;
+see [vision-compliance.md](vision-compliance.md)).
 
 ## What ships
 
