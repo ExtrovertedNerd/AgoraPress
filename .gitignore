@@ -34,6 +34,11 @@ ap-config.php
 /content/uploads/
 *.log
 
+# SQLite databases (installer default: ap-content/database.sqlite — never commit)
+*.sqlite
+*.sqlite3
+/ap-content/database.sqlite
+
 # Node (if any frontend tooling later)
 node_modules/
 npm-debug.log*

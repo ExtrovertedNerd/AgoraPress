@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03  
 **Scope:** Full codebase reevaluation against the project constitution (`VISION.md`, `FEATURES.md`, `SPEC.md` under the operator’s private process tree).  
-**Version under review:** `AP_VERSION` `0.1.0-dev`
+**Version under review:** `AP_VERSION` `0.1.2-dev`
 
 This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves.
 
@@ -102,7 +102,7 @@ Phases 0–7 of the build roadmap are complete for MVP/v1 surface area described
 
 | Item | Stance |
 |------|--------|
-| Full Gutenberg / FSE in core | Non-goal — respected (`AP_Editor` is classic textarea + toolbar only; see [editor.md](editor.md)) |
+| Full Gutenberg / FSE in core | Non-goal — respected (`AP_Editor` is classic visual WYSIWYG, not a block editor; see [editor.md](editor.md)) |
 | Multisite | Later — not present |
 | Official SaaS / paid marketplace | Non-goal — none |
 | Heavy AI / telemetry | Non-goal — none |
@@ -152,13 +152,13 @@ Users, forums, topics, and posts import; attachments, private messages, and rank
 ### D6 — REST API and operational CLI delivered with polish phase
 
 **FEATURES** tagged REST + CLI as v1.  
-**Implementation:** Lightweight `AP_Rest` and zero-dep `ap-cli` ship in the 0.1.0-dev tree.
+**Implementation:** Lightweight `AP_Rest` and zero-dep `ap-cli` ship in the 0.1.x-dev tree.
 
 **Why:** Extensibility and ops tools belong with a usable MVP, not a later bolt-on.
 
 ### D7 — README / status language
 
-Product README status is kept honest for `0.1.0-dev` (pre-tagged release) while reflecting that installer, CMS, forums, admin, compatibility layer, and packaging are **implemented**, not Phase-1 stubs.
+Product README status is kept honest for `0.1.2-dev` (pre-tagged release) while reflecting that installer, CMS, forums, admin, compatibility layer, and packaging are **implemented**, not Phase-1 stubs.
 
 ---
 

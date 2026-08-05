@@ -100,9 +100,12 @@ def test_htaccess_and_nginx_front_controller() -> None:
     ht = HTACCESS.read_text(encoding="utf-8")
     assert "RewriteEngine On" in ht
     assert "index.php" in ht
+    assert "sqlite" in ht.lower()
+    assert "ap-includes" in ht
     nginx = NGINX.read_text(encoding="utf-8")
     assert "try_files" in nginx
     assert "index.php" in nginx
+    assert "sqlite" in nginx.lower()
 
 
 def test_rewrite_runtime_via_php() -> None:

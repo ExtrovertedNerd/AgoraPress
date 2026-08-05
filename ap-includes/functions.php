@@ -6589,7 +6589,7 @@ function ap_markdown_to_html(string $text): string
 }
 
 /**
- * Render a classic editor (toolbar + textarea).
+ * Render a visual WYSIWYG editor (toolbar + contenteditable surface + textarea).
  *
  * @param array<string, mixed> $args See {@see AP_Editor::render()}.
  *
@@ -6614,7 +6614,7 @@ function ap_editor(array $args = []): string
 }
 
 /**
- * Echo a classic editor control.
+ * Echo a visual WYSIWYG editor control.
  *
  * @param array<string, mixed> $args
  */
@@ -6624,7 +6624,7 @@ function ap_the_editor(array $args = []): void
 }
 
 /**
- * Enqueue classic editor CSS/JS (front-end asset pipeline).
+ * Enqueue visual editor CSS/JS (front-end asset pipeline).
  *
  * @see AP_Editor::enqueue()
  */
@@ -6636,7 +6636,7 @@ function ap_enqueue_editor(): void
 }
 
 /**
- * Print classic editor CSS/JS tags once (admin screens).
+ * Print visual editor CSS/JS tags once (admin screens).
  *
  * @see AP_Editor::printAssets()
  */

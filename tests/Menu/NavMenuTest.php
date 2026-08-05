@@ -410,6 +410,45 @@ final class NavMenuTest extends TestCase
         $this->assertSame('<!--fallback-->', $html);
     }
 
+    /**
+     * Fallback callbacks honor echo themselves; render must not re-print their HTML
+     * (would duplicate every Header/Footer nav item on the public site).
+     */
+    public function testFallbackWithEchoDoesNotDoublePrint(): void
+    {
+        AP_Nav_Menu::registerLocation('primary', 'Primary');
+        AP_Nav_Menu::registerLocation('footer', 'Footer');
+
+        ob_start();
+        $returnedPrimary = AP_Nav_Menu::render([
+            'theme_location' => 'primary',
+            'echo' => true,
+            'include_forums' => false,
+            'fallback_cb' => [AP_Nav_Menu::class, 'fallbackPrimary'],
+        ], $this->db);
+        $printedPrimary = (string) ob_get_clean();
+
+        $this->assertNotSame('', $printedPrimary);
+        $this->assertSame($returnedPrimary, $printedPrimary);
+        $this->assertSame(1, substr_count($printedPrimary, 'menu-item-home'));
+        $this->assertSame(1, substr_count($printedPrimary, '>Home</a>'));
+
+        ob_start();
+        $returnedFooter = AP_Nav_Menu::render([
+            'theme_location' => 'footer',
+            'echo' => true,
+            'include_privacy' => false,
+            'include_register' => false,
+            'fallback_cb' => [AP_Nav_Menu::class, 'fallbackFooter'],
+        ], $this->db);
+        $printedFooter = (string) ob_get_clean();
+
+        $this->assertNotSame('', $printedFooter);
+        $this->assertSame($returnedFooter, $printedFooter);
+        $this->assertSame(1, substr_count($printedFooter, 'menu-item-type-login'));
+        $this->assertSame(1, substr_count($printedFooter, '>Login</a>'));
+    }
+
     public function testInvalidItemsAreDropped(): void
     {
         $this->assertTrue(AP_Nav_Menu::saveMenu('clean', 'Clean', [

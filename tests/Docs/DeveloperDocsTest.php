@@ -85,13 +85,14 @@ final class DeveloperDocsTest extends TestCase
             [
                 'AP_Editor',
                 'classic',
+                'visual',
                 'textarea',
+                'contenteditable',
                 'non-goal',
                 'block',
-                'markdown',
-                'bbcode',
                 'ap_editor',
                 'no jQuery',
+                'AP_Content_Format',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(

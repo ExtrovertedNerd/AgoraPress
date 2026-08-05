@@ -722,11 +722,11 @@ class AP_Admin_Post_Edit
         }
         $html .= '</div>';
 
-        // Content — lightweight classic editor (Markdown toolbar).
+        // Content — visual WYSIWYG editor (formatted preview while editing).
         $html .= '<div class="ap-field ap-field-content">';
         $editorMode = class_exists('AP_Editor', false)
             ? AP_Editor::modeForContext($postType === 'page' ? 'page' : 'post')
-            : 'markdown';
+            : 'visual';
         if (class_exists('AP_Editor', false)) {
             $html .= AP_Editor::render([
                 'id' => 'content',
@@ -736,8 +736,8 @@ class AP_Admin_Post_Edit
                 'rows' => 16,
                 'class' => 'large-text',
                 'label' => 'Content',
-                'description' => 'Classic editor with Markdown formatting buttons. '
-                    . 'Wrap text with the toolbar or type Markdown / limited HTML directly.',
+                'description' => 'Visual editor: formatting appears as you type, matching the '
+                    . 'published look. Toolbar buttons apply bold, lists, headings, links, and more.',
                 'wrap_class' => 'ap-editor--admin',
             ]);
         } else {

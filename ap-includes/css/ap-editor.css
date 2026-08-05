@@ -1,11 +1,12 @@
 /**
- * AgoraPress classic editor toolbar styles (admin + front-end).
+ * AgoraPress visual WYSIWYG editor styles (admin + front-end).
  * Lightweight, no images, works with light/dark color schemes.
  */
 
 .ap-editor {
   display: block;
   width: 100%;
+  position: relative;
 }
 
 .ap-editor__label {
@@ -75,6 +76,10 @@
   text-decoration: line-through;
 }
 
+.ap-editor__btn--emoji {
+  font-size: 1rem;
+}
+
 .ap-editor__mode-hint {
   margin-left: auto;
   padding: 0 0.35rem;
@@ -85,23 +90,169 @@
   opacity: 0.55;
 }
 
+/* Visual editing surface — what-you-see-is-what-you-get */
+.ap-editor__surface {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  min-height: 10rem;
+  border: 1px solid var(--ap-border, #c5cad3);
+  border-radius: 0 0 6px 6px;
+  background: var(--ap-surface, #fff);
+  color: var(--ap-text, var(--ap-fg, #1a1a1a));
+  font: inherit;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  outline: none;
+}
+
+.ap-editor .ap-editor__toolbar + .ap-editor__surface {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.ap-editor__surface:focus,
+.ap-editor__surface:focus-visible {
+  border-color: var(--ap-primary, #1a5fb4);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ap-primary, #1a5fb4) 25%, transparent);
+}
+
+.ap-editor__surface[hidden] {
+  display: none !important;
+}
+
+/* Placeholder when empty (visual mode) */
+.ap-editor__surface--empty:before {
+  content: attr(data-placeholder);
+  color: var(--ap-text-muted, #6b7280);
+  opacity: 0.85;
+  pointer-events: none;
+  font-style: italic;
+}
+
+/* Formatted content inside the surface (mirrors published look) */
+.ap-editor__surface p {
+  margin: 0 0 0.75em;
+}
+
+.ap-editor__surface p:last-child {
+  margin-bottom: 0;
+}
+
+.ap-editor__surface h1,
+.ap-editor__surface h2,
+.ap-editor__surface h3,
+.ap-editor__surface h4,
+.ap-editor__surface h5,
+.ap-editor__surface h6 {
+  margin: 0.9em 0 0.4em;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.ap-editor__surface h2 {
+  font-size: 1.35em;
+}
+
+.ap-editor__surface h3 {
+  font-size: 1.15em;
+}
+
+.ap-editor__surface ul,
+.ap-editor__surface ol {
+  margin: 0.4em 0 0.75em;
+  padding-left: 1.4em;
+}
+
+.ap-editor__surface blockquote {
+  margin: 0.6em 0;
+  padding: 0.35em 0 0.35em 0.9em;
+  border-left: 3px solid var(--ap-border-strong, var(--ap-border, #9aa3b2));
+  opacity: 0.95;
+}
+
+.ap-editor__surface pre,
+.ap-editor__surface code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.ap-editor__surface code {
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+}
+
+.ap-editor__surface pre {
+  margin: 0.6em 0;
+  padding: 0.65em 0.75em;
+  border-radius: 4px;
+  overflow: auto;
+  background: var(--ap-surface-2, var(--ap-bg-muted, #eef0f3));
+}
+
+.ap-editor__surface pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.ap-editor__surface img {
+  max-width: 100%;
+  height: auto;
+}
+
+.ap-editor__surface a {
+  color: var(--ap-primary, #1a5fb4);
+}
+
+.ap-editor__surface hr {
+  border: 0;
+  border-top: 1px solid var(--ap-border, #c5cad3);
+  margin: 1em 0;
+}
+
+/* Textarea: no-JS source fallback; hidden when visual mode is active */
 .ap-editor__textarea {
   display: block;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   margin: 0;
+  border: 1px solid var(--ap-border, #c5cad3);
   border-radius: 0 0 6px 6px;
   resize: vertical;
   line-height: 1.5;
   font: inherit;
+  padding: 0.65rem 0.75rem;
+  min-height: 10rem;
+  background: var(--ap-surface, #fff);
+  color: var(--ap-text, var(--ap-fg, #1a1a1a));
 }
 
-/* When toolbar present, square the top of the textarea */
 .ap-editor .ap-editor__toolbar + .ap-editor__textarea,
 .ap-editor .ap-editor__toolbar + textarea {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
+}
+
+/* When JS enhances the editor, hide the textarea from view (still in form). */
+.ap-editor--visual-active .ap-editor__textarea--hidden,
+.ap-editor--visual-active textarea.ap-editor__textarea--hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  resize: none !important;
+  min-height: 0 !important;
 }
 
 .ap-editor__description {
@@ -111,6 +262,7 @@
 }
 
 /* Admin field content: keep large editor height */
+.ap-field-content .ap-editor__surface,
 .ap-field-content .ap-editor__textarea,
 .ap-field-content textarea.ap-editor__textarea {
   min-height: 16rem;
@@ -123,6 +275,8 @@
   border-color: var(--ap-border, #c5cad3);
 }
 
+.ap-forum-form .ap-editor__surface,
+.ap-comment-form .ap-editor__surface,
 .ap-forum-form .ap-editor__textarea,
 .ap-comment-form .ap-editor__textarea {
   min-height: 8rem;
@@ -144,11 +298,23 @@ html[data-ap-color-mode="dark"] .ap-editor__btn:focus-visible {
   border-color: var(--ap-border-strong, #3a4150);
 }
 
-/* Emoji picker panel */
-.ap-editor {
-  position: relative;
+[data-ap-color-mode="dark"] .ap-editor__surface,
+[data-ap-color-mode="dark"] .ap-editor__textarea,
+html[data-ap-color-mode="dark"] .ap-editor__surface,
+html[data-ap-color-mode="dark"] .ap-editor__textarea {
+  background: var(--ap-surface, #12141a);
+  border-color: var(--ap-border, #2a2f3a);
+  color: var(--ap-text, #e8eaed);
 }
 
+[data-ap-color-mode="dark"] .ap-editor__surface code,
+[data-ap-color-mode="dark"] .ap-editor__surface pre,
+html[data-ap-color-mode="dark"] .ap-editor__surface code,
+html[data-ap-color-mode="dark"] .ap-editor__surface pre {
+  background: var(--ap-surface-2, #1c1f28);
+}
+
+/* Emoji picker panel */
 .ap-editor__emoji-picker {
   position: absolute;
   z-index: 40;
@@ -262,10 +428,6 @@ html[data-ap-color-mode="dark"] .ap-editor__btn:focus-visible {
   box-shadow: 0 0 0 2px var(--ap-primary, #1a5fb4);
 }
 
-.ap-editor__btn--emoji {
-  font-size: 1rem;
-}
-
 /* Dark admin mode — emoji picker */
 [data-ap-color-mode="dark"] .ap-editor__emoji-picker,
 html[data-ap-color-mode="dark"] .ap-editor__emoji-picker {
@@ -291,7 +453,8 @@ html[data-ap-color-mode="dark"] .ap-editor__emoji-close:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .ap-editor__btn,
   .ap-editor__emoji-btn,
-  .ap-editor__emoji-close {
+  .ap-editor__emoji-close,
+  .ap-editor__surface {
     transition: none;
   }
 }

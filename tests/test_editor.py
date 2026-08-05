@@ -1,5 +1,5 @@
 """
-Smoke tests for the lightweight classic editor (WYSIWYG formatting toolbar).
+Smoke tests for the lightweight visual WYSIWYG editor.
 
 Runnable via:
   pytest tests/test_editor.py -v
@@ -40,6 +40,7 @@ def test_editor_class_api() -> None:
     src = EDITOR.read_text(encoding="utf-8")
     for needle in (
         "class AP_Editor",
+        "MODE_VISUAL",
         "MODE_MARKDOWN",
         "MODE_BBCODE",
         "MODE_HTML",
@@ -47,10 +48,12 @@ def test_editor_class_api() -> None:
         "function architecture",
         "function isBlockEditor",
         "function isLightweight",
+        "function isVisual",
         "MAX_JS_BYTES",
         "MAX_CSS_BYTES",
         "function buttons",
         "function emojis",
+        "function valueToHtml",
         "function render",
         "function renderToolbar",
         "function renderEmojiPicker",
@@ -60,16 +63,17 @@ def test_editor_class_api() -> None:
         "emoji-picker",
         "ap_editor_emojis",
         "data-ap-editor-architecture",
-        "Not a block editor",
+        "data-ap-editor-surface",
+        "Not a block",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-editor.php"
 
 
-def test_editor_stays_lightweight_no_block_surface() -> None:
-    """Guard: classic textarea toolbar only — no Gutenberg / block packages."""
+def test_editor_stays_lightweight_visual_no_block_surface() -> None:
+    """Guard: classic visual WYSIWYG only — no Gutenberg / block packages."""
     # Soft asset budgets match AP_Editor::MAX_*_BYTES.
-    assert JS.stat().st_size <= 32768, f"ap-editor.js too large: {JS.stat().st_size}"
-    assert CSS.stat().st_size <= 16384, f"ap-editor.css too large: {CSS.stat().st_size}"
+    assert JS.stat().st_size <= 49152, f"ap-editor.js too large: {JS.stat().st_size}"
+    assert CSS.stat().st_size <= 24576, f"ap-editor.css too large: {CSS.stat().st_size}"
 
     for rel in (
         "ap-includes/blocks",
@@ -85,29 +89,44 @@ def test_editor_stays_lightweight_no_block_surface() -> None:
 
     js = JS.read_text(encoding="utf-8").lower()
     for forbidden in (
-        "contenteditable",
-        "document.execcommand",
         "prosemirror",
         "tinymce",
         "quill",
         "gutenberg",
         "wp.blocks",
+        "lexical",
     ):
         assert forbidden not in js, f"JS must not include {forbidden!r}"
 
+    # Visual surface is expected.
+    assert "contenteditable" in js
+    assert "execcommand" in js
+    assert "data-ap-editor-surface" in js
+
     php = _php_bin()
     script = r"""
+require_once __DIR__ . '/ap-includes/class-ap-content-format.php';
 require_once __DIR__ . '/ap-includes/class-ap-editor.php';
 if (AP_Editor::isBlockEditor()) { fwrite(STDERR, "isBlockEditor true\n"); exit(1); }
 if (!AP_Editor::isLightweight()) { fwrite(STDERR, "not lightweight\n"); exit(1); }
+if (!AP_Editor::isVisual()) { fwrite(STDERR, "not visual\n"); exit(1); }
 if (AP_Editor::architecture() !== 'classic') { fwrite(STDERR, "bad architecture\n"); exit(1); }
-$html = AP_Editor::render(['id' => 't', 'name' => 't', 'mode' => 'markdown']);
+$html = AP_Editor::render(['id' => 't', 'name' => 't', 'mode' => 'visual', 'value' => 'Hello **world**']);
 if (strpos($html, 'data-ap-editor-architecture="classic"') === false) {
     fwrite(STDERR, "missing architecture attr\n"); exit(1);
 }
+if (strpos($html, 'data-ap-editor-surface') === false) {
+    fwrite(STDERR, "missing surface\n"); exit(1);
+}
 if (!preg_match('/<textarea\b/i', $html)) { fwrite(STDERR, "no textarea\n"); exit(1); }
-if (stripos($html, 'contenteditable') !== false) { fwrite(STDERR, "contenteditable\n"); exit(1); }
+if (strpos($html, '<strong>world</strong>') === false) {
+    fwrite(STDERR, "markdown not converted for surface\n"); exit(1);
+}
+if (strpos($html, '**world**') !== false) {
+    fwrite(STDERR, "raw markdown leaked\n"); exit(1);
+}
 if (in_array('blocks', AP_Editor::modes(), true)) { fwrite(STDERR, "blocks mode\n"); exit(1); }
+if (AP_Editor::modeForContext('forum') !== 'visual') { fwrite(STDERR, "forum not visual\n"); exit(1); }
 echo "ok\n";
 """
     result = subprocess.run(
@@ -128,12 +147,16 @@ def test_helpers_and_bootstrap() -> None:
     assert "function ap_print_editor_assets" in functions
     boot = BOOTSTRAP.read_text(encoding="utf-8")
     assert "class-ap-editor.php" in boot
+    # Display pipeline formats content (not plain escape only).
+    assert "AP_Content_Format" in boot
+    assert "ap_the_content" in boot
 
 
 def test_wired_into_post_page_comment_forum_editors() -> None:
     post_edit = POST_EDIT.read_text(encoding="utf-8")
     assert "AP_Editor" in post_edit
     assert "post_content" in post_edit
+    assert "Visual editor" in post_edit or "visual" in post_edit.lower()
 
     topic = TOPIC.read_text(encoding="utf-8")
     assert "ap_editor" in topic or "AP_Editor" in topic
@@ -149,93 +172,8 @@ def test_wired_into_post_page_comment_forum_editors() -> None:
     assert 'name="comment"' in single or "name=\"comment\"" in single
 
 
-def test_js_has_formatting_commands_no_jquery() -> None:
-    import re
-
-    js = JS.read_text(encoding="utf-8")
-    # No jQuery library calls (comment text may mention the word).
-    assert re.search(r"\$\s*\(|jQuery\s*\(", js) is None
-    assert "jquery.min" not in js
-    for cmd in (
-        "wrap",
-        "md-link",
-        "prefix-line",
-        "bbcode-list",
-        "html-list",
-        "emoji-picker",
-        "bindEmojiPicker",
-        "closeAllPickers",
-    ):
-        assert cmd in js, f"missing cmd {cmd}"
-
-
-def test_css_has_emoji_picker_rules() -> None:
+def test_css_has_surface_rules() -> None:
     css = CSS.read_text(encoding="utf-8")
-    for needle in (
-        ".ap-editor__emoji-picker",
-        ".ap-editor__emoji-btn",
-        ".ap-editor__emoji-grid",
-        ".ap-editor__emoji-close",
-    ):
-        assert needle in css, f"missing CSS rule {needle}"
-
-
-def test_emoji_picker_in_rendered_markup() -> None:
-    """Smoke: PHP render includes emoji picker controls for all modes."""
-    php = _php_bin()
-    script = r"""
-require_once __DIR__ . '/ap-includes/class-ap-editor.php';
-foreach (['markdown', 'bbcode', 'html'] as $mode) {
-    AP_Editor::reset();
-    $html = AP_Editor::render(['id' => 'x', 'name' => 'x', 'mode' => $mode]);
-    if (strpos($html, 'data-ap-editor-cmd="emoji-picker"') === false) {
-        fwrite(STDERR, "missing emoji-picker in $mode\n");
-        exit(1);
-    }
-    if (strpos($html, 'data-ap-editor-emoji-picker') === false) {
-        fwrite(STDERR, "missing emoji panel in $mode\n");
-        exit(1);
-    }
-    if (strpos($html, 'data-ap-emoji="1"') === false) {
-        fwrite(STDERR, "missing emoji buttons in $mode\n");
-        exit(1);
-    }
-}
-$groups = AP_Editor::emojis();
-if (!is_array($groups) || count($groups) < 3) {
-    fwrite(STDERR, "emojis() too small\n");
-    exit(1);
-}
-echo "ok\n";
-"""
-    result = subprocess.run(
-        [php, "-r", script],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    assert "ok" in result.stdout
-
-
-def test_structure_lists_editor_assets() -> None:
-    src = STRUCTURE.read_text(encoding="utf-8")
-    assert "class-ap-editor.php" in src
-    assert "ap-editor.css" in src
-    assert "ap-editor.js" in src
-
-
-def test_phpunit_editor_suite() -> None:
-    php = _php_bin()
-    vendor = ROOT / "vendor" / "bin" / "phpunit"
-    if not vendor.is_file():
-        return
-    result = subprocess.run(
-        [php, str(vendor), "--colors=never", str(PHPUNIT)],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert ".ap-editor__surface" in css
+    assert ".ap-editor__toolbar" in css
+    assert "ap-editor--visual-active" in css

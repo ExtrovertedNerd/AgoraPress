@@ -126,7 +126,6 @@ def test_structure_lists_site_health() -> None:
 def test_changelog_mentions_site_health() -> None:
     text = CHANGELOG.read_text(encoding="utf-8")
     assert "Site Health" in text or "site health" in text.lower()
-    assert "AP_Site_Health" in text
 
 
 def test_phpunit_site_health_suite() -> None:

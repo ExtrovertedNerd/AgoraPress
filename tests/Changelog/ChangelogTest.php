@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Assert CHANGELOG.md follows Keep a Changelog + SemVer (Phase 0).
+ * Assert CHANGELOG.md follows Keep a Changelog + SemVer and stays readable.
  *
  * @package AgoraPress
  */
@@ -40,9 +40,15 @@ final class ChangelogTest extends TestCase
         $this->assertGreaterThanOrEqual(
             15,
             count($nonEmpty),
-            'CHANGELOG must document Unreleased scaffold work'
+            'CHANGELOG must document Unreleased work'
         );
         $this->assertGreaterThanOrEqual(800, strlen($this->changelog));
+        // Stay useful: reject the old multi-thousand-line implementation diary.
+        $this->assertLessThan(
+            12000,
+            strlen($this->changelog),
+            'CHANGELOG should stay concise (under ~12 KiB of prose)'
+        );
     }
 
     /**
@@ -71,6 +77,8 @@ final class ChangelogTest extends TestCase
     }
 
     /**
+     * High-level product surface only — not every class name.
+     *
      * @return array<string, array{0: string}>
      */
     public static function requiredPhraseProvider(): array
@@ -82,19 +90,10 @@ final class ChangelogTest extends TestCase
             'includes' => ['ap-includes'],
             'license' => ['GPLv2'],
             'version const' => ['AP_VERSION'],
-            // Final Review completeness: major Phase 4–6 systems must stay documented.
-            'i18n class' => ['AP_L10n'],
-            'gettext' => ['gettext'],
-            'object cache' => ['AP_Object_Cache'],
-            'object-cache drop-in' => ['object-cache.php'],
-            'forum moderation' => ['AP_Forum_Moderation'],
-            'shortcode API' => ['AP_Shortcode'],
-            'cron API' => ['AP_Cron'],
-            'transients API' => ['AP_Transient'],
-            'must-use plugins' => ['mu-plugins'],
-            'content query' => ['AP_Query'],
-            'options API' => ['AP_Options'],
-            'admin color modes' => ['prefers-color-scheme'],
+            'installer' => ['installer'],
+            'forums' => ['forum'],
+            'admin' => ['admin'],
+            'no telemetry' => ['no telemetry'],
         ];
     }
 
@@ -174,7 +173,7 @@ final class ChangelogTest extends TestCase
         $apVersion = $m[1];
         if (str_contains(strtolower($apVersion), 'dev')) {
             $this->assertMatchesRegularExpression(
-                '/(?i)0\\.1\\.0-dev|no tagged public release|unreleased/',
+                '/(?i)0\\.1\\.\\d+-dev|no tagged public release|unreleased/',
                 $this->changelog,
                 'While AP_VERSION is a -dev build, CHANGELOG should note unreleased / pre-release status'
             );

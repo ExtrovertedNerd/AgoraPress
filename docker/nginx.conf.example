@@ -1,15 +1,44 @@
-# AgoraPress — example Nginx server block.
+# AgoraPress — example Nginx server block for a live / production install.
 # Pretty permalinks: try_files sends unknown paths to index.php; AP_Rewrite
 # (ap-includes/class-ap-rewrite.php) maps the path to posts, pages, archives.
-# Adjust root, server_name, and PHP-FPM socket for your environment.
+# Adjust root, server_name, TLS, and PHP-FPM socket for your environment.
 
 server {
     listen 80;
+    # listen 443 ssl http2;
+    # ssl_certificate     /etc/ssl/certs/example.com.pem;
+    # ssl_certificate_key /etc/ssl/private/example.com.key;
     server_name example.com;
     root /var/www/agorapress;
     index index.php;
 
     client_max_body_size 64m;
+
+    # Deny secrets and environment files
+    location ~* ^/(ap-config\.php|composer\.(json|lock)|\.env) {
+        deny all;
+    }
+
+    # Never serve SQLite / DB files (default demo path: ap-content/database.sqlite)
+    location ~* \.(sqlite3?|db)$ {
+        deny all;
+    }
+
+    # Core libraries are included by PHP — do not expose them over HTTP.
+    # Public static assets under ap-includes/css and ap-includes/js are allowed.
+    location ^~ /ap-includes/css/ {
+        try_files $uri =404;
+    }
+    location ^~ /ap-includes/js/ {
+        try_files $uri =404;
+    }
+    location ^~ /ap-includes/ {
+        deny all;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
 
     # Front controller (required for pretty permalinks)
     location / {
@@ -20,14 +49,7 @@ server {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         fastcgi_pass unix:/run/php/php8.3-fpm.sock;
-    }
-
-    # Deny access to sensitive files
-    location ~* ^/(ap-config\.php|composer\.(json|lock)|\.env) {
-        deny all;
-    }
-
-    location ~ /\. {
-        deny all;
+        # Prefer restricting PHP execution to known entry points on hardened hosts:
+        # fastcgi_pass only for index.php / ap-admin / install when possible.
     }
 }

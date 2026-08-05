@@ -1,143 +1,107 @@
 /**
- * AgoraPress classic editor toolbar (no jQuery).
+ * AgoraPress visual WYSIWYG editor (no jQuery).
  *
- * Progressive enhancement: buttons insert Markdown / BBCode / HTML around the
- * textarea selection. Safe when JS is disabled (plain textarea remains).
+ * Progressive enhancement: a contenteditable surface shows formatted HTML
+ * while editing; a hidden textarea holds the value submitted with the form.
+ * Without JavaScript the plain textarea remains usable.
  */
 (function () {
     'use strict';
 
-    function getTextarea(toolbar) {
-        var id = toolbar.getAttribute('data-ap-editor-for') || '';
-        if (id) {
-            var byId = document.getElementById(id);
-            if (byId && byId.tagName === 'TEXTAREA') {
-                return byId;
-            }
-        }
-        var wrap = toolbar.closest('[data-ap-editor-wrap]');
-        if (wrap) {
-            return wrap.querySelector('textarea[data-ap-editor]');
-        }
-        return null;
+    function closestWrap(el) {
+        return el && el.closest ? el.closest('[data-ap-editor-wrap]') : null;
     }
 
-    function insertAtCursor(ta, before, selected, after) {
-        var start = typeof ta.selectionStart === 'number' ? ta.selectionStart : ta.value.length;
-        var end = typeof ta.selectionEnd === 'number' ? ta.selectionEnd : start;
-        var val = ta.value;
-        var mid = selected !== null && selected !== undefined
-            ? selected
-            : val.substring(start, end);
-        var next = val.substring(0, start) + before + mid + after + val.substring(end);
-        ta.value = next;
-        var cursor = start + before.length + mid.length + after.length;
-        var selStart = start + before.length;
-        var selEnd = selStart + mid.length;
-        ta.focus();
-        if (typeof ta.setSelectionRange === 'function') {
-            if (mid.length === 0) {
-                ta.setSelectionRange(selStart, selStart);
-            } else {
-                ta.setSelectionRange(selStart, selEnd);
-            }
+    function getSurface(wrap) {
+        if (!wrap) {
+            return null;
         }
-        // Notify listeners (autosave hooks, etc.).
-        try {
-            ta.dispatchEvent(new Event('input', { bubbles: true }));
-        } catch (e) {
-            /* older browsers */
-        }
-        return cursor;
+        return wrap.querySelector('[data-ap-editor-surface]');
     }
 
-    function selectedText(ta) {
-        var start = typeof ta.selectionStart === 'number' ? ta.selectionStart : 0;
-        var end = typeof ta.selectionEnd === 'number' ? ta.selectionEnd : 0;
-        return ta.value.substring(start, end);
+    function getTextarea(wrap) {
+        if (!wrap) {
+            return null;
+        }
+        return wrap.querySelector('textarea[data-ap-editor]');
     }
 
-    function expandToFullLines(ta) {
-        var start = typeof ta.selectionStart === 'number' ? ta.selectionStart : 0;
-        var end = typeof ta.selectionEnd === 'number' ? ta.selectionEnd : 0;
-        var val = ta.value;
-        while (start > 0 && val.charAt(start - 1) !== '\n') {
-            start--;
+    function getToolbar(wrap) {
+        if (!wrap) {
+            return null;
         }
-        while (end < val.length && val.charAt(end) !== '\n') {
-            end++;
-        }
-        return { start: start, end: end, text: val.substring(start, end) };
+        return wrap.querySelector('[data-ap-editor-toolbar]');
     }
 
-    function replaceRange(ta, start, end, replacement) {
-        var val = ta.value;
-        ta.value = val.substring(0, start) + replacement + val.substring(end);
-        ta.focus();
-        if (typeof ta.setSelectionRange === 'function') {
-            ta.setSelectionRange(start, start + replacement.length);
+    function isEmptyHtml(html) {
+        if (!html) {
+            return true;
         }
-        try {
-            ta.dispatchEvent(new Event('input', { bubbles: true }));
-        } catch (e) { /* noop */ }
+        var t = String(html)
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/<br\s*\/?>/gi, '')
+            .replace(/<div><\/div>/gi, '')
+            .replace(/<p><\/p>/gi, '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/\s+/g, '');
+        return t === '';
     }
 
-    function prefixLines(ta, prefix, placeholder) {
-        var sel = selectedText(ta);
-        if (sel === '') {
-            insertAtCursor(ta, prefix, placeholder || '', '');
+    function normalizeSyncedHtml(html) {
+        if (isEmptyHtml(html)) {
+            return '';
+        }
+        return String(html);
+    }
+
+    function syncSurfaceToTextarea(wrap) {
+        var surface = getSurface(wrap);
+        var ta = getTextarea(wrap);
+        if (!surface || !ta) {
             return;
         }
-        var range = expandToFullLines(ta);
-        var lines = range.text.split(/\r?\n/);
-        var out = lines.map(function (line) {
-            if (line === '') {
-                return line;
-            }
-            // Avoid double-prefix when re-clicked.
-            if (line.indexOf(prefix) === 0) {
-                return line;
-            }
-            return prefix + line;
-        }).join('\n');
-        replaceRange(ta, range.start, range.end, out);
+        var html = normalizeSyncedHtml(surface.innerHTML);
+        if (ta.value !== html) {
+            ta.value = html;
+            try {
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+            } catch (e) { /* older browsers */ }
+        }
     }
 
-    function bbcodeList(ta, ordered) {
-        var sel = selectedText(ta);
-        var placeholder = 'list item';
-        var lines;
-        if (sel === '') {
-            lines = [placeholder];
-        } else {
-            lines = sel.split(/\r?\n/).filter(function (l) { return l.trim() !== ''; });
-            if (lines.length === 0) {
-                lines = [placeholder];
-            }
+    function focusSurface(surface) {
+        if (!surface || typeof surface.focus !== 'function') {
+            return;
         }
-        var body = lines.map(function (l) { return '[*]' + l.replace(/^[-*+\d.]+\s+/, ''); }).join('\n');
-        var open = ordered ? '[list=1]\n' : '[list]\n';
-        var close = '\n[/list]';
-        insertAtCursor(ta, open, body, close);
+        try {
+            surface.focus({ preventScroll: true });
+        } catch (e) {
+            surface.focus();
+        }
     }
 
-    function htmlList(ta, ordered) {
-        var sel = selectedText(ta);
-        var placeholder = 'list item';
-        var lines;
-        if (sel === '') {
-            lines = [placeholder];
-        } else {
-            lines = sel.split(/\r?\n/).filter(function (l) { return l.trim() !== ''; });
-            if (lines.length === 0) {
-                lines = [placeholder];
-            }
+    function placeCaretAtEnd(el) {
+        if (!el || !window.getSelection || !document.createRange) {
+            return;
         }
-        var tag = ordered ? 'ol' : 'ul';
-        var body = lines.map(function (l) {
-            return '  <li>' + l.replace(/^[-*+\d.]+\s+/, '') + '</li>';
-        }).join('\n');
-        insertAtCursor(ta, '<' + tag + '>\n', body, '\n</' + tag + '>');
+        var range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        var sel = window.getSelection();
+        if (!sel) {
+            return;
+        }
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function exec(cmd, value) {
+        try {
+            document.execCommand(cmd, false, value === undefined ? null : value);
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     function promptUrl(defaultUrl) {
@@ -152,12 +116,56 @@
         return url;
     }
 
-    function getEditorWrap(el) {
-        return el && el.closest ? el.closest('[data-ap-editor-wrap]') : null;
+    function insertHtml(html) {
+        if (!html) {
+            return;
+        }
+        // Prefer insertHTML; fall back to paste-like insert.
+        if (exec('insertHTML', html)) {
+            return;
+        }
+        var sel = window.getSelection ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0) {
+            return;
+        }
+        var range = sel.getRangeAt(0);
+        range.deleteContents();
+        var tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        var frag = document.createDocumentFragment();
+        var node;
+        var last = null;
+        while ((node = tmp.firstChild)) {
+            last = frag.appendChild(node);
+        }
+        range.insertNode(frag);
+        if (last) {
+            range.setStartAfter(last);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    }
+
+    function wrapSelectionWithTag(tagName) {
+        var sel = window.getSelection ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0) {
+            return;
+        }
+        var text = sel.toString();
+        if (text === '') {
+            insertHtml('<' + tagName + '>\u200b</' + tagName + '>');
+            return;
+        }
+        var escaped = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        insertHtml('<' + tagName + '>' + escaped + '</' + tagName + '>');
     }
 
     function getEmojiPicker(fromEl) {
-        var wrap = getEditorWrap(fromEl);
+        var wrap = closestWrap(fromEl);
         if (!wrap) {
             return null;
         }
@@ -195,19 +203,14 @@
             if (except && pickers[i] === except) {
                 continue;
             }
-            var wrap = getEditorWrap(pickers[i]);
-            var toolbar = wrap
-                ? wrap.querySelector('[data-ap-editor-toolbar]')
-                : null;
-            setPickerOpen(pickers[i], false, getEmojiToggle(toolbar));
+            var wrap = closestWrap(pickers[i]);
+            setPickerOpen(pickers[i], false, getEmojiToggle(getToolbar(wrap)));
         }
     }
 
-    function toggleEmojiPicker(btn, ta) {
-        var wrap = getEditorWrap(btn);
-        var picker = wrap
-            ? wrap.querySelector('[data-ap-editor-emoji-picker]')
-            : null;
+    function toggleEmojiPicker(btn, surface) {
+        var wrap = closestWrap(btn);
+        var picker = wrap ? wrap.querySelector('[data-ap-editor-emoji-picker]') : null;
         if (!picker) {
             return;
         }
@@ -217,84 +220,80 @@
         } else {
             closeAllPickers(picker);
             setPickerOpen(picker, true, btn);
-            if (ta && typeof ta.focus === 'function') {
-                // Keep focus ready for insert without scrolling away.
-                try { ta.focus({ preventScroll: true }); } catch (e) { ta.focus(); }
-            }
+            focusSurface(surface);
         }
     }
 
-    function handleCommand(btn, ta) {
+    function handleVisualCommand(btn, surface, wrap) {
         var cmd = btn.getAttribute('data-ap-editor-cmd') || '';
-        var before = btn.getAttribute('data-ap-editor-before') || '';
-        var after = btn.getAttribute('data-ap-editor-after') || '';
-        var prefix = btn.getAttribute('data-ap-editor-prefix') || '';
-        var placeholder = btn.getAttribute('data-ap-editor-placeholder') || '';
+        var visual = btn.getAttribute('data-ap-editor-visual') || '';
+        var block = btn.getAttribute('data-ap-editor-block') || '';
         var text = btn.getAttribute('data-ap-editor-text') || '';
-        var template = btn.getAttribute('data-ap-editor-template') || '';
-        var ordered = btn.getAttribute('data-ap-editor-ordered') === '1';
-        var sel = selectedText(ta);
         var isEmoji = btn.getAttribute('data-ap-emoji') === '1';
+
+        focusSurface(surface);
 
         switch (cmd) {
             case 'emoji-picker':
-                toggleEmojiPicker(btn, ta);
+                toggleEmojiPicker(btn, surface);
                 break;
-            case 'wrap':
-                insertAtCursor(ta, before, sel !== '' ? sel : placeholder, after);
-                break;
-            case 'prefix-line':
-            case 'prefix-lines':
-                prefixLines(ta, prefix, placeholder);
-                break;
-            case 'insert':
-                insertAtCursor(ta, text, '', '');
-                if (isEmoji) {
-                    // Keep picker open so users can insert multiple emojis;
-                    // only close when they click outside or press Escape.
+            case 'visual':
+                if (visual) {
+                    exec(visual);
                 }
                 break;
-            case 'link': {
+            case 'visual-block':
+                if (block) {
+                    // Toggle-ish: formatBlock with tag name.
+                    exec('formatBlock', block);
+                }
+                break;
+            case 'visual-link': {
                 var url = promptUrl('https://');
                 if (url === null) {
                     return;
                 }
-                var b = before.replace(/%url%/g, url);
-                var a = after.replace(/%url%/g, url);
-                insertAtCursor(ta, b, sel !== '' ? sel : (placeholder || url), a);
+                exec('createLink', url);
                 break;
             }
-            case 'md-link': {
-                var mdUrl = promptUrl('https://');
-                if (mdUrl === null) {
-                    return;
-                }
-                var label = sel !== '' ? sel : (placeholder || 'link text');
-                insertAtCursor(ta, '[', label, '](' + mdUrl + ')');
+            case 'visual-unlink':
+                exec('unlink');
                 break;
-            }
-            case 'img': {
+            case 'visual-code':
+                wrapSelectionWithTag('code');
+                break;
+            case 'visual-img': {
                 var imgUrl = promptUrl('https://');
                 if (imgUrl === null) {
                     return;
                 }
-                var tpl = template || '[img]%url%[/img]';
-                insertAtCursor(ta, tpl.replace(/%url%/g, imgUrl), '', '');
+                var safe = String(imgUrl)
+                    .replace(/&/g, '&amp;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+                insertHtml('<img src="' + safe + '" alt="">');
                 break;
             }
-            case 'bbcode-list':
-                bbcodeList(ta, ordered);
-                break;
-            case 'html-list':
-                htmlList(ta, ordered);
+            case 'insert':
+                if (text) {
+                    // Emoji / plain text insert at caret.
+                    insertHtml(text);
+                }
+                if (isEmoji) {
+                    // Keep picker open for multi-insert.
+                }
                 break;
             default:
+                // Legacy markup cmds ignored in visual mode.
                 break;
         }
+
+        syncSurfaceToTextarea(wrap);
     }
 
     function bindToolbar(toolbar) {
-        if (toolbar.getAttribute('data-ap-editor-bound') === '1') {
+        if (!toolbar || toolbar.getAttribute('data-ap-editor-bound') === '1') {
             return;
         }
         toolbar.setAttribute('data-ap-editor-bound', '1');
@@ -308,16 +307,17 @@
                 return;
             }
             e.preventDefault();
-            var ta = getTextarea(toolbar);
-            if (!ta) {
+            var wrap = closestWrap(toolbar);
+            var surface = getSurface(wrap);
+            if (!surface) {
                 return;
             }
-            handleCommand(btn, ta);
+            handleVisualCommand(btn, surface, wrap);
         });
     }
 
     function bindEmojiPicker(picker) {
-        if (picker.getAttribute('data-ap-editor-emoji-bound') === '1') {
+        if (!picker || picker.getAttribute('data-ap-editor-emoji-bound') === '1') {
             return;
         }
         picker.setAttribute('data-ap-editor-emoji-bound', '1');
@@ -329,11 +329,8 @@
             var closeBtn = t.closest('[data-ap-editor-emoji-close]');
             if (closeBtn && picker.contains(closeBtn)) {
                 e.preventDefault();
-                var wrap = getEditorWrap(picker);
-                var toolbar = wrap
-                    ? wrap.querySelector('[data-ap-editor-toolbar]')
-                    : null;
-                setPickerOpen(picker, false, getEmojiToggle(toolbar));
+                var wrapClose = closestWrap(picker);
+                setPickerOpen(picker, false, getEmojiToggle(getToolbar(wrapClose)));
                 return;
             }
             var btn = t.closest('[data-ap-editor-cmd]');
@@ -341,23 +338,100 @@
                 return;
             }
             e.preventDefault();
-            var forId = picker.getAttribute('data-ap-editor-for') || '';
-            var ta = forId ? document.getElementById(forId) : null;
-            if (!ta) {
-                var wrap2 = getEditorWrap(picker);
-                ta = wrap2
-                    ? wrap2.querySelector('textarea[data-ap-editor]')
-                    : null;
-            }
-            if (!ta) {
+            var wrap = closestWrap(picker);
+            var surface = getSurface(wrap);
+            if (!surface) {
                 return;
             }
-            handleCommand(btn, ta);
+            handleVisualCommand(btn, surface, wrap);
         });
+    }
+
+    function enhanceWrap(wrap) {
+        if (!wrap || wrap.getAttribute('data-ap-editor-enhanced') === '1') {
+            return;
+        }
+        var ta = getTextarea(wrap);
+        var surface = getSurface(wrap);
+        if (!ta || !surface) {
+            return;
+        }
+        wrap.setAttribute('data-ap-editor-enhanced', '1');
+        wrap.classList.add('ap-editor--visual-active');
+
+        // Show visual surface; keep textarea for submit (visually hidden).
+        surface.removeAttribute('hidden');
+        surface.setAttribute('contenteditable', 'true');
+        surface.setAttribute('role', 'textbox');
+        surface.setAttribute('aria-multiline', 'true');
+        if (!surface.getAttribute('aria-label')) {
+            var label = wrap.querySelector('label.ap-editor__label');
+            if (label && label.textContent) {
+                surface.setAttribute('aria-label', label.textContent.trim());
+            } else {
+                surface.setAttribute('aria-label', 'Content');
+            }
+        }
+
+        // Prefer server-rendered surface HTML; fall back to textarea value.
+        if (isEmptyHtml(surface.innerHTML) && ta.value) {
+            surface.innerHTML = ta.value;
+        }
+
+        ta.classList.add('ap-editor__textarea--hidden');
+        ta.setAttribute('aria-hidden', 'true');
+        ta.tabIndex = -1;
+
+        var sync = function () {
+            syncSurfaceToTextarea(wrap);
+        };
+        surface.addEventListener('input', sync);
+        surface.addEventListener('blur', sync);
+        surface.addEventListener('keyup', sync);
+        surface.addEventListener('paste', function () {
+            // After paste settles, re-sync cleaned HTML.
+            window.setTimeout(sync, 0);
+        });
+
+        // Placeholder behaviour.
+        var placeholder = ta.getAttribute('placeholder') || '';
+        if (placeholder) {
+            surface.setAttribute('data-placeholder', placeholder);
+            var updateEmpty = function () {
+                if (isEmptyHtml(surface.innerHTML)) {
+                    surface.classList.add('ap-editor__surface--empty');
+                } else {
+                    surface.classList.remove('ap-editor__surface--empty');
+                }
+            };
+            surface.addEventListener('input', updateEmpty);
+            surface.addEventListener('blur', updateEmpty);
+            updateEmpty();
+        }
+
+        var form = wrap.closest ? wrap.closest('form') : null;
+        if (form && form.getAttribute('data-ap-editor-submit-bound') !== '1') {
+            form.setAttribute('data-ap-editor-submit-bound', '1');
+            form.addEventListener('submit', function () {
+                var wraps = form.querySelectorAll('[data-ap-editor-wrap]');
+                for (var i = 0; i < wraps.length; i++) {
+                    syncSurfaceToTextarea(wraps[i]);
+                }
+            });
+        }
+
+        // Initial sync so saved HTML matches what is shown.
+        sync();
     }
 
     function init(root) {
         root = root || document;
+        var wraps = root.querySelectorAll
+            ? root.querySelectorAll('[data-ap-editor-wrap]')
+            : [];
+        for (var w = 0; w < wraps.length; w++) {
+            enhanceWrap(wraps[w]);
+        }
         var toolbars = root.querySelectorAll
             ? root.querySelectorAll('[data-ap-editor-toolbar]')
             : [];
@@ -372,7 +446,6 @@
         }
     }
 
-    // Close pickers on outside click / Escape (once).
     if (!window.AP_Editor_emojiDocBound) {
         window.AP_Editor_emojiDocBound = true;
         document.addEventListener('click', function (e) {
@@ -393,12 +466,14 @@
         });
     }
 
-    // Public API for dynamic forms.
     window.AP_Editor = {
         init: init,
+        enhance: enhanceWrap,
         bindToolbar: bindToolbar,
         bindEmojiPicker: bindEmojiPicker,
-        closeEmojiPickers: closeAllPickers
+        closeEmojiPickers: closeAllPickers,
+        sync: syncSurfaceToTextarea,
+        placeCaretAtEnd: placeCaretAtEnd
     };
 
     if (document.readyState === 'loading') {

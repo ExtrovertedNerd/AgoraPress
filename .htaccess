@@ -2,15 +2,42 @@
 # Pretty permalinks: every non-file path is routed to index.php; AP_Rewrite
 # parses the path into query vars (see ap-includes/class-ap-rewrite.php).
 # Plain structure (?p=123) works without mod_rewrite.
+#
+# Production hardening: deny secrets, SQLite DB files, and direct HTTP access
+# to core libraries (CSS/JS under ap-includes remain public).
 
-# Deny access to sensitive files
-<FilesMatch "^(ap-config\.php|composer\.(json|lock)|\.env)">
-    Require all denied
+# Deny access to sensitive files by basename
+<FilesMatch "^(ap-config\.php|composer\.(json|lock)|\.env)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Never serve SQLite (or generic .db) files over HTTP — default path is
+# ap-content/database.sqlite for zero-config demos.
+<FilesMatch "(?i)\.(sqlite3?|db)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
+
+    # Public static assets from core (editor CSS/JS, etc.)
+    RewriteRule ^ap-includes/(css|js)/ - [L]
+
+    # Block direct browser access to core PHP / schema (included by bootstrap only)
+    RewriteRule ^ap-includes/ - [F,L]
 
     # Do not rewrite existing files or directories
     RewriteRule ^index\.php$ - [L]

@@ -99,8 +99,9 @@ function ap_get_the_content(AP_Post|int|null $post = null): string
 /**
  * Echo post content.
  *
- * Runs the `ap_the_content` filter (core registers shortcode expansion + plain-text
- * escaping there). When no filter is available, falls back to escaped nl2br HTML.
+ * Runs the `ap_the_content` filter (core formats Markdown/BBCode/HTML via
+ * {@see AP_Content_Format}, then expands shortcodes). When no filter is
+ * available, falls back to the same pipeline directly.
  */
 function ap_the_content(AP_Post|int|null $post = null): void
 {
@@ -113,6 +114,11 @@ function ap_the_content(AP_Post|int|null $post = null): void
         $filtered = ap_apply_filters('ap_the_content', $content, $post);
         if (is_string($filtered)) {
             $content = $filtered;
+        }
+    } elseif (class_exists('AP_Content_Format', false)) {
+        $content = AP_Content_Format::format($content, ['mode' => 'auto', 'context' => 'post']);
+        if (class_exists('AP_Shortcode', false)) {
+            $content = AP_Shortcode::doShortcode($content);
         }
     } elseif (class_exists('AP_Shortcode', false)) {
         $content = AP_Shortcode::formatContent($content);

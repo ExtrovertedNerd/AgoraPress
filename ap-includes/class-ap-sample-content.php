@@ -202,7 +202,7 @@ Welcome to **{$safeTitle}**. This is your first blog post — edit or delete it,
 ### What you can do next
 
 1. Open **Posts → All Posts** in the admin to manage this entry.
-2. Try the classic editor: Markdown and a lightweight WYSIWYG are both first-class.
+2. Try the visual editor: formatting appears as you type and matches the published look.
 3. Add categories and tags, then assign them from the post sidebar.
 4. Invite co-authors who have the publish posts capability — the blog is a single site-wide stream.
 

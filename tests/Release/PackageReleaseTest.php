@@ -227,6 +227,10 @@ final class PackageReleaseTest extends TestCase
             str_contains($gi, '/dist/') || str_contains($gi, "\ndist/") || str_contains($gi, "dist/\n"),
             '.gitignore must ignore dist/ packaging artifacts'
         );
+        $this->assertTrue(
+            str_contains($gi, '*.sqlite') || str_contains($gi, 'database.sqlite'),
+            '.gitignore must ignore SQLite runtime databases for live installs'
+        );
     }
 
     /**

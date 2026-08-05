@@ -74,13 +74,14 @@ def test_editor_doc_content(docs_root: Path) -> None:
     for phrase in (
         "ap_editor",
         "classic",
+        "visual",
         "textarea",
+        "contenteditable",
         "non-goal",
         "block",
-        "markdown",
-        "bbcode",
         "lightweight",
         "no jquery",
+        "ap_content_format",
     ):
         assert phrase in text, f"editor.md missing: {phrase}"
 

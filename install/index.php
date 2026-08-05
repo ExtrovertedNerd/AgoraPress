@@ -398,8 +398,9 @@ if ($step === 'database') {
     $body = <<<HTML
         <h2>Database connection</h2>
         <p>
-            MySQL / MariaDB is recommended for production. SQLite works for local demos
-            (zero-config). PostgreSQL is also supported.
+            MySQL / MariaDB is recommended for production. SQLite is fine for local demos
+            (zero-config; web server rules block direct download of <code>.sqlite</code> files).
+            PostgreSQL is also supported.
         </p>
         <form method="post" action="">
             <input type="hidden" name="ap_csrf" value="{$csrf}">

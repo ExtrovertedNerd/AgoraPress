@@ -437,5 +437,8 @@ final class RewriteTest extends TestCase
         $this->assertStringContainsString('RewriteEngine On', $ht);
         $this->assertStringContainsString('index.php', $ht);
         $this->assertStringContainsString('REQUEST_FILENAME', $ht);
+        // Live-site hardening coexists with the front controller.
+        $this->assertStringContainsString('sqlite', $ht);
+        $this->assertStringContainsString('ap-includes', $ht);
     }
 }

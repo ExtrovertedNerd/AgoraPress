@@ -82,6 +82,7 @@ REQUIRED_PATHS: list[str] = [
     "ap-content/plugins",
     "ap-content/mu-plugins",
     "ap-content/languages",
+    "ap-content/.htaccess",
     # Tests
     "tests",
 ]
@@ -92,6 +93,7 @@ MUST_BE_GITIGNORED: list[str] = [
     "ap-content/uploads",
     ".hephaestus",
     "/dist/",
+    "*.sqlite",
 ]
 
 # Explicit Hephaestus rules required by constitution (never track process state).

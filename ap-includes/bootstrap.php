@@ -439,19 +439,43 @@ function ap_bootstrap(): void
         AP_Settings::registerCore();
     }
 
-    // Built-in shortcodes + content filter (escape plain text, expand shortcodes).
+    // Built-in shortcodes + content filter (format markup/HTML → safe display + shortcodes).
     if (class_exists('AP_Shortcode', false)) {
         AP_Shortcode::registerCore();
-        if (function_exists('ap_add_filter')) {
-            ap_add_filter(
-                'ap_the_content',
-                static function (mixed $content): string {
-                    return AP_Shortcode::formatContent(is_string($content) ? $content : '');
-                },
-                10,
-                1
-            );
-        }
+    }
+    if (function_exists('ap_add_filter')) {
+        ap_add_filter(
+            'ap_the_content',
+            static function (mixed $content): string {
+                $raw = is_string($content) ? $content : '';
+                if ($raw === '') {
+                    return '';
+                }
+                // Visual editor stores HTML; legacy posts may still be Markdown/BBCode.
+                // AP_Content_Format converts + kses so markup never shows as raw characters.
+                if (class_exists('AP_Content_Format', false)) {
+                    $raw = AP_Content_Format::format($raw, [
+                        'mode' => 'auto',
+                        'context' => 'post',
+                    ]);
+                } elseif (function_exists('ap_format_content')) {
+                    $raw = ap_format_content($raw, ['mode' => 'auto', 'context' => 'post']);
+                } elseif (class_exists('AP_Shortcode', false)) {
+                    // Fallback when formatter is unavailable: previous plain escape path.
+                    return AP_Shortcode::formatContent($raw);
+                } else {
+                    return nl2br(htmlspecialchars($raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), false);
+                }
+                // Expand shortcodes after formatting so handler HTML is not re-escaped.
+                if (class_exists('AP_Shortcode', false)) {
+                    $raw = AP_Shortcode::doShortcode($raw);
+                }
+
+                return $raw;
+            },
+            10,
+            1
+        );
     }
 
     // Built-in widget types (Text, Recent Posts, Categories, Search, Pages, Nav Menu).

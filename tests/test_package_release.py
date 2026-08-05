@@ -128,3 +128,4 @@ def test_changelog_and_readme_document_packaging() -> None:
 def test_gitignore_covers_dist() -> None:
     gi = GITIGNORE.read_text(encoding="utf-8")
     assert "/dist/" in gi or "dist/" in gi
+    assert "*.sqlite" in gi or "database.sqlite" in gi

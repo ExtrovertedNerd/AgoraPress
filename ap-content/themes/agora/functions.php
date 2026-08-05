@@ -926,7 +926,7 @@ function agora_the_title(): void
 }
 
 /**
- * Escape and print the current post content (basic newlines → breaks for MVP).
+ * Print the current post content (formatted HTML / legacy markup → safe display).
  */
 function agora_the_content(): void
 {
@@ -937,7 +937,12 @@ function agora_the_content(): void
     }
     global $ap_post;
     $content = $ap_post instanceof AP_Post ? (string) $ap_post->post_content : '';
-    // Content pipeline: shortcodes + plain-text escape via ap_the_content filter.
+    // Fallback when core template tags are unavailable.
+    if (function_exists('ap_format_content')) {
+        echo ap_format_content($content, ['mode' => 'auto', 'context' => 'post']);
+
+        return;
+    }
     $escaped = function_exists('ap_esc_html')
         ? ap_esc_html($content)
         : htmlspecialchars($content, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

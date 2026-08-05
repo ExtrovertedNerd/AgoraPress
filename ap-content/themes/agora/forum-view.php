@@ -182,17 +182,17 @@ $nonceAction = 'ap_forum_new_topic_' . $forumId;
                             'name' => 'topic_body',
                             'mode' => class_exists('AP_Editor', false)
                                 ? AP_Editor::modeForContext('forum')
-                                : 'bbcode',
+                                : 'visual',
                             'rows' => 8,
                             'required' => true,
                             'label' => 'Message',
-                            'placeholder' => 'Write your message… (BBCode and Markdown supported)',
+                            'placeholder' => 'Write your message…',
                             'class' => '',
                         ]);
                     } else {
                         ?>
                     <label for="agora-topic-body">Message</label>
-                    <textarea id="agora-topic-body" name="topic_body" required rows="8" placeholder="Write your message… (BBCode and Markdown supported)"></textarea>
+                    <textarea id="agora-topic-body" name="topic_body" required rows="8" placeholder="Write your message…"></textarea>
                         <?php
                     }
                     ?>

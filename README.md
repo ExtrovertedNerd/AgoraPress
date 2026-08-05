@@ -1,40 +1,37 @@
 # AgoraPress
 
-**Lightweight, free-forever open-source CMS with integrated forums.**
+**Lightweight, free-forever CMS with integrated forums.**
 
-Spiritual successor to classic WordPress + phpBB: easy to self-host, theme, and maintain. No bloat, no paywalls, no telemetry by default.
+A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** MVP feature-complete at `0.1.0-dev` (pre-tagged release). Web + CLI installers, blog/pages/forums, admin, Classic WP Theme Compatibility Layer, REST, CLI, and packaging are in tree. See [docs/vision-compliance.md](docs/vision-compliance.md) for the constitution reevaluation and intentional deviations.
+> **Status:** MVP feature-complete at `0.1.2-dev` (pre-tagged) and **ready for live-site install**. See [docs/vision-compliance.md](docs/vision-compliance.md) for product principles and intentional deviations.
 
 ---
 
 ## Vision summary
 
-AgoraPress restores the spirit of early WordPress while adding first-class community forums in one install. The name comes from the ancient Greek *agora* — the public square and marketplace of ideas: **publishing + open discussion**.
+AgoraPress is named after the ancient Greek *agora* — a public square for ideas: **publish and discuss**.
 
-### Core principles
+| Principle | Meaning |
+|-----------|---------|
+| **Free forever** | Core under GPLv2-or-later. No freemium gates on core features. |
+| **Lightweight** | Optional modules, modern PHP 8.2+, no runtime Composer deps. |
+| **Easy to host** | Web installer, CLI install, Docker Compose. |
+| **Easy to theme** | PHP templates + **Classic WordPress Theme Compatibility Layer**. |
+| **Extensible** | Hooks, plugins, shortcodes, Settings API, REST, CLI. |
+| **Community-ready** | Forums share users, roles, and media with the CMS. |
+| **Private by default** | Prepared statements, nonces, Argon2id passwords, **no telemetry**. |
 
-| Principle | What it means |
-|-----------|----------------|
-| **Free forever** | Core features, starter theme(s), and essential modules under GPLv2-or-later. No official paywalls or freemium tiers for core functionality. Permanent unobtrusive donation link in admin footer only (never blocks features). |
-| **Lightweight by design** | Minimal core footprint, optional modules, fast on shared hosting, modern PHP 8.2+ with no legacy cruft. |
-| **Easy self-host & maintain** | 5-minute web installer, CLI install path, Docker Compose one-liner, clear updates, familiar mental model for classic WP users. |
-| **Easy to theme** | Pure PHP template hierarchy and child themes. **Classic WordPress Theme Compatibility Layer** so many pre-block WP themes can run with minimal changes. |
-| **Powerful & extensible** | Action/filter hooks, plugins, settings API, shortcodes, custom post types & taxonomies, lightweight REST API. |
-| **Integrated community** | Forums, topics, groups, moderation, PMs, and attachments share users, roles, and capabilities with the CMS. |
-| **Secure & private by default** | Prepared statements, modern hashing, CSRF/XSS protections, **no telemetry**. |
-| **Migration friendly** | WordPress WXR + phpBB importers under Tools → Import (JSON export or live phpBB database). |
+### Modules
 
-### Three independent modules
-
-Any combination of **Static Pages**, **Blog**, and **Forum** can be enabled. A pure brochure site, a blog-only install, forums only, or all three — the architecture is built so each works cleanly alone or together.
+Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog only, forums only, or all three.
 
 ### Non-goals (v1)
 
-- Full Gutenberg / Full Site Editing in core  
-- Official hosted SaaS or paid marketplace from the core project  
+- Gutenberg / Full Site Editing in core  
+- Official hosted SaaS or paid marketplace  
 - Heavy AI features or telemetry  
-- PHP &lt; 8.2  
+- PHP older than 8.2  
 
 ---
 
@@ -43,20 +40,22 @@ Any combination of **Static Pages**, **Blog**, and **Forum** can be enabled. A p
 | | |
 |---|---|
 | **PHP** | 8.2+ (8.3 / 8.4 recommended) |
-| **Extensions** | PDO + pdo_mysql (or pdo_sqlite), mbstring, json, curl, fileinfo, gd or imagick, zip · *recommended:* intl |
-| **Database** | MySQL 8.0+ / MariaDB 10.6+ (primary) · SQLite 3.35+ · PostgreSQL |
-| **Web server** | Apache (`mod_rewrite`) or Nginx with URL rewriting |
-| **Memory** | 64 MB+ recommended |
+| **Extensions** | PDO + `pdo_mysql` or `pdo_sqlite`, mbstring, json, curl, fileinfo, zip, gd or imagick · *recommended:* intl |
+| **Database** | MySQL 8.0+ / MariaDB 10.6+ (production) · SQLite (local demos) · PostgreSQL |
+| **Web server** | Apache with `mod_rewrite`, or Nginx with rewrite rules |
+| **Disk** | Writable site root (for `ap-config.php`) and `ap-content/` (including `uploads/`) |
 
-Table prefix defaults to `ap_` (configurable before install).
+Default table prefix: `ap_` (changeable at install).
 
 ---
 
 ## Quick start
 
-### Option A — Docker Compose (recommended for local dev)
+Pick one install path. After install, admin is at **`/ap-admin/`**.
 
-Requires [Docker](https://docs.docker.com/get-docker/) and Docker Compose.
+### 1. Docker (fastest for local try-out)
+
+Needs [Docker](https://docs.docker.com/get-docker/) and Docker Compose.
 
 ```bash
 git clone https://github.com/ExtrovertedNerd/AgoraPress.git
@@ -64,145 +63,172 @@ cd AgoraPress
 docker compose up -d --build
 ```
 
-Open **http://localhost:8080**
+1. Open **http://localhost:8080** — you should see a “not installed” page, or go straight to **http://localhost:8080/install/**
+2. In the installer, use these database settings (they match `docker-compose.yml`):
 
-- Default HTTP port: `8080` (override with `AP_HTTP_PORT` in a local `.env`)
-- MySQL is published on **127.0.0.1:3307** by default (avoids clashing with a host MySQL on 3306)
-- Default DB credentials (dev only): user/password/database `agorapress`, root password `root`
+| Field | Value |
+|-------|--------|
+| Driver | MySQL |
+| Host | `db` |
+| Database | `agorapress` |
+| User | `agorapress` |
+| Password | `agorapress` |
+| Table prefix | `ap_` |
 
-Open the site: you should see a friendly **not installed** page (HTTP 503) with a link to the web installer, or go directly to **http://localhost:8080/install/**.
+3. Set site title, public URL (`http://localhost:8080`), and an admin username/email/password.
+4. Finish install → log in at **http://localhost:8080/ap-admin/**
 
-Installer flow: **requirements → database → site info & admin → tables + config**.  
-Docker DB defaults: host `db`, database/user/password `agorapress`, table prefix `ap_`.
+Notes:
 
-Stop the stack:
+- HTTP port defaults to **8080** (override with `AP_HTTP_PORT` in a local `.env`).
+- MySQL is published on the host as **127.0.0.1:3307** (not 3306) so it won’t clash with a local MySQL.
+- Stop: `docker compose down`
 
-```bash
-docker compose down
-```
+### 2. Web installer (shared hosting or VPS)
 
-### Option B — Web installer (recommended)
+Best for a real server when you have a browser and FTP/SFTP or a control panel.
 
-1. Place the project document root where your web server can serve it (or point the vhost at this directory).
-2. Ensure PHP 8.2+ and the extensions above are available; make the site root and `ap-content/` (including `uploads/`) writable by the web server.
-3. Create a MySQL/MariaDB database (or use SQLite for a local demo).
-4. Open `/install/` in the browser and complete the steps:
-   - **Requirements** — PHP version, extensions, filesystem
-   - **Database** — driver, credentials, table prefix (default `ap_`)
-   - **Site & admin** — title, URL, administrator account (Argon2id password hash)
-   - **Install** — runs versioned migrations, seeds options/admin, writes `ap-config.php`
-5. **Never commit `ap-config.php`** — it is gitignored.
+1. **Get the files**  
+   - Release zip: build with `php bin/package-release.php` (or download a published package), **or**  
+   - Clone/copy the repo so the document root contains `index.php`, `ap-admin/`, `ap-includes/`, `ap-content/`, `install/`.
 
-### Option C — CLI installer
+2. **Create a database** (MySQL/MariaDB recommended). Note host, name, user, and password.
 
-Non-interactive install for servers, automation, and Docker. Same core path as the web installer (migrations, salts, admin seed, `ap-config.php`).
+3. **Permissions**  
+   The PHP user must be able to:
+   - Create `ap-config.php` in the site root  
+   - Write under `ap-content/` (and `ap-content/uploads/`)
+
+4. **Point the vhost** at the AgoraPress root (the folder that contains `index.php`).
+
+5. **Open the installer** in your browser:  
+   `https://your-domain.example/install/`
+
+6. Complete the steps:
+   - **Requirements** — PHP version, extensions, writable paths  
+   - **Database** — driver, credentials, table prefix (`ap_` by default)  
+   - **Site & admin** — title, site URL (use `https://…` in production), administrator account  
+   - **Install** — creates tables, seeds options, writes `ap-config.php`
+
+7. **After success**
+   - Log in at `/ap-admin/`
+   - Change the admin password if it was temporary  
+   - **Settings → Modules** — enable Pages / Blog / Forum as needed  
+   - **Settings → Permalinks** — pick a structure; keep shipped [`.htaccess`](.htaccess) (Apache) or adapt [`docker/nginx.conf.example`](docker/nginx.conf.example)  
+   - Run **Tools → Site Health**
+
+**Never commit `ap-config.php`.** It is gitignored and contains secrets.
+
+### 3. CLI installer (automation / SSH)
+
+Same result as the web installer, non-interactive. Refuses to overwrite an existing `ap-config.php`.
 
 ```bash
 # Help
 php install/cli.php --help
 
-# SQLite zero-config demo
+# Quick local demo with SQLite (no separate DB server)
 php install/cli.php \
   --db-driver=sqlite \
   --site-title="My AgoraPress Site" \
   --site-url=http://localhost:8080 \
   --admin-user=admin \
   --admin-email=admin@example.com \
-  --admin-password=changeme123
+  --admin-password='choose-a-strong-password'
 
-# MySQL (e.g. Docker Compose service host "db")
+# MySQL / MariaDB (production-style)
 php install/cli.php \
   --db-driver=mysql \
-  --db-host=db \
+  --db-host=127.0.0.1 \
   --db-name=agorapress \
   --db-user=agorapress \
-  --db-password=agorapress \
+  --db-password='db-password' \
   --site-title="My AgoraPress Site" \
-  --site-url=http://localhost:8080 \
+  --site-url=https://example.com \
   --admin-user=admin \
   --admin-email=admin@example.com \
-  --admin-password=changeme123
+  --admin-password='choose-a-strong-password'
 ```
 
-Useful flags: `--table-prefix=ap_`, `--config-path=/path/to/ap-config.php`, `--skip-requirements`.  
-Passwords may also come from env: `AP_ADMIN_PASSWORD`, `AP_DB_PASSWORD` (avoids argv history).  
-Exit codes: `0` success, `1` usage, `2` requirements, `3` install failure. Refuses to overwrite an existing `ap-config.php`.
+Useful flags: `--table-prefix=ap_`, `--config-path=/path/to/ap-config.php`, `--skip-requirements`, `--sample-content` / `--no-sample-content`.  
+Passwords via env (optional): `AP_ADMIN_PASSWORD`, `AP_DB_PASSWORD`.  
+Exit codes: `0` ok · `1` usage · `2` requirements · `3` install failure.
 
-### Option D — ap-cli (manage an installed site)
+### 4. Manual config (advanced)
 
-After install, use **`ap-cli`** for day-to-day operations (WP-CLI-inspired, no extra dependencies):
+```bash
+cp ap-config-sample.php ap-config.php
+# Edit AP_DB_*, $table_prefix, and unique auth keys/salts
+```
+
+You still need schema migrations applied (run the web or CLI installer, or use `php ap-cli db migrate` after a partial setup). Prefer the installers unless you know you need a hand-written config.
+
+### Production install (live site)
+
+Use this checklist for a public host (shared hosting, VPS, or container):
+
+1. Prefer **MySQL 8+ / MariaDB 10.6+** (not SQLite) for production.  
+2. Upload the release zip (or clone) so the document root is the AgoraPress root.  
+3. Create a database and a DB user with full rights on that database.  
+4. Ensure the web server can write `ap-config.php` and `ap-content/` (including `uploads/`).  
+5. Run **`/install/`** or `php install/cli.php` — then log in at `/ap-admin/`.  
+6. Set the site URL to **HTTPS** and terminate TLS on the web server.  
+7. Keep `AP_DEBUG` / `AP_DEBUG_DISPLAY` **false** (installer default).  
+8. Confirm rewrites: Apache [`.htaccess`](.htaccess) or [`docker/nginx.conf.example`](docker/nginx.conf.example).  
+9. Confirm hardening: config, `.env`, and DB files are not downloadable (shipped rules cover common cases).  
+10. After install: strong admin password, modules (Pages / Blog / Forum), menus, privacy policy, **Tools → Site Health**.  
+11. Optional: **Tools → Import** for WordPress WXR or phpBB content.
+
+---
+
+## After install
+
+### Admin & site CLI
 
 ```bash
 php ap-cli --help
 php ap-cli version
-php ap-cli cli info
-
-# Options, plugins, themes, users
+php ap-cli site health
 php ap-cli option get blogname
-php ap-cli option set blogname "My Site"
 php ap-cli plugin list
-php ap-cli plugin activate my-plugin/plugin.php
 php ap-cli theme list
-php ap-cli theme activate agora
-php ap-cli user list
-php ap-cli user create --user_login=editor --user_email=ed@example.com --user_pass=secretpass --role=editor
-
-# Schema, cache, cron, rewrites, health
-php ap-cli db check
 php ap-cli db migrate
 php ap-cli cache flush
-php ap-cli cron event list
-php ap-cli cron event run
 php ap-cli rewrite flush
-php ap-cli site health
-php ap-cli core check-update
 ```
 
-Global flags: `--path=/var/www/site`, `--url=https://example.com`, `--skip-plugins`.  
-Exit codes: `0` ok, `1` usage, `2` error, `3` not installed.  
-Plugins can register commands on the `ap_cli_init` action via `AP_Cli::addCommand()`.
+Global flags: `--path=/var/www/site`, `--url=https://example.com`, `--skip-plugins`.
 
-### REST API (lightweight)
+### REST API
 
-JSON API at **`/ap-json/`** (pretty permalinks) or **`?rest_route=/ap/v1/posts`** (plain). Primary namespace: `ap/v1`.
+JSON at **`/ap-json/`** (pretty permalinks) or `?rest_route=/ap/v1/posts`.  
+Namespace `ap/v1` for settings, posts, pages, comments, users, taxonomies, and forums when enabled.  
+Auth: session cookie + `X-AP-Nonce`, or HTTP Basic. Disable with option `rest_api_enabled=0`.
 
-| Endpoint | Methods | Notes |
-|----------|---------|--------|
-| `/ap-json/` | GET | Site index, namespaces, route map |
-| `/ap-json/ap/v1/settings` | GET | Public site settings + module toggles |
-| `/ap-json/ap/v1/posts` | GET, POST | List / create posts |
-| `/ap-json/ap/v1/posts/{id}` | GET, PUT/PATCH, DELETE | Single post (auth for write) |
-| `/ap-json/ap/v1/pages` | GET | Published pages |
-| `/ap-json/ap/v1/comments` | GET | Approved comments |
-| `/ap-json/ap/v1/users` | GET | Public user profiles |
-| `/ap-json/ap/v1/categories`, `/tags` | GET | Taxonomies |
-| `/ap-json/ap/v1/forums`, `/topics` | GET | When Forum module is on |
+### Updates
 
-Auth: browser session cookie (send `X-AP-Nonce` for writes) or HTTP Basic (`username:password`). Disable with option `rest_api_enabled=0`. Plugins register routes on `ap_rest_api_init` via `ap_register_rest_route()`.
+- Admin **Tools → Update Core** (optional one-click from public `version.json`)  
+- Or deploy a new package / git pull and run `php ap-cli db migrate` if needed  
 
-### Option E — Manual config (advanced)
+---
+
+## Release packaging
+
+Build an installable zip for fresh installs and one-click updates:
 
 ```bash
-cp ap-config-sample.php ap-config.php
+php bin/package-release.php
+# or: composer package
+# Options: --output-dir=DIR  --version=VER  --dry-run  --json
 ```
 
-Set `AP_DB_*`, `$table_prefix` (default `ap_`), and unique auth keys/salts. Schema migrations still need to be applied (web or CLI installer).
+| Output | Purpose |
+|--------|---------|
+| `dist/AgoraPress-{version}.zip` | Production tree under `AgoraPress/` |
+| `dist/AgoraPress-{version}.sha256` | Checksum for `version.json` |
+| `dist/version.json.example` | Template for the public version endpoint |
 
-Docker Compose defaults for reference (when the web container talks to the `db` service):
-
-| Constant / setting | Typical Docker value |
-|--------------------|----------------------|
-| `AP_DB_HOST` | `db` |
-| `AP_DB_NAME` | `agorapress` |
-| `AP_DB_USER` | `agorapress` |
-| `AP_DB_PASSWORD` | `agorapress` |
-| `$table_prefix` | `ap_` |
-
-From the **host** machine (not inside the web container), MySQL is usually `127.0.0.1:3307`.
-
-### Nginx
-
-An example reverse-proxy / rewrite config lives at [`docker/nginx.conf.example`](docker/nginx.conf.example). Apache users can use the included [`.htaccess`](.htaccess).
+Excludes tests, vendor, secrets, and runtime uploads. `dist/` is gitignored.
 
 ---
 
@@ -211,22 +237,20 @@ An example reverse-proxy / rewrite config lives at [`docker/nginx.conf.example`]
 ```
 /
 ├── index.php                 # Front controller
-├── ap-cli                    # Operational CLI for installed sites
-├── ap-config-sample.php      # Sample config (copy → ap-config.php)
-├── install/                  # Web (index.php) + CLI (cli.php) installer
-├── ap-admin/                 # Administration UI
-├── ap-includes/              # Core libraries, hooks, WP theme compatibility/
+├── ap-cli                    # Manage an installed site
+├── ap-config-sample.php      # Copy → ap-config.php (never commit secrets)
+├── install/                  # Web + CLI installer
+├── ap-admin/                 # Admin UI
+├── ap-includes/              # Core (hooks, editor, forums, WP compatibility/)
 ├── ap-content/
-│   ├── themes/
+│   ├── themes/               # Default: agora
 │   ├── plugins/
 │   ├── mu-plugins/
 │   ├── languages/
-│   └── uploads/              # Runtime — not committed
-├── bin/package-release.php   # Build production zip + SHA-256 (not shipped in the zip)
-├── docker/                   # Dockerfile, Apache vhost, nginx example
-├── docker-compose.yml
-├── docs/                     # Developer documentation
-├── composer.json
+│   └── uploads/              # Runtime media (not in git)
+├── bin/package-release.php
+├── docker/ + docker-compose.yml
+├── docs/                     # Developer guides
 ├── tests/
 ├── CHANGELOG.md
 ├── LICENSE                   # GPLv2-or-later
@@ -235,87 +259,29 @@ An example reverse-proxy / rewrite config lives at [`docker/nginx.conf.example`]
 
 ---
 
-## Developer documentation
-
-Extending AgoraPress (hooks, themes, plugins, WP theme compatibility, database schema):
-
-| Guide | Path |
-|-------|------|
-| Index | [`docs/README.md`](docs/README.md) |
-| Hooks | [`docs/hooks.md`](docs/hooks.md) |
-| Theme hierarchy | [`docs/themes.md`](docs/themes.md) |
-| Plugin API | [`docs/plugins.md`](docs/plugins.md) |
-| Classic WP compatibility | [`docs/compatibility.md`](docs/compatibility.md) |
-| Database schema | [`docs/schema.md`](docs/schema.md) |
-| Vision compliance | [`docs/vision-compliance.md`](docs/vision-compliance.md) |
-
 ## Development
 
 ```bash
-# Install dev tools (PHPUnit, PHPCS, PHPStan)
-composer install
-
-# Unit / structure tests
-composer test
-# or: vendor/bin/phpunit
+composer install          # PHPUnit, PHPCS, PHPStan (dev only)
+composer test             # PHPUnit
+composer cs:check         # Coding standards
+composer analyse          # PHPStan
+composer package          # Production zip
 # or: pytest tests/ -v
-
-# Structure check only
-composer test:structure
-# or: php tests/Structure/assert-structure.php
-
-# Coding standards (PSR-12 adapted PHPCS)
-composer cs
-composer cs:check
-composer cs:fix   # auto-fix where possible
-
-# Static analysis (PHPStan level 3 on ap-includes)
-composer analyse
-
-# Production release package (zip + SHA-256 + version.json.example)
-composer package
-# or: php bin/package-release.php
-# Dry run: composer package:dry-run
 ```
 
-CI (GitHub Actions) runs `composer test`, `composer cs:check`, and `composer analyse` on PHP 8.2, 8.3, and 8.4.
-
-See [`CODING_STANDARDS.md`](CODING_STANDARDS.md), [`phpunit.xml.dist`](phpunit.xml.dist), [`phpstan.neon.dist`](phpstan.neon.dist), and [`CHANGELOG.md`](CHANGELOG.md).
-
----
-
-## Release packaging
-
-Operators publish installable core packages for fresh installs and one-click updates (`AP_Core_Updater` + public `version.json`).
-
-```bash
-php bin/package-release.php
-# Options: --output-dir=DIR  --version=VER  --prefix=NAME  --dry-run  --json
-```
-
-| Artifact | Description |
-|----------|-------------|
-| `dist/AgoraPress-{version}.zip` | Production tree under a top-level `AgoraPress/` folder (`index.php`, `ap-admin/`, `ap-includes/`, default Agora theme, installer, docs, …) |
-| `dist/AgoraPress-{version}.sha256` | SHA-256 of the zip (for optional `sha256` in `version.json`) |
-| `dist/version.json.example` | Template for the public version endpoint (edit URLs before serving) |
-
-**Not shipped:** `tests/`, `vendor/`, `.git` / `.github`, `.hephaestus/`, PHPCS/PHPUnit/PHPStan configs, `composer.lock`, secrets (`ap-config.php`, `.env`), runtime upload content, and the packaging script itself (`bin/`).
-
-The zip is recognized by the core updater (`index.php` + `ap-includes/version.php` + `ap-admin/`). Version labels come from `AP_VERSION` in `ap-includes/version.php` unless `--version=` is set. Package artifacts under `dist/` are gitignored.
+CI runs tests, CS, and analysis on PHP 8.2–8.4.  
+See [`CODING_STANDARDS.md`](CODING_STANDARDS.md) and [`docs/README.md`](docs/README.md) (hooks, themes, plugins, schema, compatibility).
 
 ---
 
 ## Security & privacy
 
-- PDO **prepared statements** only for database access  
-- Nonces / capability checks on privileged actions (as features land)  
-- Password hashing with Argon2id (installer + auth)  
-- **No telemetry** — core has no telemetry constant or collectors; version checks never send site identification  
-- **Version check** (admin-only): GET of the public `version.json` endpoint; transient-cached; fails silently; **never** sends domain or other site identity. Option `version_check_enabled` (default on) can disable checks for offline installs.  
-- **One-click auto-update** (Dashboard → **Update Core**, cap `update_core`): downloads the published package URL from `version.json` (optional SHA-256 verification), applies core files while preserving `ap-config.php` and user content under `ap-content/` (uploads, plugins, mu-plugins, custom themes; default `agora` theme may update), runs pending DB migrations, and uses a brief front-end maintenance page. No site identity is sent on the package GET.
-- **Privacy tools (GDPR-style):** Settings → **Privacy** (policy page selector); Tools → **Export Personal Data** / **Erase Personal Data** — portable JSON export of a user’s personal data, and erase (anonymize content ownership + delete account). Caps `manage_privacy_options`, `export_others_personal_data`, `erase_others_personal_data`.
-
-Optional “Hall of Fame” domain registration (fully voluntary, withdrawable) is the only install-counting path — never automatic pings. Admins can join or leave under **Settings → Hall of Fame**; the dashboard may show a one-time prompt. Registration sends only the site domain (no telemetry).
+- PDO prepared statements; nonces and capability checks on privileged actions  
+- Argon2id password hashing  
+- **No telemetry** — version check and updates never send your domain or site identity  
+- Optional Hall of Fame domain listing is voluntary only (Settings → Hall of Fame)  
+- Privacy tools: export / erase personal data under Tools  
 
 ---
 
@@ -327,10 +293,8 @@ Optional “Hall of Fame” domain registration (fully voluntary, withdrawable) 
 
 ## Links
 
-- Project site: [agorapress.extrovertednerd.com](https://agorapress.extrovertednerd.com)  
+- Site: [agorapress.extrovertednerd.com](https://agorapress.extrovertednerd.com)  
 - Source: [github.com/ExtrovertedNerd/AgoraPress](https://github.com/ExtrovertedNerd/AgoraPress)  
 - Version endpoint: `https://agorapress.extrovertednerd.com/version.json`  
-
----
 
 *AgoraPress — free forever. Publish. Discuss. Own your stack.*

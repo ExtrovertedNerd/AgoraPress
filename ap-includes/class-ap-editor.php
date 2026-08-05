@@ -1,16 +1,15 @@
 <?php
 
 /**
- * Lightweight classic editor — formatting toolbar for textareas.
+ * Lightweight visual WYSIWYG editor.
  *
- * Not a block editor and never will be in core. Content is always a plain
- * `<textarea>`; buttons insert Markdown, BBCode, or HTML around the selection
- * (Quicktags-style). Progressive enhancement only: with JS disabled the
- * textarea still submits. Shared by Post/Page admin, comments, and forum
- * topic/reply forms. Includes a built-in Unicode emoji picker (no CDN, no
- * image sprites). No jQuery, no contenteditable, no block tree.
+ * Shows formatted content while editing (contenteditable surface) and submits
+ * sanitized HTML via a hidden textarea. Progressive enhancement: without JS
+ * the plain textarea remains usable. Shared by Post/Page admin, comments, and
+ * forum topic/reply forms. Includes a built-in Unicode emoji picker (no CDN).
  *
- * Soft asset budgets (guarded by tests): JS ≤ 32 KiB, CSS ≤ 16 KiB.
+ * Not a block / Gutenberg editor. Soft asset budgets (guarded by tests):
+ * JS ≤ 48 KiB, CSS ≤ 24 KiB.
  *
  * @package AgoraPress
  */
@@ -18,20 +17,26 @@
 declare(strict_types=1);
 
 /**
- * Classic WYSIWYG-style formatting toolbar + textarea renderer.
+ * Classic visual WYSIWYG editor (toolbar + contenteditable + textarea).
  *
  * Architecture is intentionally fixed to {@see AP_Editor::ARCHITECTURE_CLASSIC}.
  * Full block / Gutenberg editors are a non-goal for core (see FEATURES.md).
  */
 class AP_Editor
 {
+    /** Visual / WYSIWYG mode — stores HTML, edits with formatted preview. */
+    public const MODE_VISUAL = 'visual';
+
+    /** @deprecated Prefer visual; kept for legacy content conversion. */
     public const MODE_MARKDOWN = 'markdown';
 
+    /** @deprecated Prefer visual; kept for legacy content conversion. */
     public const MODE_BBCODE = 'bbcode';
 
+    /** @deprecated Prefer visual; raw HTML source fallback. */
     public const MODE_HTML = 'html';
 
-    /** Stable architecture id: classic textarea + toolbar (never "blocks"). */
+    /** Stable architecture id: classic visual editor (never "blocks"). */
     public const ARCHITECTURE_CLASSIC = 'classic';
 
     public const HANDLE_STYLE = 'ap-editor';
@@ -39,10 +44,10 @@ class AP_Editor
     public const HANDLE_SCRIPT = 'ap-editor';
 
     /** Soft upper bound for ap-editor.js (bytes). Guard tests enforce this. */
-    public const MAX_JS_BYTES = 32768;
+    public const MAX_JS_BYTES = 49152;
 
     /** Soft upper bound for ap-editor.css (bytes). Guard tests enforce this. */
-    public const MAX_CSS_BYTES = 16384;
+    public const MAX_CSS_BYTES = 24576;
 
     /** @var bool Whether assets were printed this request (admin print path). */
     private static bool $assetsPrinted = false;
@@ -79,87 +84,84 @@ class AP_Editor
     }
 
     /**
-     * Supported markup modes (never includes a "blocks" mode).
+     * Whether the editor is the visual WYSIWYG surface (not a block canvas).
+     */
+    public static function isVisual(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Supported editor modes (never includes a "blocks" mode).
+     *
+     * Visual is the default WYSIWYG surface. Markdown / BBCode / HTML remain
+     * for legacy content conversion and filters.
      *
      * @return list<string>
      */
     public static function modes(): array
     {
-        return [self::MODE_MARKDOWN, self::MODE_BBCODE, self::MODE_HTML];
+        return [
+            self::MODE_VISUAL,
+            self::MODE_MARKDOWN,
+            self::MODE_BBCODE,
+            self::MODE_HTML,
+        ];
     }
 
     public static function normalizeMode(string $mode): string
     {
         $mode = strtolower(trim($mode));
+        // Map legacy aliases to visual WYSIWYG.
+        if (in_array($mode, ['wysiwyg', 'rich', 'richtext', 'rte'], true)) {
+            return self::MODE_VISUAL;
+        }
 
-        return in_array($mode, self::modes(), true) ? $mode : self::MODE_MARKDOWN;
+        return in_array($mode, self::modes(), true) ? $mode : self::MODE_VISUAL;
     }
 
     /**
-     * Formatting button definitions for a mode.
+     * Formatting button definitions for the visual toolbar.
      *
-     * Each button: id, label, title, and mode-specific insert instructions
-     * consumed by ap-editor.js (wrap / prefix / block / link / hr).
+     * Each button: id, label, title, and visual command instructions consumed
+     * by ap-editor.js (document.execCommand / selection helpers).
      *
      * @return list<array<string, mixed>>
      */
-    public static function buttons(string $mode = self::MODE_MARKDOWN): array
+    public static function buttons(string $mode = self::MODE_VISUAL): array
     {
         $mode = self::normalizeMode($mode);
 
-        $defs = match ($mode) {
-            self::MODE_BBCODE => [
-                ['id' => 'bold', 'label' => 'B', 'title' => 'Bold', 'cmd' => 'wrap', 'before' => '[b]', 'after' => '[/b]', 'placeholder' => 'bold text'],
-                ['id' => 'italic', 'label' => 'I', 'title' => 'Italic', 'cmd' => 'wrap', 'before' => '[i]', 'after' => '[/i]', 'placeholder' => 'italic text'],
-                ['id' => 'underline', 'label' => 'U', 'title' => 'Underline', 'cmd' => 'wrap', 'before' => '[u]', 'after' => '[/u]', 'placeholder' => 'underlined text'],
-                ['id' => 'strike', 'label' => 'S', 'title' => 'Strikethrough', 'cmd' => 'wrap', 'before' => '[s]', 'after' => '[/s]', 'placeholder' => 'struck text'],
-                ['id' => 'link', 'label' => 'Link', 'title' => 'Insert link', 'cmd' => 'link', 'before' => '[url=%url%]', 'after' => '[/url]', 'placeholder' => 'link text'],
-                ['id' => 'quote', 'label' => 'Quote', 'title' => 'Blockquote', 'cmd' => 'wrap', 'before' => "[quote]\n", 'after' => "\n[/quote]", 'placeholder' => 'quoted text'],
-                ['id' => 'code', 'label' => 'Code', 'title' => 'Code block', 'cmd' => 'wrap', 'before' => "[code]\n", 'after' => "\n[/code]", 'placeholder' => 'code'],
-                ['id' => 'ul', 'label' => '• List', 'title' => 'Bullet list', 'cmd' => 'bbcode-list', 'ordered' => false],
-                ['id' => 'ol', 'label' => '1. List', 'title' => 'Numbered list', 'cmd' => 'bbcode-list', 'ordered' => true],
-                ['id' => 'img', 'label' => 'Img', 'title' => 'Insert image', 'cmd' => 'img', 'template' => '[img]%url%[/img]'],
-            ],
-            self::MODE_HTML => [
-                ['id' => 'bold', 'label' => 'B', 'title' => 'Bold', 'cmd' => 'wrap', 'before' => '<strong>', 'after' => '</strong>', 'placeholder' => 'bold text'],
-                ['id' => 'italic', 'label' => 'I', 'title' => 'Italic', 'cmd' => 'wrap', 'before' => '<em>', 'after' => '</em>', 'placeholder' => 'italic text'],
-                ['id' => 'underline', 'label' => 'U', 'title' => 'Underline', 'cmd' => 'wrap', 'before' => '<u>', 'after' => '</u>', 'placeholder' => 'underlined text'],
-                ['id' => 'strike', 'label' => 'S', 'title' => 'Strikethrough', 'cmd' => 'wrap', 'before' => '<del>', 'after' => '</del>', 'placeholder' => 'struck text'],
-                ['id' => 'link', 'label' => 'Link', 'title' => 'Insert link', 'cmd' => 'link', 'before' => '<a href="%url%">', 'after' => '</a>', 'placeholder' => 'link text'],
-                ['id' => 'h2', 'label' => 'H2', 'title' => 'Heading 2', 'cmd' => 'wrap', 'before' => '<h2>', 'after' => '</h2>', 'placeholder' => 'Heading'],
-                ['id' => 'h3', 'label' => 'H3', 'title' => 'Heading 3', 'cmd' => 'wrap', 'before' => '<h3>', 'after' => '</h3>', 'placeholder' => 'Heading'],
-                ['id' => 'quote', 'label' => 'Quote', 'title' => 'Blockquote', 'cmd' => 'wrap', 'before' => "<blockquote>\n", 'after' => "\n</blockquote>", 'placeholder' => 'quoted text'],
-                ['id' => 'code', 'label' => 'Code', 'title' => 'Inline code', 'cmd' => 'wrap', 'before' => '<code>', 'after' => '</code>', 'placeholder' => 'code'],
-                ['id' => 'ul', 'label' => '• List', 'title' => 'Bullet list', 'cmd' => 'html-list', 'ordered' => false],
-                ['id' => 'ol', 'label' => '1. List', 'title' => 'Numbered list', 'cmd' => 'html-list', 'ordered' => true],
-                ['id' => 'hr', 'label' => '—', 'title' => 'Horizontal rule', 'cmd' => 'insert', 'text' => "\n<hr>\n"],
-            ],
-            default => [ // markdown
-                ['id' => 'bold', 'label' => 'B', 'title' => 'Bold', 'cmd' => 'wrap', 'before' => '**', 'after' => '**', 'placeholder' => 'bold text'],
-                ['id' => 'italic', 'label' => 'I', 'title' => 'Italic', 'cmd' => 'wrap', 'before' => '*', 'after' => '*', 'placeholder' => 'italic text'],
-                ['id' => 'strike', 'label' => 'S', 'title' => 'Strikethrough', 'cmd' => 'wrap', 'before' => '~~', 'after' => '~~', 'placeholder' => 'struck text'],
-                ['id' => 'link', 'label' => 'Link', 'title' => 'Insert link', 'cmd' => 'md-link', 'placeholder' => 'link text'],
-                ['id' => 'h2', 'label' => 'H2', 'title' => 'Heading 2', 'cmd' => 'prefix-line', 'prefix' => '## ', 'placeholder' => 'Heading'],
-                ['id' => 'h3', 'label' => 'H3', 'title' => 'Heading 3', 'cmd' => 'prefix-line', 'prefix' => '### ', 'placeholder' => 'Heading'],
-                ['id' => 'quote', 'label' => 'Quote', 'title' => 'Blockquote', 'cmd' => 'prefix-lines', 'prefix' => '> ', 'placeholder' => 'quoted text'],
-                ['id' => 'code', 'label' => 'Code', 'title' => 'Inline code', 'cmd' => 'wrap', 'before' => '`', 'after' => '`', 'placeholder' => 'code'],
-                ['id' => 'ul', 'label' => '• List', 'title' => 'Bullet list', 'cmd' => 'prefix-lines', 'prefix' => '- ', 'placeholder' => 'list item'],
-                ['id' => 'ol', 'label' => '1. List', 'title' => 'Numbered list', 'cmd' => 'prefix-lines', 'prefix' => '1. ', 'placeholder' => 'list item'],
-                ['id' => 'hr', 'label' => '—', 'title' => 'Horizontal rule', 'cmd' => 'insert', 'text' => "\n---\n"],
-            ],
-        };
+        // All modes share the visual toolbar — editing is always WYSIWYG.
+        // Mode only affects how existing stored content is converted for display.
+        unset($mode);
 
-        // Emoji picker is available in every markup mode (inserts raw Unicode).
-        $defs[] = [
-            'id' => 'emoji',
-            'label' => '😀',
-            'title' => 'Insert emoji',
-            'cmd' => 'emoji-picker',
+        $defs = [
+            ['id' => 'bold', 'label' => 'B', 'title' => 'Bold', 'cmd' => 'visual', 'visual' => 'bold'],
+            ['id' => 'italic', 'label' => 'I', 'title' => 'Italic', 'cmd' => 'visual', 'visual' => 'italic'],
+            ['id' => 'underline', 'label' => 'U', 'title' => 'Underline', 'cmd' => 'visual', 'visual' => 'underline'],
+            ['id' => 'strike', 'label' => 'S', 'title' => 'Strikethrough', 'cmd' => 'visual', 'visual' => 'strikeThrough'],
+            ['id' => 'link', 'label' => 'Link', 'title' => 'Insert link', 'cmd' => 'visual-link'],
+            ['id' => 'unlink', 'label' => 'Unlink', 'title' => 'Remove link', 'cmd' => 'visual-unlink'],
+            ['id' => 'h2', 'label' => 'H2', 'title' => 'Heading 2', 'cmd' => 'visual-block', 'block' => 'h2'],
+            ['id' => 'h3', 'label' => 'H3', 'title' => 'Heading 3', 'cmd' => 'visual-block', 'block' => 'h3'],
+            ['id' => 'quote', 'label' => 'Quote', 'title' => 'Blockquote', 'cmd' => 'visual-block', 'block' => 'blockquote'],
+            ['id' => 'code', 'label' => 'Code', 'title' => 'Inline code', 'cmd' => 'visual-code'],
+            ['id' => 'ul', 'label' => '• List', 'title' => 'Bullet list', 'cmd' => 'visual', 'visual' => 'insertUnorderedList'],
+            ['id' => 'ol', 'label' => '1. List', 'title' => 'Numbered list', 'cmd' => 'visual', 'visual' => 'insertOrderedList'],
+            ['id' => 'hr', 'label' => '—', 'title' => 'Horizontal rule', 'cmd' => 'visual', 'visual' => 'insertHorizontalRule'],
+            ['id' => 'img', 'label' => 'Img', 'title' => 'Insert image', 'cmd' => 'visual-img'],
+            [
+                'id' => 'emoji',
+                'label' => '😀',
+                'title' => 'Insert emoji',
+                'cmd' => 'emoji-picker',
+            ],
         ];
 
         if (function_exists('ap_apply_filters')) {
             /** @var list<array<string, mixed>> $defs */
-            $defs = ap_apply_filters('ap_editor_buttons', $defs, $mode);
+            $defs = ap_apply_filters('ap_editor_buttons', $defs, self::MODE_VISUAL);
         }
 
         return $defs;
@@ -167,10 +169,6 @@ class AP_Editor
 
     /**
      * Curated Unicode emoji set for the picker (grouped by category).
-     *
-     * Lightweight: no image sprites, no remote CDN. Characters insert as-is
-     * into Markdown, BBCode, and HTML editors. Intentionally modest so every
-     * editor instance stays small in HTML size.
      *
      * @return array<string, list<string>> category label => emoji characters
      */
@@ -243,14 +241,51 @@ class AP_Editor
     }
 
     /**
-     * Render toolbar + textarea editor control.
+     * Convert stored content to safe HTML for the visual surface / publish.
+     *
+     * Accepts legacy Markdown / BBCode as well as HTML from the visual editor.
+     */
+    public static function valueToHtml(string $value, string $legacyMode = self::MODE_VISUAL): string
+    {
+        $value = str_replace("\0", '', $value);
+        if (trim($value) === '') {
+            return '';
+        }
+
+        $legacyMode = self::normalizeMode($legacyMode);
+        $formatMode = match ($legacyMode) {
+            self::MODE_BBCODE => 'bbcode',
+            self::MODE_MARKDOWN => 'markdown',
+            self::MODE_HTML => 'html',
+            default => 'auto',
+        };
+
+        if (class_exists('AP_Content_Format', false)) {
+            return AP_Content_Format::format($value, [
+                'mode' => $formatMode,
+                'context' => 'editor',
+            ]);
+        }
+        if (function_exists('ap_format_content')) {
+            return ap_format_content($value, [
+                'mode' => $formatMode,
+                'context' => 'editor',
+            ]);
+        }
+
+        // Last resort: escape plain text (no formatter loaded).
+        return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    /**
+     * Render visual editor control (toolbar + surface + textarea).
      *
      * @param array<string, mixed> $args {
      *     @type string $id          Textarea id (required for a11y).
      *     @type string $name        Textarea name attribute.
-     *     @type string $value       Initial content.
-     *     @type string $mode        markdown|bbcode|html (default markdown).
-     *     @type int    $rows        Rows (default 12).
+     *     @type string $value       Initial content (HTML, Markdown, or BBCode).
+     *     @type string $mode        visual|markdown|bbcode|html (default visual).
+     *     @type int    $rows        Rows hint for textarea / min-height (default 12).
      *     @type string $class       Extra textarea classes.
      *     @type string $placeholder Placeholder text.
      *     @type bool   $required    Whether required.
@@ -269,7 +304,7 @@ class AP_Editor
         }
         $name = (string) ($args['name'] ?? $id);
         $value = (string) ($args['value'] ?? '');
-        $mode = self::normalizeMode((string) ($args['mode'] ?? self::MODE_MARKDOWN));
+        $mode = self::normalizeMode((string) ($args['mode'] ?? self::MODE_VISUAL));
         $rows = max(3, (int) ($args['rows'] ?? 12));
         $class = trim((string) ($args['class'] ?? 'large-text'));
         $placeholder = (string) ($args['placeholder'] ?? '');
@@ -277,7 +312,7 @@ class AP_Editor
         $toolbar = !array_key_exists('toolbar', $args) || !empty($args['toolbar']);
         $label = (string) ($args['label'] ?? '');
         $description = (string) ($args['description'] ?? '');
-        $wrapClass = trim('ap-editor ' . (string) ($args['wrap_class'] ?? ''));
+        $wrapClass = trim('ap-editor ap-editor--visual ' . (string) ($args['wrap_class'] ?? ''));
         /** @var array<string, string|int|bool> $extraAttrs */
         $extraAttrs = is_array($args['attrs'] ?? null) ? $args['attrs'] : [];
 
@@ -301,10 +336,12 @@ class AP_Editor
                 : htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         };
 
-        // Always classic: plain textarea + toolbar. Never contenteditable / blocks.
+        // Convert legacy markup → HTML so the surface shows the published look.
+        $htmlValue = self::valueToHtml($value, $mode);
+
         $html = '<div class="' . $escAttr($wrapClass) . '" data-ap-editor-wrap'
             . ' data-ap-editor-architecture="' . $escAttr(self::architecture()) . '"'
-            . ' data-ap-editor-mode="' . $escAttr($mode) . '">';
+            . ' data-ap-editor-mode="' . $escAttr(self::MODE_VISUAL) . '">';
 
         if ($label !== '') {
             $html .= '<label class="ap-editor__label" for="' . $escAttr($id) . '">'
@@ -312,13 +349,29 @@ class AP_Editor
         }
 
         if ($toolbar) {
-            $html .= self::renderToolbar($mode, $id);
+            $html .= self::renderToolbar(self::MODE_VISUAL, $id);
         }
 
+        // Visual surface: server-renders formatted HTML; hidden until JS enables
+        // contenteditable (no-JS users edit the textarea only).
+        $surfaceId = $id . '-visual';
+        $minHeight = max(6, $rows) * 1.35;
+        $html .= '<div class="ap-editor__surface" id="' . $escAttr($surfaceId) . '"'
+            . ' data-ap-editor-surface="1"'
+            . ' data-ap-editor-for="' . $escAttr($id) . '"'
+            . ' style="min-height:' . $escAttr((string) $minHeight) . 'em"'
+            . ' hidden';
+        if ($placeholder !== '') {
+            $html .= ' data-placeholder="' . $escAttr($placeholder) . '"';
+        }
+        // Content is already kses'd via valueToHtml; allow the formatted markup.
+        $html .= '>' . $htmlValue . '</div>';
+
+        // Textarea holds the value submitted with the form (HTML after visual edit).
         $taClass = trim('ap-editor__textarea ' . $class);
         $html .= '<textarea name="' . $escAttr($name) . '" id="' . $escAttr($id) . '" rows="'
             . $rows . '" class="' . $escAttr($taClass) . '" data-ap-editor="1" data-ap-editor-mode="'
-            . $escAttr($mode) . '"';
+            . $escAttr(self::MODE_VISUAL) . '"';
         if ($placeholder !== '') {
             $html .= ' placeholder="' . $escAttr($placeholder) . '"';
         }
@@ -338,7 +391,8 @@ class AP_Editor
                 $html .= ' ' . $attr . '="' . $escAttr((string) $attrVal) . '"';
             }
         }
-        $html .= '>' . $escTa($value) . '</textarea>';
+        // Store HTML so no-JS submits the same formatted content.
+        $html .= '>' . $escTa($htmlValue) . '</textarea>';
 
         if ($description !== '') {
             $html .= '<p class="description ap-editor__description">' . $esc($description) . '</p>';
@@ -358,7 +412,7 @@ class AP_Editor
     }
 
     /**
-     * Render the formatting toolbar for a textarea id.
+     * Render the formatting toolbar for an editor id.
      */
     public static function renderToolbar(string $mode, string $forId): string
     {
@@ -376,15 +430,9 @@ class AP_Editor
                 : htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         };
 
-        $modeLabel = match ($mode) {
-            self::MODE_BBCODE => 'BBCode',
-            self::MODE_HTML => 'HTML',
-            default => 'Markdown',
-        };
-
-        $html = '<div class="ap-editor__toolbar" role="toolbar" aria-label="Formatting ('
-            . $escAttr($modeLabel) . ')" data-ap-editor-toolbar data-ap-editor-for="'
-            . $escAttr($forId) . '" data-ap-editor-mode="' . $escAttr($mode) . '">';
+        $html = '<div class="ap-editor__toolbar" role="toolbar" aria-label="Formatting (Visual)"'
+            . ' data-ap-editor-toolbar data-ap-editor-for="'
+            . $escAttr($forId) . '" data-ap-editor-mode="' . $escAttr(self::MODE_VISUAL) . '">';
 
         foreach ($buttons as $btn) {
             if (!is_array($btn)) {
@@ -393,13 +441,12 @@ class AP_Editor
             $bid = (string) ($btn['id'] ?? '');
             $label = (string) ($btn['label'] ?? $bid);
             $title = (string) ($btn['title'] ?? $label);
-            $cmd = (string) ($btn['cmd'] ?? 'wrap');
+            $cmd = (string) ($btn['cmd'] ?? 'visual');
             if ($bid === '' || $cmd === '') {
                 continue;
             }
 
             $btnClass = 'ap-editor__btn ap-editor__btn--' . preg_replace('/[^a-z0-9\-]/', '', $bid);
-            // Bold/italic labels get visual weight.
             if ($bid === 'bold') {
                 $btnClass .= ' ap-editor__btn--weight';
             } elseif ($bid === 'italic') {
@@ -408,6 +455,8 @@ class AP_Editor
                 $btnClass .= ' ap-editor__btn--underline';
             } elseif ($bid === 'strike') {
                 $btnClass .= ' ap-editor__btn--strike';
+            } elseif ($bid === 'emoji') {
+                $btnClass .= ' ap-editor__btn--emoji';
             }
 
             $html .= '<button type="button" class="' . $escAttr($btnClass) . '"'
@@ -421,34 +470,26 @@ class AP_Editor
                     . $escAttr($pickerId) . '"';
             }
 
-            foreach (
-                [
-                    'before', 'after', 'prefix', 'placeholder', 'text', 'template',
-                ] as $key
-            ) {
+            foreach (['visual', 'block', 'text', 'placeholder'] as $key) {
                 if (isset($btn[$key]) && is_string($btn[$key])) {
                     $html .= ' data-ap-editor-' . $key . '="' . $escAttr($btn[$key]) . '"';
                 }
-            }
-            if (array_key_exists('ordered', $btn)) {
-                $html .= ' data-ap-editor-ordered="' . (!empty($btn['ordered']) ? '1' : '0') . '"';
             }
 
             $html .= '>' . $esc($label) . '</button>';
         }
 
         $html .= '<span class="ap-editor__mode-hint" aria-hidden="true">'
-            . $esc($modeLabel) . '</span>';
+            . $esc('Visual') . '</span>';
         $html .= '</div>';
 
-        // Emoji picker panel (toggled by the emoji toolbar button).
         $html .= self::renderEmojiPicker($forId);
 
         return $html;
     }
 
     /**
-     * Render the emoji picker panel for a textarea id.
+     * Render the emoji picker panel for an editor id.
      */
     public static function renderEmojiPicker(string $forId): string
     {
@@ -567,25 +608,16 @@ class AP_Editor
                 ? ap_esc_url($u)
                 : htmlspecialchars($u, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         };
-        $escAttr = static function (string $s): string {
-            return function_exists('ap_esc_attr')
-                ? ap_esc_attr($s)
-                : htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        };
 
         $q = $ver !== '' ? '?v=' . rawurlencode($ver) : '';
         echo '<link rel="stylesheet" href="' . $escUrl($css) . $q
             . '" id="ap-editor-css">' . "\n";
         echo '<script src="' . $escUrl($js) . $q
             . '" id="ap-editor-js" defer></script>' . "\n";
-        // Keep attribute escape available for future data attrs.
-        unset($escAttr);
     }
 
     /**
      * Ensure assets will be available: enqueue on front-end when possible.
-     * Actual link/script tags are also emitted once from {@see render()} via
-     * {@see printAssets()} so toolbars work even when called after ap_head().
      */
     public static function ensureAssets(): void
     {
@@ -614,22 +646,22 @@ class AP_Editor
     /**
      * Default mode for a context slug.
      *
-     * @param string $context post|page|comment|forum
+     * All contexts use the visual WYSIWYG editor. Legacy mode labels are still
+     * accepted by {@see normalizeMode()} for content conversion.
+     *
+     * @param string $context post|page|comment|forum|…
      */
     public static function modeForContext(string $context): string
     {
         $context = strtolower(trim($context));
-        $mode = match ($context) {
-            'forum', 'topic', 'reply', 'forum_topic', 'forum_reply' => self::MODE_BBCODE,
-            'html' => self::MODE_HTML,
-            default => self::MODE_MARKDOWN,
-        };
+        // Always visual WYSIWYG; context is kept for the filter signature.
+        $mode = self::MODE_VISUAL;
 
         if (function_exists('ap_apply_filters')) {
             /** @var string $mode */
             $mode = ap_apply_filters('ap_editor_mode', $mode, $context);
         }
 
-        return self::normalizeMode(is_string($mode) ? $mode : self::MODE_MARKDOWN);
+        return self::normalizeMode(is_string($mode) ? $mode : self::MODE_VISUAL);
     }
 }

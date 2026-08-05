@@ -69,9 +69,9 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                                 </div>
                                 <div class="ap-comment__body">
                                     <?php
-                                    // Prefer formatted content (Markdown) when available.
+                                    // Format visual HTML / legacy Markdown for safe display.
                                     if (function_exists('ap_format_content')) {
-                                        echo ap_format_content($content, ['mode' => 'markdown', 'context' => 'comment']);
+                                        echo ap_format_content($content, ['mode' => 'auto', 'context' => 'comment']);
                                     } else {
                                         $escaped = function_exists('agora_esc')
                                             ? agora_esc($content)
@@ -168,11 +168,11 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                                         'name' => 'comment',
                                         'mode' => class_exists('AP_Editor', false)
                                             ? AP_Editor::modeForContext('comment')
-                                            : 'markdown',
+                                            : 'visual',
                                         'rows' => 6,
                                         'required' => true,
                                         'label' => 'Comment',
-                                        'placeholder' => 'Write your comment… (Markdown supported)',
+                                        'placeholder' => 'Write your comment…',
                                         'class' => '',
                                     ]);
                                 } else {

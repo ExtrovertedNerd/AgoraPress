@@ -189,6 +189,8 @@ $requiredPaths = [
     'ap-content/plugins',
     'ap-content/mu-plugins',
     'ap-content/languages',
+    // Live-site: block SQLite/DB under content + no directory indexes
+    'ap-content/.htaccess',
     // Tests
     'tests',
 ];
@@ -204,6 +206,8 @@ $mustBeGitignored = [
     'ap-content/uploads/',
     '.hephaestus/',
     '/dist/',
+    // Live-site runtime DBs (installer default path under ap-content/)
+    '*.sqlite',
 ];
 
 /**

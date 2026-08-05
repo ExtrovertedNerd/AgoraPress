@@ -601,13 +601,12 @@ class AP_Nav_Menu
             : '';
 
         // Empty menu, or only unpublished/invalid items → optional fallback.
+        // Fallback callbacks honor $args['echo'] themselves (they may print and
+        // return HTML). Do not re-echo here or every item appears twice.
         if ($itemsHtml === '') {
             $html = '';
             if (is_callable($args['fallback_cb'])) {
                 $html = (string) call_user_func($args['fallback_cb'], $args, $db);
-            }
-            if (!empty($args['echo'])) {
-                echo $html;
             }
 
             return $html;

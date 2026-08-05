@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Tests for the lightweight classic editor (AP_Editor).
+ * Tests for the lightweight visual WYSIWYG editor (AP_Editor).
  *
  * @package AgoraPress
  */
@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace AgoraPress\Tests\Editor;
 
+use AP_Content_Format;
 use AP_Editor;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -24,6 +25,7 @@ final class EditorTest extends TestCase
         $this->root = dirname(__DIR__, 2);
         require_once $this->root . '/ap-includes/version.php';
         require_once $this->root . '/ap-includes/class-ap-formatting.php';
+        require_once $this->root . '/ap-includes/class-ap-content-format.php';
         require_once $this->root . '/ap-includes/class-ap-editor.php';
         require_once $this->root . '/ap-includes/functions.php';
         AP_Editor::reset();
@@ -41,15 +43,16 @@ final class EditorTest extends TestCase
         $this->assertFileIsReadable($this->root . '/ap-includes/js/ap-editor.js');
     }
 
-    public function testIsClassicLightweightNotBlockEditor(): void
+    public function testIsClassicLightweightVisualNotBlockEditor(): void
     {
         $this->assertSame(AP_Editor::ARCHITECTURE_CLASSIC, AP_Editor::architecture());
         $this->assertSame('classic', AP_Editor::architecture());
         $this->assertFalse(AP_Editor::isBlockEditor());
         $this->assertTrue(AP_Editor::isLightweight());
+        $this->assertTrue(AP_Editor::isVisual());
         // Modes never include a blocks / gutenberg surface.
         $modes = AP_Editor::modes();
-        $this->assertSame(['markdown', 'bbcode', 'html'], $modes);
+        $this->assertContains('visual', $modes);
         $this->assertNotContains('blocks', $modes);
         $this->assertNotContains('gutenberg', $modes);
         $this->assertNotContains('block', $modes);
@@ -88,47 +91,33 @@ final class EditorTest extends TestCase
 
     public function testModesAndNormalize(): void
     {
-        $this->assertSame(['markdown', 'bbcode', 'html'], AP_Editor::modes());
+        $this->assertSame(['visual', 'markdown', 'bbcode', 'html'], AP_Editor::modes());
+        $this->assertSame('visual', AP_Editor::normalizeMode('VISUAL'));
+        $this->assertSame('visual', AP_Editor::normalizeMode('wysiwyg'));
         $this->assertSame('markdown', AP_Editor::normalizeMode('MARKDOWN'));
         $this->assertSame('bbcode', AP_Editor::normalizeMode('bbcode'));
         $this->assertSame('html', AP_Editor::normalizeMode('html'));
-        $this->assertSame('markdown', AP_Editor::normalizeMode('unknown'));
+        $this->assertSame('visual', AP_Editor::normalizeMode('unknown'));
         // Explicit block-ish strings must not become a block mode.
-        $this->assertSame('markdown', AP_Editor::normalizeMode('blocks'));
-        $this->assertSame('markdown', AP_Editor::normalizeMode('gutenberg'));
+        $this->assertSame('visual', AP_Editor::normalizeMode('blocks'));
+        $this->assertSame('visual', AP_Editor::normalizeMode('gutenberg'));
     }
 
-    public function testModeForContext(): void
+    public function testModeForContextIsVisualEverywhere(): void
     {
-        $this->assertSame('markdown', AP_Editor::modeForContext('post'));
-        $this->assertSame('markdown', AP_Editor::modeForContext('page'));
-        $this->assertSame('markdown', AP_Editor::modeForContext('comment'));
-        $this->assertSame('bbcode', AP_Editor::modeForContext('forum'));
-        $this->assertSame('bbcode', AP_Editor::modeForContext('topic'));
-        $this->assertSame('bbcode', AP_Editor::modeForContext('reply'));
+        $this->assertSame('visual', AP_Editor::modeForContext('post'));
+        $this->assertSame('visual', AP_Editor::modeForContext('page'));
+        $this->assertSame('visual', AP_Editor::modeForContext('comment'));
+        $this->assertSame('visual', AP_Editor::modeForContext('forum'));
+        $this->assertSame('visual', AP_Editor::modeForContext('topic'));
+        $this->assertSame('visual', AP_Editor::modeForContext('reply'));
     }
 
-    public function testMarkdownButtonsIncludeCoreFormatting(): void
+    public function testVisualButtonsIncludeCoreFormatting(): void
     {
-        $ids = array_column(AP_Editor::buttons('markdown'), 'id');
-        foreach (['bold', 'italic', 'link', 'h2', 'h3', 'quote', 'ul', 'ol', 'code', 'hr', 'emoji'] as $need) {
-            $this->assertContains($need, $ids, "Missing markdown button {$need}");
-        }
-    }
-
-    public function testBbcodeButtonsIncludeCoreFormatting(): void
-    {
-        $ids = array_column(AP_Editor::buttons('bbcode'), 'id');
-        foreach (['bold', 'italic', 'underline', 'link', 'quote', 'ul', 'ol', 'code', 'emoji'] as $need) {
-            $this->assertContains($need, $ids, "Missing bbcode button {$need}");
-        }
-    }
-
-    public function testHtmlButtonsIncludeCoreFormatting(): void
-    {
-        $ids = array_column(AP_Editor::buttons('html'), 'id');
-        foreach (['bold', 'italic', 'link', 'h2', 'quote', 'ul', 'ol', 'emoji'] as $need) {
-            $this->assertContains($need, $ids, "Missing html button {$need}");
+        $ids = array_column(AP_Editor::buttons('visual'), 'id');
+        foreach (['bold', 'italic', 'underline', 'link', 'h2', 'h3', 'quote', 'ul', 'ol', 'code', 'hr', 'emoji'] as $need) {
+            $this->assertContains($need, $ids, "Missing visual button {$need}");
         }
     }
 
@@ -152,7 +141,21 @@ final class EditorTest extends TestCase
         $this->assertLessThanOrEqual(500, $total);
     }
 
-    public function testRenderMarkdownEditorMarkup(): void
+    public function testValueToHtmlFormatsMarkdownAndBbcode(): void
+    {
+        $md = AP_Editor::valueToHtml('Hello **world**', 'markdown');
+        $this->assertStringContainsString('<strong>world</strong>', $md);
+        $this->assertStringNotContainsString('**world**', $md);
+
+        $bb = AP_Editor::valueToHtml('Hello [b]world[/b]', 'bbcode');
+        $this->assertStringContainsString('<strong>world</strong>', $bb);
+        $this->assertStringNotContainsString('[b]', $bb);
+
+        $html = AP_Editor::valueToHtml('<p>Hello <em>world</em></p>', 'visual');
+        $this->assertStringContainsString('<em>world</em>', $html);
+    }
+
+    public function testRenderVisualEditorMarkup(): void
     {
         $html = AP_Editor::render([
             'id' => 'content',
@@ -166,19 +169,20 @@ final class EditorTest extends TestCase
         $this->assertStringContainsString('data-ap-editor-wrap', $html);
         $this->assertStringContainsString('data-ap-editor-architecture="classic"', $html);
         $this->assertStringContainsString('ap-editor__toolbar', $html);
-        $this->assertStringContainsString('data-ap-editor-mode="markdown"', $html);
+        $this->assertStringContainsString('data-ap-editor-mode="visual"', $html);
         $this->assertStringContainsString('name="post_content"', $html);
         $this->assertStringContainsString('id="content"', $html);
-        $this->assertStringContainsString('Hello **world**', $html);
-        // Plain textarea only — never contenteditable / block canvas.
+        // Surface shows formatted output, not raw markdown characters.
+        $this->assertStringContainsString('data-ap-editor-surface', $html);
+        $this->assertStringContainsString('<strong>world</strong>', $html);
+        $this->assertStringNotContainsString('**world**', $html);
+        // Textarea remains for form submit / no-JS.
         $this->assertMatchesRegularExpression('/<textarea\b[^>]*\bdata-ap-editor="1"/', $html);
-        $this->assertStringNotContainsString('contenteditable', strtolower($html));
         $this->assertStringNotContainsString('data-ap-block', $html);
         $this->assertStringNotContainsString('wp-block', $html);
-        $this->assertStringContainsString('data-ap-editor-cmd="wrap"', $html);
-        $this->assertStringContainsString('data-ap-editor-before="**"', $html);
-        $this->assertStringContainsString('data-ap-editor-cmd="md-link"', $html);
-        $this->assertStringContainsString('data-ap-editor-cmd="prefix-line"', $html);
+        $this->assertStringContainsString('data-ap-editor-cmd="visual"', $html);
+        $this->assertStringContainsString('data-ap-editor-visual="bold"', $html);
+        $this->assertStringContainsString('data-ap-editor-cmd="visual-link"', $html);
         $this->assertStringContainsString('data-ap-editor-cmd="emoji-picker"', $html);
         $this->assertStringContainsString('data-ap-editor-emoji-picker', $html);
         $this->assertStringContainsString('data-ap-emoji="1"', $html);
@@ -189,22 +193,21 @@ final class EditorTest extends TestCase
         $this->assertTrue(AP_Editor::assetsWereEnqueued());
     }
 
-    public function testRenderBbcodeEditorMarkup(): void
+    public function testRenderBbcodeLegacyConvertsOnSurface(): void
     {
         $html = AP_Editor::render([
             'id' => 'reply',
             'name' => 'reply_body',
+            'value' => '[b]Bold[/b]',
             'mode' => 'bbcode',
             'required' => true,
         ]);
 
-        $this->assertStringContainsString('data-ap-editor-mode="bbcode"', $html);
-        $this->assertStringContainsString('data-ap-editor-before="[b]"', $html);
-        $this->assertStringContainsString('data-ap-editor-cmd="bbcode-list"', $html);
-        $this->assertStringContainsString('data-ap-editor-cmd="emoji-picker"', $html);
-        $this->assertStringContainsString('data-ap-editor-emoji-picker', $html);
+        $this->assertStringContainsString('data-ap-editor-mode="visual"', $html);
+        $this->assertStringContainsString('<strong>Bold</strong>', $html);
+        $this->assertStringNotContainsString('[b]Bold[/b]', $html);
         $this->assertStringContainsString('required', $html);
-        $this->assertStringContainsString('BBCode', $html);
+        $this->assertStringContainsString('Visual', $html);
     }
 
     public function testRenderEmojiPickerStandalone(): void
@@ -240,12 +243,13 @@ final class EditorTest extends TestCase
         $html = ap_editor([
             'id' => 'x',
             'name' => 'x',
-            'mode' => 'markdown',
+            'mode' => 'visual',
         ]);
         $this->assertStringContainsString('ap-editor__toolbar', $html);
+        $this->assertStringContainsString('data-ap-editor-surface', $html);
     }
 
-    public function testJsIsVanillaNoJquery(): void
+    public function testJsIsVanillaVisualNoHeavyRuntimes(): void
     {
         $js = (string) file_get_contents($this->root . '/ap-includes/js/ap-editor.js');
         // No jQuery library usage (ignore the word in comments).
@@ -257,26 +261,37 @@ final class EditorTest extends TestCase
         $this->assertStringContainsString('bindEmojiPicker', $js);
         $this->assertStringContainsString('closeAllPickers', $js);
         $this->assertStringContainsString('Escape', $js);
-        // Operate on textarea value only — no rich contenteditable / block model.
-        $this->assertStringContainsString('TEXTAREA', $js);
+        // Visual WYSIWYG surface.
+        $this->assertStringContainsString('contenteditable', strtolower($js));
+        $this->assertStringContainsString('data-ap-editor-surface', $js);
+        $this->assertStringContainsString('execCommand', $js);
+        // No heavy third-party / block stacks.
         $lower = strtolower($js);
-        $this->assertStringNotContainsString('contenteditable', $lower);
-        $this->assertStringNotContainsString('document.execcommand', $lower);
         $this->assertStringNotContainsString('prosemirror', $lower);
         $this->assertStringNotContainsString('tinymce', $lower);
         $this->assertStringNotContainsString('quill', $lower);
         $this->assertStringNotContainsString('gutenberg', $lower);
         $this->assertStringNotContainsString('wp.blocks', $lower);
         $this->assertStringNotContainsString('createblock', $lower);
+        $this->assertStringNotContainsString('lexical', $lower);
     }
 
-    public function testCssHasToolbarRules(): void
+    public function testCssHasToolbarAndSurfaceRules(): void
     {
         $css = (string) file_get_contents($this->root . '/ap-includes/css/ap-editor.css');
         $this->assertStringContainsString('.ap-editor__toolbar', $css);
         $this->assertStringContainsString('.ap-editor__btn', $css);
+        $this->assertStringContainsString('.ap-editor__surface', $css);
         $this->assertStringContainsString('.ap-editor__emoji-picker', $css);
         $this->assertStringContainsString('.ap-editor__emoji-btn', $css);
         $this->assertStringContainsString('prefers-reduced-motion', $css);
+    }
+
+    public function testContentFormatAvailableForDisplay(): void
+    {
+        $this->assertTrue(class_exists(AP_Content_Format::class, false));
+        $out = AP_Content_Format::format('**bold** and [b]bb[/b]');
+        $this->assertStringContainsString('<strong>bold</strong>', $out);
+        $this->assertStringContainsString('<strong>bb</strong>', $out);
     }
 }

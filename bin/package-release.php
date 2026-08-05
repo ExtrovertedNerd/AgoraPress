@@ -503,6 +503,11 @@ function shouldExcludeRelative(string $relative, bool $isDir): bool
         return true;
     }
 
+    // Runtime SQLite / DB files (demo install leftovers must never ship).
+    if (preg_match('/\.(sqlite3?|db)$/i', $base) === 1) {
+        return true;
+    }
+
     // Caches and logs.
     if (str_ends_with($base, '.cache') || str_ends_with($base, '.log')) {
         return true;
