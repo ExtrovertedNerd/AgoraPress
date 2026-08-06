@@ -199,4 +199,19 @@ final class ChangelogTest extends TestCase
             'CHANGELOG 0.2.0-beta should mention analytics tables'
         );
     }
+
+    public function test021BetaDocumentsForumLikesAndThemeOptions(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\s+\[0\.2\.1-beta\]/',
+            $this->changelog
+        );
+        $lower = strtolower($this->changelog);
+        $this->assertStringContainsString('forum_post_likes', $lower);
+        $this->assertStringContainsString('like_count', $lower);
+        $this->assertTrue(
+            str_contains($lower, 'theme_mod') || str_contains($lower, 'theme options'),
+            'CHANGELOG 0.2.1-beta should mention Theme Options / theme_mods'
+        );
+    }
 }

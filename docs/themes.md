@@ -101,8 +101,10 @@ When the Forum module is on, the front controller and `AP_Forum_Front` drive for
 
 - `forum.php` — forum index  
 - `forum-view.php` — single forum / topic list  
-- `topic.php` — topic + replies  
+- `topic.php` — topic + replies (like / edit / delete / lock when ACL allows; author post & like stats)  
 - `forum-search.php` — search results  
+
+Post action flags come from `AP_Forum::getPostsDisplayData()` (`can_edit`, `can_delete`, `can_like`, `like_count`, `author_stats`). Forms post to `AP_Forum_Front::handlePost()` (`ap_forum_edit_post`, `ap_forum_delete_post`, `ap_forum_like_post`, topic lock/unlock).
 
 Custom themes can override these filenames in the child/parent stack the same way as blog templates.
 
@@ -227,6 +229,76 @@ Current stylesheet version: **0.3.3** (`AGORA_THEME_VERSION` / `style.css` heade
 | Custom CSS | Appearance → Theme Options → Additional CSS (`custom_css` / `AP_Theme::printCustomCss` on `ap_head`) |
 | Templates | Blog + forum templates, landmarks, reduced-motion / contrast support |
 | Nav | Primary + footer menu locations; fallbacks list published pages and useful login/register links when open |
+
+## Theme Options (ACP)
+
+Appearance → **Theme Options** is the shared screen for theme settings. Core always provides **Additional CSS**. Themes declare more options with the Settings API (WordPress-compatible names when the Classic WP compatibility layer is loaded).
+
+### Registration (in `functions.php`)
+
+```php
+ap_add_action('ap_theme_options_register', static function (): void {
+    // Only when this theme is active (recommended).
+    if (ap_get_stylesheet() !== 'my-theme') {
+        return;
+    }
+
+    $group = AP_Theme::THEME_OPTIONS_GROUP; // 'theme_options'
+    $page  = AP_Theme::THEME_OPTIONS_PAGE;  // 'theme_options'
+
+    ap_register_setting($group, 'my_theme_tagline', [
+        'type' => 'string',
+        'default' => '',
+        'sanitize_callback' => 'ap_sanitize_text_field',
+    ]);
+
+    ap_add_settings_section(
+        'my_theme_main',
+        'My theme',
+        static function (): void {
+            echo '<p>Options for the active theme.</p>';
+        },
+        $page
+    );
+
+    ap_add_settings_field(
+        'my_theme_tagline',
+        'Tagline override',
+        static function (): void {
+            $v = (string) ap_get_option('my_theme_tagline', '');
+            echo '<input type="text" class="regular-text" name="my_theme_tagline" value="'
+                . ap_esc_attr($v) . '">';
+        },
+        $page,
+        'my_theme_main'
+    );
+});
+```
+
+WordPress-style aliases (when shims are loaded): `register_setting`, `add_settings_section`, `add_settings_field`, `settings_fields`, `do_settings_sections`.
+
+The Theme Options form posts to group `theme_options`; registered option names are read from `$_POST` and sanitized via each setting’s `sanitize_callback`.
+
+### Theme mods (per-theme key/value bag)
+
+WordPress stores theme-specific values in `theme_mods_{stylesheet}`. AgoraPress mirrors that:
+
+```php
+ap_get_theme_mod( 'header_text', 'default' );
+ap_set_theme_mod( 'header_text', 'Hello' );
+ap_remove_theme_mod( 'header_text' );
+ap_get_theme_mods(); // full array
+```
+
+Bare names `get_theme_mod` / `set_theme_mod` / `remove_theme_mod` are available under the Classic WP compatibility layer.
+
+### Core helpers
+
+| API | Role |
+|-----|------|
+| `AP_Theme::registerThemeOptions()` | Load theme + fire `ap_theme_options_register` |
+| `AP_Theme::hasRegisteredThemeOptions()` | Whether sections/fields exist for the page |
+| `AP_Theme::THEME_OPTIONS_PAGE` / `THEME_OPTIONS_GROUP` | Stable ids (`theme_options`) |
 
 ## Theme installer
 

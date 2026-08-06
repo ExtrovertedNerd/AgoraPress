@@ -113,7 +113,7 @@ final class DeveloperDocsTest extends TestCase
                 'Classic WordPress Theme Compatibility',
                 'Intentional deviations',
                 'Three independent modules',
-                '0.2.0-beta',
+                '0.2.1-beta',
                 'Local analytics',
                 'analytics_enabled',
             ] as $needle
@@ -152,12 +152,13 @@ final class DeveloperDocsTest extends TestCase
         }
     }
 
-    public function testDocsIndexReflects020BetaAndAnalytics(): void
+    public function testDocsIndexReflects021BetaAndAnalytics(): void
     {
         $index = $this->readDoc('README.md');
-        $this->assertStringContainsString('0.2.0-beta', $index);
+        $this->assertStringContainsString('0.2.1-beta', $index);
         $this->assertStringContainsString('AP_Analytics', $index);
         $this->assertStringContainsString('class-ap-analytics.php', $index);
+        $this->assertStringContainsString('AP_Forum_Like', $index);
     }
 
     public function testThemesDocCoversHierarchy(): void

@@ -3,7 +3,7 @@
 AgoraPress uses a **versioned migration system** and a configurable table prefix (default **`ap_`**). Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**.
 
 **Source:** `ap-includes/schema/migrations/`, `class-ap-migrator.php`, `class-ap-migration.php`, `class-ap-db.php`  
-**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **10**, AgoraPress `0.2.0-beta`)
+**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **11**, AgoraPress `0.2.1-beta`)
 
 ## Conventions
 
@@ -49,6 +49,7 @@ php ap-cli db check
 | 8 | `0008_forum_moderation.php` | `warnings`, `bans` |
 | 9 | `0009_forum_online_unread.php` | `topic_track`, `forum_track` |
 | 10 | `0010_analytics_tables.php` | `analytics_hits`, `analytics_daily` |
+| 11 | `0011_forum_likes_stats.php` | `forum_post_likes`; `forum_posts.like_count` |
 
 Also created by the migrator infrastructure: **`{prefix}schema_migrations`**.
 
@@ -196,7 +197,27 @@ Replies (separate from blog `comments`).
 | `poster_id` | |
 | `post_content` / `post_content_filtered` | Raw + rendered HTML |
 | `poster_ip` | |
+| `like_count` | Denormalized thumbs-up total (v11) |
 | approval / edit trail / report flags | |
+
+### forum_post_likes
+
+One like per user per forum post (v11). Unique on `(post_id, user_id)`.
+
+| Column | Notes |
+|--------|-------|
+| `like_id` | PK |
+| `post_id` | → forum_posts |
+| `user_id` | → users |
+| `created_at` | When the like was cast |
+
+User-level aggregates live in **usermeta** (maintained by `AP_Forum_Stats`):
+
+| Meta key | Meaning |
+|----------|---------|
+| `forum_posts` | Approved forum posts authored |
+| `forum_likes_given` | Likes this user has cast |
+| `forum_likes_received` | Likes on this user's posts |
 
 ### groups / group_members
 

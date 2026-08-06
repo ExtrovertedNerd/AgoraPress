@@ -20,6 +20,16 @@ class AP_Forum_Front
 
     public const ACTION_REPLY = 'ap_forum_reply';
 
+    public const ACTION_EDIT_POST = 'ap_forum_edit_post';
+
+    public const ACTION_DELETE_POST = 'ap_forum_delete_post';
+
+    public const ACTION_LIKE_POST = 'ap_forum_like_post';
+
+    public const ACTION_LOCK_TOPIC = 'ap_forum_lock_topic';
+
+    public const ACTION_UNLOCK_TOPIC = 'ap_forum_unlock_topic';
+
     /** @var array<string, mixed> Flash notice for the next render (same request). */
     private static array $notice = [];
 
@@ -210,6 +220,7 @@ class AP_Forum_Front
             $userId = self::currentUserId($db);
             $args['can_reply'] = !$args['topic_locked']
                 && self::userCanReply($userId, $forumId, $db);
+            $args['can_moderate'] = $userId > 0 && self::userCanModerate($forumId, $userId, $db);
 
             return $args;
         }
@@ -317,6 +328,21 @@ class AP_Forum_Front
         if ($action === self::ACTION_REPLY) {
             return self::handleReply($post, $db);
         }
+        if ($action === self::ACTION_EDIT_POST) {
+            return self::handleEditPost($post, $db);
+        }
+        if ($action === self::ACTION_DELETE_POST) {
+            return self::handleDeletePost($post, $db);
+        }
+        if ($action === self::ACTION_LIKE_POST) {
+            return self::handleLikePost($post, $db);
+        }
+        if ($action === self::ACTION_LOCK_TOPIC) {
+            return self::handleLockTopic($post, $db, true);
+        }
+        if ($action === self::ACTION_UNLOCK_TOPIC) {
+            return self::handleLockTopic($post, $db, false);
+        }
 
         return null;
     }
@@ -361,6 +387,13 @@ class AP_Forum_Front
                 'locked' => ['type' => 'error', 'message' => 'This topic is locked.'],
                 'invalid' => ['type' => 'error', 'message' => 'Please check your input and try again.'],
                 'nonce' => ['type' => 'error', 'message' => 'Security check failed. Please try again.'],
+                'post_edited' => ['type' => 'success', 'message' => 'Post updated.'],
+                'post_deleted' => ['type' => 'success', 'message' => 'Post deleted.'],
+                'topic_deleted' => ['type' => 'success', 'message' => 'Topic deleted.'],
+                'post_liked' => ['type' => 'success', 'message' => 'Thanks for the like.'],
+                'post_unliked' => ['type' => 'success', 'message' => 'Like removed.'],
+                'topic_locked' => ['type' => 'success', 'message' => 'Topic locked.'],
+                'topic_unlocked' => ['type' => 'success', 'message' => 'Topic unlocked.'],
             ];
             if (isset($map[$code])) {
                 return $map[$code];
@@ -725,6 +758,230 @@ class AP_Forum_Front
         $hash = $pending ? '' : '#post-' . $postId;
 
         return $url . $sep . 'ap_forum_notice=' . $notice . $hash;
+    }
+
+    /**
+     * @param array<string, mixed> $post
+     */
+    private static function handleEditPost(array $post, ?AP_DB $db): ?string
+    {
+        $postId = (int) ($post['post_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = self::ACTION_EDIT_POST . '_' . $postId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+        $userId = self::currentUserId($db);
+        if ($userId < 1 || !class_exists('AP_Forum', false)) {
+            self::$notice = ['type' => 'error', 'message' => 'You must be logged in to edit posts.'];
+
+            return null;
+        }
+        $existing = AP_Forum::getPost($postId, $db);
+        if ($existing === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Post not found.'];
+
+            return null;
+        }
+        if (!AP_Forum::userCanEditPost($userId, $existing, $db)) {
+            self::$notice = ['type' => 'error', 'message' => 'You do not have permission to edit this post.'];
+
+            return null;
+        }
+        $body = trim((string) ($post['post_body'] ?? $post['content'] ?? $post['reply_body'] ?? ''));
+        if ($body === '') {
+            self::$notice = ['type' => 'error', 'message' => 'Message is required.'];
+
+            return null;
+        }
+        $reason = trim((string) ($post['edit_reason'] ?? ''));
+        $data = [
+            'content' => $body,
+            'post_edit_user' => $userId,
+        ];
+        if ($reason !== '') {
+            $data['edit_reason'] = $reason;
+        }
+        $isMod = class_exists('AP_Forum_Permissions', false)
+            && AP_Forum_Permissions::userCanModerate($userId, (int) $existing->forum_id, $db);
+        $ok = false;
+        if ($isMod && class_exists('AP_Forum_Moderation', false)) {
+            $ok = AP_Forum_Moderation::editPost($postId, $data, $userId, $db);
+        } else {
+            $ok = AP_Forum::updatePost($postId, $data, $db);
+        }
+        if (!$ok) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not update the post.'];
+
+            return null;
+        }
+        $topic = AP_Forum::getTopic((int) $existing->topic_id, $db);
+        $url = $topic !== null ? AP_Forum::topicUrl($topic) : AP_Forum::forumsIndexUrl();
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=post_edited#post-' . $postId;
+    }
+
+    /**
+     * @param array<string, mixed> $post
+     */
+    private static function handleDeletePost(array $post, ?AP_DB $db): ?string
+    {
+        $postId = (int) ($post['post_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = self::ACTION_DELETE_POST . '_' . $postId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+        $userId = self::currentUserId($db);
+        if ($userId < 1 || !class_exists('AP_Forum', false)) {
+            self::$notice = ['type' => 'error', 'message' => 'You must be logged in to delete posts.'];
+
+            return null;
+        }
+        $existing = AP_Forum::getPost($postId, $db);
+        if ($existing === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Post not found.'];
+
+            return null;
+        }
+        if (!AP_Forum::userCanDeletePost($userId, $existing, $db)) {
+            self::$notice = ['type' => 'error', 'message' => 'You do not have permission to delete this post.'];
+
+            return null;
+        }
+        $topicId = (int) $existing->topic_id;
+        $forumId = (int) $existing->forum_id;
+        $topic = AP_Forum::getTopic($topicId, $db);
+        $isFirst = $topic !== null && (int) $topic->first_post_id === $postId;
+        $isMod = class_exists('AP_Forum_Permissions', false)
+            && AP_Forum_Permissions::userCanModerate($userId, $forumId, $db);
+
+        $ok = false;
+        if ($isMod && class_exists('AP_Forum_Moderation', false)) {
+            $ok = AP_Forum_Moderation::softDeletePost($postId, $userId, 'deleted', $db);
+        } else {
+            // Authors soft-delete (unapprove) non-first posts; first post needs mod.
+            if ($isFirst) {
+                self::$notice = [
+                    'type' => 'error',
+                    'message' => 'The first post of a topic can only be removed by a moderator.',
+                ];
+
+                return null;
+            }
+            $ok = AP_Forum::updatePost($postId, [
+                'post_approved' => 0,
+                'post_edit_user' => $userId,
+                'edit_reason' => 'deleted by author',
+            ], $db);
+        }
+        if (!$ok) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not delete the post.'];
+
+            return null;
+        }
+        if ($isFirst && $topic !== null) {
+            $forum = AP_Forum::getForum($forumId, $db);
+            $url = $forum !== null ? AP_Forum::forumUrl($forum) : AP_Forum::forumsIndexUrl();
+            $sep = str_contains($url, '?') ? '&' : '?';
+
+            return $url . $sep . 'ap_forum_notice=topic_deleted';
+        }
+        $url = $topic !== null ? AP_Forum::topicUrl($topic) : AP_Forum::forumsIndexUrl();
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=post_deleted';
+    }
+
+    /**
+     * @param array<string, mixed> $post
+     */
+    private static function handleLikePost(array $post, ?AP_DB $db): ?string
+    {
+        $postId = (int) ($post['post_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = self::ACTION_LIKE_POST . '_' . $postId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+        $userId = self::currentUserId($db);
+        if ($userId < 1) {
+            self::$notice = ['type' => 'error', 'message' => 'Log in to like posts.'];
+
+            return null;
+        }
+        if (!class_exists('AP_Forum_Like', false) || !class_exists('AP_Forum', false)) {
+            return null;
+        }
+        $result = AP_Forum_Like::toggle($postId, $userId, $db);
+        if (!$result['ok']) {
+            $msg = match ($result['error']) {
+                'login_required' => 'Log in to like posts.',
+                'forbidden' => 'You do not have permission to like this post.',
+                default => 'Could not update like.',
+            };
+            self::$notice = ['type' => 'error', 'message' => $msg];
+
+            return null;
+        }
+        $existing = AP_Forum::getPost($postId, $db);
+        $topic = $existing !== null ? AP_Forum::getTopic((int) $existing->topic_id, $db) : null;
+        $url = $topic !== null ? AP_Forum::topicUrl($topic) : AP_Forum::forumsIndexUrl();
+        $sep = str_contains($url, '?') ? '&' : '?';
+        $notice = $result['liked'] ? 'post_liked' : 'post_unliked';
+
+        return $url . $sep . 'ap_forum_notice=' . $notice . '#post-' . $postId;
+    }
+
+    /**
+     * @param array<string, mixed> $post
+     */
+    private static function handleLockTopic(array $post, ?AP_DB $db, bool $lock): ?string
+    {
+        $topicId = (int) ($post['topic_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = ($lock ? self::ACTION_LOCK_TOPIC : self::ACTION_UNLOCK_TOPIC) . '_' . $topicId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+        $userId = self::currentUserId($db);
+        if ($userId < 1 || !class_exists('AP_Forum', false) || !class_exists('AP_Forum_Moderation', false)) {
+            self::$notice = ['type' => 'error', 'message' => 'Permission denied.'];
+
+            return null;
+        }
+        $topic = AP_Forum::getTopic($topicId, $db);
+        if ($topic === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Topic not found.'];
+
+            return null;
+        }
+        if (!self::userCanModerate((int) $topic->forum_id, $userId, $db)) {
+            self::$notice = ['type' => 'error', 'message' => 'You do not have permission to moderate this topic.'];
+
+            return null;
+        }
+        $ok = $lock
+            ? AP_Forum_Moderation::lockTopic($topicId, $userId, $db)
+            : AP_Forum_Moderation::unlockTopic($topicId, $userId, $db);
+        if (!$ok) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not update topic lock state.'];
+
+            return null;
+        }
+        $url = AP_Forum::topicUrl($topic);
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=' . ($lock ? 'topic_locked' : 'topic_unlocked');
     }
 
     /**

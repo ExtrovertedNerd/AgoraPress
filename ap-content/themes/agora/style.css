@@ -1789,6 +1789,64 @@ body.agora-forum .site-footer__inner {
   margin: 0 0 1rem;
 }
 
+.ap-forum-toolbar--topic {
+  margin: 0.5rem 0 0;
+}
+
+.ap-forum-post__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  margin-top: 0.85rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--ap-card-border);
+}
+
+.ap-forum-action-form {
+  display: inline;
+  margin: 0;
+}
+
+.ap-forum-action-form--inline {
+  display: inline-flex;
+}
+
+.ap-btn--sm {
+  min-height: 2rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.ap-forum-like.is-liked {
+  color: var(--ap-accent);
+  border-color: color-mix(in srgb, var(--ap-accent) 45%, var(--ap-border));
+  background: var(--ap-accent-soft);
+}
+
+.ap-forum-like__count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.ap-forum-post__edited {
+  margin: 0.35rem 0 0;
+  font-size: var(--ap-text-xs);
+  color: var(--ap-muted);
+  font-style: italic;
+}
+
+.ap-forum-post__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.35rem;
+}
+
+.ap-forum-form--edit {
+  margin-top: 0.5rem;
+}
+
 /* Responsive forum table fallback */
 .ap-forum-table-wrap {
   width: 100%;

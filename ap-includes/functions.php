@@ -1392,6 +1392,54 @@ function ap_get_themes(): array
 }
 
 /**
+ * Read a theme mod for the active (or given) theme — WordPress get_theme_mod.
+ *
+ * @param mixed $default
+ *
+ * @return mixed
+ *
+ * @see AP_Theme::getMod()
+ */
+function ap_get_theme_mod(string $name, mixed $default = false, ?string $stylesheet = null, ?AP_DB $db = null): mixed
+{
+    return AP_Theme::getMod($name, $default, $stylesheet, $db);
+}
+
+/**
+ * Write a theme mod — WordPress set_theme_mod.
+ *
+ * @param mixed $value
+ *
+ * @see AP_Theme::setMod()
+ */
+function ap_set_theme_mod(string $name, mixed $value, ?string $stylesheet = null, ?AP_DB $db = null): bool
+{
+    return AP_Theme::setMod($name, $value, $stylesheet, $db);
+}
+
+/**
+ * Remove a theme mod — WordPress remove_theme_mod.
+ *
+ * @see AP_Theme::removeMod()
+ */
+function ap_remove_theme_mod(string $name, ?string $stylesheet = null, ?AP_DB $db = null): bool
+{
+    return AP_Theme::removeMod($name, $stylesheet, $db);
+}
+
+/**
+ * All theme mods for the active (or given) theme.
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Theme::getMods()
+ */
+function ap_get_theme_mods(?string $stylesheet = null, ?AP_DB $db = null): array
+{
+    return AP_Theme::getMods($stylesheet, $db);
+}
+
+/**
  * Install a classic theme from a zip file path.
  *
  * @param array<string, mixed> $args overwrite, allow_block, themes_root, slug

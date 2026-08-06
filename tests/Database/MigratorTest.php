@@ -353,7 +353,7 @@ PHP;
         $found = $m->discover();
         $this->assertNotSame([], $found);
         $this->assertGreaterThanOrEqual(10, $m->getAvailableTargetVersion());
-        $this->assertSame(10, (int) AP_DB_VERSION);
+        $this->assertSame(11, (int) AP_DB_VERSION);
         $this->assertSame(1, $found[0]->version());
         $this->assertStringContainsString('options', $found[0]->description());
         $this->assertSame(2, $found[1]->version());

@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** **`0.2.0-beta`** — MVP feature-complete with local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
+> **Status:** **`0.2.1-beta`** — MVP feature-complete with forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 
@@ -32,9 +32,9 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 |------|----------------|
 | **CMS** | Posts, pages, revisions, media library, comments, categories/tags, menus, widgets, feeds, sitemaps, Open Graph |
 | **Editor** | Lightweight visual WYSIWYG (Visual \| Text modes); HTML storage; legacy Markdown/BBCode still converts on display |
-| **Forums** | Hierarchy, topics/replies, attachments, groups & ACL by user level, moderation, search, flood guards, PMs, online/unread |
-| **Default theme** | Agora — six pure-CSS schemes (3 light + 3 dark), guest Log in / Register, dark-mode form contrast, long-string wrapping |
-| **Admin** | Responsive light/dark UI, roles/caps, users, Site Health, **Tools → Analytics** (opt-in local pageviews), Import (WXR + phpBB), privacy export/erase |
+| **Forums** | Hierarchy, topics/replies, attachments, groups & ACL by user level, moderation (edit/delete/lock), post likes, user stats, search, flood guards, PMs, online/unread |
+| **Default theme** | Agora — six pure-CSS schemes (3 light + 3 dark), guest Log in / Register, topic like/edit/delete/lock toolbar, dark-mode form contrast, long-string wrapping |
+| **Admin** | Responsive light/dark UI, roles/caps, users, Site Health, **Tools → Analytics** (opt-in local pageviews), **Appearance → Theme Options** (Additional CSS + theme Settings API / theme_mods), Import (WXR + phpBB), privacy export/erase |
 | **Ops** | Installers, one-click core update (no site identity), `ap-cli`, release packaging, Apache/Nginx hardening examples |
 | **Extensibility** | Hooks, plugins/mu-plugins, shortcodes, Settings/Options API, REST (`/ap-json/`), Classic WP theme shims |
 
@@ -57,7 +57,7 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 | **Web server** | Apache with `mod_rewrite`, or Nginx with rewrite rules |
 | **Disk** | Writable site root (for `ap-config.php`) and `ap-content/` (including `uploads/`) |
 
-Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **10** (see [docs/schema.md](docs/schema.md)).
+Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **11** (see [docs/schema.md](docs/schema.md)).
 
 ---
 

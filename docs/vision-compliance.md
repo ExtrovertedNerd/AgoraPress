@@ -1,8 +1,8 @@
 # Vision & Features Compliance
 
-**Date:** 2026-08-05  
+**Date:** 2026-08-06  
 **Scope:** Full codebase reevaluation against the project constitution (`VISION.md`, `FEATURES.md`, `SPEC.md` under the operator’s private process tree).  
-**Version under review:** `AP_VERSION` `0.2.0-beta`
+**Version under review:** `AP_VERSION` `0.2.1-beta`
 
 This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves.
 
@@ -23,6 +23,8 @@ AgoraPress still matches the mission: a **free, lightweight, privacy-respecting*
 | Non-goals respected (Gutenberg, SaaS marketplace, heavy AI, PHP &lt; 8.2) | Pass |
 | Live-site install readiness (hardening, installer, Site Health) | Pass |
 | Local site analytics (opt-in, no third party) | Pass (shipped in 0.2.0-beta; default off) |
+| Forum likes + edit/moderation UI | Pass (shipped in 0.2.1-beta; ACL-gated) |
+| Theme Options / theme_mods API | Pass (shipped in 0.2.1-beta) |
 
 No bloat or phone-home paths were found in core product code. Network egress from core is limited to:
 
@@ -51,7 +53,7 @@ No bloat or phone-home paths were found in core product code. Network egress fro
 ### 3. Easy self-host & maintain
 
 - Web installer (`install/`), CLI install (`install/cli.php`), Docker Compose.
-- Versioned migrations (`AP_DB_VERSION` = 10), Site Health, Update Core screen, **Tools → Analytics**.
+- Versioned migrations (`AP_DB_VERSION` = 11), Site Health, Update Core screen, **Tools → Analytics**, forum likes (v11).
 - Familiar `ap-admin` / `ap-includes` / `ap-content` layout for classic WP operators.
 - Zero-dependency `ap-cli` for options, plugins, themes, users, **posts/pages**, DB, cache, cron, rewrites, health.
 - Production hardening examples (Apache `.htaccess`, Nginx) deny secrets, SQLite downloads, and direct `ap-includes/` PHP.
@@ -164,7 +166,7 @@ Users, forums, topics, and posts import; attachments, private messages, and rank
 
 ### D7 — README / status language
 
-Product README status tracks the shipped release line (`0.2.0-beta`) and reflects that installer, CMS, forums, admin, compatibility layer, packaging, live-site hardening, and opt-in local analytics are **implemented**, not Phase-1 stubs.
+Product README status tracks the shipped release line (`0.2.1-beta`) and reflects that installer, CMS, forums (including likes/moderation UI), admin, compatibility layer, packaging, live-site hardening, Theme Options API, and opt-in local analytics are **implemented**, not Phase-1 stubs.
 
 ### D8 — Local site analytics (SPEC 0.2.0-beta)
 

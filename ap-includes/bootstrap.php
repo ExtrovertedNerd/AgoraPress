@@ -319,6 +319,13 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-read.php';
     // Forum flood control, anti-spam, post approval (pluggable checkers).
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-guard.php';
+    // Forum post likes (thumbs-up) + denormalized counts.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-like.php';
+    // User forum activity counters (posts, likes given/received).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-stats.php';
+    if (class_exists('AP_Forum_Stats', false)) {
+        AP_Forum_Stats::registerHooks();
+    }
     // Forum front-end: route context, forms, template helpers.
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-front.php';
     // Avatars: local upload + Gravatar fallback.

@@ -21,6 +21,7 @@ $topicTitle = $q instanceof AP_Query ? (string) $q->get('topic_title', '') : '';
 $forumName = $q instanceof AP_Query ? (string) $q->get('forum_name', '') : '';
 $forumUrl = $q instanceof AP_Query ? (string) $q->get('forum_url', '') : '';
 $canReply = $q instanceof AP_Query && !empty($q->get('can_reply', false));
+$canModerate = $q instanceof AP_Query && !empty($q->get('can_moderate', false));
 $notFound = $q instanceof AP_Query && !empty($q->get('ap_forum_not_found', false));
 $disabled = $q instanceof AP_Query && !empty($q->get('ap_forum_disabled', false));
 if ($topicTitle === '') {
@@ -56,6 +57,7 @@ if (function_exists('ap_is_user_logged_in') && class_exists('AP_Session', false)
     }
 }
 $nonceAction = 'ap_forum_reply_' . $topicId;
+$editPostId = isset($_GET['edit_post']) ? (int) $_GET['edit_post'] : 0;
 ?>
 <nav class="ap-breadcrumbs" aria-label="Breadcrumb">
     <ol>
@@ -80,6 +82,23 @@ $nonceAction = 'ap_forum_reply_' . $topicId;
                 <?php endif; ?>
             </p>
         </div>
+        <?php if ($canModerate && $topicId > 0) : ?>
+            <div class="ap-forum-toolbar ap-forum-toolbar--topic" role="toolbar" aria-label="Topic moderation">
+                <form method="post" action="" class="ap-forum-action-form">
+                    <input type="hidden" name="ap_forum_action" value="<?php echo $locked ? 'ap_forum_unlock_topic' : 'ap_forum_lock_topic'; ?>">
+                    <input type="hidden" name="topic_id" value="<?php echo (int) $topicId; ?>">
+                    <?php
+                    $lockAction = ($locked ? 'ap_forum_unlock_topic' : 'ap_forum_lock_topic') . '_' . $topicId;
+                    if (function_exists('ap_nonce_field')) {
+                        echo ap_nonce_field($lockAction);
+                    }
+                    ?>
+                    <button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm">
+                        <?php echo $locked ? 'Unlock topic' : 'Lock topic'; ?>
+                    </button>
+                </form>
+            </div>
+        <?php endif; ?>
     </header>
 
 <?php if (is_array($notice) && ($notice['message'] ?? '') !== '') : ?>
@@ -125,6 +144,17 @@ $nonceAction = 'ap_forum_reply_' . $topicId;
                 $safeBody = (string) $post['content_html'];
             }
             $attachments = is_array($post['attachments'] ?? null) ? $post['attachments'] : [];
+            $likeCount = (int) ($post['like_count'] ?? 0);
+            $likedByMe = !empty($post['liked_by_me']);
+            $canLike = !empty($post['can_like']);
+            $canEdit = !empty($post['can_edit']);
+            $canDelete = !empty($post['can_delete']);
+            $authorStats = is_array($post['author_stats'] ?? null) ? $post['author_stats'] : [];
+            $authorPosts = (int) ($authorStats['forum_posts'] ?? 0);
+            $authorLikes = (int) ($authorStats['forum_likes_received'] ?? 0);
+            $editCount = (int) ($post['edit_count'] ?? 0);
+            $isEditing = $editPostId > 0 && $editPostId === $postId && $canEdit;
+            $rawContent = (string) ($post['content'] ?? '');
             ?>
             <section class="ap-forum-post" id="post-<?php echo $postId; ?>" aria-label="<?php echo agora_esc_attr('Post #' . $postNum . ' by ' . $author); ?>">
                 <aside class="ap-forum-post__author">
@@ -132,6 +162,16 @@ $nonceAction = 'ap_forum_reply_' . $topicId;
                     <p class="ap-forum-post__author-name"><?php echo agora_esc($author); ?></p>
                     <?php if ($role !== '') : ?>
                         <p class="ap-forum-post__author-meta"><?php echo agora_esc($role); ?></p>
+                    <?php endif; ?>
+                    <?php if ($authorPosts > 0 || $authorLikes > 0) : ?>
+                        <p class="ap-forum-post__author-meta ap-forum-post__stats">
+                            <?php if ($authorPosts > 0) : ?>
+                                <span><?php echo (int) $authorPosts; ?> post<?php echo $authorPosts === 1 ? '' : 's'; ?></span>
+                            <?php endif; ?>
+                            <?php if ($authorLikes > 0) : ?>
+                                <span><?php echo (int) $authorLikes; ?> like<?php echo $authorLikes === 1 ? '' : 's'; ?></span>
+                            <?php endif; ?>
+                        </p>
                     <?php endif; ?>
                 </aside>
                 <div>
@@ -143,9 +183,54 @@ $nonceAction = 'ap_forum_reply_' . $topicId;
                         <?php endif; ?>
                         <a href="#post-<?php echo $postId; ?>">#<?php echo $postNum; ?></a>
                     </div>
+                    <?php if ($isEditing) : ?>
+                        <form method="post" action="" class="ap-forum-form ap-forum-form--edit">
+                            <input type="hidden" name="ap_forum_action" value="ap_forum_edit_post">
+                            <input type="hidden" name="post_id" value="<?php echo (int) $postId; ?>">
+                            <?php
+                            $editNonce = 'ap_forum_edit_post_' . $postId;
+                            if (function_exists('ap_nonce_field')) {
+                                echo ap_nonce_field($editNonce);
+                            }
+                            ?>
+                            <div class="ap-field">
+                                <label for="edit-body-<?php echo (int) $postId; ?>">Edit message</label>
+                                <?php
+                                if (function_exists('ap_editor')) {
+                                    echo ap_editor([
+                                        'id' => 'edit-body-' . $postId,
+                                        'name' => 'post_body',
+                                        'value' => $rawContent,
+                                        'mode' => class_exists('AP_Editor', false)
+                                            ? AP_Editor::modeForContext('forum')
+                                            : 'visual',
+                                        'rows' => 6,
+                                        'required' => true,
+                                    ]);
+                                } else {
+                                    echo '<textarea id="edit-body-' . (int) $postId . '" name="post_body" required rows="6">'
+                                        . agora_esc($rawContent) . '</textarea>';
+                                }
+                                ?>
+                            </div>
+                            <div class="ap-field">
+                                <label for="edit-reason-<?php echo (int) $postId; ?>">Edit reason (optional)</label>
+                                <input type="text" id="edit-reason-<?php echo (int) $postId; ?>" name="edit_reason" maxlength="255">
+                            </div>
+                            <div class="ap-forum-toolbar">
+                                <button type="submit" class="ap-btn">Save changes</button>
+                                <a class="ap-btn ap-btn--ghost" href="<?php
+                                echo agora_esc_url(strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?') . '#post-' . $postId);
+                                ?>">Cancel</a>
+                            </div>
+                        </form>
+                    <?php else : ?>
                     <div class="ap-forum-post__body">
                         <?php echo $safeBody; ?>
                     </div>
+                    <?php if ($editCount > 0) : ?>
+                        <p class="ap-forum-post__edited">Last edited (<?php echo (int) $editCount; ?> time<?php echo $editCount === 1 ? '' : 's'; ?>)</p>
+                    <?php endif; ?>
                     <?php if ($attachments !== []) : ?>
                         <ul class="ap-forum-attachments" aria-label="Attachments">
                             <?php foreach ($attachments as $att) : ?>
@@ -165,6 +250,49 @@ $nonceAction = 'ap_forum_reply_' . $topicId;
                                 </li>
                             <?php endforeach; ?>
                         </ul>
+                    <?php endif; ?>
+                    <div class="ap-forum-post__actions" role="group" aria-label="Post actions">
+                        <?php if ($canLike || $likeCount > 0) : ?>
+                            <?php if ($canLike) : ?>
+                                <form method="post" action="" class="ap-forum-action-form ap-forum-action-form--inline">
+                                    <input type="hidden" name="ap_forum_action" value="ap_forum_like_post">
+                                    <input type="hidden" name="post_id" value="<?php echo (int) $postId; ?>">
+                                    <?php
+                                    if (function_exists('ap_nonce_field')) {
+                                        echo ap_nonce_field('ap_forum_like_post_' . $postId);
+                                    }
+                                    ?>
+                                    <button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-forum-like<?php echo $likedByMe ? ' is-liked' : ''; ?>" aria-pressed="<?php echo $likedByMe ? 'true' : 'false'; ?>">
+                                        <span aria-hidden="true">👍</span>
+                                        <?php echo $likedByMe ? 'Liked' : 'Like'; ?>
+                                        <?php if ($likeCount > 0) : ?>
+                                            <span class="ap-forum-like__count">(<?php echo (int) $likeCount; ?>)</span>
+                                        <?php endif; ?>
+                                    </button>
+                                </form>
+                            <?php elseif ($likeCount > 0) : ?>
+                                <span class="ap-forum-like ap-forum-like--static" title="Likes">
+                                    <span aria-hidden="true">👍</span>
+                                    <span class="ap-forum-like__count"><?php echo (int) $likeCount; ?></span>
+                                </span>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                        <?php if ($canEdit) : ?>
+                            <a class="ap-btn ap-btn--ghost ap-btn--sm" href="?edit_post=<?php echo (int) $postId; ?>#post-<?php echo (int) $postId; ?>">Edit</a>
+                        <?php endif; ?>
+                        <?php if ($canDelete) : ?>
+                            <form method="post" action="" class="ap-forum-action-form ap-forum-action-form--inline" onsubmit="return confirm('Delete this post?');">
+                                <input type="hidden" name="ap_forum_action" value="ap_forum_delete_post">
+                                <input type="hidden" name="post_id" value="<?php echo (int) $postId; ?>">
+                                <?php
+                                if (function_exists('ap_nonce_field')) {
+                                    echo ap_nonce_field('ap_forum_delete_post_' . $postId);
+                                }
+                                ?>
+                                <button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-btn--danger">Delete</button>
+                            </form>
+                        <?php endif; ?>
+                    </div>
                     <?php endif; ?>
                 </div>
             </section>

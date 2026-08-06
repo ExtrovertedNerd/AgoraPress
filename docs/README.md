@@ -4,7 +4,7 @@ Guides for extending and operating AgoraPress: plugins, themes, hooks, schema, a
 
 AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). The public API uses the `ap_` prefix. The [Classic WordPress Theme Compatibility Layer](compatibility.md) optionally exposes many bare WordPress names for classic PHP themes.
 
-**Current core:** `AP_VERSION` **0.2.0-beta** · schema `AP_DB_VERSION` **10** · product status: MVP feature-complete with local opt-in analytics; ready for live-site install.
+**Current core:** `AP_VERSION` **0.2.1-beta** · schema `AP_DB_VERSION` **11** · product status: MVP feature-complete with forum likes/moderation, Theme Options API, and local opt-in analytics; ready for live-site install.
 
 ## Guides
 
@@ -41,8 +41,8 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 | Posts / pages | `AP_Post`, `AP_Query`, admin screens, `ap-cli post` |
 | Media | `AP_Media`, uploads under `ap-content/uploads/` |
 | Comments | `AP_Comment`, discussion settings |
-| Forums | `AP_Forum*`, dedicated tables (see [schema](schema.md)) |
-| Themes | `AP_Theme`, default `ap-content/themes/agora/` |
+| Forums | `AP_Forum*`, `AP_Forum_Like`, `AP_Forum_Stats`, dedicated tables (see [schema](schema.md)) |
+| Themes | `AP_Theme` (hierarchy, theme_mods, Theme Options), default `ap-content/themes/agora/` |
 | Plugins | `AP_Plugin`, `ap-content/plugins/`, `mu-plugins/` |
 | REST | `AP_Rest` → `/ap-json/` namespace `ap/v1` |
 | CLI | `ap-cli` → option, plugin, theme, user, **post**, db, cache, cron, rewrite, site, core |
@@ -71,14 +71,14 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 | Area | Primary files |
 |------|----------------|
 | Hooks | `ap-includes/hooks.php`, `class-ap-hook.php`, `class-ap-hooks.php` |
-| Themes | `ap-includes/class-ap-theme.php`, `template-tags.php`, `class-ap-assets.php` |
+| Themes | `ap-includes/class-ap-theme.php` (hierarchy, theme_mods, Theme Options), `template-tags.php`, `class-ap-assets.php` |
 | Plugins | `ap-includes/class-ap-plugin.php`, procedural helpers in `functions.php` |
 | Posts / CLI content | `class-ap-post.php`, `class-ap-cli.php` (`cmdPost`) |
 | Visual editor | `ap-includes/class-ap-editor.php`, `css/ap-editor.css`, `js/ap-editor.js` |
 | Compatibility | `ap-includes/compatibility/` |
 | Schema | `ap-includes/schema/migrations/`, `class-ap-migrator.php` |
 | Default theme | `ap-content/themes/agora/` |
-| Forums | `class-ap-forum*.php`, `class-ap-forum-front.php` |
+| Forums | `class-ap-forum*.php`, `class-ap-forum-front.php`, `class-ap-forum-like.php`, `class-ap-forum-stats.php`, migration `0011_forum_likes_stats.php` |
 | REST | `class-ap-rest.php` |
 | Install / update | `install/`, `class-ap-installer.php`, `class-ap-core-updater.php` |
 | Analytics | `class-ap-analytics.php`, `ap-admin/analytics.php`, `ap-admin/includes/class-ap-admin-analytics.php`, migration `0010_analytics_tables.php` |

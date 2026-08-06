@@ -89,6 +89,7 @@ class AP_Forum
             'online',
             'topic_track',
             'forum_track',
+            'forum_post_likes',
         ];
     }
 
@@ -971,9 +972,14 @@ class AP_Forum
                 'post_edit_time' => self::EMPTY_DATETIME,
                 'post_edit_count' => 0,
                 'post_position' => 1,
+                'like_count' => 0,
             ];
 
             $postResult = $db->insert('forum_posts', $postRow);
+            if ($postResult === false) {
+                unset($postRow['like_count']);
+                $postResult = $db->insert('forum_posts', $postRow);
+            }
             if ($postResult === false) {
                 if ($started) {
                     $db->rollBack();
@@ -1004,6 +1010,10 @@ class AP_Forum
 
             if ($started) {
                 $db->commit();
+            }
+
+            if (function_exists('ap_do_action')) {
+                ap_do_action('ap_forum_post_inserted', $postId, self::getPost($postId, $db));
             }
         } catch (Throwable $e) {
             if ($started) {
@@ -1619,6 +1629,7 @@ class AP_Forum
             'post_edit_time' => self::EMPTY_DATETIME,
             'post_edit_count' => 0,
             'post_position' => $position,
+            'like_count' => 0,
         ];
 
         if (function_exists('ap_do_action')) {
@@ -1627,7 +1638,12 @@ class AP_Forum
 
         $result = $db->insert('forum_posts', $postRow);
         if ($result === false) {
-            return 0;
+            // Retry without like_count if schema is pre-v11.
+            unset($postRow['like_count']);
+            $result = $db->insert('forum_posts', $postRow);
+            if ($result === false) {
+                return 0;
+            }
         }
 
         $postId = (int) $db->lastInsertId();
@@ -1781,6 +1797,13 @@ class AP_Forum
             AP_Forum_Attachment::deleteForPost($id, true, $db);
         }
 
+        // Drop likes for this post (best-effort; table may be absent pre-v11).
+        try {
+            $db->delete('forum_post_likes', ['post_id' => $id]);
+        } catch (Throwable) {
+            // ignore
+        }
+
         $result = $db->delete('forum_posts', ['post_id' => $id]);
         if ($result === false) {
             return false;
@@ -1798,7 +1821,7 @@ class AP_Forum
         }
 
         if (function_exists('ap_do_action')) {
-            ap_do_action('ap_forum_post_deleted', $id);
+            ap_do_action('ap_forum_post_deleted', $id, $post);
         }
 
         return true;
@@ -1883,14 +1906,115 @@ class AP_Forum
     {
         $db = self::resolveDb($db);
         $posts = self::getPosts($topicId, $args, $db);
+        $viewerId = 0;
+        if (function_exists('ap_get_current_user_id')) {
+            try {
+                $viewerId = (int) ap_get_current_user_id($db);
+            } catch (Throwable) {
+                $viewerId = 0;
+            }
+        }
+        $postIds = [];
+        foreach ($posts as $p) {
+            $postIds[] = (int) $p->post_id;
+        }
+        $likedMap = [];
+        if ($viewerId > 0 && class_exists('AP_Forum_Like', false) && $postIds !== []) {
+            $likedMap = AP_Forum_Like::likedMapForUser($viewerId, $postIds, $db);
+        }
         $out = [];
         $n = 0;
         foreach ($posts as $post) {
             $n++;
-            $out[] = self::postToDisplayRow($post, $n, $db);
+            $row = self::postToDisplayRow($post, $n, $db);
+            $row['liked_by_me'] = !empty($likedMap[(int) $post->post_id]);
+            $row['can_like'] = $viewerId > 0;
+            $row['can_edit'] = self::userCanEditPost($viewerId, $post, $db);
+            $row['can_delete'] = self::userCanDeletePost($viewerId, $post, $db);
+            $row['can_moderate'] = $viewerId > 0 && class_exists('AP_Forum_Permissions', false)
+                && AP_Forum_Permissions::userCanModerate($viewerId, (int) $post->forum_id, $db);
+            $out[] = $row;
         }
 
         return $out;
+    }
+
+    /**
+     * Whether a user may edit a forum post (own post with edit_own, or moderator).
+     */
+    public static function userCanEditPost(int $userId, object|int $post, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+        $db = self::resolveDb($db);
+        if (is_int($post)) {
+            $post = self::getPost($post, $db);
+        }
+        if ($post === null) {
+            return false;
+        }
+        $forumId = (int) ($post->forum_id ?? 0);
+        if (function_exists('ap_user_can')) {
+            if (ap_user_can($userId, 'manage_forums', null, $db)
+                || ap_user_can($userId, 'moderate_forums', null, $db)
+            ) {
+                return true;
+            }
+        }
+        if (class_exists('AP_Forum_Permissions', false)
+            && AP_Forum_Permissions::userCanModerate($userId, $forumId, $db)
+        ) {
+            return true;
+        }
+        $isOwner = (int) ($post->poster_id ?? 0) === $userId;
+        if (!$isOwner) {
+            return false;
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            return AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_EDIT_OWN, $db);
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether a user may delete a forum post (own with delete_own, or moderator).
+     */
+    public static function userCanDeletePost(int $userId, object|int $post, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+        $db = self::resolveDb($db);
+        if (is_int($post)) {
+            $post = self::getPost($post, $db);
+        }
+        if ($post === null) {
+            return false;
+        }
+        $forumId = (int) ($post->forum_id ?? 0);
+        if (function_exists('ap_user_can')) {
+            if (ap_user_can($userId, 'manage_forums', null, $db)
+                || ap_user_can($userId, 'moderate_forums', null, $db)
+            ) {
+                return true;
+            }
+        }
+        if (class_exists('AP_Forum_Permissions', false)
+            && AP_Forum_Permissions::userCanModerate($userId, $forumId, $db)
+        ) {
+            return true;
+        }
+        $isOwner = (int) ($post->poster_id ?? 0) === $userId;
+        if (!$isOwner) {
+            return false;
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            return AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_DELETE_OWN, $db);
+        }
+
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -2662,6 +2786,19 @@ class AP_Forum
             }
         }
 
+        $likeCount = (int) ($post->like_count ?? 0);
+        $authorStats = [
+            'forum_posts' => 0,
+            'forum_likes_received' => 0,
+        ];
+        if (class_exists('AP_Forum_Stats', false) && (int) $post->poster_id > 0) {
+            $stats = AP_Forum_Stats::getUserStats((int) $post->poster_id, $db);
+            $authorStats = [
+                'forum_posts' => (int) ($stats['forum_posts'] ?? 0),
+                'forum_likes_received' => (int) ($stats['forum_likes_received'] ?? 0),
+            ];
+        }
+
         return [
             'id' => (int) $post->post_id,
             'topic_id' => (int) $post->topic_id,
@@ -2676,6 +2813,14 @@ class AP_Forum
             'position' => (int) $post->post_position,
             'approved' => (int) $post->post_approved === 1,
             'edit_count' => (int) $post->post_edit_count,
+            'edit_time' => (string) ($post->post_edit_time ?? ''),
+            'like_count' => max(0, $likeCount),
+            'liked_by_me' => false,
+            'can_like' => false,
+            'can_edit' => false,
+            'can_delete' => false,
+            'can_moderate' => false,
+            'author_stats' => $authorStats,
             'attachments' => $attachments,
         ];
     }
@@ -2944,20 +3089,26 @@ class AP_Forum
         $topicId = (int) $post->topic_id;
         $topic = self::getTopic($topicId, $db);
         if ($topic === null) {
+            if (function_exists('ap_do_action')) {
+                ap_do_action('ap_forum_post_unapproved', (int) $post->post_id, $post);
+            }
+
             return;
         }
         // First post unapproved: topic counters handled via topic_approved separately.
-        if ((int) $topic->first_post_id === (int) $post->post_id) {
-            return;
+        if ((int) $topic->first_post_id !== (int) $post->post_id) {
+            $replyCount = max(0, (int) $topic->reply_count - 1);
+            $db->update('topics', [
+                'reply_count' => $replyCount,
+                'topic_modified' => self::nowLocal(),
+            ], ['topic_id' => $topicId]);
+            self::adjustForumStats((int) $topic->forum_id, 0, -1, $db);
+            self::refreshTopicLastPost($topicId, $db);
+            self::refreshForumLastPost((int) $topic->forum_id, $db);
         }
-        $replyCount = max(0, (int) $topic->reply_count - 1);
-        $db->update('topics', [
-            'reply_count' => $replyCount,
-            'topic_modified' => self::nowLocal(),
-        ], ['topic_id' => $topicId]);
-        self::adjustForumStats((int) $topic->forum_id, 0, -1, $db);
-        self::refreshTopicLastPost($topicId, $db);
-        self::refreshForumLastPost((int) $topic->forum_id, $db);
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_forum_post_unapproved', (int) $post->post_id, $post);
+        }
     }
 
     private static function onPostApproved(?object $post, AP_DB $db): void
@@ -2967,29 +3118,28 @@ class AP_Forum
         }
         $topicId = (int) $post->topic_id;
         $topic = self::getTopic($topicId, $db);
-        if ($topic === null) {
-            return;
+        if ($topic !== null && (int) $topic->first_post_id !== (int) $post->post_id) {
+            $db->update('topics', [
+                'reply_count' => (int) $topic->reply_count + 1,
+                'last_post_id' => (int) $post->post_id,
+                'last_poster_id' => (int) $post->poster_id,
+                'topic_last_post_time' => (string) $post->post_time,
+                'topic_modified' => self::nowLocal(),
+            ], ['topic_id' => $topicId]);
+            self::bumpForumStats(
+                (int) $topic->forum_id,
+                0,
+                1,
+                (int) $post->post_id,
+                (int) $post->poster_id,
+                (string) $post->post_time,
+                $topicId,
+                $db
+            );
         }
-        if ((int) $topic->first_post_id === (int) $post->post_id) {
-            return;
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_forum_post_approved', (int) $post->post_id, $post);
         }
-        $db->update('topics', [
-            'reply_count' => (int) $topic->reply_count + 1,
-            'last_post_id' => (int) $post->post_id,
-            'last_poster_id' => (int) $post->poster_id,
-            'topic_last_post_time' => (string) $post->post_time,
-            'topic_modified' => self::nowLocal(),
-        ], ['topic_id' => $topicId]);
-        self::bumpForumStats(
-            (int) $topic->forum_id,
-            0,
-            1,
-            (int) $post->post_id,
-            (int) $post->poster_id,
-            (string) $post->post_time,
-            $topicId,
-            $db
-        );
     }
 
     private static function normalizeForumRow(object $row): object
@@ -3056,6 +3206,7 @@ class AP_Forum
         $o->post_edit_time = (string) ($row->post_edit_time ?? '');
         $o->post_edit_count = (int) ($row->post_edit_count ?? 0);
         $o->post_position = (int) ($row->post_position ?? 0);
+        $o->like_count = (int) ($row->like_count ?? 0);
 
         return $o;
     }

@@ -1,11 +1,13 @@
 <?php
 
 /**
- * Appearance — Theme Options (color schemes + Additional CSS).
+ * Appearance — Theme Options.
  *
- * Agora color schemes when the default theme is active.
- * Additional CSS is available for any theme so site owners can add rules
- * without editing theme files.
+ * Core always offers Additional CSS. Themes register extra sections/fields via
+ * the Settings API on page/group {@see AP_Theme::THEME_OPTIONS_PAGE} /
+ * {@see AP_Theme::THEME_OPTIONS_GROUP}, typically on the `ap_theme_options_register`
+ * action (WordPress-style register_setting / add_settings_section /
+ * add_settings_field). The default Agora theme also exposes color schemes here.
  *
  * @package AgoraPress
  */
@@ -18,34 +20,60 @@ AP_Admin::requireCapability('edit_theme_options');
 
 AP_Admin::consumeQueryNotice();
 
-// Ensure theme functions (color scheme API) are available.
-if (class_exists('AP_Theme', false)) {
-    AP_Theme::setup(ap_db());
-}
-
 $userId = ap_get_current_user_id();
 $db = ap_db();
+
+// Load active theme functions.php, then let themes register Settings API UI.
+if (class_exists('AP_Theme', false)) {
+    AP_Theme::registerThemeOptions($db);
+}
+
 $activeTheme = class_exists('AP_Theme', false) ? AP_Theme::getStylesheet($db) : 'agora';
-$isAgora = $activeTheme === 'agora' || function_exists('agora_get_color_schemes');
+$isAgora = $activeTheme === 'agora' && function_exists('agora_get_color_schemes');
+$hasThemeSettings = class_exists('AP_Theme', false) && AP_Theme::hasRegisteredThemeOptions();
+
+$settingsGroup = class_exists('AP_Theme', false)
+    ? AP_Theme::THEME_OPTIONS_GROUP
+    : 'theme_options';
+$settingsPage = class_exists('AP_Theme', false)
+    ? AP_Theme::THEME_OPTIONS_PAGE
+    : 'theme_options';
 
 // --- Save ---
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['agora_save_theme_options'])) {
-    $nonce = (string) ($_POST['_ap_nonce'] ?? '');
-    if (!ap_check_nonce($nonce, 'agora_theme_options', $userId > 0 ? $userId : null)) {
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && (
+    isset($_POST['ap_settings_submit'])
+    || isset($_POST['agora_save_theme_options'])
+    || (string) ($_POST['option_page'] ?? '') === $settingsGroup
+)) {
+    $nonceOk = false;
+    if (class_exists('AP_Settings', false) && AP_Settings::verifyNonce($settingsGroup, $userId > 0 ? $userId : null)) {
+        $nonceOk = true;
+    } else {
+        // Legacy nonce name (pre–Settings-API Theme Options form).
+        $nonce = (string) ($_POST['_ap_nonce'] ?? '');
+        $nonceOk = ap_check_nonce($nonce, 'agora_theme_options', $userId > 0 ? $userId : null)
+            || ap_check_nonce($nonce, 'ap_theme_options', $userId > 0 ? $userId : null);
+    }
+
+    if (!$nonceOk) {
         AP_Admin::addNotice('Security check failed. Please try again.', 'error');
     } else {
         $schemeOk = true;
-        $schemeChanged = false;
-
-        // Color scheme only applies when Agora exposes the API.
         if (function_exists('agora_set_color_scheme') && $isAgora) {
             $scheme = (string) ($_POST['agora_color_scheme'] ?? '');
             if ($scheme !== '') {
                 $schemeOk = agora_set_color_scheme($scheme, $db);
-                $schemeChanged = $schemeOk;
                 if (!$schemeOk) {
                     AP_Admin::addNotice('Please choose a valid color scheme.', 'error');
                 }
+            }
+        }
+
+        $settingsOk = true;
+        if (class_exists('AP_Settings', false)) {
+            $settingsOk = AP_Settings::save($settingsGroup, null, $db);
+            if (!$settingsOk) {
+                AP_Settings::flushErrorsToAdmin();
             }
         }
 
@@ -57,15 +85,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['agora_save
             }
         }
 
-        if ($schemeOk && $cssOk) {
+        if ($schemeOk && $settingsOk && $cssOk) {
             AP_Admin::redirect(AP_Admin::url('theme-options.php', ['message' => 'theme_options_saved']));
         }
-        // Notices already added for partial failures; fall through to re-render.
-        unset($schemeChanged);
     }
 }
 
-$schemes = function_exists('agora_get_color_schemes')
+$schemes = $isAgora && function_exists('agora_get_color_schemes')
     ? agora_get_color_schemes()
     : [];
 $current = function_exists('agora_get_color_scheme')
@@ -93,19 +119,28 @@ require __DIR__ . '/admin-header.php';
     <h1>Theme Options</h1>
 </div>
 
+<?php if ($activeTheme !== '') : ?>
+    <p class="description">
+        Active theme: <strong><?php echo ap_esc_html($activeTheme); ?></strong>.
+        Themes can register extra options below via the Settings API
+        (<code>ap_theme_options_register</code>).
+    </p>
+<?php endif; ?>
+
 <form method="post" action="" class="ap-theme-options-form">
     <?php
-    $nonce = ap_create_nonce('agora_theme_options', $userId > 0 ? $userId : null);
-    echo '<input type="hidden" name="_ap_nonce" value="' . ap_esc_attr($nonce) . '">';
+    if (function_exists('ap_settings_fields')) {
+        ap_settings_fields($settingsGroup);
+    } else {
+        $nonce = ap_create_nonce('ap_theme_options', $userId > 0 ? $userId : null);
+        echo '<input type="hidden" name="_ap_nonce" value="' . ap_esc_attr($nonce) . '">';
+        echo '<input type="hidden" name="option_page" value="' . ap_esc_attr($settingsGroup) . '">';
+    }
+    // Backward-compatible flag for older tests/forms.
     echo '<input type="hidden" name="agora_save_theme_options" value="1">';
     ?>
 
-<?php if (!$isAgora || $schemes === []) : ?>
-    <div class="ap-notice ap-notice--info">
-        Color schemes are provided by the default <strong>Agora</strong> theme.
-        Activate Agora to select a scheme. Additional CSS below works with any theme.
-    </div>
-<?php else : ?>
+<?php if ($isAgora && $schemes !== []) : ?>
     <p>
         Choose one of six pure-CSS color schemes for the public site
         (3 light and 3 dark). No images are used.
@@ -158,7 +193,25 @@ require __DIR__ . '/admin-header.php';
                 <?php endforeach; ?>
             </div>
         </fieldset>
+<?php elseif (!$hasThemeSettings) : ?>
+    <div class="ap-notice ap-notice--info">
+        This theme has not registered any custom options yet.
+        Theme authors can use <code>ap_register_setting</code>,
+        <code>ap_add_settings_section</code>, and <code>ap_add_settings_field</code>
+        on the <code>ap_theme_options_register</code> action (page/group
+        <code><?php echo ap_esc_html($settingsPage); ?></code>).
+        Additional CSS below works with any theme.
+    </div>
 <?php endif; ?>
+
+<?php
+// Theme-registered Settings API sections/fields (any active theme).
+if (function_exists('ap_do_settings_sections') && $hasThemeSettings) {
+    echo '<div class="ap-theme-registered-options" style="margin-top:1.5rem;">';
+    ap_do_settings_sections($settingsPage);
+    echo '</div>';
+}
+?>
 
     <fieldset class="ap-fieldset ap-custom-css-fieldset" style="margin-top:1.75rem;">
         <legend><strong>Additional CSS</strong></legend>
@@ -185,7 +238,7 @@ require __DIR__ . '/admin-header.php';
     </fieldset>
 
     <p class="ap-submit-row" style="margin-top:1.25rem;">
-        <button type="submit" class="button button-primary">Save changes</button>
+        <button type="submit" name="ap_settings_submit" value="1" class="button button-primary">Save changes</button>
     </p>
 </form>
 
@@ -278,6 +331,66 @@ require __DIR__ . '/admin-header.php';
         font-size: 0.85rem;
         line-height: 1.45;
         tab-size: 2;
+    }
+    .ap-theme-registered-options .ap-form-table {
+        width: 100%;
+        max-width: 56rem;
+        border-collapse: collapse;
+    }
+    .ap-theme-registered-options .ap-form-table th {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.65rem 1rem 0.65rem 0;
+        width: 12rem;
+        font-weight: 600;
+    }
+    .ap-theme-registered-options .ap-form-table td {
+        padding: 0.65rem 0;
+        vertical-align: top;
+    }
+    .ap-theme-registered-options .ap-settings-section-title {
+        margin: 1.5rem 0 0.5rem;
+        font-size: 1.15rem;
+    }
+    /* ExtrovertedNerd / generic multi-card theme fields */
+    .ap-en-projects-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+        gap: 1rem;
+        margin-top: 0.5rem;
+    }
+    .ap-en-project-card {
+        padding: 0.85rem 1rem;
+        border: 1px solid var(--ap-border, #c3c4c7);
+        border-radius: 8px;
+        background: var(--ap-surface, #fff);
+    }
+    .ap-en-project-card__title {
+        margin: 0 0 0.65rem;
+        font-size: 0.95rem;
+    }
+    .ap-en-project-card .ap-field {
+        margin: 0 0 0.55rem;
+    }
+    .ap-en-project-card .ap-field:last-child {
+        margin-bottom: 0;
+    }
+    .ap-en-project-card label {
+        display: block;
+        font-weight: 600;
+        font-size: 0.8rem;
+        margin-bottom: 0.2rem;
+    }
+    .ap-en-project-card input[type="text"],
+    .ap-en-project-card select {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+    .ap-en-project-card__row {
+        display: grid;
+        grid-template-columns: 1fr minmax(4rem, 5.5rem);
+        gap: 0.5rem;
     }
     .screen-reader-text {
         position: absolute;

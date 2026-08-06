@@ -1193,3 +1193,115 @@ if (!function_exists('untrailingslashit')) {
         return rtrim($value, '/\\');
     }
 }
+
+// -----------------------------------------------------------------------------
+// Theme mods (Appearance → Theme Options / Customizer-style storage)
+// -----------------------------------------------------------------------------
+
+if (!function_exists('get_theme_mod')) {
+    function get_theme_mod(string $name, mixed $default = false): mixed
+    {
+        if (function_exists('ap_get_theme_mod')) {
+            return ap_get_theme_mod($name, $default);
+        }
+
+        return $default;
+    }
+}
+
+if (!function_exists('set_theme_mod')) {
+    function set_theme_mod(string $name, mixed $value): bool
+    {
+        if (function_exists('ap_set_theme_mod')) {
+            return ap_set_theme_mod($name, $value);
+        }
+
+        return false;
+    }
+}
+
+if (!function_exists('remove_theme_mod')) {
+    function remove_theme_mod(string $name): bool
+    {
+        if (function_exists('ap_remove_theme_mod')) {
+            return ap_remove_theme_mod($name);
+        }
+
+        return false;
+    }
+}
+
+if (!function_exists('get_theme_mods')) {
+    /**
+     * @return array<string, mixed>
+     */
+    function get_theme_mods(): array
+    {
+        if (function_exists('ap_get_theme_mods')) {
+            return ap_get_theme_mods();
+        }
+
+        return [];
+    }
+}
+
+if (!function_exists('register_setting')) {
+    /**
+     * @param array<string, mixed> $args
+     */
+    function register_setting(string $option_group, string $option_name, array $args = []): void
+    {
+        if (function_exists('ap_register_setting')) {
+            ap_register_setting($option_group, $option_name, $args);
+        }
+    }
+}
+
+if (!function_exists('add_settings_section')) {
+    function add_settings_section(
+        string $id,
+        string $title,
+        ?callable $callback,
+        string $page
+    ): void {
+        if (function_exists('ap_add_settings_section')) {
+            ap_add_settings_section($id, $title, $callback, $page);
+        }
+    }
+}
+
+if (!function_exists('add_settings_field')) {
+    /**
+     * @param array<string, mixed> $args
+     */
+    function add_settings_field(
+        string $id,
+        string $title,
+        ?callable $callback,
+        string $page,
+        string $section = 'default',
+        array $args = []
+    ): void {
+        if (function_exists('ap_add_settings_field')) {
+            ap_add_settings_field($id, $title, $callback, $page, $section, $args);
+        }
+    }
+}
+
+if (!function_exists('settings_fields')) {
+    function settings_fields(string $option_group): void
+    {
+        if (function_exists('ap_settings_fields')) {
+            ap_settings_fields($option_group);
+        }
+    }
+}
+
+if (!function_exists('do_settings_sections')) {
+    function do_settings_sections(string $page): void
+    {
+        if (function_exists('ap_do_settings_sections')) {
+            ap_do_settings_sections($page);
+        }
+    }
+}

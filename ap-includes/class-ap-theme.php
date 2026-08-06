@@ -952,6 +952,173 @@ class AP_Theme
     }
 
     // -------------------------------------------------------------------------
+    // Theme Options (Appearance → Theme Options) + theme_mods (WP-compatible)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Settings API page id for Appearance → Theme Options.
+     * Themes register sections/fields against this page.
+     */
+    public const THEME_OPTIONS_PAGE = 'theme_options';
+
+    /**
+     * Settings API option group for the Theme Options form.
+     * Themes call ap_register_setting( AP_Theme::THEME_OPTIONS_GROUP, … ).
+     */
+    public const THEME_OPTIONS_GROUP = 'theme_options';
+
+    /**
+     * Fire {@see ap_theme_options_register} so the active theme (and plugins)
+     * can declare Settings API sections/fields for the Theme Options screen.
+     *
+     * Loads theme functions.php first via {@see setup()}.
+     */
+    public static function registerThemeOptions(?AP_DB $db = null): void
+    {
+        self::setup($db);
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_theme_options_register', $db);
+        }
+    }
+
+    /**
+     * Whether any theme/plugin registered Settings API UI for Theme Options.
+     */
+    public static function hasRegisteredThemeOptions(): bool
+    {
+        if (!class_exists('AP_Settings', false)) {
+            return false;
+        }
+        $page = self::THEME_OPTIONS_PAGE;
+        if (AP_Settings::getSections($page) !== []) {
+            return true;
+        }
+
+        return AP_Settings::getFields($page) !== [];
+    }
+
+    /**
+     * Option name for theme_mods of a stylesheet (WordPress: theme_mods_{slug}).
+     */
+    public static function themeModsOptionName(?string $stylesheet = null, ?AP_DB $db = null): string
+    {
+        $slug = $stylesheet !== null && $stylesheet !== ''
+            ? self::sanitizeSlug($stylesheet)
+            : self::getStylesheet($db);
+        if ($slug === '') {
+            $slug = self::DEFAULT_SLUG;
+        }
+
+        return 'theme_mods_' . $slug;
+    }
+
+    /**
+     * All theme mods for a stylesheet (associative array).
+     *
+     * @return array<string, mixed>
+     */
+    public static function getMods(?string $stylesheet = null, ?AP_DB $db = null): array
+    {
+        $name = self::themeModsOptionName($stylesheet, $db);
+        if (class_exists('AP_Options', false)) {
+            $raw = AP_Options::get($name, [], $db);
+            if (is_array($raw)) {
+                return $raw;
+            }
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+
+                return is_array($decoded) ? $decoded : [];
+            }
+
+            return [];
+        }
+
+        $raw = self::readOption($name, '', $db);
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Read one theme mod (WordPress get_theme_mod).
+     *
+     * @param mixed $default
+     *
+     * @return mixed
+     */
+    public static function getMod(string $name, mixed $default = false, ?string $stylesheet = null, ?AP_DB $db = null): mixed
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return $default;
+        }
+        $mods = self::getMods($stylesheet, $db);
+        if (!array_key_exists($name, $mods)) {
+            return $default;
+        }
+
+        return $mods[$name];
+    }
+
+    /**
+     * Write one theme mod (WordPress set_theme_mod).
+     *
+     * @param mixed $value
+     */
+    public static function setMod(string $name, mixed $value, ?string $stylesheet = null, ?AP_DB $db = null): bool
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return false;
+        }
+        $mods = self::getMods($stylesheet, $db);
+        $mods[$name] = $value;
+
+        return self::writeMods($mods, $stylesheet, $db);
+    }
+
+    /**
+     * Remove one theme mod (WordPress remove_theme_mod).
+     */
+    public static function removeMod(string $name, ?string $stylesheet = null, ?AP_DB $db = null): bool
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return false;
+        }
+        $mods = self::getMods($stylesheet, $db);
+        if (!array_key_exists($name, $mods)) {
+            return true;
+        }
+        unset($mods[$name]);
+
+        return self::writeMods($mods, $stylesheet, $db);
+    }
+
+    /**
+     * Replace all theme mods for a stylesheet.
+     *
+     * @param array<string, mixed> $mods
+     */
+    public static function writeMods(array $mods, ?string $stylesheet = null, ?AP_DB $db = null): bool
+    {
+        $option = self::themeModsOptionName($stylesheet, $db);
+        if (class_exists('AP_Options', false)) {
+            return AP_Options::update($option, $mods, $db);
+        }
+        $json = json_encode($mods, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            return false;
+        }
+
+        return self::writeOption($option, $json, $db);
+    }
+
+    // -------------------------------------------------------------------------
     // Additional CSS (Appearance → Theme Options)
     // -------------------------------------------------------------------------
 

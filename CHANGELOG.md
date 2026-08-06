@@ -3,13 +3,45 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.2.0-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.2.1-beta**).
 
 ## [Unreleased]
 
 ### Added
 
-- (Post-beta work lands here.)
+- (Post-release work lands here.)
+
+## [0.2.1-beta] - 2026-08-06
+
+Schema `AP_DB_VERSION` **11**. Privacy posture unchanged: no telemetry by default; optional local analytics only.
+
+### Package
+
+- Beta package `0.2.1-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
+### Added
+
+- **Forum likes & moderation UI** (phpBB-style parity step):
+  - Thumbs-up for registered users on forum posts; one like per user per post
+  - Edit and delete own posts when forum ACL grants `edit_own` / `delete_own`
+  - Moderators/admins: edit any post, soft-delete, lock/unlock topics
+  - Per-post `like_count` and author post/like counters in the topic view
+  - Usermeta stats: `forum_posts`, `forum_likes_given`, `forum_likes_received` (kept in sync on post insert/unapprove/approve/delete and like/unlike)
+  - Migration **11**: `forum_post_likes` table + `forum_posts.like_count`
+  - Classes: `AP_Forum_Like`, `AP_Forum_Stats`; front handlers on `AP_Forum_Front`
+  - Default **Agora** theme topic toolbar (like / edit / delete / lock)
+- **Theme Options Settings API** (WordPress-compatible theme_mods):
+  - Themes register sections/fields on Appearance → Theme Options via `ap_theme_options_register`
+  - `theme_mods_{stylesheet}` storage; `ap_get_theme_mod` / `ap_set_theme_mod` / `ap_remove_theme_mod`
+  - Classic WP compatibility shims: `get_theme_mod`, `set_theme_mod`, `remove_theme_mod`
+
+### Changed
+
+- Product README and developer docs updated for schema v11, forum likes/moderation, and Theme Options API.
+
+### Fixed
+
+- Forum user post-count hooks re-register correctly after `ap_reset_hooks()` (tests and re-bootstrap).
 
 ## [0.2.0-beta] - 2026-08-05
 
