@@ -377,6 +377,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-phpbb-importer.php';
     // GDPR-style personal data export / erase + privacy policy page.
     require_once AP_ABSPATH . 'ap-includes/class-ap-privacy.php';
+    // Local privacy-respecting site analytics (config + server-side recorder; opt-in, default off).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-analytics.php';
     // Installer/runtime requirements checker (also used by Site Health).
     require_once AP_ABSPATH . 'ap-includes/class-ap-requirements.php';
     // Site Health status checks + system information (Tools → Site Health).
@@ -521,6 +523,16 @@ function ap_bootstrap(): void
         }
     }
 
+    // Local analytics: ensure daily retention prune is scheduled + hook registered
+    // before pseudo-cron so a due prune can fire on this same request.
+    if (class_exists('AP_Analytics', false)) {
+        try {
+            AP_Analytics::registerCron();
+        } catch (Throwable) {
+            // Analytics cron must never break bootstrap.
+        }
+    }
+
     // Pseudo-cron: fire due scheduled events (bounded per request).
     // Skip on ap-cli so management commands have no cron side effects; use `cron event run`.
     if (class_exists('AP_Cron', false) && !(defined('AP_CLI') && AP_CLI)) {
@@ -528,6 +540,16 @@ function ap_bootstrap(): void
             AP_Cron::spawn();
         } catch (Throwable) {
             // Cron must never break the request.
+        }
+    }
+
+    // Local analytics: register shutdown recorder (no-op when disabled / CLI / ap-admin).
+    // Re-checks analytics_enabled at record time so opt-in works without redeploy.
+    if (class_exists('AP_Analytics', false)) {
+        try {
+            AP_Analytics::register();
+        } catch (Throwable) {
+            // Analytics must never break bootstrap.
         }
     }
 

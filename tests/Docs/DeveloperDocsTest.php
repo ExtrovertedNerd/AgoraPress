@@ -113,6 +113,9 @@ final class DeveloperDocsTest extends TestCase
                 'Classic WordPress Theme Compatibility',
                 'Intentional deviations',
                 'Three independent modules',
+                '0.2.0-beta',
+                'Local analytics',
+                'analytics_enabled',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -137,6 +140,8 @@ final class DeveloperDocsTest extends TestCase
                 'ap_after_setup_theme',
                 'ap_enqueue_scripts',
                 'priority',
+                'ap_analytics_should_record',
+                'ap_analytics_prune',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -145,6 +150,14 @@ final class DeveloperDocsTest extends TestCase
                 "hooks.md should mention: {$needle}"
             );
         }
+    }
+
+    public function testDocsIndexReflects020BetaAndAnalytics(): void
+    {
+        $index = $this->readDoc('README.md');
+        $this->assertStringContainsString('0.2.0-beta', $index);
+        $this->assertStringContainsString('AP_Analytics', $index);
+        $this->assertStringContainsString('class-ap-analytics.php', $index);
     }
 
     public function testThemesDocCoversHierarchy(): void

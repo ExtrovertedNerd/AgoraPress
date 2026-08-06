@@ -125,6 +125,9 @@ function ap_core_base_tables(): array
         'term_relationships',
         'comments',
         'commentmeta',
+        // Local privacy-respecting analytics (migration 0010).
+        'analytics_hits',
+        'analytics_daily',
     ];
 }
 

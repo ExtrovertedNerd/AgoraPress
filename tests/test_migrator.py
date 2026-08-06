@@ -66,7 +66,7 @@ def test_db_version_constant_is_integer_string() -> None:
     src = VERSION.read_text(encoding="utf-8")
     assert "AP_DB_VERSION" in src
     assert "define('AP_DB_VERSION'" in src
-    assert "define('AP_DB_VERSION', '9')" in src
+    assert "define('AP_DB_VERSION', '10')" in src
 
 
 def test_shipped_core_options_users_migration_exists() -> None:
@@ -186,7 +186,7 @@ def test_shipped_core_migration_applies_via_php() -> None:
         ]);
         $db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
         $m = new AP_Migrator($db, AP_Migrator::defaultMigrationsPath());
-        if ((int) AP_DB_VERSION < 8) {{
+        if ((int) AP_DB_VERSION < 10) {{
             fwrite(STDERR, "AP_DB_VERSION too low\\n");
             exit(2);
         }}
@@ -231,6 +231,10 @@ def test_shipped_core_migration_applies_via_php() -> None:
             fwrite(STDERR, "version 9 not applied\\n");
             exit(4);
         }}
+        if (count($applied) < 10 || (int) $applied[9]['version'] !== 10) {{
+            fwrite(STDERR, "version 10 not applied\\n");
+            exit(4);
+        }}
         foreach ([
             'ap_options', 'ap_users', 'ap_usermeta', 'ap_posts', 'ap_postmeta',
             'ap_terms', 'ap_term_taxonomy', 'ap_term_relationships',
@@ -240,6 +244,7 @@ def test_shipped_core_migration_applies_via_php() -> None:
             'ap_messages', 'ap_ranks',
             'ap_reports', 'ap_warnings', 'ap_bans', 'ap_online',
             'ap_topic_track', 'ap_forum_track',
+            'ap_analytics_hits', 'ap_analytics_daily',
         ] as $t) {{
             $name = $db->getVar(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
@@ -389,8 +394,8 @@ def test_shipped_core_migration_applies_via_php() -> None:
             fwrite(STDERR, "forum name mismatch\\n");
             exit(15);
         }}
-        if ($m->getCurrentVersion() !== 9) {{
-            fwrite(STDERR, "current version not 9\\n");
+        if ($m->getCurrentVersion() !== 10) {{
+            fwrite(STDERR, "current version not 10\\n");
             exit(9);
         }}
         if ($m->migrate() !== []) {{

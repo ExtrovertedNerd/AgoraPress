@@ -3,17 +3,32 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.1.5-dev**).  
-No tagged public release yet — everything below is **[Unreleased]**.
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.2.0-beta**).
 
 ## [Unreleased]
 
+### Added
+
+- (Post-beta work lands here.)
+
+## [0.2.0-beta] - 2026-08-05
+
+First public beta. Schema `AP_DB_VERSION` **10**. Privacy posture unchanged: no telemetry by default; optional local analytics only.
+
 ### Package
 
-- Dev package `0.1.5-dev` (zip + SHA-256 under `dist/`).
+- Beta package `0.2.0-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
 
 ### Added
 
+- **Local site analytics** (admin-only, privacy-respecting):
+  - Opt-in collection (`analytics_enabled`, default **off**); retention days (`analytics_retention_days`, default **90**)
+  - Server-side pageview recorder on public GET/HEAD — no front-end JS, no third-party scripts or endpoints
+  - Skips ap-admin, feeds, REST, sitemaps, obvious bots, logged-in `manage_options` users, and HTTP `DNT: 1`
+  - Migration **10**: `analytics_hits` + `analytics_daily` tables (`ap_` prefix)
+  - Daily cron prune of rows older than the retention window
+  - ACP **Tools → Analytics** (`manage_options`): pageviews today / 7d / 30d, top paths, top referrers, daily table; enable + retention settings; empty states when disabled or no data
+  - Data stays in the site database only — not Hall of Fame registration and not version-check traffic
 - **ap-cli `post`**: list / get / create / update posts and pages from the shell using local `--file` paths only (no remote URLs).
 - Default **Agora** theme header: guests see **Log in** (and **Register** when public registration is enabled).
 
@@ -47,7 +62,7 @@ No tagged public release yet — everything below is **[Unreleased]**.
 
 - Web installer (`/install/`), CLI install (`php install/cli.php`), Docker Compose
 - Config sample (`ap-config-sample.php`), table prefix `ap_`, multi-driver DB (MySQL/MariaDB, SQLite, PostgreSQL)
-- Release packaging (`bin/package-release.php` → zip + SHA-256 + `version.json.example`)
+- Release packaging (`bin/package-release.php` → zip + SHA-256 + `version.json`)
 - One-click core update + version check (no site identity sent)
 - `ap-cli` for options, plugins, themes, users, posts/pages, DB migrate, cache, cron, health
 - Live-site install readiness: production hardening denies secrets, SQLite/DB downloads, and direct `ap-includes/` access (Apache `.htaccess`, Nginx example)

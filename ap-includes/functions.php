@@ -2890,6 +2890,223 @@ function ap_version_check_enabled(?AP_DB $db = null): bool
     return AP_Version_Check::isEnabled($db);
 }
 
+// -----------------------------------------------------------------------------
+// Local analytics (site DB only — no third-party; default off)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether local site analytics hit collection is enabled.
+ *
+ * Default is off (opt-in). Data never leaves the site database.
+ *
+ * @see AP_Analytics::isEnabled()
+ */
+function ap_analytics_enabled(?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return false;
+    }
+
+    return AP_Analytics::isEnabled($db);
+}
+
+/**
+ * Analytics hit retention window in whole days (default 90).
+ *
+ * @see AP_Analytics::getRetentionDays()
+ */
+function ap_analytics_retention_days(?AP_DB $db = null): int
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return 90;
+    }
+
+    return AP_Analytics::getRetentionDays($db);
+}
+
+/**
+ * Whether the current request should be recorded as a public page view.
+ *
+ * @see AP_Analytics::shouldRecordRequest()
+ */
+function ap_analytics_should_record(?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return false;
+    }
+
+    return AP_Analytics::shouldRecordRequest($db);
+}
+
+/**
+ * Record a page-view hit when collection is enabled and the request qualifies.
+ *
+ * Returns the new hit_id, or 0 when skipped / disabled / failed.
+ *
+ * @see AP_Analytics::maybeRecordCurrentRequest()
+ */
+function ap_analytics_maybe_record(?AP_DB $db = null): int
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return 0;
+    }
+
+    return AP_Analytics::maybeRecordCurrentRequest($db);
+}
+
+/**
+ * Insert an analytics hit row (respects analytics_enabled unless overridden in $args).
+ *
+ * @param array<string, mixed> $data path, object_id, status_code, referrer, ua_class, is_admin, hit_time
+ * @param array<string, mixed> $args check_enabled (default true)
+ *
+ * @see AP_Analytics::recordHit()
+ */
+function ap_analytics_record_hit(array $data, ?AP_DB $db = null, array $args = []): int
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return 0;
+    }
+
+    return AP_Analytics::recordHit($data, $db, $args);
+}
+
+/**
+ * Delete analytics hits and daily rollups older than the retention window.
+ *
+ * @param array<string, mixed> $args retention_days, now, prune_hits, prune_daily
+ *
+ * @return int Total rows deleted.
+ *
+ * @see AP_Analytics::prune()
+ */
+function ap_analytics_prune(?AP_DB $db = null, array $args = []): int
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return 0;
+    }
+
+    return AP_Analytics::prune($db, $args);
+}
+
+/**
+ * Ensure the daily analytics prune cron event is scheduled.
+ *
+ * @see AP_Analytics::ensurePruneScheduled()
+ */
+function ap_analytics_ensure_prune_scheduled(?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return false;
+    }
+
+    return AP_Analytics::ensurePruneScheduled($db);
+}
+
+/**
+ * Count analytics hits matching optional filters (date range, path, etc.).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @see AP_Analytics::countHits()
+ */
+function ap_analytics_count_hits(?AP_DB $db = null, array $args = []): int
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return 0;
+    }
+
+    return AP_Analytics::countHits($db, $args);
+}
+
+/**
+ * Pageview summary: today / last 7 days / last 30 days.
+ *
+ * @return array{today: int, last_7_days: int, last_30_days: int}
+ *
+ * @see AP_Analytics::getSummary()
+ */
+function ap_analytics_summary(?AP_DB $db = null, ?int $now = null): array
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return ['today' => 0, 'last_7_days' => 0, 'last_30_days' => 0];
+    }
+
+    return AP_Analytics::getSummary($db, $now);
+}
+
+/**
+ * Top paths by hit count for ACP reports.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<array{path: string, object_id: int, hits: int}>
+ *
+ * @see AP_Analytics::getTopPaths()
+ */
+function ap_analytics_top_paths(?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return [];
+    }
+
+    return AP_Analytics::getTopPaths($db, $args);
+}
+
+/**
+ * Top referrers by hit count for ACP reports.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<array{referrer: string, hits: int}>
+ *
+ * @see AP_Analytics::getTopReferrers()
+ */
+function ap_analytics_top_referrers(?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return [];
+    }
+
+    return AP_Analytics::getTopReferrers($db, $args);
+}
+
+/**
+ * Per-day pageview totals (crude chart / last-N-days table).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<array{day: string, hits: int}>
+ *
+ * @see AP_Analytics::getDailyTotals()
+ */
+function ap_analytics_daily_totals(?AP_DB $db = null, array $args = []): array
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return [];
+    }
+
+    return AP_Analytics::getDailyTotals($db, $args);
+}
+
+/**
+ * Aggregate raw hits into analytics_daily for a day range.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return int Number of daily rows written.
+ *
+ * @see AP_Analytics::rollupDaily()
+ */
+function ap_analytics_rollup_daily(?AP_DB $db = null, array $args = []): int
+{
+    if (!class_exists('AP_Analytics', false)) {
+        return 0;
+    }
+
+    return AP_Analytics::rollupDaily($db, $args);
+}
+
 /**
  * Whether a newer AgoraPress release is available (uses transient cache).
  *

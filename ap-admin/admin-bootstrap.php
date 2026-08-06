@@ -24,6 +24,7 @@ ap_bootstrap();
 
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin.php';
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin-dashboard.php';
+require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin-analytics.php';
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-posts-list-table.php';
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin-post-edit.php';
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-media-list-table.php';

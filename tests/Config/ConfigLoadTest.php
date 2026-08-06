@@ -95,6 +95,8 @@ final class ConfigLoadTest extends TestCase
         $this->assertContains('usermeta', $core);
         $this->assertContains('posts', $core);
         $this->assertContains('comments', $core);
+        $this->assertContains('analytics_hits', $core);
+        $this->assertContains('analytics_daily', $core);
         $this->assertNotContains('forums', $core);
 
         $forum = ap_forum_base_tables();

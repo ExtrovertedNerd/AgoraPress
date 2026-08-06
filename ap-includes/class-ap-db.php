@@ -85,6 +85,10 @@ class AP_DB
 
     public string $forum_track = '';
 
+    public string $analytics_hits = '';
+
+    public string $analytics_daily = '';
+
     private PDO $pdo;
 
     private string $driver;
@@ -263,6 +267,8 @@ class AP_DB
             'online',
             'topic_track',
             'forum_track',
+            'analytics_hits',
+            'analytics_daily',
         ];
     }
 

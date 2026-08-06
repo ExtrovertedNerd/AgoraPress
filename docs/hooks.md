@@ -177,7 +177,7 @@ There is **no** block-editor hook surface in core.
 | `ap_deactivate_plugin` | action | After deactivation |
 | `ap_plugin_header_fields` | filter | Extend header field names |
 
-### Cache, SEO, privacy, health
+### Cache, SEO, privacy, health, analytics
 
 | Hook | Type | Notes |
 |------|------|-------|
@@ -188,6 +188,12 @@ There is **no** block-editor hook surface in core.
 | `ap_privacy_export_data` / `ap_privacy_erase_data` | filter | GDPR-style tools |
 | `ap_site_health_checks` / `ap_site_health_info` | filter | Site Health |
 | `ap_version_check_enabled` / `ap_version_check_url` | filter | Update checks (no site identity sent) |
+| `ap_analytics_enabled` / `ap_analytics_retention_days` | filter | Local analytics config (default collection **off**) |
+| `ap_analytics_should_record` | filter | Final gate before writing a hit |
+| `ap_analytics_exclude_admins` / `ap_analytics_record_404` | filter | Skip logged-in admins (default true); record 404s (default true) |
+| `ap_analytics_ua_class` | filter | Coarse UA class (`browser` / `bot` / `other`) |
+| `ap_analytics_hit_recorded` / `ap_analytics_pruned` / `ap_analytics_rolled_up` | action | After record / prune / daily rollup |
+| `ap_analytics_prune` | action (cron) | Daily retention prune hook name (`AP_Analytics::CRON_HOOK`) |
 
 ### i18n
 

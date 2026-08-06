@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-05  
 **Scope:** Full codebase reevaluation against the project constitution (`VISION.md`, `FEATURES.md`, `SPEC.md` under the operator’s private process tree).  
-**Version under review:** `AP_VERSION` `0.1.5-dev`
+**Version under review:** `AP_VERSION` `0.2.0-beta`
 
 This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves.
 
@@ -22,6 +22,7 @@ AgoraPress still matches the mission: a **free, lightweight, privacy-respecting*
 | Secure & private defaults | Pass |
 | Non-goals respected (Gutenberg, SaaS marketplace, heavy AI, PHP &lt; 8.2) | Pass |
 | Live-site install readiness (hardening, installer, Site Health) | Pass |
+| Local site analytics (opt-in, no third party) | Pass (shipped in 0.2.0-beta; default off) |
 
 No bloat or phone-home paths were found in core product code. Network egress from core is limited to:
 
@@ -50,7 +51,7 @@ No bloat or phone-home paths were found in core product code. Network egress fro
 ### 3. Easy self-host & maintain
 
 - Web installer (`install/`), CLI install (`install/cli.php`), Docker Compose.
-- Versioned migrations (`AP_DB_VERSION` = 9), Site Health, Update Core screen.
+- Versioned migrations (`AP_DB_VERSION` = 10), Site Health, Update Core screen, **Tools → Analytics**.
 - Familiar `ap-admin` / `ap-includes` / `ap-content` layout for classic WP operators.
 - Zero-dependency `ap-cli` for options, plugins, themes, users, **posts/pages**, DB, cache, cron, rewrites, health.
 - Production hardening examples (Apache `.htaccess`, Nginx) deny secrets, SQLite downloads, and direct `ap-includes/` PHP.
@@ -93,6 +94,7 @@ Dedicated forum tables; shared users, roles, capabilities, and media. Hierarchy,
 - Argon2id passwords, rate limiting, hardened uploads  
 - No `AP_TELEMETRY` constant, flag, or option — telemetry is never used (config sample, installer, Site Health)  
 - Version check and updater User-Agents are generic (`no-site-id`); they never append domain, email, or site URL  
+- **Local analytics** (`AP_Analytics`): opt-in (`analytics_enabled` default **off**), server-side hits only, data in site DB, no third-party scripts/endpoints; not Hall of Fame or version-check traffic  
 
 ### 8. Migration friendly
 
@@ -162,14 +164,22 @@ Users, forums, topics, and posts import; attachments, private messages, and rank
 
 ### D7 — README / status language
 
-Product README status is kept honest for `0.1.5-dev` (pre-tagged release) while reflecting that installer, CMS, forums, admin, compatibility layer, packaging, and live-site hardening are **implemented**, not Phase-1 stubs.
+Product README status tracks the shipped release line (`0.2.0-beta`) and reflects that installer, CMS, forums, admin, compatibility layer, packaging, live-site hardening, and opt-in local analytics are **implemented**, not Phase-1 stubs.
+
+### D8 — Local site analytics (SPEC 0.2.0-beta)
+
+**SPEC** requires privacy-respecting admin analytics with data in the site DB only.  
+**Implementation:** migration 10 (`analytics_hits` / `analytics_daily`), `AP_Analytics` server-side recorder (default off), retention prune cron, ACP **Tools → Analytics**. No front-end JS beacon; no third-party endpoints.
+
+**Why:** Operators get usable pageview reports without weakening the no-telemetry posture. Collection remains opt-in and local-only.
 
 ---
 
 ## Explicit non-findings (no action needed)
 
 - No jQuery in core product PHP/CSS/JS  
-- No analytics / beacon / usage-stat collectors  
+- No **third-party** analytics / beacon / usage-stat collectors (Google Analytics, Matomo cloud, etc.)  
+- Local pageview analytics is **opt-in**, server-side, and **local DB only** (not telemetry; not Hall of Fame)  
 - No image assets under the default Agora theme  
 - No paywall or license-key enforcement paths  
 - Compatibility layer does not claim block/FSE parity (documented out of scope)  

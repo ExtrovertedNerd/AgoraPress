@@ -88,15 +88,23 @@ def test_builds_zip_and_excludes_dev_paths() -> None:
         data = json.loads(proc.stdout)
         zip_path = out / "AgoraPress-0.0.0-pytest.zip"
         sha_path = out / "AgoraPress-0.0.0-pytest.sha256"
-        example = out / "version.json.example"
+        version_json = out / "version.json"
         assert zip_path.is_file()
         assert sha_path.is_file()
-        assert example.is_file()
+        assert version_json.is_file()
 
         raw = zip_path.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         assert data["sha256"] == digest
         assert digest in sha_path.read_text(encoding="utf-8")
+
+        payload = json.loads(version_json.read_text(encoding="utf-8"))
+        assert payload["version"] == "0.0.0-pytest"
+        assert payload["sha256"] == digest
+        assert "download_url" in payload
+        assert "changelog_url" in payload
+        assert "released" in payload
+        assert "notes" not in payload
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())

@@ -700,6 +700,10 @@ PHP;
             'version_check_enabled' => '1',
             // Lightweight REST API (public JSON at /ap-json/; disable via option).
             'rest_api_enabled' => '1',
+            // Local site analytics (AP_Analytics): off by default (opt-in, privacy).
+            // Data stays in the site DB only — no third-party phone-home.
+            'analytics_enabled' => '0',
+            'analytics_retention_days' => '90',
             // Rate limiting / login protection (AP_Rate_Limit; overridable per action).
             'rate_limit_login_max' => '5',
             'rate_limit_login_window' => '900',

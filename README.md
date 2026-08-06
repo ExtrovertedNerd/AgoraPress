@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** MVP feature-complete at `0.1.5-dev` (pre-tagged) and **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
+> **Status:** **`0.2.0-beta`** — MVP feature-complete with local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 
@@ -34,7 +34,7 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 | **Editor** | Lightweight visual WYSIWYG (Visual \| Text modes); HTML storage; legacy Markdown/BBCode still converts on display |
 | **Forums** | Hierarchy, topics/replies, attachments, groups & ACL by user level, moderation, search, flood guards, PMs, online/unread |
 | **Default theme** | Agora — six pure-CSS schemes (3 light + 3 dark), guest Log in / Register, dark-mode form contrast, long-string wrapping |
-| **Admin** | Responsive light/dark UI, roles/caps, users, Site Health, Import (WXR + phpBB), privacy export/erase |
+| **Admin** | Responsive light/dark UI, roles/caps, users, Site Health, **Tools → Analytics** (opt-in local pageviews), Import (WXR + phpBB), privacy export/erase |
 | **Ops** | Installers, one-click core update (no site identity), `ap-cli`, release packaging, Apache/Nginx hardening examples |
 | **Extensibility** | Hooks, plugins/mu-plugins, shortcodes, Settings/Options API, REST (`/ap-json/`), Classic WP theme shims |
 
@@ -57,7 +57,7 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 | **Web server** | Apache with `mod_rewrite`, or Nginx with rewrite rules |
 | **Disk** | Writable site root (for `ap-config.php`) and `ap-content/` (including `uploads/`) |
 
-Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **9** (see [docs/schema.md](docs/schema.md)).
+Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **10** (see [docs/schema.md](docs/schema.md)).
 
 ---
 
@@ -127,7 +127,8 @@ Best for a real server when you have a browser and FTP/SFTP or a control panel.
    - Change the admin password if it was temporary  
    - **Settings → Modules** — enable Pages / Blog / Forum as needed  
    - **Settings → Permalinks** — pick a structure; keep shipped [`.htaccess`](.htaccess) (Apache) or adapt [`docker/nginx.conf.example`](docker/nginx.conf.example)  
-   - Run **Tools → Site Health**
+   - Run **Tools → Site Health**  
+   - Optional: **Tools → Analytics** — enable local pageview collection (off by default; data stays in your database)
 
 **Never commit `ap-config.php`.** It is gitignored and contains secrets.
 
@@ -189,7 +190,8 @@ Use this checklist for a public host (shared hosting, VPS, or container):
 8. Confirm rewrites: Apache [`.htaccess`](.htaccess) or [`docker/nginx.conf.example`](docker/nginx.conf.example).  
 9. Confirm hardening: config, `.env`, and DB files are not downloadable (shipped rules cover common cases).  
 10. After install: strong admin password, modules (Pages / Blog / Forum), menus, privacy policy, **Tools → Site Health**.  
-11. Optional: **Tools → Import** for WordPress WXR or phpBB content.
+11. Optional: **Tools → Import** for WordPress WXR or phpBB content.  
+12. Optional: **Tools → Analytics** — opt-in local pageviews (no third-party scripts; retention prune; off by default).
 
 ---
 
@@ -248,6 +250,17 @@ Auth: session cookie + `X-AP-Nonce`, or HTTP Basic. Disable with option `rest_ap
 - Or deploy a new package / git pull and run `php ap-cli db migrate` if needed  
 - Updates **do not** rewrite `ap-config.php`, user uploads/plugins/custom themes, or (from `0.1.4-dev`) the `install/` directory and `ap-config-sample.php` — safe to remove those after a production install  
 
+### Local analytics (opt-in)
+
+**Tools → Analytics** (`manage_options`) shows pageviews today / 7 / 30 days, top paths, top referrers, and a daily table. Collection is **off by default** (`analytics_enabled`). When enabled:
+
+- Server-side only (no front-end JS, no third-party pixels or endpoints)
+- Data stays in your site database (`analytics_hits` / `analytics_daily`; prefix `ap_` by default)
+- Skips ap-admin, feeds, REST, sitemaps, obvious bots, logged-in admins (`manage_options`), and HTTP `DNT: 1`
+- Retention defaults to **90 days** with a daily cron prune
+
+Not related to Hall of Fame or the public version check. Schema and options: [docs/schema.md](docs/schema.md).
+
 ---
 
 ## Release packaging
@@ -264,7 +277,7 @@ php bin/package-release.php
 |--------|---------|
 | `dist/AgoraPress-{version}.zip` | Production tree under `AgoraPress/` |
 | `dist/AgoraPress-{version}.sha256` | Checksum for `version.json` |
-| `dist/version.json.example` | Template for the public version endpoint |
+| `dist/version.json` | Public version endpoint payload (version, URLs, sha256, released) |
 
 Excludes tests, vendor, secrets, and runtime uploads. `dist/` is gitignored. Fresh-install assets (`install/`, `ap-config-sample.php`) remain in the zip; the updater simply does not re-apply them onto a live site.
 
@@ -335,6 +348,7 @@ Full extension guides live under [`docs/`](docs/README.md):
 - PDO prepared statements; nonces and capability checks on privileged actions  
 - Argon2id password hashing  
 - **No telemetry** — version check and updates never send your domain or site identity  
+- **Local analytics only** — opt-in pageviews for admins; never third-party analytics endpoints or beacons  
 - Optional Hall of Fame domain listing is voluntary only (Settings → Hall of Fame)  
 - Privacy tools: export / erase personal data under Tools  
 - Production hardening: deny web access to `ap-config.php`, `.env`, SQLite/DB files, and raw `ap-includes/` PHP (Apache `.htaccess`, Nginx example)  

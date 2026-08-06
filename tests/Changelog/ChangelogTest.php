@@ -171,6 +171,11 @@ final class ChangelogTest extends TestCase
         }
 
         $apVersion = $m[1];
+        $this->assertStringContainsString(
+            $apVersion,
+            $this->changelog,
+            "CHANGELOG should mention current AP_VERSION ({$apVersion})"
+        );
         if (str_contains(strtolower($apVersion), 'dev')) {
             $this->assertMatchesRegularExpression(
                 '/(?i)0\\.1\\.\\d+-dev|no tagged public release|unreleased/',
@@ -178,5 +183,20 @@ final class ChangelogTest extends TestCase
                 'While AP_VERSION is a -dev build, CHANGELOG should note unreleased / pre-release status'
             );
         }
+    }
+
+    public function test020BetaDocumentsLocalAnalytics(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\s+\[0\.2\.0-beta\]/',
+            $this->changelog
+        );
+        $lower = strtolower($this->changelog);
+        $this->assertStringContainsString('analytics', $lower);
+        $this->assertStringContainsString('analytics_enabled', $lower);
+        $this->assertTrue(
+            str_contains($lower, 'analytics_hits') || str_contains($lower, 'analytics_daily'),
+            'CHANGELOG 0.2.0-beta should mention analytics tables'
+        );
     }
 }

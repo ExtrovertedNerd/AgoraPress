@@ -97,6 +97,9 @@ def test_mentions_core_version_constant(changelog_text: str) -> None:
         )
         assert match, "ap-includes/version.php should define AP_VERSION"
         ap_version = match.group(1)
+        assert ap_version in changelog_text, (
+            f"CHANGELOG should mention current AP_VERSION ({ap_version})"
+        )
         if "-dev" in ap_version or "dev" in ap_version.lower():
             assert re.search(
                 r"(?i)0\.1\.\d+-dev|no tagged public release|unreleased",
@@ -104,3 +107,11 @@ def test_mentions_core_version_constant(changelog_text: str) -> None:
             ), (
                 "While AP_VERSION is a -dev build, CHANGELOG should note unreleased / pre-release status"
             )
+
+
+def test_020_beta_documents_local_analytics(changelog_text: str) -> None:
+    assert re.search(r"(?im)^##\s+\[0\.2\.0-beta\]", changelog_text)
+    lower = changelog_text.lower()
+    assert "local" in lower and "analytics" in lower
+    assert "analytics_enabled" in lower
+    assert "analytics_hits" in lower or "analytics_daily" in lower

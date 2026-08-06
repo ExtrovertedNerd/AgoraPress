@@ -2723,3 +2723,238 @@ body.ap-admin.rtl .skip-link {
 .ap-site-health-info-table tr:last-child td {
     border-bottom: none;
 }
+
+/* -------------------------------------------------------------------------
+   Analytics (Tools → Analytics)
+   ------------------------------------------------------------------------- */
+
+.ap-analytics-intro {
+    max-width: 48rem;
+    color: var(--ap-muted);
+    margin: 0 0 1rem;
+}
+
+.ap-analytics-status {
+    margin: 0 0 1rem;
+}
+
+.ap-analytics-disabled-notice {
+    margin-bottom: 1rem;
+}
+
+.ap-analytics-empty-banner {
+    margin: 0 0 1.25rem;
+}
+
+.ap-analytics-empty {
+    margin: 0;
+    padding: 0.85rem 1rem;
+    border: 1px dashed var(--ap-border);
+    border-radius: var(--ap-radius-md, 0.4rem);
+    background: var(--ap-surface-2, transparent);
+    color: var(--ap-muted);
+}
+
+.ap-analytics-empty-title {
+    margin: 0 0 0.35rem;
+    color: var(--ap-text);
+}
+
+.ap-analytics-empty-message {
+    margin: 0;
+    max-width: 40rem;
+    line-height: 1.45;
+}
+
+.ap-analytics-empty-action {
+    margin: 0.55rem 0 0;
+}
+
+.ap-analytics-empty--banner {
+    padding: 1rem 1.15rem;
+    border-style: solid;
+    border-color: var(--ap-border);
+}
+
+.ap-analytics-empty--disabled_no_data {
+    border-color: var(--ap-border);
+}
+
+.ap-analytics-empty--enabled_no_data {
+    border-color: var(--ap-border);
+}
+
+.ap-analytics-summary-hint {
+    margin: 0.65rem 0 0;
+    max-width: 36rem;
+}
+
+.ap-analytics-summary--empty .ap-analytics-stat-count {
+    color: var(--ap-muted);
+}
+
+.ap-analytics-settings {
+    margin-bottom: 1.25rem;
+}
+
+.ap-analytics-settings .ap-help {
+    display: block;
+    margin-top: 0.35rem;
+    max-width: 40rem;
+}
+
+.ap-analytics-settings #analytics_retention_days {
+    width: 5.5rem;
+    margin-right: 0.35rem;
+}
+
+.ap-analytics-enable-field label {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+}
+
+.ap-analytics-stat-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 1rem;
+}
+
+.ap-analytics-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.35rem 0;
+}
+
+.ap-analytics-stat-count {
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--ap-text);
+}
+
+.ap-analytics-stat-label {
+    font-size: 0.9rem;
+    color: var(--ap-muted);
+}
+
+.ap-analytics-days-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0 0 1.25rem;
+    border-bottom: 1px solid var(--ap-border);
+    padding-bottom: 0.5rem;
+}
+
+.ap-analytics-days-tabs .ap-tab {
+    display: inline-block;
+    padding: 0.4rem 0.85rem;
+    border-radius: var(--ap-radius-md, 0.4rem);
+    text-decoration: none;
+    color: var(--ap-muted);
+    font-weight: 550;
+    border: 1px solid transparent;
+}
+
+.ap-analytics-days-tabs .ap-tab:hover {
+    background: var(--ap-surface-2);
+    color: var(--ap-text);
+}
+
+.ap-analytics-days-tabs .ap-tab.is-active {
+    background: var(--ap-surface-2);
+    border-color: var(--ap-border);
+    color: var(--ap-text);
+    font-weight: 650;
+}
+
+.ap-analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+    align-items: start;
+}
+
+.ap-metabox-title .ap-metabox-meta {
+    font-weight: 500;
+    font-size: 0.85rem;
+    color: var(--ap-muted);
+    margin-left: 0.35rem;
+}
+
+.ap-analytics-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+}
+
+.ap-analytics-table th,
+.ap-analytics-table td {
+    text-align: left;
+    vertical-align: middle;
+    padding: 0.45rem 0.6rem 0.45rem 0;
+    border-bottom: 1px solid var(--ap-border);
+}
+
+.ap-analytics-table thead th {
+    font-weight: 650;
+    font-size: 0.85rem;
+    color: var(--ap-muted);
+}
+
+.ap-analytics-table tbody tr:last-child th,
+.ap-analytics-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.ap-analytics-table .ap-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    width: 4.5rem;
+}
+
+.ap-analytics-path,
+.ap-analytics-referrer {
+    word-break: break-all;
+}
+
+.ap-analytics-bar-col {
+    width: 40%;
+    min-width: 5rem;
+}
+
+.ap-analytics-bar-cell {
+    padding-left: 0.5rem !important;
+}
+
+.ap-analytics-bar {
+    display: block;
+    height: 0.55rem;
+    min-width: 0;
+    max-width: 100%;
+    border-radius: 999px;
+    background: var(--ap-primary);
+    opacity: 0.75;
+}
+
+.ap-analytics-daily-table tbody tr:hover {
+    background: var(--ap-table-stripe);
+}
+
+@media (max-width: 782px) {
+    .ap-analytics-stat-count {
+        font-size: 1.45rem;
+    }
+
+    .ap-analytics-bar-col {
+        width: 30%;
+    }
+}

@@ -63,6 +63,7 @@ def test_screens_gate_with_require_capability() -> None:
         "options-discussion.php": "manage_options",
         "options-media.php": "manage_options",
         "options-permalink.php": "manage_options",
+        "analytics.php": "manage_options",
         "users.php": "list_users",
         "user-new.php": "create_users",
         "user-edit.php": "edit_users",

@@ -9,9 +9,9 @@
 declare(strict_types=1);
 
 /**
- * Current core version (SemVer). Pre-release suffix while building MVP.
+ * Current core version (SemVer). Pre-release beta for public packaging.
  */
-define('AP_VERSION', '0.1.5-dev');
+define('AP_VERSION', '0.2.0-beta');
 
 /**
  * Database schema version expected by this codebase.
@@ -26,7 +26,8 @@ define('AP_VERSION', '0.1.5-dev');
  * Version 7: forum_permissions (granular group × forum ACL).
  * Version 8: forum moderation (warnings + bans tables; reports in v5).
  * Version 9: forum unread tracking (topic_track + forum_track; online in v5).
+ * Version 10: local analytics (analytics_hits + analytics_daily).
  * {@see AP_Migrator} tracks applied versions in schema_migrations. Installer /
  * update path apply pending migrations until the database matches this target.
  */
-define('AP_DB_VERSION', '9');
+define('AP_DB_VERSION', '10');

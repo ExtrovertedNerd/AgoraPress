@@ -3,7 +3,7 @@
 AgoraPress uses a **versioned migration system** and a configurable table prefix (default **`ap_`**). Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**.
 
 **Source:** `ap-includes/schema/migrations/`, `class-ap-migrator.php`, `class-ap-migration.php`, `class-ap-db.php`  
-**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **9**, AgoraPress `0.1.5-dev`)
+**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **10**, AgoraPress `0.2.0-beta`)
 
 ## Conventions
 
@@ -48,6 +48,7 @@ php ap-cli db check
 | 7 | `0007_forum_permissions.php` | `forum_permissions` |
 | 8 | `0008_forum_moderation.php` | `warnings`, `bans` |
 | 9 | `0009_forum_online_unread.php` | `topic_track`, `forum_track` |
+| 10 | `0010_analytics_tables.php` | `analytics_hits`, `analytics_daily` |
 
 Also created by the migrator infrastructure: **`{prefix}schema_migrations`**.
 
@@ -235,6 +236,60 @@ Who’s online / session presence (`AP_Online`).
 
 Per-user last-read markers for unread tracking (`AP_Forum_Read`). Usermeta `forum_last_mark` may complement “mark all read”.
 
+### analytics_hits
+
+Raw page-view hits for local admin analytics (no third-party phone-home).
+
+**Options** (seeded on install; see `AP_Analytics`):
+
+| Option | Default | Notes |
+|--------|---------|--------|
+| `analytics_enabled` | **off** (`0`) | Opt-in collection. Fresh installs never record hits until an admin enables this. Missing option is treated as off. |
+| `analytics_retention_days` | `90` | Whole days of history kept before prune/cron. Clamped to 1–3650. |
+
+Collection is optional (`analytics_enabled`; default **off**). When enabled, a server-side shutdown recorder writes public GET/HEAD page views (skips ap-admin, feeds, REST, sitemaps, obvious bots, and logged-in `manage_options` users by default). 404s are recorded with `status_code=404` unless filtered off. No front-end JS.
+
+**Retention prune:** daily pseudo-cron hook `ap_analytics_prune` (`AP_Analytics::registerCron()` / `AP_Analytics::prune()`) deletes rows older than `analytics_retention_days` from `analytics_hits` (`hit_time`) and `analytics_daily` (`day`). Runs even when collection is disabled. First schedule is ensured on bootstrap before `AP_Cron::spawn()`.
+
+**Aggregation helpers** (`AP_Analytics`, read-only unless noted; ACP reports use these):
+
+| Method | Purpose |
+|--------|---------|
+| `countHits()` | Filtered hit count (range, path, status, exclude admin) |
+| `getSummary()` | Pageviews today / last 7 days / last 30 days |
+| `getTopPaths()` | Top paths by hit count |
+| `getTopReferrers()` | Top non-empty referrers |
+| `getDailyTotals()` | Per-day totals (gap-filled chart series) |
+| `rollupDaily()` | Rebuild `analytics_daily` rows from raw hits for a range |
+
+Reports still work when collection is disabled (historical data). Defaults exclude `is_admin=1` hits for public pageview numbers.
+
+| Column | Notes |
+|--------|-------|
+| `hit_id` | PK |
+| `hit_time` | Request timestamp (prune by retention) |
+| `path` | Request path (prefer without query noise); max 512 |
+| `object_id` | Post/page ID when known; `0` otherwise |
+| `status_code` | HTTP status (e.g. 200, 404) |
+| `referrer` | Optional truncated referrer |
+| `ua_class` | Optional coarse class: `browser` / `bot` / `other` (not full UA) |
+| `is_admin` | `1` when hit is flagged as logged-in admin traffic |
+
+Indexes on `hit_time`, `path`, `object_id`, `status_code`, `ua_class`.
+
+### analytics_daily
+
+Daily rollups for ACP summaries (pageviews by day/path/object). Populated by `AP_Analytics::rollupDaily()` (or future cron); ACP may also query `analytics_hits` directly via aggregation helpers.
+
+| Column | Notes |
+|--------|-------|
+| `day` | Calendar day (`YYYY-MM-DD`) |
+| `path` | Same path key as hits; empty path + `object_id=0` may hold site totals |
+| `object_id` | Content ID when rolled up by object; `0` for path-only |
+| `hits` | Aggregated view count |
+
+Primary key: `(day, path, object_id)`.
+
 ---
 
 ## Entity relationships (simplified)
@@ -247,6 +302,8 @@ users ──┬── posts / postmeta
         ├── topics / forum_posts / messages
         ├── topic_track / forum_track / online
         └── warnings / bans
+
+analytics_hits / analytics_daily  (optional local analytics; path or object_id → posts)
 
 forums → topics → forum_posts → forum_attachments → media (posts attachment type)
 terms ← term_taxonomy ← term_relationships → posts
@@ -287,5 +344,6 @@ Always:
 | terms* | `AP_Taxonomy` |
 | comments* | `AP_Comment` |
 | forums* | `AP_Forum`, `AP_Forum_Front`, `AP_Forum_Moderation`, `AP_Forum_Permissions`, `AP_Group`, `AP_Private_Message`, `AP_Online`, `AP_Forum_Read`, `AP_Forum_Attachment` |
+| analytics_hits / analytics_daily | `AP_Analytics` (config, recorder, prune, aggregation); ACP `AP_Admin_Analytics` |
 
 See also [hooks.md](hooks.md) for lifecycle actions fired around inserts/updates that plugins can listen to instead of writing SQL.

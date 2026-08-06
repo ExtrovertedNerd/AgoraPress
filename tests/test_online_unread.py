@@ -36,9 +36,10 @@ def test_migration_and_classes_exist() -> None:
     assert READ_CLASS.is_file()
 
 
-def test_db_version_is_nine() -> None:
+def test_db_version_includes_unread_schema() -> None:
     src = VERSION.read_text(encoding="utf-8")
-    assert "define('AP_DB_VERSION', '9')" in src
+    m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", src)
+    assert m is not None and int(m.group(1)) >= 9
     assert "Version 9" in src
 
 

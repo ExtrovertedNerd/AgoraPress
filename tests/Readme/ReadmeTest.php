@@ -85,6 +85,9 @@ final class ReadmeTest extends TestCase
             'table prefix' => ['ap_'],
             'php version' => ['PHP 8.2'],
             'license short' => ['GPLv2'],
+            'beta version' => ['0.2.0-beta'],
+            'analytics screen' => ['Tools → Analytics'],
+            'analytics option' => ['analytics_enabled'],
         ];
     }
 
@@ -126,5 +129,23 @@ final class ReadmeTest extends TestCase
                 "Module toggle mentioned: {$module}"
             );
         }
+    }
+
+    public function testMentionsLocalAnalyticsAndSchemaVersion(): void
+    {
+        $lower = strtolower($this->readme);
+        $this->assertStringContainsString('0.2.0-beta', $this->readme);
+        $this->assertMatchesRegularExpression('/AP_DB_VERSION/i', $this->readme);
+        $this->assertMatchesRegularExpression('/\b10\b/', $this->readme);
+        $this->assertTrue(
+            str_contains($lower, 'local analytics') || str_contains($lower, 'tools → analytics'),
+            'README should document Tools → Analytics / local analytics'
+        );
+        $this->assertTrue(
+            str_contains($lower, 'off by default')
+            || str_contains($lower, 'default off')
+            || str_contains($lower, 'analytics_enabled'),
+            'README should note analytics is opt-in / off by default'
+        );
     }
 }

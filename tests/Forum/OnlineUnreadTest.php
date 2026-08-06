@@ -111,7 +111,7 @@ final class OnlineUnreadTest extends TestCase
         $this->assertSame('ap_online', $this->db->online);
         $this->assertSame('ap_topic_track', $this->db->topic_track);
         $this->assertSame('ap_forum_track', $this->db->forum_track);
-        $this->assertSame(9, (int) AP_DB_VERSION);
+        $this->assertGreaterThanOrEqual(9, (int) AP_DB_VERSION);
         $this->assertTrue(AP_Online::isAvailable($this->db));
         $this->assertTrue(AP_Forum_Read::isAvailable($this->db));
         $this->assertTrue(ap_online_enabled($this->db));

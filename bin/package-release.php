@@ -19,7 +19,7 @@
  * Outputs (default under dist/):
  *   AgoraPress-{version}.zip
  *   AgoraPress-{version}.sha256
- *   version.json.example   (template for the public version endpoint)
+ *   version.json           (public version endpoint payload shape)
  *
  * Excludes development-only paths (tests, vendor, CI, VCS, caches, secrets).
  * Zero production Composer packages — vendor/ is never shipped.
@@ -81,7 +81,7 @@ $zipName = 'AgoraPress-' . sanitizeFileVersion($version) . '.zip';
 $shaName = 'AgoraPress-' . sanitizeFileVersion($version) . '.sha256';
 $zipPath = rtrim($outputDir, '/\\') . '/' . $zipName;
 $shaPath = rtrim($outputDir, '/\\') . '/' . $shaName;
-$versionJsonPath = rtrim($outputDir, '/\\') . '/version.json.example';
+$versionJsonPath = rtrim($outputDir, '/\\') . '/version.json';
 
 $files = collectPackageFiles($root);
 if ($files === []) {
@@ -123,7 +123,7 @@ $result = [
     'output_dir' => $outputDir,
     'zip' => $zipPath,
     'sha256_file' => $shaPath,
-    'version_json_example' => $versionJsonPath,
+    'version_json' => $versionJsonPath,
     'sha256' => '',
     'bytes' => 0,
     'dry_run' => (bool) $opts['dry-run'],
@@ -137,7 +137,7 @@ if ($opts['dry-run']) {
         fwrite(STDOUT, "Version: {$version}\n");
         fwrite(STDOUT, "Zip:     {$zipPath}\n");
         fwrite(STDOUT, "SHA-256: {$shaPath}\n");
-        fwrite(STDOUT, "Example: {$versionJsonPath}\n");
+        fwrite(STDOUT, "version.json: {$versionJsonPath}\n");
     }
     exit(0);
 }
@@ -197,20 +197,20 @@ if (file_put_contents($shaPath, $shaBody) === false) {
     exit(1);
 }
 
-$versionExample = [
+// Public version.json shape (no operator "notes" field — ready to serve as-is).
+$versionPayload = [
     'version' => $version,
     'download_url' => 'https://agorapress.extrovertednerd.com/download/' . $zipName,
     'changelog_url' => 'https://agorapress.extrovertednerd.com/changelog',
     'sha256' => $sha256,
     'released' => gmdate('Y-m-d'),
-    'notes' => 'Replace download_url / changelog_url with the published locations before serving as version.json.',
 ];
-$versionJson = json_encode($versionExample, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+$versionJson = json_encode($versionPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 if (
     $versionJson === false
     || file_put_contents($versionJsonPath, $versionJson . "\n") === false
 ) {
-    fwrite(STDERR, "Unable to write version.json.example: {$versionJsonPath}\n");
+    fwrite(STDERR, "Unable to write version.json: {$versionJsonPath}\n");
     exit(1);
 }
 
@@ -301,7 +301,7 @@ Options:
 Artifacts:
   AgoraPress-{version}.zip
   AgoraPress-{version}.sha256
-  version.json.example
+  version.json
 
 Excluded: tests, vendor, .git, .github, .hephaestus, CI/tooling configs,
 caches, secrets (ap-config.php, .env), and runtime uploads content.

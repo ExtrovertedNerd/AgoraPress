@@ -4,7 +4,7 @@ Guides for extending and operating AgoraPress: plugins, themes, hooks, schema, a
 
 AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). The public API uses the `ap_` prefix. The [Classic WordPress Theme Compatibility Layer](compatibility.md) optionally exposes many bare WordPress names for classic PHP themes.
 
-**Current core:** `AP_VERSION` **0.1.5-dev** · schema `AP_DB_VERSION` **9** · product status: MVP feature-complete, ready for live-site install.
+**Current core:** `AP_VERSION` **0.2.0-beta** · schema `AP_DB_VERSION` **10** · product status: MVP feature-complete with local opt-in analytics; ready for live-site install.
 
 ## Guides
 
@@ -46,6 +46,7 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 | Plugins | `AP_Plugin`, `ap-content/plugins/`, `mu-plugins/` |
 | REST | `AP_Rest` → `/ap-json/` namespace `ap/v1` |
 | CLI | `ap-cli` → option, plugin, theme, user, **post**, db, cache, cron, rewrite, site, core |
+| Analytics | `AP_Analytics` → Tools → Analytics (`ap-admin/analytics.php`); opt-in, local DB only |
 | Compat | `ap-includes/compatibility/` |
 | Updates | `AP_Version_Check`, `AP_Core_Updater` (no site identity) |
 
@@ -55,6 +56,7 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 - **Strict types:** Core ships with `declare(strict_types=1)`. Match that in new plugins when practical.
 - **Security:** Prepared statements only; nonces on state-changing forms; capability checks; escape on output (`ap_esc_html`, `ap_esc_attr`, …) and sanitize on input (`ap_sanitize_text_field`, …).
 - **No telemetry by default:** Version checks never send site identity. Do not add phone-home behaviour in core-adjacent plugins without an explicit opt-in.
+- **Local analytics (optional):** `AP_Analytics` records public pageviews only when `analytics_enabled` is on (default **off**). Data never leaves the site database. Not Hall of Fame and not version-check traffic.
 - **Modules:** Static Pages, Blog, and Forum can be toggled independently. Check options / `AP_Options::isModuleEnabled()` before assuming a module is on.
 - **Vision fidelity:** Before large features, re-read [vision-compliance.md](vision-compliance.md). Free forever, lightweight, and privacy defaults are non-negotiable.
 
@@ -79,6 +81,7 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 | Forums | `class-ap-forum*.php`, `class-ap-forum-front.php` |
 | REST | `class-ap-rest.php` |
 | Install / update | `install/`, `class-ap-installer.php`, `class-ap-core-updater.php` |
+| Analytics | `class-ap-analytics.php`, `ap-admin/analytics.php`, `ap-admin/includes/class-ap-admin-analytics.php`, migration `0010_analytics_tables.php` |
 
 ---
 

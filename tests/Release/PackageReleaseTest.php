@@ -98,11 +98,11 @@ final class PackageReleaseTest extends TestCase
 
         $zipPath = $out . '/AgoraPress-9.9.9-test.zip';
         $shaPath = $out . '/AgoraPress-9.9.9-test.sha256';
-        $examplePath = $out . '/version.json.example';
+        $versionJsonPath = $out . '/version.json';
 
         $this->assertFileExists($zipPath);
         $this->assertFileExists($shaPath);
-        $this->assertFileExists($examplePath);
+        $this->assertFileExists($versionJsonPath);
 
         $expectedSha = hash_file('sha256', $zipPath);
         $this->assertSame($expectedSha, $data['sha256']);
@@ -110,12 +110,14 @@ final class PackageReleaseTest extends TestCase
         $this->assertStringContainsString((string) $expectedSha, $shaBody);
         $this->assertStringContainsString('AgoraPress-9.9.9-test.zip', $shaBody);
 
-        $example = json_decode((string) file_get_contents($examplePath), true);
-        $this->assertIsArray($example);
-        $this->assertSame('9.9.9-test', $example['version'] ?? null);
-        $this->assertSame($expectedSha, $example['sha256'] ?? null);
-        $this->assertArrayHasKey('download_url', $example);
-        $this->assertArrayHasKey('changelog_url', $example);
+        $versionJson = json_decode((string) file_get_contents($versionJsonPath), true);
+        $this->assertIsArray($versionJson);
+        $this->assertSame('9.9.9-test', $versionJson['version'] ?? null);
+        $this->assertSame($expectedSha, $versionJson['sha256'] ?? null);
+        $this->assertArrayHasKey('download_url', $versionJson);
+        $this->assertArrayHasKey('changelog_url', $versionJson);
+        $this->assertArrayHasKey('released', $versionJson);
+        $this->assertArrayNotHasKey('notes', $versionJson);
 
         $zip = new ZipArchive();
         $this->assertTrue($zip->open($zipPath) === true);
@@ -208,7 +210,7 @@ final class PackageReleaseTest extends TestCase
     {
         $changelog = (string) file_get_contents($this->root . '/CHANGELOG.md');
         $this->assertStringContainsString('package-release.php', $changelog);
-        $this->assertStringContainsString('version.json.example', $changelog);
+        $this->assertStringContainsString('version.json', $changelog);
         $this->assertStringContainsString('Release packaging', $changelog);
     }
 

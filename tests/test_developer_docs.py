@@ -56,6 +56,13 @@ def test_docs_index_links_guides(docs_root: Path) -> None:
         assert name in index, f"docs/README.md should link to {name}"
 
 
+def test_docs_index_reflects_020_beta(docs_root: Path) -> None:
+    index = (docs_root / "README.md").read_text(encoding="utf-8")
+    assert "0.2.0-beta" in index
+    assert "AP_Analytics" in index or "analytics" in index.lower()
+    assert "class-ap-analytics.php" in index
+
+
 def test_vision_compliance_doc_content(docs_root: Path) -> None:
     text = (docs_root / "vision-compliance.md").read_text(encoding="utf-8").lower()
     for phrase in (
@@ -65,6 +72,9 @@ def test_vision_compliance_doc_content(docs_root: Path) -> None:
         "intentional deviations",
         "ap_telemetry",
         "three independent modules",
+        "0.2.0-beta",
+        "local analytics",
+        "analytics_enabled",
     ):
         assert phrase in text, f"vision-compliance.md missing: {phrase}"
 
@@ -98,6 +108,8 @@ def test_hooks_doc_content(docs_root: Path) -> None:
         "ap_after_setup_theme",
         "ap_enqueue_scripts",
         "priority",
+        "ap_analytics_should_record",
+        "ap_analytics_prune",
     ):
         assert phrase in text, f"hooks.md missing: {phrase}"
 
@@ -163,11 +175,12 @@ def test_schema_doc_content(docs_root: Path) -> None:
         "forum_posts",
         "forum_permissions",
         "topic_track",
+        "analytics_hits",
+        "analytics_daily",
         "utf8mb4",
         "ap_",
     ):
         assert phrase in text, f"schema.md missing: {phrase}"
-
 
 def test_readme_links_developer_docs() -> None:
     assert README.is_file()
