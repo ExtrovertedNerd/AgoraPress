@@ -677,6 +677,8 @@ PHP;
             'forum_online_enabled' => '1',
             'forum_online_window' => '900',
             'forum_unread_tracking_enabled' => '1',
+            // Signatures under forum posts (SPEC B2; Settings → Forums).
+            'forum_signatures_enabled' => '1',
             // Flood control, anti-spam, approval queues, search (FEATURES Phase 5).
             'forum_flood_interval' => '30',
             'forum_posts_require_approval' => '0',

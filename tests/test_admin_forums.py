@@ -182,6 +182,7 @@ def test_options_forums_screen_fields() -> None:
         "forum_posts_require_approval",
         "forum_spam_blacklist",
         "forum_search_enabled",
+        "forum_signatures_enabled",
         "AP_Settings::settingsFields('forums')",
     ):
         assert needle in src, f"options-forums.php missing {needle!r}"

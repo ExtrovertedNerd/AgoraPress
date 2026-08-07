@@ -30,6 +30,9 @@ class AP_Forum_Front
 
     public const ACTION_UNLOCK_TOPIC = 'ap_forum_unlock_topic';
 
+    /** Change topic type (standard | sticky | announcement | rules) within caps. */
+    public const ACTION_SET_TOPIC_TYPE = 'ap_forum_set_topic_type';
+
     /** @var array<string, mixed> Flash notice for the next render (same request). */
     private static array $notice = [];
 
@@ -187,6 +190,13 @@ class AP_Forum_Front
             $args['forum_closed'] = (string) ($forum->forum_status ?? '') === AP_Forum::FORUM_STATUS_CLOSED;
             $userId = self::currentUserId($db);
             $args['can_post_topic'] = self::userCanPostTopic($userId, $forumId, $db);
+            $args['can_sticky'] = $userId > 0 && class_exists('AP_Forum_Permissions', false)
+                && AP_Forum_Permissions::userCanSticky($userId, $forumId, $db);
+            $args['can_announce'] = $userId > 0 && class_exists('AP_Forum_Permissions', false)
+                && AP_Forum_Permissions::userCanAnnounce($userId, $forumId, $db);
+            $args['allowed_topic_types'] = ($userId > 0 && class_exists('AP_Forum_Permissions', false))
+                ? AP_Forum_Permissions::allowedTopicTypesForCreate($userId, $forumId, $db)
+                : [];
 
             return $args;
         }
@@ -204,6 +214,7 @@ class AP_Forum_Front
             $args['topic_id'] = $topicId;
             $args['topic_slug'] = (string) ($topic->topic_slug ?? '');
             $args['topic_title'] = (string) ($topic->topic_title ?? 'Topic');
+            $args['topic_type'] = AP_Forum::normalizeTopicType((string) ($topic->topic_type ?? 'standard'));
             $args['topic_locked'] = AP_Forum::isTopicLocked($topic);
             $args['forum_id'] = $forumId;
 
@@ -221,6 +232,19 @@ class AP_Forum_Front
             $args['can_reply'] = !$args['topic_locked']
                 && self::userCanReply($userId, $forumId, $db);
             $args['can_moderate'] = $userId > 0 && self::userCanModerate($forumId, $userId, $db);
+            $args['can_sticky'] = $userId > 0 && class_exists('AP_Forum_Permissions', false)
+                && AP_Forum_Permissions::userCanSticky($userId, $forumId, $db);
+            $args['can_announce'] = $userId > 0 && class_exists('AP_Forum_Permissions', false)
+                && AP_Forum_Permissions::userCanAnnounce($userId, $forumId, $db);
+            $args['allowed_topic_types'] = ($userId > 0 && class_exists('AP_Forum_Permissions', false))
+                ? AP_Forum_Permissions::allowedTopicTypesForEdit(
+                    $userId,
+                    $forumId,
+                    (string) $args['topic_type'],
+                    $db
+                )
+                : [];
+            $args['can_set_topic_type'] = $args['allowed_topic_types'] !== [];
 
             return $args;
         }
@@ -272,10 +296,30 @@ class AP_Forum_Front
                 && class_exists('AP_Forum_Read', false)
             ) {
                 try {
-                    AP_Forum_Read::markTopicRead($userId, $topicId, $db);
+                    // SPEC B1: first-unread jump + mark posts read on view.
+                    // Page-aware mark so multi-page topics only advance through
+                    // posts actually on the current page (see AP_Forum_Read).
+                    $page = max(1, (int) ($enriched['paged'] ?? $query->get('paged', 1) ?: 1));
+                    $perPage = 20;
+                    if (function_exists('ap_apply_filters')) {
+                        $filtered = ap_apply_filters('ap_forum_posts_per_page', $perPage);
+                        if (is_int($filtered) || is_numeric($filtered)) {
+                            $perPage = max(1, min(100, (int) $filtered));
+                        }
+                    }
+                    $result = AP_Forum_Read::markTopicReadOnView($userId, $topicId, $db, [
+                        'page' => $page,
+                        'per_page' => $perPage,
+                    ]);
+                    $firstUnreadId = (int) ($result['first_unread_post_id'] ?? 0);
+                    $query->set('first_unread_post_id', $firstUnreadId);
+                    $enriched['first_unread_post_id'] = $firstUnreadId;
                 } catch (Throwable) {
                     // non-fatal
                 }
+            } else {
+                $query->set('first_unread_post_id', 0);
+                $enriched['first_unread_post_id'] = 0;
             }
         }
 
@@ -343,6 +387,9 @@ class AP_Forum_Front
         if ($action === self::ACTION_UNLOCK_TOPIC) {
             return self::handleLockTopic($post, $db, false);
         }
+        if ($action === self::ACTION_SET_TOPIC_TYPE) {
+            return self::handleSetTopicType($post, $db);
+        }
 
         return null;
     }
@@ -394,6 +441,7 @@ class AP_Forum_Front
                 'post_unliked' => ['type' => 'success', 'message' => 'Like removed.'],
                 'topic_locked' => ['type' => 'success', 'message' => 'Topic locked.'],
                 'topic_unlocked' => ['type' => 'success', 'message' => 'Topic unlocked.'],
+                'topic_type_updated' => ['type' => 'success', 'message' => 'Topic type updated.'],
             ];
             if (isset($map[$code])) {
                 return $map[$code];
@@ -615,12 +663,29 @@ class AP_Forum_Front
             return null;
         }
 
+        // SPEC A2: topic type within sticky/announce permissions (standard default).
+        $topicType = AP_Forum::normalizeTopicType(
+            (string) ($post['topic_type'] ?? $post['type'] ?? AP_Forum::TOPIC_TYPE_STANDARD)
+        );
+        if (
+            class_exists('AP_Forum_Permissions', false)
+            && !AP_Forum_Permissions::userCanSetTopicType($userId, $forumId, $topicType, $db, null)
+        ) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You do not have permission to create that topic type.',
+            ];
+
+            return null;
+        }
+
         $topicId = AP_Forum::createTopic([
             'forum_id' => $forumId,
             'topic_title' => $title,
             'content' => $body,
             'poster_id' => $userId,
             'poster_ip' => self::clientIp(),
+            'topic_type' => $topicType,
         ], $db, [
             'check_open' => true,
             'check_permissions' => true,
@@ -753,6 +818,24 @@ class AP_Forum_Front
         $createdPost = AP_Forum::getPost($postId, $db);
         $pending = $createdPost !== null && (int) ($createdPost->post_approved ?? 1) !== 1;
         $notice = $pending ? 'reply_pending' : 'reply_posted';
+
+        // Approved own reply: advance read mark so the topic is not left unread
+        // for the poster (same watermark rules as topic view).
+        if (!$pending && class_exists('AP_Forum_Read', false)) {
+            try {
+                $markArgs = [];
+                if ($createdPost !== null) {
+                    $postTime = trim((string) ($createdPost->post_time ?? ''));
+                    if ($postTime !== '') {
+                        $markArgs['mark_time'] = $postTime;
+                    }
+                }
+                AP_Forum_Read::markTopicRead($userId, $topicId, $db, $markArgs);
+            } catch (Throwable) {
+                // non-fatal
+            }
+        }
+
         $url = AP_Forum::topicUrl($topic);
         $sep = str_contains($url, '?') ? '&' : '?';
         $hash = $pending ? '' : '#post-' . $postId;
@@ -982,6 +1065,71 @@ class AP_Forum_Front
         $sep = str_contains($url, '?') ? '&' : '?';
 
         return $url . $sep . 'ap_forum_notice=' . ($lock ? 'topic_locked' : 'topic_unlocked');
+    }
+
+    /**
+     * Change topic type (sticky / announcement / rules / standard) within caps.
+     *
+     * @param array<string, mixed> $post
+     */
+    private static function handleSetTopicType(array $post, ?AP_DB $db): ?string
+    {
+        $topicId = (int) ($post['topic_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = self::ACTION_SET_TOPIC_TYPE . '_' . $topicId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+
+        $userId = self::currentUserId($db);
+        if (
+            $userId < 1
+            || !class_exists('AP_Forum', false)
+            || !class_exists('AP_Forum_Moderation', false)
+        ) {
+            self::$notice = ['type' => 'error', 'message' => 'Permission denied.'];
+
+            return null;
+        }
+
+        $topic = AP_Forum::getTopic($topicId, $db);
+        if ($topic === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Topic not found.'];
+
+            return null;
+        }
+
+        $type = AP_Forum::normalizeTopicType(
+            (string) ($post['topic_type'] ?? $post['type'] ?? AP_Forum::TOPIC_TYPE_STANDARD)
+        );
+        $forumId = (int) $topic->forum_id;
+        $from = AP_Forum::normalizeTopicType((string) ($topic->topic_type ?? AP_Forum::TOPIC_TYPE_STANDARD));
+
+        if (
+            class_exists('AP_Forum_Permissions', false)
+            && !AP_Forum_Permissions::userCanSetTopicType($userId, $forumId, $type, $db, $from)
+        ) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You do not have permission to set that topic type.',
+            ];
+
+            return null;
+        }
+
+        $ok = AP_Forum_Moderation::setTopicType($topicId, $type, $userId, $db);
+        if (!$ok) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not update topic type.'];
+
+            return null;
+        }
+
+        $url = AP_Forum::topicUrl($topic);
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=topic_type_updated';
     }
 
     /**

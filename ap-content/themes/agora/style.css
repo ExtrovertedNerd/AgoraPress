@@ -4,7 +4,7 @@ Theme URI: https://agorapress.extrovertednerd.com/
 Author: ExtrovertedNerd
 Author URI: https://extrovertednerd.com/
 Description: Default lightweight, image-free theme for AgoraPress. Accessible, responsive, pure CSS with six selectable color schemes (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal. Works with blog and forum templates.
-Version: 0.3.3
+Version: 0.3.7
 Requires at least: 0.1.0
 Requires PHP: 8.2
 License: GNU General Public License v2 or later
@@ -783,6 +783,15 @@ body.agora-forum .site-footer__inner {
   text-decoration: none;
 }
 
+/* Solid focus ring for primary + ghost buttons (WCAG 2.4.7; stands out on tinted rows). */
+.widget-search-form button:focus-visible,
+.ap-search-form button:focus-visible,
+.ap-btn:focus-visible {
+  outline: var(--ap-focus-ring) solid var(--ap-accent);
+  outline-offset: 2px;
+  filter: none;
+}
+
 .ap-btn:active {
   transform: translateY(1px);
 }
@@ -799,10 +808,20 @@ body.agora-forum .site-footer__inner {
   filter: none;
 }
 
+.ap-btn--ghost:focus-visible {
+  outline-color: var(--ap-accent);
+  background: var(--ap-accent-soft);
+  border-color: var(--ap-accent);
+}
+
 .ap-btn--danger {
   background: var(--ap-danger);
   color: #fff;
   border-color: transparent;
+}
+
+.ap-btn--danger:focus-visible {
+  outline-color: var(--ap-danger);
 }
 
 .widget .count {
@@ -1410,8 +1429,16 @@ body.agora-forum .site-footer__inner {
 }
 
 .ap-badge--unread {
-  background: color-mix(in srgb, var(--ap-accent) 28%, var(--ap-badge-bg));
-  color: var(--ap-accent);
+  background: color-mix(in srgb, var(--ap-accent) 22%, var(--ap-badge-bg));
+  /* Prefer badge-fg (scheme-tuned) over raw accent for AA contrast on soft fills. */
+  color: var(--ap-badge-fg);
+  border: 1px solid color-mix(in srgb, var(--ap-accent) 45%, transparent);
+  font-weight: 800;
+}
+
+.ap-badge--rules {
+  background: color-mix(in srgb, var(--ap-link) 18%, var(--ap-badge-bg));
+  color: var(--ap-link);
 }
 
 /* --------------------------------------------------------------------------
@@ -1440,8 +1467,121 @@ body.agora-forum .site-footer__inner {
   background: color-mix(in srgb, var(--ap-warning) 12%, var(--ap-card));
 }
 
+/*
+ * SPEC A1/A2/A3/A4/C — Board index hooks (theme-local; core only emits classes).
+ * Stable public class surface for Agora + third-party themes:
+ *   rows:  .ap-forum-row / .ap-forum-list__item
+ *          + --unread | --read | --neutral | --locked | --empty | --topic
+ *          + --icon-{standard|sticky|announcement|rules|locked|link}
+ *   icons: .ap-forum-icon--{type} + --unread | --read (omit state for neutral)
+ *   cols:  .ap-forum-row__icon|__title|__topics|__posts|__last
+ *          (.ap-forum-list__* aliases kept for legacy/custom themes)
+ *   header:.ap-forum-cat-header (+ __title|__topics|__posts|__last)
+ *   last:  .ap-forum-last-post__title|__author|__time
+ *   footer:.ap-forum-footer / .ap-board-stats (+ __item|__label|__value|__sep)
+ * Grid tokens (override in a child theme without forking layout rules):
+ */
+body.agora-theme {
+  --ap-forum-icon-col: 2.25rem;
+  --ap-forum-stat-col: 5.5rem;
+  --ap-forum-last-col: minmax(8rem, 12rem);
+  --ap-forum-row-gap: 0.5rem 1rem;
+  --ap-forum-row-pad-x: 1.15rem;
+  /* Unread: tint + solid bar (non-color cue) so state is not color-only (WCAG 1.4.1). */
+  --ap-forum-unread-tint: color-mix(in srgb, var(--ap-accent) 12%, var(--ap-card));
+  --ap-forum-unread-bar: var(--ap-accent);
+  --ap-forum-unread-bar-width: 4px;
+  --ap-forum-locked-bar: color-mix(in srgb, var(--ap-warning) 70%, transparent);
+}
+
+/* SPEC A1 — Read / unread / neutral row differentiation (stable hooks).
+ * Guests use --neutral (no personal-state claim). Logged-in use --read / --unread.
+ * Do not dim whole rows with opacity (hurts text contrast for read content).
+ */
+.ap-forum-row--unread,
+.ap-forum-list__item--unread {
+  background: var(--ap-forum-unread-tint);
+  box-shadow: inset var(--ap-forum-unread-bar-width) 0 0 var(--ap-forum-unread-bar);
+}
+
+.ap-forum-row--unread .ap-forum-list__name a,
 .ap-forum-list__item--unread .ap-forum-list__name a {
   font-weight: 700;
+  color: var(--ap-fg);
+}
+
+/* Title links keep a clear focus ring over the unread tint. */
+.ap-forum-list__name a:focus-visible,
+.ap-forum-last-post__title a:focus-visible {
+  outline: var(--ap-focus-ring) solid var(--ap-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.ap-forum-row--read .ap-forum-list__name a {
+  font-weight: 500;
+}
+
+/* .ap-forum-row--neutral: guest / tracking off — default card styling (no personal-state claim). */
+
+/* Locked forum/topic rows (closed forum or locked topic). */
+.ap-forum-row--locked {
+  box-shadow: inset var(--ap-forum-unread-bar-width, 4px) 0 0 var(--ap-forum-locked-bar);
+}
+
+.ap-forum-row--locked .ap-forum-list__name a {
+  color: color-mix(in srgb, var(--ap-muted) 35%, var(--ap-fg));
+}
+
+/* Unread + locked: keep both affordances (accent bar + warning outer edge). */
+.ap-forum-row--locked.ap-forum-row--unread,
+.ap-forum-row--locked.ap-forum-list__item--unread {
+  background: var(--ap-forum-unread-tint);
+  box-shadow:
+    inset var(--ap-forum-unread-bar-width) 0 0 var(--ap-forum-unread-bar),
+    inset calc(var(--ap-forum-unread-bar-width) + 3px) 0 0 var(--ap-forum-locked-bar);
+}
+
+/* Empty forum rows (no topics/posts): quieter last-post column. */
+.ap-forum-row--empty .ap-forum-last-post--empty,
+.ap-forum-last-post--empty {
+  color: var(--ap-muted);
+  font-style: italic;
+}
+
+.ap-forum__header--locked .ap-archive-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+}
+
+/* Forum-specific empty states (stable kind hooks). */
+.ap-forum-empty {
+  margin: 0 0 1.25rem;
+}
+
+.ap-forum-empty--inset {
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.85rem 1.15rem;
+}
+
+.ap-forum-empty--forum_closed,
+.ap-forum-empty--forum_empty_closed,
+.ap-forum-empty--topic_locked {
+  border-color: color-mix(in srgb, var(--ap-warning) 40%, var(--ap-card-border));
+  background: color-mix(in srgb, var(--ap-warning) 8%, var(--ap-card));
+}
+
+.ap-forum-empty__cta {
+  margin-top: 0.35rem;
+}
+
+.ap-forum-empty__back {
+  margin-top: 0.25rem;
 }
 
 .ap-forum-attachments {
@@ -1571,16 +1711,100 @@ body.agora-forum .site-footer__inner {
   color: var(--ap-fg);
 }
 
+/*
+ * SPEC §C — Forum board footer stats (not the site footer).
+ * “Total Topics: N · Total Posts: N · Total Members: N”
+ * Posts = OP + replies under visible topics (live DB aggregates).
+ */
+.ap-forum-footer,
+.ap-board-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0;
+  margin-top: 1.25rem;
+  padding: 0.85rem 1.15rem;
+  background: var(--ap-card);
+  border: 1px solid var(--ap-card-border);
+  border-radius: var(--ap-radius);
+  box-shadow: var(--ap-shadow-sm);
+  color: var(--ap-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.ap-board-stats__item {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.ap-board-stats__label {
+  font-weight: 600;
+  color: var(--ap-muted);
+}
+
+.ap-board-stats__value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ap-fg);
+}
+
+.ap-board-stats__sep {
+  margin: 0 0.55rem;
+  color: var(--ap-muted);
+  user-select: none;
+}
+
+/*
+ * SPEC A3 — Category header label row (Title | Topics | Posts | Last Post).
+ * Shared 5-col grid with forum/topic rows: Icon | Title | Topics | Posts | Last Post.
+ * Title label spans icon+title columns for alignment with rows beneath.
+ */
+.ap-forum-cat-header {
+  display: none;
+  gap: var(--ap-forum-row-gap, 0.5rem 1rem);
+  padding: 0.45rem var(--ap-forum-row-pad-x, 1.15rem);
+  border-bottom: 1px solid var(--ap-card-border);
+  background: var(--ap-bg-elevated, var(--ap-card));
+  color: var(--ap-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  align-items: center;
+}
+
+.ap-forum-cat-header__title {
+  /* Spans visual width of Icon + Title columns below (SPEC A3). */
+  grid-column: 1 / span 2;
+  min-width: 0;
+}
+
+.ap-forum-cat-header__topics,
+.ap-forum-cat-header__posts {
+  text-align: right;
+  min-width: 0;
+}
+
+.ap-forum-cat-header__last {
+  min-width: 0;
+}
+
 .ap-forum-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.ap-forum-list__item {
+/* SPEC A4 — Forum/topic rows: Icon | Title | Topics | Posts | Last Post */
+.ap-forum-list__item,
+.ap-forum-row {
   display: grid;
-  gap: 0.5rem 1rem;
-  padding: 0.95rem 1.15rem;
+  gap: var(--ap-forum-row-gap, 0.5rem 1rem);
+  padding: 0.95rem var(--ap-forum-row-pad-x, 1.15rem);
   border-bottom: 1px solid var(--ap-card-border);
   align-items: start;
 }
@@ -1589,18 +1813,271 @@ body.agora-forum .site-footer__inner {
   border-bottom: 0;
 }
 
-.ap-forum-list__item:nth-child(even) {
+/* Stripe only when not unread (unread tint must win over zebra). */
+.ap-forum-list__item:nth-child(even):not(.ap-forum-row--unread):not(.ap-forum-list__item--unread) {
   background: var(--ap-table-stripe);
 }
 
+.ap-forum-list__main,
+.ap-forum-row__title {
+  min-width: 0;
+}
+
+.ap-forum-list__empty {
+  color: var(--ap-muted);
+}
+
+/* Row icon cell + type glyphs (image-free CSS shapes / symbols). */
+.ap-forum-row__icon,
+.ap-forum-list__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ap-forum-icon-col, 2.25rem);
+  min-height: 2.25rem;
+  flex-shrink: 0;
+}
+
+.ap-forum-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.35rem;
+  border: 1.5px solid var(--ap-card-border);
+  background: var(--ap-bg-elevated, var(--ap-card));
+  color: var(--ap-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ap-forum-icon::before {
+  content: "○";
+}
+
+.ap-forum-icon--sticky::before {
+  content: "★";
+  color: var(--ap-accent);
+}
+
+.ap-forum-icon--announcement::before {
+  content: "!";
+  font-weight: 800;
+  color: var(--ap-success);
+}
+
+.ap-forum-icon--rules::before {
+  content: "i";
+  font-style: italic;
+  font-family: var(--ap-font-display), Georgia, serif;
+  color: var(--ap-link);
+}
+
+.ap-forum-icon--locked::before {
+  content: "⊘";
+  color: var(--ap-warning);
+}
+
+.ap-forum-icon--link::before {
+  content: "↗";
+}
+
+/* SPEC A2 — Icon read/unread variants (type glyph + state).
+ * Read = quieter border/color (no opacity on the whole control — keeps glyph legible).
+ * Unread = thicker border + filled glyph / stronger weight (not color-only).
+ */
+.ap-forum-icon--read {
+  border-color: var(--ap-card-border);
+  color: color-mix(in srgb, var(--ap-muted) 55%, var(--ap-fg));
+  background: transparent;
+  font-weight: 500;
+}
+
+.ap-forum-icon--unread {
+  border-color: var(--ap-accent);
+  border-width: 2px;
+  color: var(--ap-accent);
+  background: color-mix(in srgb, var(--ap-accent) 14%, var(--ap-bg-elevated, var(--ap-card)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ap-accent) 35%, transparent);
+  font-weight: 800;
+}
+
+/* Standard: hollow → filled when unread. */
+.ap-forum-icon--standard.ap-forum-icon--unread::before {
+  content: "●";
+}
+
+/* Type-specific unread accents keep glyph identity, boost weight/color. */
+.ap-forum-icon--sticky.ap-forum-icon--unread {
+  border-color: var(--ap-accent);
+  color: var(--ap-accent);
+}
+
+.ap-forum-icon--announcement.ap-forum-icon--unread {
+  border-color: var(--ap-success);
+  color: var(--ap-success);
+  background: color-mix(in srgb, var(--ap-success) 12%, var(--ap-bg-elevated, var(--ap-card)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ap-success) 35%, transparent);
+}
+
+.ap-forum-icon--rules.ap-forum-icon--unread {
+  border-color: var(--ap-link);
+  color: var(--ap-link);
+  background: color-mix(in srgb, var(--ap-link) 12%, var(--ap-bg-elevated, var(--ap-card)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ap-link) 35%, transparent);
+}
+
+.ap-forum-icon--locked.ap-forum-icon--unread {
+  border-color: var(--ap-warning);
+  color: var(--ap-warning);
+  background: color-mix(in srgb, var(--ap-warning) 12%, var(--ap-bg-elevated, var(--ap-card)));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ap-warning) 35%, transparent);
+}
+
+.ap-forum-icon--link.ap-forum-icon--unread {
+  border-color: var(--ap-accent);
+  color: var(--ap-accent);
+}
+
+/* SPEC A4 col 5 — three-line last post: title / by author / timestamp */
+.ap-forum-list__last,
+.ap-forum-row__last,
+.ap-forum-last-post {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: var(--ap-text-sm);
+  color: var(--ap-muted);
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.ap-forum-last-post__title {
+  display: block;
+  color: var(--ap-fg);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-forum-last-post__title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ap-forum-last-post__title a:hover {
+  color: var(--ap-link);
+  text-decoration: underline;
+}
+
+.ap-forum-last-post__author {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-forum-last-post__time {
+  display: block;
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-forum-last-post__time time {
+  font-variant-numeric: tabular-nums;
+}
+
 @media (min-width: 700px) {
-  .ap-forum-list__item {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+  /*
+   * 5-col board grid: Icon | Title | Topics | Posts | Last Post
+   * Category header Title spans cols 1–2; rows place icon in col 1, title in col 2.
+   * Tokens: --ap-forum-icon-col / --ap-forum-stat-col / --ap-forum-last-col
+   */
+  .ap-forum-cat-header {
+    display: grid;
+    grid-template-columns:
+      var(--ap-forum-icon-col, 2.25rem)
+      minmax(0, 1fr)
+      var(--ap-forum-stat-col, 5.5rem)
+      var(--ap-forum-stat-col, 5.5rem)
+      var(--ap-forum-last-col, minmax(8rem, 12rem));
+  }
+
+  .ap-forum--index .ap-forum-list__item,
+  .ap-forum--index .ap-forum-row,
+  .ap-forum--view .ap-forum-list__item,
+  .ap-forum--view .ap-forum-row,
+  .ap-forum-list__item--topic,
+  .ap-forum-row--topic {
+    grid-template-columns:
+      var(--ap-forum-icon-col, 2.25rem)
+      minmax(0, 1fr)
+      var(--ap-forum-stat-col, 5.5rem)
+      var(--ap-forum-stat-col, 5.5rem)
+      var(--ap-forum-last-col, minmax(8rem, 12rem));
     align-items: center;
   }
 
-  .ap-forum-list__item--topic {
-    grid-template-columns: minmax(0, 1fr) 5.5rem 5.5rem minmax(8rem, 12rem);
+  .ap-forum-list__main,
+  .ap-forum-row__title {
+    grid-column: auto;
+  }
+
+  .ap-forum-list__last,
+  .ap-forum-row__last,
+  .ap-forum-last-post {
+    text-align: left;
+  }
+
+  .ap-forum-cat-header__last {
+    text-align: left;
+  }
+}
+
+/* Narrow: stack icon + title, then stats / last post. Hide label header. */
+@media (max-width: 699px) {
+  .ap-forum-cat-header {
+    display: none !important;
+  }
+
+  .ap-forum-list__item,
+  .ap-forum-row {
+    grid-template-columns: var(--ap-forum-icon-col, 2.25rem) minmax(0, 1fr);
+  }
+
+  .ap-forum-list__topics,
+  .ap-forum-list__posts,
+  .ap-forum-row__topics,
+  .ap-forum-row__posts,
+  .ap-forum-list__last,
+  .ap-forum-row__last {
+    grid-column: 1 / -1;
+  }
+
+  .ap-forum-list__topics,
+  .ap-forum-list__posts,
+  .ap-forum-row__topics,
+  .ap-forum-row__posts {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.35rem;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .ap-forum-stat__label {
+    order: -1;
+  }
+
+  .ap-forum-list__last,
+  .ap-forum-row__last,
+  .ap-forum-last-post {
+    padding-left: calc(var(--ap-forum-icon-col, 2.25rem) + 0.5rem);
   }
 }
 
@@ -1660,19 +2137,6 @@ body.agora-forum .site-footer__inner {
   font-weight: 600;
 }
 
-.ap-forum-list__last {
-  font-size: var(--ap-text-sm);
-  color: var(--ap-muted);
-  min-width: 0;
-}
-
-.ap-forum-list__last strong {
-  display: block;
-  color: var(--ap-fg);
-  font-weight: 600;
-  margin-bottom: 0.1rem;
-}
-
 /* Topic view — posts */
 .ap-forum-topic-title {
   margin: 0 0 0.35rem;
@@ -1693,15 +2157,48 @@ body.agora-forum .site-footer__inner {
   font-size: var(--ap-text-sm);
 }
 
+/* SPEC B1 — jump to first unread (above OP; hidden when N/A). */
+.ap-forum-first-unread-wrap {
+  margin: 0 0 0.75rem;
+  font-size: var(--ap-text-sm, 0.875rem);
+}
+
+.ap-forum-first-unread {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: var(--ap-accent, var(--ap-link, #2563eb));
+  text-decoration: none;
+  border-radius: var(--ap-radius-sm, 6px);
+}
+
+.ap-forum-first-unread:hover {
+  text-decoration: underline;
+}
+
+.ap-forum-first-unread:focus-visible {
+  outline: var(--ap-focus-ring) solid var(--ap-accent);
+  outline-offset: 2px;
+  text-decoration: underline;
+}
+
 .ap-forum-posts {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.ap-forum-post {
+/* SPEC B2 — two-pane post: author (left) | body + actions (right).
+   Stacks author above main on small screens (left-above-right). */
+.ap-forum-post,
+.ap-forum-post--two-pane {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "author"
+    "main";
+  gap: 0.85rem 1.25rem;
   padding: 1.15rem 1.25rem;
   background: var(--ap-card);
   border: 1px solid var(--ap-card-border);
@@ -1709,15 +2206,36 @@ body.agora-forum .site-footer__inner {
   box-shadow: var(--ap-shadow-sm);
 }
 
-@media (min-width: 720px) {
-  .ap-forum-post {
-    grid-template-columns: 9.5rem minmax(0, 1fr);
-    gap: 1.25rem;
-  }
+.ap-forum-post__author {
+  grid-area: author;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
-.ap-forum-post__author {
+.ap-forum-post__main {
+  grid-area: main;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+@media (min-width: 720px) {
+  .ap-forum-post,
+  .ap-forum-post--two-pane {
+    grid-template-columns: var(--ap-forum-author-col, 10.5rem) minmax(0, 1fr);
+    grid-template-areas: "author main";
+    align-items: stretch;
+  }
+
+  .ap-forum-post__author {
+    padding-right: 1rem;
+    border-right: 1px solid var(--ap-card-border);
+    text-align: center;
+    align-items: center;
+  }
 }
 
 .ap-forum-post__author-name {
@@ -1727,11 +2245,28 @@ body.agora-forum .site-footer__inner {
   word-break: break-word;
 }
 
-.ap-forum-post__author-meta {
+.ap-forum-post__author-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ap-forum-post__author-link:hover,
+.ap-forum-post__author-link:focus-visible {
+  color: var(--ap-accent);
+  text-decoration: underline;
+}
+
+.ap-forum-post__author-meta,
+.ap-forum-post__author-role {
   margin: 0;
   color: var(--ap-muted);
   font-size: var(--ap-text-xs);
   line-height: 1.4;
+}
+
+.ap-forum-post__author-spacer {
+  flex: 0 0 0.55rem;
+  min-height: 0.55rem;
 }
 
 .ap-forum-post__avatar {
@@ -1748,30 +2283,70 @@ body.agora-forum .site-footer__inner {
   color: var(--ap-accent);
   margin-bottom: 0.5rem;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
-.ap-forum-post__avatar img {
+.ap-forum-post__avatar img,
+.ap-forum-post__avatar .avatar {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+  border-radius: 50%;
+}
+
+.ap-forum-post__avatar-fallback {
+  line-height: 1;
 }
 
 .ap-forum-post__head {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 0.35rem 0.75rem;
-  margin-bottom: 0.65rem;
+  align-items: flex-start;
+  gap: 0.45rem 0.85rem;
+  margin: 0;
   padding-bottom: 0.55rem;
   border-bottom: 1px solid var(--ap-card-border);
   font-size: var(--ap-text-sm);
   color: var(--ap-muted);
 }
 
+.ap-forum-post__head-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ap-forum-post__subject {
+  font-weight: 600;
+  color: var(--ap-fg);
+}
+
+.ap-forum-post__date {
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-forum-post__permalink {
+  color: var(--ap-muted);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-forum-post__permalink:hover,
+.ap-forum-post__permalink:focus-visible {
+  color: var(--ap-accent);
+  text-decoration: underline;
+}
+
 .ap-forum-post__body {
   min-width: 0;
   line-height: 1.6;
   overflow-wrap: anywhere;
+  flex: 1 1 auto;
 }
 
 .ap-forum-post__body > *:first-child {
@@ -1780,6 +2355,60 @@ body.agora-forum .site-footer__inner {
 
 .ap-forum-post__body > *:last-child {
   margin-bottom: 0;
+}
+
+/* SPEC B2 — signature under post body when enabled + user has one. */
+.ap-forum-post__signature {
+  margin: 0.35rem 0 0;
+  padding-top: 0.65rem;
+  border-top: 1px dashed var(--ap-card-border);
+  font-size: var(--ap-text-sm);
+  color: var(--ap-muted);
+  line-height: 1.5;
+}
+
+.ap-forum-post__signature-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ap-forum-post__signature-body > *:first-child {
+  margin-top: 0;
+}
+
+.ap-forum-post__signature-body > *:last-child {
+  margin-bottom: 0;
+}
+
+/* SPEC B2 — bottom-right “Top” control (in-page anchor to topic top). */
+.ap-forum-post__foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.35rem;
+}
+
+.ap-forum-post__top {
+  font-size: var(--ap-text-sm, 0.875rem);
+  color: color-mix(in srgb, var(--ap-muted) 40%, var(--ap-fg));
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: var(--ap-radius-sm, 6px);
+  padding: 0.15rem 0.35rem;
+}
+
+.ap-forum-post__top:hover {
+  color: var(--ap-accent, var(--ap-link, #2563eb));
+  text-decoration: underline;
+}
+
+.ap-forum-post__top:focus-visible {
+  color: var(--ap-accent, var(--ap-link, #2563eb));
+  outline: var(--ap-focus-ring) solid var(--ap-accent);
+  outline-offset: 2px;
+  text-decoration: underline;
 }
 
 .ap-forum-toolbar {
@@ -1791,16 +2420,45 @@ body.agora-forum .site-footer__inner {
 
 .ap-forum-toolbar--topic {
   margin: 0.5rem 0 0;
+  align-items: flex-end;
 }
 
+/* Topic type select (create form + mod toolbar) — SPEC A2 */
+.ap-field--topic-type select {
+  max-width: 16rem;
+}
+
+.ap-forum-action-form--topic-type {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.4rem 0.55rem;
+}
+
+.ap-field--topic-type.ap-field--inline {
+  margin: 0;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 8rem;
+}
+
+.ap-field--topic-type.ap-field--inline label {
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+/* Actions sit top-right of the right pane (SPEC B2: Quote → Edit → Like). */
 .ap-forum-post__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem 0.55rem;
-  margin-top: 0.85rem;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--ap-card-border);
+  justify-content: flex-end;
+  gap: 0.35rem 0.5rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  flex: 0 1 auto;
 }
 
 .ap-forum-action-form {
@@ -1824,6 +2482,18 @@ body.agora-forum .site-footer__inner {
   background: var(--ap-accent-soft);
 }
 
+.ap-forum-like:focus-visible,
+.ap-forum-quote:focus-visible,
+.ap-forum-edit:focus-visible,
+.ap-forum-delete:focus-visible {
+  outline: var(--ap-focus-ring) solid var(--ap-accent);
+  outline-offset: 2px;
+}
+
+.ap-forum-delete:focus-visible {
+  outline-color: var(--ap-danger);
+}
+
 .ap-forum-like__count {
   font-variant-numeric: tabular-nums;
   opacity: 0.9;
@@ -1836,11 +2506,89 @@ body.agora-forum .site-footer__inner {
   font-style: italic;
 }
 
-.ap-forum-post__stats {
+.ap-forum-post__stats,
+.ap-forum-post__author-stats {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  margin-top: 0.35rem;
+  gap: 0.2rem;
+  margin: 0;
+  width: 100%;
+  font-size: var(--ap-text-xs);
+  color: var(--ap-muted);
+}
+
+.ap-forum-post__stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.ap-forum-post__stat dt {
+  margin: 0;
+  font-weight: 500;
+}
+
+.ap-forum-post__stat dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ap-fg);
+}
+
+.ap-forum-post__stat--joined dd,
+.ap-forum-post__stat--location dd,
+.ap-forum-post__joined,
+.ap-forum-post__location {
+  font-weight: 500;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+@media (min-width: 720px) {
+  .ap-forum-post__stat {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.05rem;
+  }
+}
+
+/* Stacked mobile: author row becomes a compact horizontal strip. */
+@media (max-width: 719px) {
+  .ap-forum-post__author {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--ap-card-border);
+  }
+
+  .ap-forum-post__avatar {
+    margin-bottom: 0;
+  }
+
+  .ap-forum-post__author-name {
+    margin: 0;
+  }
+
+  .ap-forum-post__author-spacer {
+    display: none;
+  }
+
+  .ap-forum-post__author-stats {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 0.35rem 1rem;
+  }
+
+  .ap-forum-post__stat {
+    flex-direction: row;
+    gap: 0.35rem;
+  }
 }
 
 .ap-forum-form--edit {
@@ -1890,6 +2638,10 @@ body.agora-forum .site-footer__inner {
     --ap-card-border: color-mix(in srgb, var(--ap-fg) 30%, var(--ap-bg));
     --ap-shadow: none;
     --ap-shadow-sm: none;
+    --ap-forum-unread-tint: color-mix(in srgb, var(--ap-accent) 20%, var(--ap-card));
+    --ap-forum-unread-bar: var(--ap-accent);
+    --ap-forum-unread-bar-width: 5px;
+    --ap-forum-locked-bar: var(--ap-warning);
   }
 
   a {
@@ -1902,6 +2654,45 @@ body.agora-forum .site-footer__inner {
   .ap-forum-post,
   .ap-comment {
     border-width: 2px;
+  }
+
+  /* Stronger unread / locked row affordances when contrast is requested. */
+  .ap-forum-row--unread,
+  .ap-forum-list__item--unread {
+    --ap-forum-unread-bar-width: 5px;
+    --ap-forum-unread-tint: color-mix(in srgb, var(--ap-accent) 20%, var(--ap-card));
+    background: var(--ap-forum-unread-tint);
+    box-shadow: inset var(--ap-forum-unread-bar-width) 0 0 var(--ap-forum-unread-bar);
+  }
+
+  .ap-forum-row--locked {
+    box-shadow: inset 5px 0 0 var(--ap-forum-locked-bar);
+  }
+
+  .ap-forum-row--locked.ap-forum-row--unread,
+  .ap-forum-row--locked.ap-forum-list__item--unread {
+    box-shadow:
+      inset var(--ap-forum-unread-bar-width) 0 0 var(--ap-forum-unread-bar),
+      inset calc(var(--ap-forum-unread-bar-width) + 4px) 0 0 var(--ap-forum-locked-bar);
+  }
+
+  .ap-forum-icon--unread {
+    border-width: 2px;
+    box-shadow: none;
+  }
+
+  .ap-badge--unread {
+    border-width: 2px;
+    color: var(--ap-fg);
+    background: color-mix(in srgb, var(--ap-accent) 28%, var(--ap-card));
+  }
+
+  .ap-btn:focus-visible,
+  .ap-btn--ghost:focus-visible,
+  .ap-forum-first-unread:focus-visible,
+  .ap-forum-post__top:focus-visible,
+  .ap-forum-list__name a:focus-visible {
+    outline-width: 3px;
   }
 }
 
@@ -2017,6 +2808,28 @@ html[dir="rtl"] .ap-forum-stat,
 body.agora-theme.rtl .ap-forum-stat {
   align-items: flex-start;
   text-align: left;
+}
+
+/* Board row state bars: mirror inset accent to the inline-start edge. */
+html[dir="rtl"] .ap-forum-row--unread,
+html[dir="rtl"] .ap-forum-list__item--unread,
+body.agora-theme.rtl .ap-forum-row--unread,
+body.agora-theme.rtl .ap-forum-list__item--unread {
+  box-shadow: inset calc(-1 * var(--ap-forum-unread-bar-width, 4px)) 0 0 var(--ap-forum-unread-bar, var(--ap-accent));
+}
+
+html[dir="rtl"] .ap-forum-row--locked,
+body.agora-theme.rtl .ap-forum-row--locked {
+  box-shadow: inset calc(-1 * var(--ap-forum-unread-bar-width, 4px)) 0 0 var(--ap-forum-locked-bar, var(--ap-warning));
+}
+
+html[dir="rtl"] .ap-forum-row--locked.ap-forum-row--unread,
+html[dir="rtl"] .ap-forum-row--locked.ap-forum-list__item--unread,
+body.agora-theme.rtl .ap-forum-row--locked.ap-forum-row--unread,
+body.agora-theme.rtl .ap-forum-row--locked.ap-forum-list__item--unread {
+  box-shadow:
+    inset calc(-1 * var(--ap-forum-unread-bar-width, 4px)) 0 0 var(--ap-forum-unread-bar, var(--ap-accent)),
+    inset calc(-1 * (var(--ap-forum-unread-bar-width, 4px) + 3px)) 0 0 var(--ap-forum-locked-bar, var(--ap-warning));
 }
 
 html[dir="rtl"] .site-nav,

@@ -1069,6 +1069,170 @@ class AP_Forum_Permissions
         return self::userCan($userId, $forumId, self::PERM_MODERATE, $db);
     }
 
+    /**
+     * Whether the user may sticky (and unsticky) topics in the forum.
+     */
+    public static function userCanSticky(int $userId, int $forumId, ?AP_DB $db = null): bool
+    {
+        return self::userCan($userId, $forumId, self::PERM_STICKY, $db);
+    }
+
+    /**
+     * Whether the user may set announcement / rules topic types.
+     */
+    public static function userCanAnnounce(int $userId, int $forumId, ?AP_DB $db = null): bool
+    {
+        return self::userCan($userId, $forumId, self::PERM_ANNOUNCE, $db);
+    }
+
+    /**
+     * Whether the user may set a topic to the given type (and demote from $fromType).
+     *
+     * Capability map (SPEC A2):
+     * - standard — always allowed as the create default when the caller already
+     *   gates post_topics; demoting from sticky needs sticky_topics, from
+     *   announcement/rules needs announce_topics.
+     * - sticky — sticky_topics
+     * - announcement | rules — announce_topics
+     *
+     * @param string|null $fromType Current type when changing an existing topic.
+     */
+    public static function userCanSetTopicType(
+        int $userId,
+        int $forumId,
+        string $type,
+        ?AP_DB $db = null,
+        ?string $fromType = null
+    ): bool {
+        if ($userId < 1 || $forumId < 1) {
+            return false;
+        }
+
+        $type = self::normalizeTopicTypeKey($type);
+        $from = ($fromType !== null && $fromType !== '')
+            ? self::normalizeTopicTypeKey($fromType)
+            : null;
+
+        if ($type === 'sticky') {
+            return self::userCanSticky($userId, $forumId, $db);
+        }
+
+        if ($type === 'announcement' || $type === 'rules') {
+            return self::userCanAnnounce($userId, $forumId, $db);
+        }
+
+        // Target is standard: create/stay standard is always OK for this gate;
+        // demote from elevated types needs the matching elevating permission.
+        if ($from === null || $from === 'standard') {
+            return true;
+        }
+        if ($from === 'sticky') {
+            return self::userCanSticky($userId, $forumId, $db);
+        }
+        if ($from === 'announcement' || $from === 'rules') {
+            return self::userCanAnnounce($userId, $forumId, $db);
+        }
+
+        return true;
+    }
+
+    /**
+     * Topic types the user may choose when creating a topic in this forum.
+     *
+     * Always includes `standard` when the user can post topics. Elevated types
+     * (sticky / announcement / rules) are included only when sticky/announce ACL allows.
+     *
+     * @return list<string> Empty when the user cannot create topics.
+     */
+    public static function allowedTopicTypesForCreate(
+        int $userId,
+        int $forumId,
+        ?AP_DB $db = null
+    ): array {
+        if ($userId < 1 || $forumId < 1 || !self::userCanPostTopic($userId, $forumId, $db)) {
+            return [];
+        }
+
+        $types = ['standard'];
+        if (self::userCanSticky($userId, $forumId, $db)) {
+            $types[] = 'sticky';
+        }
+        if (self::userCanAnnounce($userId, $forumId, $db)) {
+            $types[] = 'announcement';
+            $types[] = 'rules';
+        }
+
+        return $types;
+    }
+
+    /**
+     * Topic types the user may set on an existing topic (edit / mod toolbar).
+     *
+     * Empty when the user has neither sticky_topics nor announce_topics.
+     *
+     * @return list<string>
+     */
+    public static function allowedTopicTypesForEdit(
+        int $userId,
+        int $forumId,
+        ?string $currentType = null,
+        ?AP_DB $db = null
+    ): array {
+        if ($userId < 1 || $forumId < 1) {
+            return [];
+        }
+
+        $canSticky = self::userCanSticky($userId, $forumId, $db);
+        $canAnnounce = self::userCanAnnounce($userId, $forumId, $db);
+        if (!$canSticky && !$canAnnounce) {
+            return [];
+        }
+
+        $types = ['standard'];
+        if ($canSticky) {
+            $types[] = 'sticky';
+        }
+        if ($canAnnounce) {
+            $types[] = 'announcement';
+            $types[] = 'rules';
+        }
+
+        // Keep the current type selectable so unchanged re-submits succeed.
+        if ($currentType !== null && $currentType !== '') {
+            $current = self::normalizeTopicTypeKey($currentType);
+            if ($current !== '' && !in_array($current, $types, true)) {
+                $types[] = $current;
+            }
+        }
+
+        return array_values(array_unique($types));
+    }
+
+    /**
+     * Normalize topic type keys without requiring AP_Forum (mirrors its aliases).
+     */
+    private static function normalizeTopicTypeKey(string $type): string
+    {
+        if (class_exists('AP_Forum', false)) {
+            return AP_Forum::normalizeTopicType($type);
+        }
+
+        $type = strtolower(trim($type));
+        $type = preg_replace('/[^a-z0-9_]/', '', $type) ?? '';
+        $aliases = [
+            'normal' => 'standard',
+            'announce' => 'announcement',
+            'global' => 'announcement',
+            'info' => 'rules',
+        ];
+        if (isset($aliases[$type])) {
+            $type = $aliases[$type];
+        }
+        $allowed = ['standard', 'sticky', 'announcement', 'rules'];
+
+        return in_array($type, $allowed, true) ? $type : 'standard';
+    }
+
     // -------------------------------------------------------------------------
     // Cache
     // -------------------------------------------------------------------------

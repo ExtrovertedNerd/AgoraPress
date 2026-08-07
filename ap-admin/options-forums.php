@@ -51,6 +51,7 @@ $requireApproval = (string) AP_Options::get('forum_posts_require_approval', '0',
 $searchEnabled = (string) AP_Options::get('forum_search_enabled', '1', $db) === '1';
 $onlineEnabled = (string) AP_Options::get('forum_online_enabled', '1', $db) === '1';
 $unreadEnabled = (string) AP_Options::get('forum_unread_tracking_enabled', '1', $db) === '1';
+$signaturesEnabled = (string) AP_Options::get('forum_signatures_enabled', '1', $db) === '1';
 $spamBlacklist = (string) AP_Options::get('forum_spam_blacklist', '', $db);
 $spamMaxLinks = (int) AP_Options::get('forum_spam_max_links', 5, $db);
 
@@ -137,6 +138,17 @@ require __DIR__ . '/admin-header.php';
                     <?php echo $unreadEnabled ? 'checked' : ''; ?>>
                 Enable unread tracking
             </label>
+        </p>
+        <p>
+            <label>
+                <input type="checkbox" name="forum_signatures_enabled" value="1"
+                    <?php echo $signaturesEnabled ? 'checked' : ''; ?>>
+                Enable signatures under forum posts
+            </label>
+            <span class="description" style="display:block;margin-top:0.25rem;">
+                When enabled, each user’s profile signature appears at the bottom of their posts
+                if they have set one.
+            </span>
         </p>
     </fieldset>
 

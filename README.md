@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** **`0.2.1-beta`** — MVP feature-complete with forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
+> **Status:** **`0.3.0-beta`** — MVP feature-complete with forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 
@@ -57,7 +57,7 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 | **Web server** | Apache with `mod_rewrite`, or Nginx with rewrite rules |
 | **Disk** | Writable site root (for `ap-config.php`) and `ap-content/` (including `uploads/`) |
 
-Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **11** (see [docs/schema.md](docs/schema.md)).
+Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **12** (see [docs/schema.md](docs/schema.md)).
 
 ---
 

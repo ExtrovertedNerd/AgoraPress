@@ -201,6 +201,8 @@ class AP_Admin_User_Edit
      *   last_name?: string,
      *   nickname?: string,
      *   description?: string,
+     *   location?: string,
+     *   signature?: string,
      *   role?: string,
      *   user_pass?: string
      * } $extra Prefill overrides (e.g. after failed validation).
@@ -240,9 +242,11 @@ class AP_Admin_User_Edit
                 'last_name' => '',
                 'nickname' => '',
                 'description' => '',
+                'location' => '',
+                'signature' => '',
             ]
             : AP_User::getProfileMeta($id, $db);
-        foreach (['first_name', 'last_name', 'nickname', 'description'] as $k) {
+        foreach (['first_name', 'last_name', 'nickname', 'description', 'location', 'signature'] as $k) {
             if (array_key_exists($k, $extra)) {
                 $meta[$k] = (string) $extra[$k];
             }
@@ -339,7 +343,24 @@ class AP_Admin_User_Edit
         $html .= '<div class="ap-field">';
         $html .= '<label for="description">Biographical Info</label>';
         $html .= '<textarea name="description" id="description" rows="5" class="large-text">'
-            . ap_esc_textarea($meta['description']) . '</textarea>';
+            . ap_esc_textarea($meta['description'] ?? '') . '</textarea>';
+        $html .= '</div>';
+        $html .= '<div class="ap-field">';
+        $html .= '<label for="location">Location</label>';
+        $html .= '<input type="text" name="location" id="location" class="regular-text" '
+            . 'maxlength="120" value="' . ap_esc_attr($meta['location'] ?? '') . '" '
+            . 'placeholder="City, region" autocomplete="address-level2" />';
+        $html .= '<p class="description">Optional. Shown on forum posts in the author panel when set.</p>';
+        $html .= '</div>';
+        $sigMax = class_exists('AP_User', false) ? (int) AP_User::SIGNATURE_MAX_LENGTH : 500;
+        $html .= '<div class="ap-field">';
+        $html .= '<label for="signature">Forum signature</label>';
+        $html .= '<textarea name="signature" id="signature" rows="3" class="large-text" maxlength="'
+            . $sigMax . '">'
+            . ap_esc_textarea($meta['signature'] ?? '') . '</textarea>';
+        $html .= '<p class="description">Optional. Shown under your forum posts when signatures are '
+            . 'enabled (Settings → Forums). Max ' . $sigMax . ' characters. '
+            . 'Supports the same light markup as forum posts.</p>';
         $html .= '</div>';
         $html .= '</fieldset>';
 
@@ -585,6 +606,8 @@ class AP_Admin_User_Edit
             'last_name' => (string) ($input['last_name'] ?? ''),
             'nickname' => (string) ($input['nickname'] ?? ''),
             'description' => (string) ($input['description'] ?? ''),
+            'location' => (string) ($input['location'] ?? ''),
+            'signature' => (string) ($input['signature'] ?? ''),
         ];
 
         if ($isNew) {

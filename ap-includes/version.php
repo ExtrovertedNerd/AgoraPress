@@ -11,7 +11,7 @@ declare(strict_types=1);
 /**
  * Current core version (SemVer). Pre-release beta for public packaging.
  */
-define('AP_VERSION', '0.2.1-beta');
+define('AP_VERSION', '0.3.0-beta');
 
 /**
  * Database schema version expected by this codebase.
@@ -28,7 +28,8 @@ define('AP_VERSION', '0.2.1-beta');
  * Version 9: forum unread tracking (topic_track + forum_track; online in v5).
  * Version 10: local analytics (analytics_hits + analytics_daily).
  * Version 11: forum post likes (forum_post_likes + forum_posts.like_count).
+ * Version 12: topic type enum (standard | sticky | announcement | rules) + backfill.
  * {@see AP_Migrator} tracks applied versions in schema_migrations. Installer /
  * update path apply pending migrations until the database matches this target.
  */
-define('AP_DB_VERSION', '11');
+define('AP_DB_VERSION', '12');

@@ -721,6 +721,7 @@ class AP_Options
                 'forum_search_enabled',
                 'forum_online_enabled',
                 'forum_unread_tracking_enabled',
+                'forum_signatures_enabled',
             ];
             $input = [];
             foreach ($keys as $key) {
@@ -738,6 +739,7 @@ class AP_Options
                     'forum_search_enabled',
                     'forum_online_enabled',
                     'forum_unread_tracking_enabled',
+                    'forum_signatures_enabled',
                 ] as $cb
             ) {
                 if (!array_key_exists($cb, $input)) {

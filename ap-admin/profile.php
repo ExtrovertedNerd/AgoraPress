@@ -47,6 +47,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         'last_name' => (string) ($_POST['last_name'] ?? ''),
         'nickname' => (string) ($_POST['nickname'] ?? ''),
         'description' => (string) ($_POST['description'] ?? ''),
+        'location' => (string) ($_POST['location'] ?? ''),
+        'signature' => (string) ($_POST['signature'] ?? ''),
     ];
     $user->user_email = ap_sanitize_text_field($extra['user_email']);
     $user->user_url = (string) $extra['user_url'];

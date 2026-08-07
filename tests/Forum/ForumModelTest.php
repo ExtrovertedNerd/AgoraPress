@@ -12,7 +12,10 @@ namespace AgoraPress\Tests\Forum;
 
 use AP_DB;
 use AP_Forum;
+use AP_Forum_Read;
 use AP_Migrator;
+use AP_Roles;
+use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -53,9 +56,22 @@ final class ForumModelTest extends TestCase
         $this->assertSame('open', AP_Forum::normalizeTopicStatus('x'));
         $this->assertSame('locked', AP_Forum::normalizeTopicStatus('locked'));
         $this->assertSame('sticky', AP_Forum::normalizeTopicType('sticky'));
+        $this->assertSame('standard', AP_Forum::normalizeTopicType('normal'));
+        $this->assertSame('standard', AP_Forum::normalizeTopicType('standard'));
+        $this->assertSame('announcement', AP_Forum::normalizeTopicType('announce'));
+        $this->assertSame('announcement', AP_Forum::normalizeTopicType('announcement'));
+        $this->assertSame('announcement', AP_Forum::normalizeTopicType('global'));
+        $this->assertSame('rules', AP_Forum::normalizeTopicType('rules'));
+        $this->assertSame('rules', AP_Forum::normalizeTopicType('info'));
+        $this->assertSame(
+            ['standard', 'sticky', 'announcement', 'rules'],
+            AP_Forum::topicTypes()
+        );
         $this->assertTrue(AP_Forum::isTopicLocked('locked'));
         $this->assertTrue(AP_Forum::isTopicSticky('announce'));
+        $this->assertTrue(AP_Forum::isTopicSticky('rules'));
         $this->assertFalse(AP_Forum::isTopicSticky('normal'));
+        $this->assertFalse(AP_Forum::isTopicSticky('standard'));
     }
 
     public function testForumHierarchyInsertAndTree(): void
@@ -288,18 +304,29 @@ final class ForumModelTest extends TestCase
             'topic_type' => 'sticky',
         ], $this->db);
         usleep(20000);
+        $rules = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Rules topic',
+            'content' => 'Rules body',
+            'topic_type' => 'rules',
+        ], $this->db);
+        usleep(20000);
         $announce = AP_Forum::createTopic([
             'forum_id' => $forumId,
             'topic_title' => 'Announce topic',
             'content' => 'Announce body',
-            'topic_type' => 'announce',
+            'topic_type' => 'announcement',
         ], $this->db);
 
         $topics = AP_Forum::getTopics($forumId, [], $this->db);
-        $this->assertCount(3, $topics);
+        $this->assertCount(4, $topics);
         $this->assertSame($announce, (int) $topics[0]->topic_id);
-        $this->assertSame($sticky, (int) $topics[1]->topic_id);
-        $this->assertSame($normal, (int) $topics[2]->topic_id);
+        $this->assertSame('announcement', (string) $topics[0]->topic_type);
+        $this->assertSame($rules, (int) $topics[1]->topic_id);
+        $this->assertSame('rules', (string) $topics[1]->topic_type);
+        $this->assertSame($sticky, (int) $topics[2]->topic_id);
+        $this->assertSame($normal, (int) $topics[3]->topic_id);
+        $this->assertSame('standard', (string) $topics[3]->topic_type);
 
         $this->assertTrue(AP_Forum::incrementTopicViews($normal, $this->db));
         $this->assertTrue(AP_Forum::incrementTopicViews($normal, $this->db));
@@ -308,8 +335,12 @@ final class ForumModelTest extends TestCase
 
         $display = AP_Forum::getTopicsDisplayData($forumId, [], $this->db);
         $this->assertTrue($display[0]['announcement']);
-        $this->assertTrue($display[1]['sticky']);
-        $this->assertFalse($display[2]['sticky']);
+        $this->assertTrue($display[1]['rules']);
+        $this->assertTrue($display[2]['sticky']);
+        $this->assertFalse($display[3]['sticky']);
+        $this->assertFalse($display[3]['announcement']);
+        $this->assertFalse($display[3]['rules']);
+        $this->assertSame('standard', $display[3]['type']);
     }
 
     public function testSoftDeleteTopicAdjustsCounters(): void
@@ -456,5 +487,207 @@ final class ForumModelTest extends TestCase
 
         $all = AP_Forum::getChildForums(0, ['include_hidden' => true], $this->db);
         $this->assertCount(2, $all);
+    }
+
+    public function testForumIconTypes(): void
+    {
+        $this->assertSame('standard', AP_Forum::forumIconType('forum', 'open'));
+        $this->assertSame('locked', AP_Forum::forumIconType('forum', 'closed'));
+        $this->assertSame('link', AP_Forum::forumIconType('link', 'open'));
+        $this->assertSame('link', AP_Forum::forumIconType('link', 'closed'));
+        $this->assertSame('standard', ap_forum_icon_type('forum', 'open'));
+        $this->assertSame('locked', ap_forum_icon_type('forum', 'closed'));
+
+        $this->assertSame('standard', AP_Forum::topicIconType('standard', 'open'));
+        $this->assertSame('sticky', AP_Forum::topicIconType('sticky', 'open'));
+        $this->assertSame('announcement', AP_Forum::topicIconType('announcement', 'open'));
+        $this->assertSame('rules', AP_Forum::topicIconType('rules', 'open'));
+        $this->assertSame('locked', AP_Forum::topicIconType('sticky', 'locked'));
+        $this->assertSame('locked', ap_topic_icon_type('standard', 'locked'));
+    }
+
+    public function testForumRowPayloadIconCountsLastPostAndUnread(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-user.php';
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
+        require_once $this->root . '/ap-includes/class-ap-options.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-read.php';
+        $GLOBALS['apdb'] = $this->db;
+
+        if (method_exists('AP_Roles', 'ensureDefaults')) {
+            AP_Roles::ensureDefaults($this->db);
+        }
+
+        $authorCreate = AP_User::create([
+            'user_login' => 'row_author',
+            'user_email' => 'row_author@example.com',
+            'user_pass' => 'password-password-12',
+            'display_name' => 'Row Author',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue(!empty($authorCreate['ok']), $authorCreate['error'] ?? 'author create failed');
+        $authorId = (int) $authorCreate['id'];
+        $this->assertGreaterThan(0, $authorId);
+
+        $readerCreate = AP_User::create([
+            'user_login' => 'row_reader',
+            'user_email' => 'row_reader@example.com',
+            'user_pass' => 'password-password-12',
+            'display_name' => 'Row Reader',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue(!empty($readerCreate['ok']), $readerCreate['error'] ?? 'reader create failed');
+        $readerId = (int) $readerCreate['id'];
+        $this->assertGreaterThan(0, $readerId);
+
+        $catId = AP_Forum::insertForum([
+            'forum_name' => 'Payload Cat',
+            'forum_type' => 'category',
+        ], $this->db);
+        $openId = AP_Forum::insertForum([
+            'forum_name' => 'Open Lounge',
+            'forum_type' => 'forum',
+            'forum_status' => 'open',
+            'parent_id' => $catId,
+            'forum_desc' => 'Chat freely',
+        ], $this->db);
+        $closedId = AP_Forum::insertForum([
+            'forum_name' => 'Archive',
+            'forum_type' => 'forum',
+            'forum_status' => 'closed',
+            'parent_id' => $catId,
+        ], $this->db);
+        $linkId = AP_Forum::insertForum([
+            'forum_name' => 'External',
+            'forum_type' => 'link',
+            'parent_id' => $catId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $openId);
+        $this->assertGreaterThan(0, $closedId);
+        $this->assertGreaterThan(0, $linkId);
+
+        // Empty open forum: null last_post, zero counts, standard icon.
+        $emptyRow = AP_Forum::forumToDisplayRow(
+            AP_Forum::getForum($openId, $this->db),
+            $this->db
+        );
+        $this->assertSame('standard', $emptyRow['icon_type']);
+        $this->assertFalse($emptyRow['is_unread']);
+        $this->assertFalse($emptyRow['is_closed']);
+        $this->assertTrue($emptyRow['is_empty']);
+        $this->assertSame(0, $emptyRow['topics']);
+        $this->assertSame(0, $emptyRow['topic_count']);
+        $this->assertSame(0, $emptyRow['posts']);
+        $this->assertSame(0, $emptyRow['post_count']);
+        $this->assertNull($emptyRow['last_post']);
+
+        $closedRow = AP_Forum::forumToDisplayRow(
+            AP_Forum::getForum($closedId, $this->db),
+            $this->db
+        );
+        $this->assertSame('locked', $closedRow['icon_type']);
+        $this->assertTrue($closedRow['is_closed']);
+        $this->assertTrue($closedRow['is_locked']);
+        $this->assertTrue($closedRow['is_empty']);
+        $this->assertTrue(AP_Forum::isForumClosed(AP_Forum::getForum($closedId, $this->db)));
+
+        $linkRow = AP_Forum::forumToDisplayRow(
+            AP_Forum::getForum($linkId, $this->db),
+            $this->db
+        );
+        $this->assertSame('link', $linkRow['icon_type']);
+
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $openId,
+            'topic_title' => 'Welcome payload thread',
+            'content' => 'Opening body for last-post payload.',
+            'poster_id' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+
+        $replyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => 'A reply that becomes last post.',
+            'poster_id' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
+
+        $forum = AP_Forum::getForum($openId, $this->db);
+        $this->assertNotNull($forum);
+        $this->assertSame(1, (int) $forum->topic_count);
+        $this->assertSame(2, (int) $forum->post_count);
+        $this->assertSame($replyId, (int) $forum->last_post_id);
+
+        $row = AP_Forum::forumToDisplayRow($forum, $this->db);
+        $this->assertSame('standard', $row['icon_type']);
+        $this->assertSame(1, $row['topics']);
+        $this->assertSame(1, $row['topic_count']);
+        $this->assertSame(2, $row['posts']);
+        $this->assertSame(2, $row['post_count']);
+        $this->assertFalse($row['is_unread']);
+        $this->assertIsArray($row['last_post']);
+        $this->assertSame('Welcome payload thread', $row['last_post']['title']);
+        $this->assertSame('Row Author', $row['last_post']['author']);
+        $this->assertNotSame('', (string) $row['last_post']['time']);
+        $this->assertSame($row['last_post']['time'], $row['last_post']['date']);
+        $this->assertStringContainsString('#post-' . $replyId, (string) $row['last_post']['url']);
+        $this->assertSame($replyId, (int) $row['last_post']['post_id']);
+        $this->assertSame($topicId, (int) $row['last_post']['topic_id']);
+        $this->assertSame($authorId, (int) $row['last_post']['author_id']);
+
+        // Procedural wrapper matches.
+        $viaHelper = ap_forum_to_display_row($forum, $this->db);
+        $this->assertSame($row['icon_type'], $viaHelper['icon_type']);
+        $this->assertSame($row['last_post']['title'], $viaHelper['last_post']['title'] ?? null);
+        $this->assertSame(
+            AP_Forum::postUrl(AP_Forum::getTopic($topicId, $this->db), $replyId),
+            ap_forum_post_url(AP_Forum::getTopic($topicId, $this->db), $replyId)
+        );
+
+        // Board index wires payload + unread annotation.
+        $index = AP_Forum::getIndexData($this->db, ['user_id' => $readerId]);
+        $this->assertNotEmpty($index);
+        $found = null;
+        foreach ($index as $cat) {
+            foreach ($cat['forums'] as $f) {
+                if ((int) ($f['id'] ?? 0) === $openId) {
+                    $found = $f;
+                    break 2;
+                }
+            }
+        }
+        $this->assertNotNull($found);
+        $this->assertSame('standard', $found['icon_type']);
+        $this->assertTrue($found['is_unread']);
+        $this->assertSame(1, $found['topic_count']);
+        $this->assertSame(2, $found['post_count']);
+        $this->assertSame('Welcome payload thread', $found['last_post']['title'] ?? null);
+        $this->assertSame('Row Author', $found['last_post']['author'] ?? null);
+        $this->assertNotSame('', (string) ($found['last_post']['time'] ?? ''));
+        $this->assertStringContainsString('#post-' . $replyId, (string) ($found['last_post']['url'] ?? ''));
+
+        AP_Forum_Read::markTopicRead($readerId, $topicId, $this->db);
+        $indexRead = AP_Forum::getIndexData($this->db, ['user_id' => $readerId]);
+        $foundRead = null;
+        foreach ($indexRead as $cat) {
+            foreach ($cat['forums'] as $f) {
+                if ((int) ($f['id'] ?? 0) === $openId) {
+                    $foundRead = $f;
+                    break 2;
+                }
+            }
+        }
+        $this->assertNotNull($foundRead);
+        $this->assertFalse($foundRead['is_unread']);
+
+        // Topic row also exposes icon_type + nested last_post.
+        $topicRow = AP_Forum::topicToDisplayRow(
+            AP_Forum::getTopic($topicId, $this->db),
+            $this->db
+        );
+        $this->assertSame('standard', $topicRow['icon_type']);
+        $this->assertIsArray($topicRow['last_post']);
+        $this->assertSame('Welcome payload thread', $topicRow['last_post']['title']);
+        $this->assertStringContainsString('#post-' . $replyId, (string) $topicRow['last_post']['url']);
     }
 }

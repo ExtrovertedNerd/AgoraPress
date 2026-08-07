@@ -152,10 +152,10 @@ final class DeveloperDocsTest extends TestCase
         }
     }
 
-    public function testDocsIndexReflects021BetaAndAnalytics(): void
+    public function testDocsIndexReflects030BetaAndAnalytics(): void
     {
         $index = $this->readDoc('README.md');
-        $this->assertStringContainsString('0.2.1-beta', $index);
+        $this->assertStringContainsString('0.3.0-beta', $index);
         $this->assertStringContainsString('AP_Analytics', $index);
         $this->assertStringContainsString('class-ap-analytics.php', $index);
         $this->assertStringContainsString('AP_Forum_Like', $index);

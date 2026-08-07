@@ -138,6 +138,10 @@ def test_theme_landmarks_and_contrast() -> None:
     assert "prefers-reduced-motion" in css
     assert "prefers-contrast" in css
     assert "focus-visible" in css
+    # Forum a11y hardening: focus rings + unread contrast without opacity-on-read.
+    assert ".ap-btn:focus-visible" in css
+    assert "--ap-forum-unread-bar-width" in css
+    assert ".ap-forum-row--unread" in css
 
 
 def test_admin_a11y_notices_and_pagination() -> None:

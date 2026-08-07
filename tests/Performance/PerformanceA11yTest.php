@@ -225,6 +225,19 @@ final class PerformanceA11yTest extends TestCase
         $this->assertStringContainsString('prefers-contrast', $css);
         $this->assertStringContainsString('prefers-reduced-motion', $css);
         $this->assertStringContainsString('focus-visible', $css);
+        // Forum Phase 5 a11y: control focus + unread contrast tokens.
+        $this->assertStringContainsString('.ap-btn:focus-visible', $css);
+        $this->assertStringContainsString('--ap-forum-unread-bar-width', $css);
+        $this->assertStringContainsString('.ap-forum-row--unread', $css);
+        $this->assertDoesNotMatchRegularExpression(
+            '/\.ap-forum-row--read\s*\{[^}]*opacity\s*:/',
+            $css
+        );
+
+        $topic = (string) file_get_contents($this->root . '/ap-content/themes/agora/topic.php');
+        $this->assertStringContainsString('aria-label="Back to top of topic"', $topic);
+        $this->assertStringContainsString('Quote post #', $topic);
+        $this->assertStringContainsString('Like post #', $topic);
     }
 
     public function testAdminMainLandmarkAndConfigSample(): void

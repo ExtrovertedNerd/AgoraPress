@@ -449,7 +449,7 @@ TXT;
             'topic_slug' => self::SLUG_WELCOME_TOPIC,
             'content' => $body,
             'topic_poster' => $authorId,
-            'topic_type' => AP_Forum::TOPIC_TYPE_NORMAL,
+            'topic_type' => AP_Forum::TOPIC_TYPE_STANDARD,
             'topic_status' => AP_Forum::TOPIC_STATUS_OPEN,
             'topic_approved' => 1,
         ], $db, [

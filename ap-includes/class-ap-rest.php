@@ -1629,7 +1629,7 @@ class AP_Rest
             'title' => (string) ($topic->topic_title ?? $topic->title ?? ''),
             'slug' => (string) ($topic->topic_slug ?? $topic->slug ?? ''),
             'status' => (string) ($topic->topic_status ?? $topic->status ?? 'open'),
-            'type' => (string) ($topic->topic_type ?? $topic->type ?? 'normal'),
+            'type' => (string) ($topic->topic_type ?? $topic->type ?? 'standard'),
             'author' => (int) ($topic->topic_poster ?? $topic->poster_id ?? 0),
             'post_count' => (int) ($topic->post_count ?? $topic->reply_count ?? 0),
             'views' => (int) ($topic->topic_views ?? $topic->views ?? 0),

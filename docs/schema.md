@@ -3,7 +3,7 @@
 AgoraPress uses a **versioned migration system** and a configurable table prefix (default **`ap_`**). Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**.
 
 **Source:** `ap-includes/schema/migrations/`, `class-ap-migrator.php`, `class-ap-migration.php`, `class-ap-db.php`  
-**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **11**, AgoraPress `0.2.1-beta`)
+**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **12**, AgoraPress `0.3.0-beta`)
 
 ## Conventions
 
@@ -180,7 +180,7 @@ Hierarchical categories & forums.
 | `forum_id` | |
 | `topic_title` / `topic_slug` | |
 | `topic_poster` | User ID |
-| `topic_type` | normal / sticky / announce / global (implementation enums) |
+| `topic_type` | standard / sticky / announcement / rules (v12; legacy normal/announce/global backfilled) |
 | `topic_status` | open / locked / moved / deleted, … |
 | `topic_approved` | Approval queue |
 | `topic_views` / reply counts | |

@@ -215,7 +215,7 @@ Admin: Appearance → Menus, Appearance → Widgets.
 
 ## Default theme: Agora
 
-Current stylesheet version: **0.3.3** (`AGORA_THEME_VERSION` / `style.css` header).
+Current stylesheet version: **0.3.6** (`AGORA_THEME_VERSION` / `style.css` header). Board index uses stable phpBB-parity hooks (`.ap-forum-cat-header`, `.ap-forum-row--{unread|read|neutral|locked}`, `.ap-forum-icon--{type}`, three-line `.ap-forum-last-post__*`) styled only in theme CSS — not core — so custom themes can restyle freely. Topic view adds `.ap-forum-first-unread` / `.ap-forum-first-unread-wrap` for the SPEC B1 jump link.
 
 | Feature | Detail |
 |---------|--------|
