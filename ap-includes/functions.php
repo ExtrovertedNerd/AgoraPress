@@ -5201,13 +5201,41 @@ function ap_get_child_forums(int $parentId = 0, array $args = [], ?AP_DB $db = n
 /**
  * Forum index display data for templates.
  *
+ * @param array<string, mixed> $args Optional: user_id for unread annotation
+ *
  * @return list<array{name: string, forums: list<array<string, mixed>>}>
  *
  * @see AP_Forum::getIndexData()
  */
-function ap_get_forum_index_data(?AP_DB $db = null): array
+function ap_get_forum_index_data(?AP_DB $db = null, array $args = []): array
 {
-    return AP_Forum::getIndexData($db);
+    return AP_Forum::getIndexData($db, $args);
+}
+
+/**
+ * Board-level aggregates for the forum footer (board index).
+ *
+ * Count definitions (SPEC §C — keep UI and denormalized counters aligned):
+ * - **topics**: approved topics with status ≠ deleted (board-wide).
+ * - **posts**: approved forum_posts (**opening posts + replies**) under approved,
+ *   non-deleted topics. **Not “replies only”.** Same meaning as forum-row
+ *   `post_count` and topic-row `posts` (`reply_count + 1`). See
+ *   {@see AP_Forum} class docblock (“Post-count definition”).
+ * - **members**: registered users (all rows in `users`; guests not counted).
+ *
+ * Live SQL COUNTs only (no transient / object-cache lag). Local DB; no telemetry.
+ *
+ * @return array{topics: int, posts: int, members: int}
+ *
+ * @see AP_Forum_Stats::getBoardStats()
+ */
+function ap_get_forum_board_stats(?AP_DB $db = null): array
+{
+    if (class_exists('AP_Forum_Stats', false)) {
+        return AP_Forum_Stats::getBoardStats($db);
+    }
+
+    return ['topics' => 0, 'posts' => 0, 'members' => 0];
 }
 
 /**
@@ -5357,6 +5385,39 @@ function ap_get_topic_posts_data(int $topicId, array $args = [], ?AP_DB $db = nu
 }
 
 /**
+ * Build BBCode quote markup for a reply citation (SPEC B2).
+ *
+ * @see AP_Forum::buildQuoteMarkup()
+ */
+function ap_forum_build_quote_markup(string $author, string $content, int $maxLen = 2000): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::buildQuoteMarkup($author, $content, $maxLen);
+    }
+    $author = trim(str_replace(["\r", "\n", "\0", '[', ']', '"', "'"], '', $author));
+    if ($author === '') {
+        $author = 'Guest';
+    }
+    $content = trim(str_replace("\0", '', $content));
+
+    return '[quote=' . $author . ']' . $content . "[/quote]\n\n";
+}
+
+/**
+ * Quote markup for an approved forum post, or empty when unavailable.
+ *
+ * @see AP_Forum::getQuoteMarkupForPost()
+ */
+function ap_forum_quote_for_post(int $postId, ?AP_DB $db = null): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::getQuoteMarkupForPost($postId, $db);
+    }
+
+    return '';
+}
+
+/**
  * Increment topic view counter.
  *
  * @see AP_Forum::incrementTopicViews()
@@ -5414,6 +5475,723 @@ function ap_topic_url(object|int $topic): string
     }
 
     return $id > 0 ? '/?topic_id=' . $id : '/';
+}
+
+/**
+ * Permalink to a forum post (topic URL + #post-{id}).
+ *
+ * @see AP_Forum::postUrl()
+ */
+function ap_forum_post_url(object|int $topic, int $postId): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::postUrl($topic, $postId);
+    }
+    $base = ap_topic_url($topic);
+
+    return $postId > 0 ? $base . '#post-' . $postId : $base;
+}
+
+/**
+ * Board-index forum row icon key: standard | locked | link.
+ *
+ * @see AP_Forum::forumIconType()
+ */
+function ap_forum_icon_type(object|string $forumOrType, ?string $status = null): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::forumIconType($forumOrType, $status);
+    }
+
+    return 'standard';
+}
+
+/**
+ * Topic-list icon key: standard | sticky | announcement | rules | locked.
+ *
+ * @see AP_Forum::topicIconType()
+ */
+function ap_topic_icon_type(object|string $topicOrType, ?string $status = null): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::topicIconType($topicOrType, $status);
+    }
+
+    return 'standard';
+}
+
+/**
+ * Allowed board/topic row icon type keys (SPEC A2/A4).
+ *
+ * @return list<string>
+ */
+function ap_forum_row_icon_types(): array
+{
+    return ['standard', 'sticky', 'announcement', 'rules', 'locked', 'link'];
+}
+
+/**
+ * Normalize a forum/topic icon_type for markup/CSS hooks.
+ */
+function ap_forum_normalize_icon_type(string $iconType): string
+{
+    $type = strtolower(trim($iconType));
+    $allowed = ap_forum_row_icon_types();
+
+    return in_array($type, $allowed, true) ? $type : 'standard';
+}
+
+/**
+ * Human label for a row icon type (screen readers / titles).
+ */
+function ap_forum_icon_type_label(string $iconType): string
+{
+    return match (ap_forum_normalize_icon_type($iconType)) {
+        'sticky' => 'Sticky',
+        'announcement' => 'Announcement',
+        'rules' => 'Rules',
+        'locked' => 'Locked',
+        'link' => 'Link forum',
+        default => 'Standard',
+    };
+}
+
+/**
+ * Human label for a topic type (standard | sticky | announcement | rules).
+ *
+ * @see AP_Forum::topicTypeLabel()
+ */
+function ap_forum_topic_type_label(string $type): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::topicTypeLabel($type);
+    }
+
+    return match (strtolower(trim($type))) {
+        'sticky' => 'Sticky',
+        'announcement', 'announce', 'global' => 'Announcement',
+        'rules', 'info' => 'Rules',
+        default => 'Standard',
+    };
+}
+
+/**
+ * Topic types the current (or given) user may choose when creating a topic.
+ *
+ * @return list<string>
+ *
+ * @see AP_Forum_Permissions::allowedTopicTypesForCreate()
+ */
+function ap_forum_allowed_topic_types_for_create(
+    int $forumId,
+    ?int $userId = null,
+    ?AP_DB $db = null
+): array {
+    if ($forumId < 1 || !class_exists('AP_Forum_Permissions', false)) {
+        return [];
+    }
+    if ($userId === null) {
+        $userId = function_exists('ap_get_current_user_id')
+            ? (int) ap_get_current_user_id($db)
+            : 0;
+    }
+
+    return AP_Forum_Permissions::allowedTopicTypesForCreate($userId, $forumId, $db);
+}
+
+/**
+ * Topic types the current (or given) user may set when editing a topic.
+ *
+ * @return list<string>
+ *
+ * @see AP_Forum_Permissions::allowedTopicTypesForEdit()
+ */
+function ap_forum_allowed_topic_types_for_edit(
+    int $forumId,
+    ?string $currentType = null,
+    ?int $userId = null,
+    ?AP_DB $db = null
+): array {
+    if ($forumId < 1 || !class_exists('AP_Forum_Permissions', false)) {
+        return [];
+    }
+    if ($userId === null) {
+        $userId = function_exists('ap_get_current_user_id')
+            ? (int) ap_get_current_user_id($db)
+            : 0;
+    }
+
+    return AP_Forum_Permissions::allowedTopicTypesForEdit($userId, $forumId, $currentType, $db);
+}
+
+/**
+ * Render a topic-type &lt;select&gt; for create/edit forms (SPEC A2).
+ *
+ * Returns empty string when $types is empty or only one option and
+ * `$args['hide_single']` is true (default for create forms with only standard).
+ *
+ * @param list<string>         $types  Allowed type keys
+ * @param array<string, mixed> $args   id, name, selected, label, class, hide_single, required
+ */
+function ap_forum_topic_type_select_html(array $types, array $args = []): string
+{
+    $types = array_values(array_unique(array_filter(array_map(
+        static function ($t): string {
+            $t = is_string($t) ? strtolower(trim($t)) : '';
+            if (class_exists('AP_Forum', false)) {
+                return AP_Forum::normalizeTopicType($t);
+            }
+
+            return $t;
+        },
+        $types
+    ))));
+
+    if ($types === []) {
+        return '';
+    }
+
+    $hideSingle = !array_key_exists('hide_single', $args) || !empty($args['hide_single']);
+    if ($hideSingle && count($types) === 1 && $types[0] === 'standard') {
+        return '';
+    }
+
+    $id = (string) ($args['id'] ?? 'ap-topic-type');
+    $name = (string) ($args['name'] ?? 'topic_type');
+    $selected = (string) ($args['selected'] ?? $types[0]);
+    if (class_exists('AP_Forum', false)) {
+        $selected = AP_Forum::normalizeTopicType($selected);
+    }
+    if (!in_array($selected, $types, true)) {
+        $selected = $types[0];
+    }
+    $label = (string) ($args['label'] ?? 'Topic type');
+    $class = trim((string) ($args['class'] ?? 'ap-field ap-field--topic-type'));
+    $required = !empty($args['required']);
+
+    $esc = static function (string $s): string {
+        if (function_exists('agora_esc')) {
+            return agora_esc($s);
+        }
+        if (function_exists('ap_esc_html')) {
+            return ap_esc_html($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+    $escAttr = static function (string $s): string {
+        if (function_exists('agora_esc_attr')) {
+            return agora_esc_attr($s);
+        }
+        if (function_exists('ap_esc_attr')) {
+            return ap_esc_attr($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+
+    $html = '<div class="' . $escAttr($class) . '">';
+    $html .= '<label for="' . $escAttr($id) . '">' . $esc($label) . '</label>';
+    $html .= '<select id="' . $escAttr($id) . '" name="' . $escAttr($name) . '"'
+        . ($required ? ' required' : '') . '>';
+    foreach ($types as $type) {
+        $html .= '<option value="' . $escAttr($type) . '"'
+            . ($type === $selected ? ' selected' : '') . '>'
+            . $esc(ap_forum_topic_type_label($type))
+            . '</option>';
+    }
+    $html .= '</select></div>';
+
+    return $html;
+}
+
+/**
+ * Read/unread visual state for a board or topic row (SPEC A1).
+ *
+ * Returns one of:
+ * - `unread` — logged-in user has visible unread content
+ * - `read`   — logged-in user; fully read (or tracking known empty)
+ * - `neutral` — guest / tracking unavailable: no claim about personal state
+ *
+ * Guests intentionally use neutral (not “read”) so themes do not imply a
+ * personal read marker. Prefer pairing with {@see ap_forum_row_classes()}.
+ *
+ * @param array{
+ *   is_unread?: bool,
+ *   unread?: bool,
+ *   tracking?: bool,
+ *   user_id?: int
+ * } $args
+ */
+function ap_forum_row_read_state(array $args = []): string
+{
+    $isUnread = !empty($args['is_unread']) || !empty($args['unread']);
+
+    // Explicit unread from the data layer always wins (never lie about unread).
+    if ($isUnread) {
+        return 'unread';
+    }
+
+    // Explicit tracking flag wins when provided; otherwise infer from viewer.
+    if (array_key_exists('tracking', $args)) {
+        $tracking = (bool) $args['tracking'];
+    } else {
+        $userId = array_key_exists('user_id', $args)
+            ? (int) $args['user_id']
+            : (function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id() : 0);
+        $tracking = $userId > 0;
+        if ($tracking && class_exists('AP_Forum_Read', false) && method_exists('AP_Forum_Read', 'isAvailable')) {
+            $tracking = AP_Forum_Read::isAvailable();
+        }
+    }
+
+    // Guests / tracking off: neutral (not “read”) — SPEC guest policy.
+    if (!$tracking) {
+        return 'neutral';
+    }
+
+    return 'read';
+}
+
+/**
+ * Stable CSS classes for a forum/topic list row (SPEC A1 / A4).
+ *
+ * Always includes `ap-forum-row`. Adds:
+ * - `ap-forum-row--unread` | `ap-forum-row--read` | `ap-forum-row--neutral`
+ * - `ap-forum-list__item` (and `--unread` when unread) for legacy hooks
+ * - `ap-forum-row--topic` / `ap-forum-list__item--topic` when topic list
+ * - `ap-forum-row--locked` when forum closed or topic locked
+ * - `ap-forum-row--empty` when forum has no topics/posts
+ * - optional `ap-forum-row--icon-{type}` when icon_type is set
+ *
+ * @param array{
+ *   is_unread?: bool,
+ *   unread?: bool,
+ *   tracking?: bool,
+ *   user_id?: int,
+ *   topic?: bool,
+ *   locked?: bool,
+ *   is_locked?: bool,
+ *   is_closed?: bool,
+ *   empty?: bool,
+ *   is_empty?: bool,
+ *   icon_type?: string,
+ *   class?: string|list<string>
+ * } $args
+ */
+function ap_forum_row_classes(array $args = []): string
+{
+    $state = ap_forum_row_read_state($args);
+    $isTopic = !empty($args['topic']);
+    $isLocked = !empty($args['locked'])
+        || !empty($args['is_locked'])
+        || !empty($args['is_closed']);
+    $isEmpty = !empty($args['empty']) || !empty($args['is_empty']);
+
+    $classes = ['ap-forum-list__item', 'ap-forum-row'];
+    if ($isTopic) {
+        $classes[] = 'ap-forum-list__item--topic';
+        $classes[] = 'ap-forum-row--topic';
+    }
+
+    $classes[] = 'ap-forum-row--' . $state;
+    if ($state === 'unread') {
+        $classes[] = 'ap-forum-list__item--unread';
+    }
+
+    if ($isLocked) {
+        $classes[] = 'ap-forum-row--locked';
+    }
+    if ($isEmpty) {
+        $classes[] = 'ap-forum-row--empty';
+    }
+
+    if (!empty($args['icon_type']) && is_string($args['icon_type'])) {
+        $icon = ap_forum_normalize_icon_type($args['icon_type']);
+        $classes[] = 'ap-forum-row--icon-' . $icon;
+    }
+
+    if (!empty($args['class'])) {
+        $extra = $args['class'];
+        if (is_array($extra)) {
+            foreach ($extra as $c) {
+                if (is_string($c) && trim($c) !== '') {
+                    $classes[] = trim($c);
+                }
+            }
+        } elseif (is_string($extra) && trim($extra) !== '') {
+            foreach (preg_split('/\s+/', trim($extra)) ?: [] as $c) {
+                if ($c !== '') {
+                    $classes[] = $c;
+                }
+            }
+        }
+    }
+
+    // De-dupe while preserving order.
+    $seen = [];
+    $out = [];
+    foreach ($classes as $c) {
+        if (!isset($seen[$c])) {
+            $seen[$c] = true;
+            $out[] = $c;
+        }
+    }
+
+    return implode(' ', $out);
+}
+
+/**
+ * Whether a forum (or status string) is closed (no new topics).
+ *
+ * @see AP_Forum::isForumClosed()
+ */
+function ap_is_forum_closed(object|string $forumOrStatus): bool
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::isForumClosed($forumOrStatus);
+    }
+
+    $status = is_object($forumOrStatus)
+        ? (string) ($forumOrStatus->forum_status ?? '')
+        : (string) $forumOrStatus;
+
+    return strtolower(trim($status)) === 'closed';
+}
+
+/**
+ * Three-line empty last-post column placeholders (SPEC A4: “No posts”, “—”).
+ *
+ * Use when a forum row has no last_post payload.
+ */
+function ap_forum_empty_last_post_html(): string
+{
+    return '<span class="ap-forum-last-post__title ap-forum-list__empty">No posts</span>'
+        . '<span class="ap-forum-last-post__author ap-forum-list__empty" aria-hidden="true">—</span>'
+        . '<span class="ap-forum-last-post__time ap-forum-list__empty" aria-hidden="true">—</span>';
+}
+
+/**
+ * Forum board footer statistics markup (SPEC §C — not the site footer).
+ *
+ * Renders: “Total Topics: N · Total Posts: N · Total Members: N”
+ *
+ * Post count = approved opening posts + replies under visible topics (see
+ * {@see ap_get_forum_board_stats()} / {@see AP_Forum_Stats} class docblock).
+ * Counts are live DB aggregates with no cache lag.
+ *
+ * Stable classes for themes:
+ * - `.ap-forum-footer` / `.ap-board-stats` (wrapper)
+ * - `.ap-board-stats__item` / `__label` / `__value`
+ * - `.ap-board-stats__sep` (middle-dot separators)
+ *
+ * @param array{
+ *   topics?: int,
+ *   posts?: int,
+ *   members?: int,
+ *   class?: string,
+ *   stats?: array{topics?: int, posts?: int, members?: int}
+ * } $args Precomputed stats optional; otherwise loads via {@see ap_get_forum_board_stats()}.
+ * @param AP_DB|null $db
+ */
+function ap_forum_board_stats_footer_html(array $args = [], ?AP_DB $db = null): string
+{
+    $stats = null;
+    if (isset($args['stats']) && is_array($args['stats'])) {
+        $stats = $args['stats'];
+    } elseif (isset($args['topics']) || isset($args['posts']) || isset($args['members'])) {
+        $stats = $args;
+    }
+    if (!is_array($stats)) {
+        $stats = ap_get_forum_board_stats($db);
+    }
+
+    $topics = max(0, (int) ($stats['topics'] ?? 0));
+    $posts = max(0, (int) ($stats['posts'] ?? 0));
+    $members = max(0, (int) ($stats['members'] ?? 0));
+
+    $classes = ['ap-forum-footer', 'ap-board-stats'];
+    if (!empty($args['class']) && is_string($args['class'])) {
+        $extra = trim($args['class']);
+        if ($extra !== '') {
+            $classes[] = $extra;
+        }
+    }
+
+    $esc = static function (string $s): string {
+        return function_exists('ap_esc_html') ? ap_esc_html($s) : htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+    $escAttr = static function (string $s): string {
+        return function_exists('ap_esc_attr') ? ap_esc_attr($s) : htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+
+    $item = static function (string $key, string $label, int $value) use ($esc, $escAttr): string {
+        return '<span class="ap-board-stats__item ap-board-stats__item--' . $escAttr($key) . '">'
+            . '<span class="ap-board-stats__label">' . $esc($label) . '</span>'
+            . '<span class="ap-board-stats__value" data-stat="' . $escAttr($key) . '">'
+            . $esc((string) $value)
+            . '</span>'
+            . '</span>';
+    };
+
+    $sep = '<span class="ap-board-stats__sep" aria-hidden="true"> · </span>';
+
+    // Labels include trailing colon so themes can restyle label vs value independently.
+    $html = '<footer class="' . $escAttr(implode(' ', $classes)) . '"'
+        . ' role="contentinfo" aria-label="Board statistics">'
+        . $item('topics', 'Total Topics:', $topics)
+        . $sep
+        . $item('posts', 'Total Posts:', $posts)
+        . $sep
+        . $item('members', 'Total Members:', $members)
+        . '</footer>';
+
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('ap_forum_board_stats_footer_html', $html, [
+            'topics' => $topics,
+            'posts' => $posts,
+            'members' => $members,
+        ]);
+        if (is_string($filtered)) {
+            return $filtered;
+        }
+    }
+
+    return $html;
+}
+
+/**
+ * Forum empty-state / locked affordance markup (stable hooks for themes).
+ *
+ * Kind keys (board index + forum/topic views):
+ * - board_empty, category_empty
+ * - forum_empty, forum_empty_closed, forum_closed
+ * - forum_disabled, forum_not_found
+ * - topic_empty, topic_locked
+ *
+ * Classes: `ap-empty ap-forum-empty ap-forum-empty--{kind}` (+ optional extras).
+ *
+ * @param array{
+ *   class?: string,
+ *   can_post?: bool,
+ *   cta_url?: string,
+ *   cta_label?: string,
+ *   back_url?: string,
+ *   back_label?: string
+ * } $args
+ */
+function ap_forum_empty_state_html(string $kind, array $args = []): string
+{
+    $kind = strtolower(trim($kind));
+    $allowed = [
+        'board_empty',
+        'category_empty',
+        'forum_empty',
+        'forum_empty_closed',
+        'forum_closed',
+        'forum_disabled',
+        'forum_not_found',
+        'topic_empty',
+        'topic_locked',
+    ];
+    if (!in_array($kind, $allowed, true)) {
+        $kind = 'board_empty';
+    }
+
+    $esc = static function (string $s): string {
+        if (function_exists('ap_esc_html')) {
+            return ap_esc_html($s);
+        }
+        if (function_exists('agora_esc')) {
+            return agora_esc($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+    $escAttr = static function (string $s): string {
+        if (function_exists('ap_esc_attr')) {
+            return ap_esc_attr($s);
+        }
+        if (function_exists('agora_esc_attr')) {
+            return agora_esc_attr($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+    $escUrl = static function (string $s): string {
+        if (function_exists('ap_esc_url')) {
+            return ap_esc_url($s);
+        }
+        if (function_exists('agora_esc_url')) {
+            return agora_esc_url($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+
+    $canPost = !empty($args['can_post']);
+    $ctaUrl = isset($args['cta_url']) && is_string($args['cta_url']) ? $args['cta_url'] : '';
+    $ctaLabel = isset($args['cta_label']) && is_string($args['cta_label']) && $args['cta_label'] !== ''
+        ? $args['cta_label']
+        : 'Start the first topic';
+    $backUrl = isset($args['back_url']) && is_string($args['back_url']) ? $args['back_url'] : '';
+    $backLabel = isset($args['back_label']) && is_string($args['back_label']) && $args['back_label'] !== ''
+        ? $args['back_label']
+        : 'Back to forums';
+
+    $primary = match ($kind) {
+        'board_empty' => 'No forums have been created yet.',
+        'category_empty' => 'No forums in this category.',
+        'forum_empty' => 'No topics yet in this forum.',
+        'forum_empty_closed' => 'This forum is closed and has no topics yet.',
+        'forum_closed' => 'This forum is closed. New topics are not accepted.',
+        'forum_disabled' => 'The forum module is currently disabled.',
+        'forum_not_found' => 'Forum not found.',
+        'topic_empty' => 'No posts in this topic yet.',
+        'topic_locked' => 'This topic is locked. New replies are not accepted.',
+        default => 'Nothing to show here yet.',
+    };
+
+    $secondary = match ($kind) {
+        'board_empty' => 'When an administrator adds categories and forums, they will appear here.',
+        'forum_empty' => $canPost
+            ? ''
+            : 'Be the first to start a conversation.',
+        default => '',
+    };
+
+    // Open empty forum with create permission: CTA instead of passive secondary.
+    if ($kind === 'forum_empty' && $canPost && $ctaUrl === '') {
+        $ctaUrl = '#new-topic';
+    }
+
+    $extraClass = isset($args['class']) && is_string($args['class']) ? trim($args['class']) : '';
+    $classes = ['ap-empty', 'ap-forum-empty', 'ap-forum-empty--' . $kind];
+    if ($extraClass !== '') {
+        $classes[] = $extraClass;
+    }
+
+    $html = '<div class="' . $escAttr(implode(' ', $classes)) . '" role="status">';
+    $html .= '<p>' . $esc($primary) . '</p>';
+    if ($secondary !== '') {
+        $html .= '<p>' . $esc($secondary) . '</p>';
+    }
+    if ($ctaUrl !== '' && in_array($kind, ['forum_empty'], true)) {
+        $html .= '<p class="ap-forum-empty__cta"><a class="ap-btn" href="'
+            . $escUrl($ctaUrl) . '">' . $esc($ctaLabel) . '</a></p>';
+    }
+    if ($backUrl !== '' && $kind === 'forum_not_found') {
+        $html .= '<p class="ap-forum-empty__back"><a href="'
+            . $escUrl($backUrl) . '">' . $esc($backLabel) . '</a></p>';
+    }
+    $html .= '</div>';
+
+    return $html;
+}
+
+/**
+ * Markup for board-index / topic-list row icon (SPEC A2 / A4 col 1).
+ *
+ * Visual glyph is CSS-driven (image-free). Classes:
+ * - ap-forum-row__icon (column cell)
+ * - ap-forum-icon ap-forum-icon--{type}
+ * - ap-forum-icon--unread | ap-forum-icon--read | (none when neutral)
+ *
+ * Read vs unread variants: themes style `--unread` (accent / filled) vs
+ * `--read` (muted) vs base/neutral (no personal-state claim for guests).
+ *
+ * @param array{
+ *   unread?: bool,
+ *   is_unread?: bool,
+ *   tracking?: bool,
+ *   user_id?: int,
+ *   read_state?: string,
+ *   class?: string,
+ *   label?: string
+ * } $args
+ */
+function ap_forum_row_icon_html(string $iconType, array $args = []): string
+{
+    $type = ap_forum_normalize_icon_type($iconType);
+
+    if (!empty($args['read_state']) && is_string($args['read_state'])) {
+        $state = strtolower(trim($args['read_state']));
+        if (!in_array($state, ['unread', 'read', 'neutral'], true)) {
+            $state = ap_forum_row_read_state($args);
+        }
+    } else {
+        $state = ap_forum_row_read_state($args);
+    }
+
+    $label = isset($args['label']) && is_string($args['label']) && $args['label'] !== ''
+        ? (string) $args['label']
+        : ap_forum_icon_type_label($type) . match ($state) {
+            'unread' => ' (unread)',
+            'read' => ' (read)',
+            default => '',
+        };
+
+    $classes = ['ap-forum-icon', 'ap-forum-icon--' . $type];
+    if ($state === 'unread') {
+        $classes[] = 'ap-forum-icon--unread';
+    } elseif ($state === 'read') {
+        $classes[] = 'ap-forum-icon--read';
+    }
+    if (!empty($args['class']) && is_string($args['class'])) {
+        $extra = trim($args['class']);
+        if ($extra !== '') {
+            $classes[] = $extra;
+        }
+    }
+
+    $classAttr = ap_esc_attr(implode(' ', $classes));
+    $labelEsc = ap_esc_html($label);
+
+    return '<span class="ap-forum-row__icon ap-forum-list__icon">'
+        . '<span class="' . $classAttr . '" title="' . ap_esc_attr($label) . '" aria-hidden="true"></span>'
+        . '<span class="screen-reader-text">' . $labelEsc . '</span>'
+        . '</span>';
+}
+
+/**
+ * Theme-friendly board-index forum row (icon, unread, counts, last_post).
+ *
+ * @param array<string, mixed> $preload Optional batch maps for last topic/authors
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Forum::forumToDisplayRow()
+ */
+function ap_forum_to_display_row(object $forum, ?AP_DB $db = null, array $preload = []): array
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::forumToDisplayRow($forum, $db, $preload);
+    }
+
+    $topics = (int) ($forum->topic_count ?? 0);
+    $posts = (int) ($forum->post_count ?? 0);
+    $status = (string) ($forum->forum_status ?? 'open');
+    $isClosed = strtolower(trim($status)) === 'closed';
+
+    return [
+        'id' => (int) ($forum->forum_id ?? 0),
+        'name' => (string) ($forum->forum_name ?? ''),
+        'slug' => (string) ($forum->forum_slug ?? ''),
+        'description' => (string) ($forum->forum_desc ?? ''),
+        'url' => '',
+        'topics' => $topics,
+        'topic_count' => $topics,
+        'posts' => $posts,
+        'post_count' => $posts,
+        'type' => (string) ($forum->forum_type ?? 'forum'),
+        'status' => $status,
+        'icon_type' => $isClosed ? 'locked' : 'standard',
+        'last_post' => null,
+        'is_closed' => $isClosed,
+        'is_locked' => $isClosed,
+        'is_empty' => $topics === 0 && $posts === 0,
+        'is_unread' => false,
+    ];
 }
 
 /**
@@ -6700,6 +7478,24 @@ function ap_mark_topic_read(int $userId, int $topicId, ?AP_DB $db = null, array 
 }
 
 /**
+ * Mark a topic as read on view (first-unread + page-aware watermark).
+ *
+ * @param array<string, mixed> $args page, per_page, mark_time, check_enabled
+ *
+ * @return array{first_unread_post_id: int, marked: bool, mark_time: string}
+ *
+ * @see AP_Forum_Read::markTopicReadOnView()
+ */
+function ap_mark_topic_read_on_view(
+    int $userId,
+    int $topicId,
+    ?AP_DB $db = null,
+    array $args = []
+): array {
+    return AP_Forum_Read::markTopicReadOnView($userId, $topicId, $db, $args);
+}
+
+/**
  * Mark a forum as read for a user.
  *
  * @param array<string, mixed> $args
@@ -6787,6 +7583,99 @@ function ap_count_unread_topics_in_forum(
 function ap_annotate_topics_unread(int $userId, array $topics, ?AP_DB $db = null): array
 {
     return AP_Forum_Read::annotateTopics($userId, $topics, $db);
+}
+
+/**
+ * Annotate forum rows with is_unread (forum rollup).
+ *
+ * @param list<object|array<string, mixed>> $forums
+ *
+ * @return list<array<string, mixed>>
+ *
+ * @see AP_Forum_Read::annotateForums()
+ */
+function ap_annotate_forums_unread(int $userId, array $forums, ?AP_DB $db = null): array
+{
+    return AP_Forum_Read::annotateForums($userId, $forums, $db);
+}
+
+/**
+ * First unread post in a topic for a user (or null).
+ *
+ * @param object|int $topic
+ *
+ * @see AP_Forum_Read::getFirstUnreadPost()
+ */
+function ap_get_first_unread_post(int $userId, object|int $topic, ?AP_DB $db = null): ?object
+{
+    return AP_Forum_Read::getFirstUnreadPost($userId, $topic, $db);
+}
+
+/**
+ * First unread post_id in a topic for a user (0 when none).
+ *
+ * @param object|int $topic
+ *
+ * @see AP_Forum_Read::getFirstUnreadPostId()
+ */
+function ap_get_first_unread_post_id(int $userId, object|int $topic, ?AP_DB $db = null): int
+{
+    return AP_Forum_Read::getFirstUnreadPostId($userId, $topic, $db);
+}
+
+/**
+ * “First unread post” jump markup for topic view (SPEC B1).
+ *
+ * Returns empty string when $postId < 1 (guest, fully read, tracking off) so
+ * themes can call it unconditionally and hide the control when not applicable.
+ *
+ * Prefer resolving the post id *before* markTopicRead() on topic view (see
+ * {@see AP_Forum_Front::applyToQuery()} query var `first_unread_post_id`).
+ *
+ * @param array{
+ *   label?: string,
+ *   href?: string,
+ *   class?: string,
+ *   wrap_class?: string
+ * } $args
+ */
+function ap_forum_first_unread_link_html(int $postId, array $args = []): string
+{
+    if ($postId < 1) {
+        return '';
+    }
+
+    $label = isset($args['label']) && is_string($args['label']) && $args['label'] !== ''
+        ? (string) $args['label']
+        : 'First unread post';
+
+    $href = isset($args['href']) && is_string($args['href']) && $args['href'] !== ''
+        ? (string) $args['href']
+        : '#post-' . $postId;
+
+    $linkClasses = ['ap-forum-first-unread'];
+    if (!empty($args['class']) && is_string($args['class'])) {
+        $extra = trim($args['class']);
+        if ($extra !== '') {
+            $linkClasses[] = $extra;
+        }
+    }
+
+    $wrapClasses = ['ap-forum-first-unread-wrap'];
+    if (!empty($args['wrap_class']) && is_string($args['wrap_class'])) {
+        $wrapExtra = trim($args['wrap_class']);
+        if ($wrapExtra !== '') {
+            $wrapClasses[] = $wrapExtra;
+        }
+    }
+
+    return '<p class="' . ap_esc_attr(implode(' ', $wrapClasses)) . '">'
+        . '<a class="' . ap_esc_attr(implode(' ', $linkClasses)) . '"'
+        . ' href="' . ap_esc_url($href) . '"'
+        . ' aria-label="' . ap_esc_attr($label) . '">'
+        . ap_esc_html($label)
+        . '</a>'
+        . '</p>';
 }
 
 /**

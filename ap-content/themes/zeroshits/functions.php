@@ -1,0 +1,1148 @@
+<?php
+
+/**
+ * Zero Shits — native AgoraPress theme for 0shits.com.
+ *
+ * Irreverent bathroom-humor skin: consistent shell width, forum-ready templates,
+ * pure CSS “no pooping” ban emoji. No WordPress shims.
+ *
+ * @package ZeroShits
+ */
+
+declare(strict_types=1);
+
+/** @deprecated kept for body-class helpers; single porcelain look. */
+const ZEROSHITS_COLOR_SCHEME_OPTION = 'zeroshits_color_scheme';
+
+/** Default scheme slug (visual is fixed in style.css). */
+const ZEROSHITS_DEFAULT_COLOR_SCHEME = 'porcelain';
+
+/** Stylesheet version (fallback when style.css header is unavailable). */
+const ZEROSHITS_THEME_VERSION = '1.0.0';
+
+/**
+ * Register theme chrome: nav locations + modular sidebars (idempotent).
+ *
+ * Called at load and again from {@see zeroshits_register_theme_hooks()} so locations
+ * survive AP_Nav_Menu::reset() / mid-request hook resets in tests and admin.
+ */
+function zeroshits_register_theme_chrome(): void
+{
+    // Theme menu locations (Primary + Footer) — fully controllable from Appearance → Menus.
+    if (function_exists('ap_register_nav_menus')) {
+        ap_register_nav_menus([
+            'primary' => 'Primary',
+            'footer' => 'Footer',
+        ]);
+    } elseif (class_exists('AP_Nav_Menu', false)) {
+        AP_Nav_Menu::registerLocations([
+            'primary' => 'Primary',
+            'footer' => 'Footer',
+        ]);
+    }
+
+    // Modular widget areas (Primary Sidebar + Footer).
+    if (function_exists('ap_register_sidebar')) {
+        ap_register_sidebar('sidebar-1', [
+            'name' => 'Primary Sidebar',
+            'description' => 'Widgets beside main content on blog and archive views.',
+            'before_widget' => '<section id="%1$s" class="widget %2$s">',
+            'after_widget' => '</section>',
+            'before_title' => '<h2 class="widget-title">',
+            'after_title' => '</h2>',
+        ]);
+        ap_register_sidebar('footer-1', [
+            'name' => 'Footer',
+            'description' => 'Widgets in the site footer.',
+            'before_widget' => '<section id="%1$s" class="widget widget--footer %2$s">',
+            'after_widget' => '</section>',
+            'before_title' => '<h2 class="widget-title">',
+            'after_title' => '</h2>',
+        ]);
+    } elseif (class_exists('AP_Widgets', false)) {
+        AP_Widgets::registerSidebar('sidebar-1', [
+            'name' => 'Primary Sidebar',
+            'description' => 'Widgets beside main content on blog and archive views.',
+        ]);
+        AP_Widgets::registerSidebar('footer-1', [
+            'name' => 'Footer',
+            'description' => 'Widgets in the site footer.',
+        ]);
+    }
+}
+
+/**
+ * Register ZeroShits theme hooks (idempotent; safe after ap_reset_hooks in tests).
+ */
+function zeroshits_register_theme_hooks(): void
+{
+    zeroshits_register_theme_chrome();
+
+    if (!function_exists('ap_add_action')) {
+        return;
+    }
+    ap_add_action('ap_enqueue_scripts', 'zeroshits_enqueue_assets');
+    if (function_exists('ap_add_filter')) {
+        ap_add_filter('ap_template_hierarchy', 'zeroshits_forum_template_hierarchy', 10, 2);
+        ap_add_filter('ap_body_class', 'zeroshits_filter_body_class', 10, 2);
+    }
+}
+
+// Front-end styles via the native enqueue API (parent style first when child).
+zeroshits_register_theme_hooks();
+if (function_exists('ap_add_action')) {
+    // Re-bind when AP_Theme::setup fires after_setup_theme (e.g. after hook reset).
+    ap_add_action('ap_after_setup_theme', 'zeroshits_register_theme_hooks');
+}
+
+/**
+ * Enqueue ZeroShits (or child-of-ZeroShits) stylesheets.
+ *
+ * When a child theme is active, loads parent style.css then the child's
+ * style.css with a dependency so cascade order is correct.
+ */
+function zeroshits_enqueue_assets(): void
+{
+    if (!function_exists('ap_enqueue_style')) {
+        return;
+    }
+
+    $ver = ZEROSHITS_THEME_VERSION;
+    $headers = function_exists('ap_get_theme_headers') ? ap_get_theme_headers('zeroshits') : null;
+    if (is_array($headers) && !empty($headers['Version'])) {
+        $ver = (string) $headers['Version'];
+    }
+
+    $templateUri = function_exists('ap_get_template_uri') ? ap_get_template_uri() : '';
+    $styleCss = function_exists('ap_get_style_css_uri')
+        ? ap_get_style_css_uri()
+        : (function_exists('ap_get_stylesheet_uri') ? ap_get_stylesheet_uri() . '/style.css' : '');
+
+    $isChild = function_exists('ap_is_child_theme') && ap_is_child_theme();
+    if ($isChild && $templateUri !== '') {
+        ap_enqueue_style('zeroshits-parent', $templateUri . '/style.css', [], $ver);
+        if ($styleCss !== '') {
+            ap_enqueue_style('zeroshits-style', $styleCss, ['zeroshits-parent'], $ver);
+        }
+    } elseif ($styleCss !== '') {
+        ap_enqueue_style('zeroshits-style', $styleCss, [], $ver);
+    }
+}
+
+/**
+ * Built-in looks (fixed porcelain bathroom palette in style.css).
+ *
+ * @return array<string, array{label: string, mode: string, description: string}>
+ */
+function zeroshits_get_color_schemes(): array
+{
+    return [
+        'porcelain' => [
+            'label' => 'Porcelain Throne',
+            'mode' => 'light',
+            'description' => 'Bathroom tile, caution yellow, prohibition red.',
+        ],
+    ];
+}
+
+/**
+ * Whether a slug is one of the six built-in schemes.
+ */
+function zeroshits_is_valid_color_scheme(string $slug): bool
+{
+    return array_key_exists(zeroshits_sanitize_color_scheme_raw($slug), zeroshits_get_color_schemes());
+}
+
+/**
+ * Normalize a scheme slug (lowercase a-z only); does not fall back.
+ */
+function zeroshits_sanitize_color_scheme_raw(string $slug): string
+{
+    $slug = strtolower(trim($slug));
+    $slug = preg_replace('/[^a-z0-9\-]/', '', $slug) ?? '';
+
+    return $slug;
+}
+
+/**
+ * Sanitize to a known scheme slug, defaulting to Marble when invalid.
+ */
+function zeroshits_sanitize_color_scheme(string $slug): string
+{
+    $slug = zeroshits_sanitize_color_scheme_raw($slug);
+    $schemes = zeroshits_get_color_schemes();
+    if ($slug !== '' && isset($schemes[$slug])) {
+        return $slug;
+    }
+
+    return ZEROSHITS_DEFAULT_COLOR_SCHEME;
+}
+
+/**
+ * Active color scheme slug (defaults to marble).
+ */
+function zeroshits_get_color_scheme(?AP_DB $db = null): string
+{
+    $raw = zeroshits_read_option(ZEROSHITS_COLOR_SCHEME_OPTION, ZEROSHITS_DEFAULT_COLOR_SCHEME, $db);
+
+    return zeroshits_sanitize_color_scheme($raw);
+}
+
+/**
+ * Persist the active color scheme. Returns false for unknown slugs.
+ */
+function zeroshits_set_color_scheme(string $slug, ?AP_DB $db = null): bool
+{
+    $slug = zeroshits_sanitize_color_scheme_raw($slug);
+    if (!zeroshits_is_valid_color_scheme($slug)) {
+        return false;
+    }
+
+    return zeroshits_write_option(ZEROSHITS_COLOR_SCHEME_OPTION, $slug, $db);
+}
+
+/**
+ * light|dark for the given (or active) scheme.
+ */
+function zeroshits_get_color_scheme_mode(?string $slug = null, ?AP_DB $db = null): string
+{
+    $slug = $slug !== null ? zeroshits_sanitize_color_scheme($slug) : zeroshits_get_color_scheme($db);
+    $schemes = zeroshits_get_color_schemes();
+
+    return (string) ($schemes[$slug]['mode'] ?? 'light');
+}
+
+/**
+ * Space-separated body classes.
+ *
+ * Always includes `zeroshits-theme`. Forum views get `zeroshits-forum` + view class.
+ */
+function zeroshits_body_class(?AP_DB $db = null): string
+{
+    unset($db);
+    $classes = [
+        'zeroshits-theme',
+        'zeroshits-scheme-porcelain',
+        'zeroshits-mode-light',
+    ];
+
+    $forumView = zeroshits_get_forum_view();
+    if ($forumView !== '') {
+        $classes[] = 'zeroshits-forum';
+        $classes[] = 'zeroshits-forum--' . $forumView;
+        $classes[] = 'layout-wide';
+    }
+
+    return implode(' ', $classes);
+}
+
+/**
+ * Append forum / layout classes onto core body classes (idempotent).
+ *
+ * @param list<string>  $classes
+ * @param AP_Query|null $query
+ *
+ * @return list<string>
+ */
+function zeroshits_filter_body_class(array $classes, $query = null): array
+{
+    $forumView = zeroshits_get_forum_view($query instanceof AP_Query ? $query : null);
+    if ($forumView === '') {
+        return $classes;
+    }
+
+    $add = ['zeroshits-forum', 'zeroshits-forum--' . $forumView, 'layout-wide'];
+    $seen = array_fill_keys($classes, true);
+    foreach ($add as $c) {
+        if (!isset($seen[$c])) {
+            $classes[] = $c;
+            $seen[$c] = true;
+        }
+    }
+
+    return $classes;
+}
+
+/**
+ * Home URL for theme templates (safe when rewrite is not loaded).
+ */
+function zeroshits_home_url(string $path = '/'): string
+{
+    if (function_exists('ap_home_url') && class_exists('AP_Rewrite', false)) {
+        return ap_home_url($path);
+    }
+
+    // Minimal fallback for isolated tests / early boot.
+    $base = '/';
+    if (isset($GLOBALS['apdb']) && $GLOBALS['apdb'] instanceof AP_DB) {
+        try {
+            $val = $GLOBALS['apdb']->getVar(
+                'SELECT option_value FROM ' . $GLOBALS['apdb']->quoteIdentifier($GLOBALS['apdb']->table('options'))
+                . ' WHERE option_name = ? LIMIT 1',
+                ['home']
+            );
+            if (is_string($val) && $val !== '') {
+                $base = rtrim($val, '/');
+            }
+        } catch (Throwable) {
+            // keep default
+        }
+    }
+    if ($path === '' || $path === '/') {
+        return $base === '/' ? '/' : $base . '/';
+    }
+    if ($path[0] !== '/') {
+        $path = '/' . $path;
+    }
+
+    return ($base === '/' ? '' : $base) . $path;
+}
+
+// -----------------------------------------------------------------------------
+// Forum view resolution + template hierarchy
+// -----------------------------------------------------------------------------
+
+/**
+ * Active forum front-end view for the current (or given) query.
+ *
+ * Recognized values: index | forum | topic | search (empty when not a forum request).
+ * Driven by query vars set by the rewrite layer + {@see AP_Forum_Front}:
+ * - ap_forum_view: explicit view slug (index|forum|topic|search)
+ * - topic_id: implies topic
+ * - forum_id: implies forum
+ * - ap_forum: non-empty implies index
+ */
+function zeroshits_get_forum_view(?AP_Query $query = null): string
+{
+    $q = $query;
+    if (!$q instanceof AP_Query && isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
+        $q = $GLOBALS['ap_query'];
+    }
+
+    $view = '';
+    if ($q instanceof AP_Query) {
+        $view = strtolower(trim((string) $q->get('ap_forum_view', '')));
+        if ($view === '' && (int) $q->get('topic_id', 0) > 0) {
+            $view = 'topic';
+        } elseif ($view === '' && (int) $q->get('forum_id', 0) > 0) {
+            $view = 'forum';
+        } elseif ($view === '') {
+            $flag = $q->get('ap_forum', null);
+            if ($flag !== null && $flag !== '' && $flag !== false && $flag !== 0 && $flag !== '0') {
+                $view = 'index';
+            }
+        }
+    }
+
+    // Allow templates / tests to set a request-level override without a query object.
+    if ($view === '' && isset($GLOBALS['zeroshits_forum_view']) && is_string($GLOBALS['zeroshits_forum_view'])) {
+        $view = strtolower(trim($GLOBALS['zeroshits_forum_view']));
+    }
+
+    $view = preg_replace('/[^a-z0-9\-]/', '', $view) ?? '';
+    if (!in_array($view, ['index', 'forum', 'topic', 'search'], true)) {
+        return '';
+    }
+
+    return $view;
+}
+
+/**
+ * Prepend ZeroShits forum templates when the request is a forum view.
+ *
+ * @param list<string>  $templates
+ * @param AP_Query|null $query
+ *
+ * @return list<string>
+ */
+function zeroshits_forum_template_hierarchy(array $templates, $query = null): array
+{
+    $view = zeroshits_get_forum_view($query instanceof AP_Query ? $query : null);
+    if ($view === '') {
+        return $templates;
+    }
+
+    $prefix = match ($view) {
+        'topic' => ['topic.php', 'forum-topic.php', 'single-topic.php'],
+        'forum' => ['forum-view.php', 'single-forum.php'],
+        'search' => ['forum-search.php', 'search-forum.php', 'forum.php'],
+        default => ['forum.php', 'forums.php'],
+    };
+
+    $merged = array_merge($prefix, $templates);
+    $unique = [];
+    $seen = [];
+    foreach ($merged as $t) {
+        $t = str_replace('\\', '/', (string) $t);
+        $t = ltrim($t, '/');
+        if ($t === '' || isset($seen[$t]) || str_contains($t, '..')) {
+            continue;
+        }
+        $seen[$t] = true;
+        $unique[] = $t;
+    }
+
+    return $unique;
+}
+
+/**
+ * Forum index categories/forums for templates (filterable).
+ *
+ * Each category: ['name' => string, 'forums' => list of forum rows].
+ * Forum row: name, description, url, topics, posts, last_post (optional).
+ * Loads live data from {@see AP_Forum} when the forum module is available.
+ *
+ * @return list<array{name: string, forums: list<array<string, mixed>>}>
+ */
+function zeroshits_get_forum_index_data(): array
+{
+    $data = [];
+    if (function_exists('ap_get_forum_index_data')) {
+        try {
+            $data = ap_get_forum_index_data();
+        } catch (Throwable) {
+            $data = [];
+        }
+    } elseif (class_exists('AP_Forum', false)) {
+        try {
+            $data = AP_Forum::getIndexData();
+        } catch (Throwable) {
+            $data = [];
+        }
+    }
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('zeroshits_forum_index_data', $data);
+        if (is_array($filtered)) {
+            $data = $filtered;
+        }
+    }
+
+    return array_values($data);
+}
+
+/**
+ * Topics for a single forum view (filterable).
+ *
+ * @return list<array<string, mixed>>
+ */
+function zeroshits_get_forum_topics_data(int $forumId = 0): array
+{
+    $data = [];
+    if ($forumId > 0) {
+        $page = 1;
+        if (isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
+            $page = max(1, (int) $GLOBALS['ap_query']->get('paged', 1));
+        }
+        $args = ['per_page' => 20, 'page' => $page];
+        if (function_exists('ap_get_forum_topics_data')) {
+            try {
+                $data = ap_get_forum_topics_data($forumId, $args);
+            } catch (Throwable) {
+                $data = [];
+            }
+        } elseif (class_exists('AP_Forum', false)) {
+            try {
+                $data = AP_Forum::getTopicsDisplayData($forumId, $args);
+            } catch (Throwable) {
+                $data = [];
+            }
+        }
+    }
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('zeroshits_forum_topics_data', $data, $forumId);
+        if (is_array($filtered)) {
+            $data = $filtered;
+        }
+    }
+
+    return array_values($data);
+}
+
+/**
+ * Posts for a topic view (filterable).
+ *
+ * @return list<array<string, mixed>>
+ */
+function zeroshits_get_topic_posts_data(int $topicId = 0): array
+{
+    $data = [];
+    if ($topicId > 0) {
+        $page = 1;
+        if (isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
+            $page = max(1, (int) $GLOBALS['ap_query']->get('paged', 1));
+        }
+        $args = ['per_page' => 20, 'page' => $page];
+        if (function_exists('ap_get_topic_posts_data')) {
+            try {
+                $data = ap_get_topic_posts_data($topicId, $args);
+            } catch (Throwable) {
+                $data = [];
+            }
+        } elseif (class_exists('AP_Forum', false)) {
+            try {
+                $data = AP_Forum::getPostsDisplayData($topicId, $args);
+            } catch (Throwable) {
+                $data = [];
+            }
+        }
+    }
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('zeroshits_topic_posts_data', $data, $topicId);
+        if (is_array($filtered)) {
+            $data = $filtered;
+        }
+    }
+
+    return array_values($data);
+}
+
+/**
+ * Forum flash notice for templates (wrapper around core helper).
+ *
+ * @return array{type: string, message: string}|null
+ */
+function zeroshits_get_forum_notice(): ?array
+{
+    if (function_exists('ap_get_forum_notice')) {
+        return ap_get_forum_notice();
+    }
+    if (class_exists('AP_Forum_Front', false)) {
+        return AP_Forum_Front::getNotice();
+    }
+
+    return null;
+}
+
+/**
+ * Forum search results for the current request (filterable).
+ *
+ * @return array{query: string, total: int, results: list<array<string, mixed>>}
+ */
+function zeroshits_get_forum_search_data(): array
+{
+    $data = [
+        'query' => '',
+        'total' => 0,
+        'results' => [],
+    ];
+    $q = isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query
+        ? $GLOBALS['ap_query']
+        : null;
+    if ($q instanceof AP_Query) {
+        $data['query'] = trim((string) $q->get('forum_s', ''));
+        if ($data['query'] === '') {
+            $data['query'] = trim((string) $q->get('s', ''));
+        }
+        $data['total'] = (int) $q->get('forum_search_total', 0);
+        $results = $q->get('forum_search_results', []);
+        $data['results'] = is_array($results) ? array_values($results) : [];
+    }
+    if ($data['results'] === [] && $data['query'] !== '' && function_exists('ap_forum_search')) {
+        try {
+            $page = $q instanceof AP_Query ? max(1, (int) $q->get('paged', 1)) : 1;
+            $userId = 0;
+            if (function_exists('ap_get_current_user_id')) {
+                $userId = (int) ap_get_current_user_id();
+            } elseif (class_exists('AP_User', false) && method_exists('AP_User', 'getCurrentUserId')) {
+                $userId = (int) AP_User::getCurrentUserId();
+            }
+            $search = ap_forum_search($data['query'], [
+                'type' => 'all',
+                'per_page' => 20,
+                'page' => $page,
+                'check_permissions' => true,
+                'user_id' => $userId,
+            ]);
+            $data['total'] = (int) ($search['total'] ?? 0);
+            $data['results'] = is_array($search['results'] ?? null) ? array_values($search['results']) : [];
+        } catch (Throwable) {
+            // keep empty
+        }
+    }
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('zeroshits_forum_search_data', $data);
+        if (is_array($filtered)) {
+            $data = $filtered;
+        }
+    }
+
+    return [
+        'query' => (string) ($data['query'] ?? ''),
+        'total' => (int) ($data['total'] ?? 0),
+        'results' => is_array($data['results'] ?? null) ? array_values($data['results']) : [],
+    ];
+}
+
+/**
+ * Forum search form action URL.
+ */
+function zeroshits_forum_search_url(string $query = ''): string
+{
+    if (function_exists('ap_forum_search_url')) {
+        return ap_forum_search_url($query);
+    }
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::searchUrl($query);
+    }
+
+    return function_exists('zeroshits_home_url')
+        ? zeroshits_home_url('/forums/search/')
+        : '/forums/search/';
+}
+
+/**
+ * Escape helper used by theme templates.
+ */
+function zeroshits_esc(string $text): string
+{
+    return function_exists('ap_esc_html')
+        ? ap_esc_html($text)
+        : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+/**
+ * Attribute escape helper.
+ */
+function zeroshits_esc_attr(string $text): string
+{
+    return function_exists('ap_esc_attr')
+        ? ap_esc_attr($text)
+        : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+/**
+ * URL escape helper.
+ */
+function zeroshits_esc_url(string $url): string
+{
+    return function_exists('ap_esc_url')
+        ? ap_esc_url($url)
+        : htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+/**
+ * Print a simple pagination nav when max_num_pages > 1.
+ */
+function zeroshits_the_posts_pagination(?AP_Query $query = null): void
+{
+    $q = $query;
+    if (!$q instanceof AP_Query && isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
+        $q = $GLOBALS['ap_query'];
+    }
+    if (!$q instanceof AP_Query || $q->max_num_pages < 2) {
+        return;
+    }
+
+    $current = max(1, (int) $q->get('paged', 1));
+    $total = (int) $q->max_num_pages;
+    $home = zeroshits_home_url('/');
+
+    echo '<nav class="ap-pagination" aria-label="Posts pagination">';
+
+    // Previous
+    if ($current > 1) {
+        $prev = $current - 1;
+        $url = $prev <= 1 ? $home : rtrim($home, '/') . '/page/' . $prev . '/';
+        echo '<a href="' . zeroshits_esc_url($url) . '" rel="prev">Previous</a>';
+    } else {
+        echo '<span class="disabled" aria-disabled="true">Previous</span>';
+    }
+
+    $start = max(1, $current - 2);
+    $end = min($total, $current + 2);
+    for ($i = $start; $i <= $end; $i++) {
+        if ($i === $current) {
+            echo '<span class="current" aria-current="page">' . $i . '</span>';
+            continue;
+        }
+        $url = $i <= 1 ? $home : rtrim($home, '/') . '/page/' . $i . '/';
+        echo '<a href="' . zeroshits_esc_url($url) . '">' . $i . '</a>';
+    }
+
+    if ($current < $total) {
+        $url = rtrim($home, '/') . '/page/' . ($current + 1) . '/';
+        echo '<a href="' . zeroshits_esc_url($url) . '" rel="next">Next</a>';
+    } else {
+        echo '<span class="disabled" aria-disabled="true">Next</span>';
+    }
+
+    echo '</nav>';
+}
+
+/**
+ * Print entry meta (date + optional author) for the current post.
+ */
+function zeroshits_the_entry_meta(): void
+{
+    $date = function_exists('zeroshits_the_date') ? zeroshits_the_date() : '';
+    $author = function_exists('ap_get_the_author') ? ap_get_the_author() : '';
+    if ($date === '' && $author === '') {
+        return;
+    }
+
+    echo '<p class="ap-entry__meta">';
+    if ($author !== '') {
+        echo '<span class="ap-meta-author">' . zeroshits_esc($author) . '</span>';
+    }
+    if ($date !== '') {
+        $cls = $author !== '' ? ' class="ap-meta-sep"' : '';
+        echo '<time' . $cls . ' datetime="' . zeroshits_esc_attr($date) . '">'
+            . zeroshits_esc($date) . '</time>';
+    }
+    echo '</p>';
+}
+
+/**
+ * Site title from options (blogname), with a safe default.
+ */
+function zeroshits_site_name(?AP_DB $db = null): string
+{
+    $name = zeroshits_read_option('blogname', '', $db);
+
+    return $name !== '' ? $name : 'Zero Shits to Give';
+}
+
+/**
+ * Build an ap-admin URL without requiring the admin shell class.
+ */
+function zeroshits_admin_path_url(string $file, array $query = [], ?AP_DB $db = null): string
+{
+    $file = ltrim($file, '/');
+    $url = '';
+
+    if (class_exists('AP_Admin', false) && method_exists('AP_Admin', 'url')) {
+        try {
+            $url = (string) AP_Admin::url($file, $query);
+        } catch (Throwable) {
+            $url = '';
+        }
+    }
+
+    if ($url === '') {
+        if (function_exists('ap_site_url')) {
+            try {
+                $url = (string) ap_site_url('ap-admin/' . $file, $db);
+            } catch (Throwable) {
+                $url = '';
+            }
+        }
+    }
+
+    if ($url === '' && class_exists('AP_Rewrite', false) && method_exists('AP_Rewrite', 'siteUrl')) {
+        try {
+            $url = (string) AP_Rewrite::siteUrl('ap-admin/' . $file, $db);
+        } catch (Throwable) {
+            $url = '';
+        }
+    }
+
+    if ($url === '') {
+        $site = zeroshits_read_option('siteurl', '', $db);
+        if ($site === '') {
+            $site = zeroshits_read_option('home', '', $db);
+        }
+        $url = $site !== ''
+            ? rtrim($site, '/') . '/ap-admin/' . $file
+            : '/ap-admin/' . $file;
+    }
+
+    // Append query when built without AP_Admin::url (which already merges $query).
+    if ($query !== [] && !str_contains($url, '?')) {
+        $qs = http_build_query($query);
+        if ($qs !== '') {
+            $url .= '?' . $qs;
+        }
+    }
+
+    return $url;
+}
+
+/**
+ * Whether the current visitor is logged in (theme helper).
+ */
+function zeroshits_is_user_logged_in(?AP_DB $db = null): bool
+{
+    if (function_exists('ap_is_user_logged_in') && class_exists('AP_Session', false)) {
+        try {
+            return ap_is_user_logged_in($db);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+    if (function_exists('ap_get_current_user_id') && class_exists('AP_Session', false)) {
+        try {
+            return ap_get_current_user_id($db) > 0;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Whether public registration is open for the guest Register link.
+ */
+function zeroshits_users_can_register(?AP_DB $db = null): bool
+{
+    if (function_exists('ap_users_can_register')) {
+        try {
+            return ap_users_can_register($db);
+        } catch (Throwable) {
+            // fall through
+        }
+    }
+    if (class_exists('AP_Registration', false) && method_exists('AP_Registration', 'usersCanRegister')) {
+        try {
+            return (bool) AP_Registration::usersCanRegister($db);
+        } catch (Throwable) {
+            // fall through
+        }
+    }
+
+    $raw = zeroshits_read_option('users_can_register', '0', $db);
+
+    return $raw === '1' || $raw === 'true' || $raw === 'yes' || $raw === 'on';
+}
+
+/**
+ * Guest login / register URLs for the header (null when logged in).
+ *
+ * Register is only included when settings allow public registration.
+ *
+ * @return array{
+ *     login_url: string,
+ *     register_url: string,
+ *     can_register: bool
+ * }|null
+ */
+function zeroshits_get_guest_auth_links(?AP_DB $db = null): ?array
+{
+    if (zeroshits_is_user_logged_in($db)) {
+        return null;
+    }
+
+    $loginUrl = '';
+    if (class_exists('AP_Registration', false) && method_exists('AP_Registration', 'loginActionUrl')) {
+        try {
+            $loginUrl = (string) AP_Registration::loginActionUrl('login', [], $db);
+        } catch (Throwable) {
+            $loginUrl = '';
+        }
+    }
+    if ($loginUrl === '') {
+        $loginUrl = zeroshits_admin_path_url('login.php', [], $db);
+    }
+
+    $canRegister = zeroshits_users_can_register($db);
+    $registerUrl = '';
+    if ($canRegister) {
+        if (class_exists('AP_Registration', false) && method_exists('AP_Registration', 'loginActionUrl')) {
+            try {
+                $registerUrl = (string) AP_Registration::loginActionUrl('register', [], $db);
+            } catch (Throwable) {
+                $registerUrl = '';
+            }
+        }
+        if ($registerUrl === '') {
+            $registerUrl = zeroshits_admin_path_url('login.php', ['action' => 'register'], $db);
+        }
+    }
+
+    $data = [
+        'login_url' => $loginUrl,
+        'register_url' => $canRegister ? $registerUrl : '',
+        'can_register' => $canRegister && $registerUrl !== '',
+    ];
+
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('zeroshits_guest_auth_links', $data, $db);
+        if (is_array($filtered)) {
+            $can = !empty($filtered['can_register']);
+            $reg = (string) ($filtered['register_url'] ?? '');
+            $data = [
+                'login_url' => (string) ($filtered['login_url'] ?? $data['login_url']),
+                'register_url' => $can ? $reg : '',
+                'can_register' => $can && $reg !== '',
+            ];
+        }
+    }
+
+    if ($data['login_url'] === '' && !$data['can_register']) {
+        return null;
+    }
+
+    return $data;
+}
+
+/**
+ * Logged-in account indicator data for the header, or null for guests.
+ *
+ * @return array{
+ *     display_name: string,
+ *     welcome: string,
+ *     profile_url: string,
+ *     logout_url: string
+ * }|null
+ */
+function zeroshits_get_account_indicator(?AP_DB $db = null): ?array
+{
+    if (!zeroshits_is_user_logged_in($db)) {
+        return null;
+    }
+
+    $user = null;
+    if (function_exists('ap_get_current_user')) {
+        try {
+            $user = ap_get_current_user($db);
+        } catch (Throwable) {
+            $user = null;
+        }
+    }
+
+    if (!$user instanceof AP_User) {
+        return null;
+    }
+
+    $displayName = trim((string) $user->display_name);
+    if ($displayName === '') {
+        $displayName = trim((string) $user->user_login);
+    }
+    if ($displayName === '') {
+        $displayName = 'Member';
+    }
+
+    $profileUrl = zeroshits_admin_path_url('profile.php', [], $db);
+    $logoutBase = zeroshits_admin_path_url('login.php', ['action' => 'logout'], $db);
+    $logoutUrl = $logoutBase;
+    if (function_exists('ap_nonce_url')) {
+        try {
+            $logoutUrl = ap_nonce_url($logoutBase, 'log-out', '_ap_nonce', (int) $user->ID);
+        } catch (Throwable) {
+            $logoutUrl = $logoutBase;
+        }
+    }
+
+    $data = [
+        'display_name' => $displayName,
+        'welcome' => 'Yo, ' . $displayName,
+        'profile_url' => $profileUrl,
+        'logout_url' => $logoutUrl,
+    ];
+
+    if (function_exists('ap_apply_filters')) {
+        $filtered = ap_apply_filters('zeroshits_account_indicator', $data, $user, $db);
+        if (is_array($filtered)) {
+            $data = [
+                'display_name' => (string) ($filtered['display_name'] ?? $data['display_name']),
+                'welcome' => (string) ($filtered['welcome'] ?? $data['welcome']),
+                'profile_url' => (string) ($filtered['profile_url'] ?? $data['profile_url']),
+                'logout_url' => (string) ($filtered['logout_url'] ?? $data['logout_url']),
+            ];
+        }
+    }
+
+    return $data;
+}
+
+/**
+ * Print the header account area: welcome/log out when logged in, or
+ * Log in (+ Register when public registration is open) for guests.
+ */
+function zeroshits_the_account_indicator(?AP_DB $db = null): void
+{
+    $info = zeroshits_get_account_indicator($db);
+    if ($info !== null) {
+        $name = (string) ($info['display_name'] ?? '');
+        $profileUrl = (string) ($info['profile_url'] ?? '');
+        $logoutUrl = (string) ($info['logout_url'] ?? '');
+
+        echo '<div class="site-account site-account--user" role="navigation" aria-label="Account">';
+        echo '<span class="site-account__welcome">Yo, ';
+        if ($profileUrl !== '' && $name !== '') {
+            echo '<a class="site-account__name" href="' . zeroshits_esc_url($profileUrl) . '">'
+                . zeroshits_esc($name) . '</a>';
+        } else {
+            echo zeroshits_esc($name !== '' ? $name : 'Member');
+        }
+        echo '</span>';
+
+        if ($logoutUrl !== '') {
+            echo '<a class="site-account__logout" href="' . zeroshits_esc_url($logoutUrl) . '">Log out</a>';
+        }
+        echo '</div>';
+
+        return;
+    }
+
+    $guest = zeroshits_get_guest_auth_links($db);
+    if ($guest === null) {
+        return;
+    }
+
+    $loginUrl = (string) ($guest['login_url'] ?? '');
+    $registerUrl = (string) ($guest['register_url'] ?? '');
+    $canRegister = !empty($guest['can_register']) && $registerUrl !== '';
+
+    if ($loginUrl === '' && !$canRegister) {
+        return;
+    }
+
+    echo '<div class="site-account site-account--guest" role="navigation" aria-label="Account">';
+    if ($loginUrl !== '') {
+        echo '<a class="site-account__login" href="' . zeroshits_esc_url($loginUrl) . '">Log in</a>';
+    }
+    if ($canRegister) {
+        if ($loginUrl !== '') {
+            echo '<span class="site-account__sep" aria-hidden="true">·</span>';
+        }
+        echo '<a class="site-account__register" href="' . zeroshits_esc_url($registerUrl) . '">Register</a>';
+    }
+    echo '</div>';
+}
+
+/**
+ * Site tagline (blogdescription).
+ */
+function zeroshits_site_description(?AP_DB $db = null): string
+{
+    return zeroshits_read_option('blogdescription', '', $db);
+}
+
+/**
+ * Escape and print the current post title.
+ */
+function zeroshits_the_title(): void
+{
+    if (function_exists('ap_the_title')) {
+        ap_the_title();
+
+        return;
+    }
+    global $ap_post;
+    $title = $ap_post instanceof AP_Post ? (string) $ap_post->post_title : '';
+    echo function_exists('ap_esc_html') ? ap_esc_html($title) : htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+/**
+ * Print the current post content (formatted HTML / legacy markup → safe display).
+ */
+function zeroshits_the_content(): void
+{
+    if (function_exists('ap_the_content')) {
+        ap_the_content();
+
+        return;
+    }
+    global $ap_post;
+    $content = $ap_post instanceof AP_Post ? (string) $ap_post->post_content : '';
+    // Fallback when core template tags are unavailable.
+    if (function_exists('ap_format_content')) {
+        echo ap_format_content($content, ['mode' => 'auto', 'context' => 'post']);
+
+        return;
+    }
+    $escaped = function_exists('ap_esc_html')
+        ? ap_esc_html($content)
+        : htmlspecialchars($content, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    echo nl2br($escaped, false);
+}
+
+/**
+ * Permalink for the current post in the loop.
+ */
+function zeroshits_the_permalink(): string
+{
+    if (function_exists('ap_get_the_permalink')) {
+        return ap_get_the_permalink();
+    }
+    global $ap_post;
+    if (!$ap_post instanceof AP_Post) {
+        return '';
+    }
+    if (function_exists('ap_get_permalink') && class_exists('AP_Rewrite', false)) {
+        return ap_get_permalink($ap_post);
+    }
+
+    return '?p=' . (int) $ap_post->ID;
+}
+
+/**
+ * Formatted post date for the current post.
+ */
+function zeroshits_the_date(): string
+{
+    if (function_exists('ap_get_the_date')) {
+        return ap_get_the_date();
+    }
+    global $ap_post;
+    if (!$ap_post instanceof AP_Post || $ap_post->post_date === '') {
+        return '';
+    }
+
+    $ts = strtotime((string) $ap_post->post_date);
+
+    return $ts !== false ? date('Y-m-d', $ts) : (string) $ap_post->post_date;
+}
+
+/**
+ * Read a string option value (theme-local helper; Options API lands later).
+ */
+function zeroshits_read_option(string $name, string $default = '', ?AP_DB $db = null): string
+{
+    try {
+        if ($db === null && function_exists('ap_db')) {
+            $db = ap_db();
+        }
+        if (!$db instanceof AP_DB) {
+            return $default;
+        }
+        $val = $db->getVar(
+            'SELECT option_value FROM ' . $db->quoteIdentifier($db->table('options'))
+            . ' WHERE option_name = ? LIMIT 1',
+            [$name]
+        );
+        if ($val === null || $val === '') {
+            return $default;
+        }
+
+        return (string) $val;
+    } catch (Throwable) {
+        return $default;
+    }
+}
+
+/**
+ * Insert or update a string option.
+ */
+function zeroshits_write_option(string $name, string $value, ?AP_DB $db = null): bool
+{
+    try {
+        if ($db === null && function_exists('ap_db')) {
+            $db = ap_db();
+        }
+        if (!$db instanceof AP_DB) {
+            return false;
+        }
+        $existing = $db->getVar(
+            'SELECT option_id FROM ' . $db->quoteIdentifier($db->table('options'))
+            . ' WHERE option_name = ? LIMIT 1',
+            [$name]
+        );
+        if ($existing !== null) {
+            return $db->update(
+                'options',
+                ['option_value' => $value],
+                ['option_name' => $name]
+            ) !== false;
+        }
+
+        return $db->insert('options', [
+            'option_name' => $name,
+            'option_value' => $value,
+            'autoload' => 'yes',
+        ]) !== false;
+    } catch (Throwable) {
+        return false;
+    }
+}

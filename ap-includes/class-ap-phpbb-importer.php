@@ -930,14 +930,16 @@ class AP_Phpbb_Importer
 
     /**
      * Map phpBB topic_type to AP_Forum constants.
+     *
+     * phpBB: 0 normal, 1 sticky, 2 announce, 3 global. Global maps to announcement.
      */
     public static function mapTopicType(int $type): string
     {
         return match ($type) {
             1 => AP_Forum::TOPIC_TYPE_STICKY,
-            2 => AP_Forum::TOPIC_TYPE_ANNOUNCE,
-            3 => AP_Forum::TOPIC_TYPE_GLOBAL,
-            default => AP_Forum::TOPIC_TYPE_NORMAL,
+            2 => AP_Forum::TOPIC_TYPE_ANNOUNCEMENT,
+            3 => AP_Forum::TOPIC_TYPE_ANNOUNCEMENT,
+            default => AP_Forum::TOPIC_TYPE_STANDARD,
         };
     }
 
@@ -1271,6 +1273,11 @@ class AP_Phpbb_Importer
             AP_User::updateMeta($uid, self::META_PHPBB_USER_ID, (string) $phpbbId, $db);
         }
         AP_User::updateMeta($uid, self::META_NEEDS_PASSWORD_RESET, '1', $db);
+        // phpBB user_sig → AgoraPress profile signature (forum post footer when enabled).
+        $sig = trim((string) ($user['user_sig'] ?? ''));
+        if ($sig !== '') {
+            AP_User::updateMeta($uid, 'signature', AP_User::sanitizeSignature($sig), $db);
+        }
 
         $result['users']++;
         $result['users_created']++;

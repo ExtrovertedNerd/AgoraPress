@@ -590,6 +590,112 @@ final class ForumGroupsPermissionsTest extends TestCase
         ], $this->db, ['check_permissions' => true]));
     }
 
+    public function testAllowedTopicTypesAndSetTypePermissions(): void
+    {
+        AP_Forum_Permissions::ensureDefaults($this->db);
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Type ACL'], $this->db);
+        $memberId = $this->createUser('type_member', 'type_m@example.test', 'subscriber');
+        $adminId = $this->createUser('type_admin', 'type_a@example.test', 'administrator');
+
+        // Members: standard only for create.
+        $memberCreate = AP_Forum_Permissions::allowedTopicTypesForCreate($memberId, $forumId, $this->db);
+        $this->assertSame(['standard'], $memberCreate);
+        $this->assertFalse(AP_Forum_Permissions::userCanSticky($memberId, $forumId, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanAnnounce($memberId, $forumId, $this->db));
+        $this->assertSame(
+            [],
+            AP_Forum_Permissions::allowedTopicTypesForEdit($memberId, $forumId, 'standard', $this->db)
+        );
+
+        // Admin (manage_forums): full type set.
+        $adminCreate = AP_Forum_Permissions::allowedTopicTypesForCreate($adminId, $forumId, $this->db);
+        $this->assertContains('standard', $adminCreate);
+        $this->assertContains('sticky', $adminCreate);
+        $this->assertContains('announcement', $adminCreate);
+        $this->assertContains('rules', $adminCreate);
+        $this->assertTrue(AP_Forum_Permissions::userCanSetTopicType(
+            $adminId,
+            $forumId,
+            'sticky',
+            $this->db,
+            null
+        ));
+        $this->assertFalse(AP_Forum_Permissions::userCanSetTopicType(
+            $memberId,
+            $forumId,
+            'sticky',
+            $this->db,
+            null
+        ));
+
+        // Grant sticky only to registered group — member can sticky but not announce.
+        $registered = AP_Group::getBySlug(AP_Group::SLUG_REGISTERED, $this->db);
+        $this->assertNotNull($registered);
+        AP_Forum_Permissions::setPermission(
+            $forumId,
+            (int) $registered->group_id,
+            AP_Forum_Permissions::PERM_STICKY,
+            true,
+            $this->db
+        );
+        AP_Forum_Permissions::flushCache();
+
+        $this->assertTrue(AP_Forum_Permissions::userCanSticky($memberId, $forumId, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanAnnounce($memberId, $forumId, $this->db));
+        $withSticky = AP_Forum_Permissions::allowedTopicTypesForCreate($memberId, $forumId, $this->db);
+        $this->assertSame(['standard', 'sticky'], $withSticky);
+        $this->assertFalse(AP_Forum_Permissions::userCanSetTopicType(
+            $memberId,
+            $forumId,
+            'announcement',
+            $this->db,
+            null
+        ));
+        $this->assertTrue(AP_Forum_Permissions::userCanSetTopicType(
+            $memberId,
+            $forumId,
+            'sticky',
+            $this->db,
+            null
+        ));
+
+        // createTopic with check_permissions honors sticky grant.
+        $stickyId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Now sticky ok',
+            'content' => 'Body',
+            'poster_id' => $memberId,
+            'topic_type' => 'sticky',
+        ], $this->db, ['check_permissions' => true]);
+        $this->assertGreaterThan(0, $stickyId);
+
+        $this->assertSame(0, AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Announce fail',
+            'content' => 'Body',
+            'poster_id' => $memberId,
+            'topic_type' => 'announcement',
+        ], $this->db, ['check_permissions' => true]));
+
+        // Moderation setTopicType uses type-specific caps (not full moderate).
+        require_once $this->root . '/ap-includes/class-ap-forum-moderation.php';
+        $this->assertTrue(\AP_Forum_Moderation::setTopicType(
+            $stickyId,
+            AP_Forum::TOPIC_TYPE_STANDARD,
+            $memberId,
+            $this->db
+        ));
+        $topic = AP_Forum::getTopic($stickyId, $this->db);
+        $this->assertSame('standard', (string) ($topic->topic_type ?? ''));
+
+        $this->assertFalse(\AP_Forum_Moderation::setTopicType(
+            $stickyId,
+            AP_Forum::TOPIC_TYPE_ANNOUNCEMENT,
+            $memberId,
+            $this->db
+        ));
+    }
+
     /**
      * Create a minimal user with optional role.
      */

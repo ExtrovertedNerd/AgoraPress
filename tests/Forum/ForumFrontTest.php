@@ -54,6 +54,8 @@ final class ForumFrontTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-group.php';
         require_once $this->root . '/ap-includes/class-ap-forum-permissions.php';
         require_once $this->root . '/ap-includes/class-ap-forum.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-moderation.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-read.php';
         require_once $this->root . '/ap-includes/class-ap-forum-front.php';
         require_once $this->root . '/ap-includes/class-ap-content-format.php';
         require_once $this->root . '/ap-includes/hooks.php';
@@ -226,7 +228,15 @@ final class ForumFrontTest extends TestCase
 
         $this->assertStringContainsString('Hello World', $html);
         $this->assertStringContainsString('ap-forum-post', $html);
+        $this->assertStringContainsString('ap-forum-post--two-pane', $html);
+        $this->assertStringContainsString('ap-forum-post__author', $html);
+        $this->assertStringContainsString('ap-forum-post__main', $html);
+        $this->assertStringContainsString('ap-forum-post__body', $html);
         $this->assertStringContainsString('First post body', $html);
+        // SPEC B2 — Top of page control (in-page anchor to topic top).
+        $this->assertStringContainsString('id="ap-topic-top"', $html);
+        $this->assertStringContainsString('ap-forum-post__top', $html);
+        $this->assertStringContainsString('href="#ap-topic-top"', $html);
         // Guests see a login prompt instead of the reply form.
         $this->assertStringContainsString('Log in', $html);
 
@@ -243,6 +253,209 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('name="ap_forum_action"', $html2);
         $this->assertStringContainsString('ap_forum_reply', $html2);
         $this->assertStringContainsString('name="reply_body"', $html2);
+        // SPEC B2: Quote → Edit → Like for users who can reply.
+        $this->assertStringContainsString('ap-forum-quote', $html2);
+        $this->assertStringContainsString('>Quote</a>', $html2);
+        $this->assertStringContainsString('ap_forum_like_post', $html2);
+        $this->assertStringContainsString('ap-forum-like', $html2);
+        $this->assertMatchesRegularExpression('/\bLike\b/', $html2);
+        // Author is admin → can edit own OP.
+        $this->assertStringContainsString('edit_post=', $html2);
+        $this->assertStringContainsString('>Edit</a>', $html2);
+    }
+
+    public function testTopicViewMarksReadOnView(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Mark on view forum'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Read on view',
+            'content' => 'Body for mark-on-view.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        // Past post times so page mark (post_time) covers the thread.
+        $posts = AP_Forum::getPosts($topicId, ['per_page' => 5], $this->db);
+        $this->assertNotEmpty($posts);
+        $opId = (int) $posts[0]->post_id;
+        $opTime = date('Y-m-d H:i:s', time() - 120);
+        $this->db->update('forum_posts', ['post_time' => $opTime], ['post_id' => $opId]);
+        $this->db->update(
+            'topics',
+            [
+                'topic_time' => $opTime,
+                'topic_last_post_time' => $opTime,
+            ],
+            ['topic_id' => $topicId]
+        );
+
+        $readerCreated = AP_User::create([
+            'user_login' => 'view_marker',
+            'user_email' => 'view_marker@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'View Marker',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($readerCreated['ok'] ?? false);
+        $readerId = (int) ($readerCreated['id'] ?? 0);
+        $this->assertGreaterThan(0, $readerId);
+
+        $this->assertTrue(\AP_Forum_Read::isTopicUnread($readerId, $topicId, $this->db));
+        $this->assertNull(\AP_Forum_Read::getTopicMarkTime($readerId, $topicId, $this->db));
+
+        // Guest view: no track rows.
+        AP_Session::resetCurrentUser();
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $guestQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($guestQuery, $this->db);
+        $this->assertNull(\AP_Forum_Read::getTopicMarkTime($readerId, $topicId, $this->db));
+        $this->assertTrue(\AP_Forum_Read::isTopicUnread($readerId, $topicId, $this->db));
+
+        // Logged-in view: mark posts read per AP_Forum_Read rules.
+        $this->assertTrue(AP_Session::setAuthCookie($readerId, false, $this->db));
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        $this->assertFalse(\AP_Forum_Read::isTopicUnread($readerId, $topicId, $this->db));
+        $this->assertSame($opTime, \AP_Forum_Read::getTopicMarkTime($readerId, $topicId, $this->db));
+        // First request still exposes first unread (resolved before mark).
+        $this->assertSame($opId, (int) $query->get('first_unread_post_id', 0));
+
+        // Second view: fully read → no first-unread jump id.
+        $query2 = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query2, $this->db);
+        $this->assertSame(0, (int) $query2->get('first_unread_post_id', 0));
+        $this->assertFalse(\AP_Forum_Read::isTopicUnread($readerId, $topicId, $this->db));
+    }
+
+    public function testTopicViewFirstUnreadLinkAboveOp(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Unread Jump'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Jump to unread',
+            'content' => 'Original post body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+        $firstPostId = (int) ($topic->first_post_id ?? 0);
+        $this->assertGreaterThan(0, $firstPostId);
+
+        $op = AP_Forum::getPost($firstPostId, $this->db);
+        $this->assertNotNull($op);
+        // Anchor times in the past so mark-on-view (uses "now") fully covers the thread.
+        $opTime = date('Y-m-d H:i:s', time() - 300);
+        $this->db->update('forum_posts', ['post_time' => $opTime], ['post_id' => $firstPostId]);
+        $this->db->update(
+            'topics',
+            [
+                'topic_time' => $opTime,
+                'topic_last_post_time' => $opTime,
+            ],
+            ['topic_id' => $topicId]
+        );
+
+        // Mark reader through OP, then add a strictly newer reply (still before "now").
+        $this->assertTrue(\AP_Forum_Read::markTopicRead($this->userId, $topicId, $this->db, [
+            'mark_time' => $opTime,
+        ]));
+        $replyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => 'Unread reply body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
+        $replyTime = date('Y-m-d H:i:s', time() - 60);
+        $this->db->update('forum_posts', ['post_time' => $replyTime], ['post_id' => $replyId]);
+        $this->db->update('topics', ['topic_last_post_time' => $replyTime], ['topic_id' => $topicId]);
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $this->assertSame('topic', $vars['ap_forum_view'] ?? null);
+
+        // Guest: no first-unread link (prefer hide).
+        AP_Session::resetCurrentUser();
+        $guestQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($guestQuery, $this->db);
+        ap_set_query($guestQuery);
+        $this->assertSame(0, (int) $guestQuery->get('first_unread_post_id', 0));
+        ob_start();
+        AP_Theme::render($guestQuery, $this->db);
+        $guestHtml = (string) ob_get_clean();
+        $this->assertStringNotContainsString('ap-forum-first-unread', $guestHtml);
+        $this->assertStringNotContainsString('First unread post', $guestHtml);
+
+        // Logged-in with unread reply: link above OP targets the reply.
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+        $this->assertSame($replyId, (int) $query->get('first_unread_post_id', 0));
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('ap-forum-first-unread-wrap', $html);
+        $this->assertStringContainsString('ap-forum-first-unread', $html);
+        $this->assertStringContainsString('First unread post', $html);
+        $this->assertStringContainsString('href="#post-' . $replyId . '"', $html);
+        // Link appears before the posts list / OP region.
+        $linkPos = strpos($html, 'ap-forum-first-unread');
+        $postsPos = strpos($html, 'ap-forum-posts');
+        $this->assertNotFalse($linkPos);
+        $this->assertNotFalse($postsPos);
+        $this->assertLessThan($postsPos, $linkPos);
+
+        // Second view after mark-on-read: hide the link.
+        $query2 = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query2, $this->db);
+        ap_set_query($query2);
+        $this->assertSame(0, (int) $query2->get('first_unread_post_id', 0));
+        ob_start();
+        AP_Theme::render($query2, $this->db);
+        $html2 = (string) ob_get_clean();
+        $this->assertStringNotContainsString('ap-forum-first-unread', $html2);
+        $this->assertStringNotContainsString('First unread post', $html2);
+    }
+
+    public function testTopicQuotePrefillsReplyForm(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Quotes'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Cite me',
+            'content' => 'Original body to quote.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+        $posts = AP_Forum::getPosts($topicId, ['per_page' => 5], $this->db);
+        $this->assertNotEmpty($posts);
+        $postId = (int) $posts[0]->post_id;
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $_GET['quote'] = (string) $postId;
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        unset($_GET['quote']);
+
+        $this->assertStringContainsString('[quote=', $html);
+        $this->assertStringContainsString('Original body to quote.', $html);
+        $this->assertStringContainsString('[/quote]', $html);
+        $this->assertStringContainsString('id="reply"', $html);
+        $this->assertStringContainsString('ap-forum-quote', $html);
     }
 
     public function testRenderForumIndexWithLiveData(): void
@@ -323,6 +536,17 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('ap_forum_new_topic', $authHtml);
         $this->assertStringContainsString('name="topic_title"', $authHtml);
         $this->assertStringContainsString('name="topic_body"', $authHtml);
+        // Admin has sticky/announce — type select is visible with elevated options.
+        $this->assertStringContainsString('name="topic_type"', $authHtml);
+        $this->assertStringContainsString('value="sticky"', $authHtml);
+        $this->assertStringContainsString('value="announcement"', $authHtml);
+        $this->assertStringContainsString('value="rules"', $authHtml);
+        $allowed = $query2->get('allowed_topic_types', []);
+        $this->assertIsArray($allowed);
+        $this->assertContains('standard', $allowed);
+        $this->assertContains('sticky', $allowed);
+        $this->assertContains('announcement', $allowed);
+        $this->assertContains('rules', $allowed);
     }
 
     public function testModuleDisabledShowsNoticeOnIndex(): void
@@ -431,5 +655,117 @@ final class ForumFrontTest extends TestCase
         AP_Forum_Front::applyToQuery($query, $this->db);
         $this->assertTrue($query->is_404);
         $this->assertNotEmpty($query->get('ap_forum_not_found', false));
+    }
+
+    public function testCreateTopicWithTypeViaFrontHandler(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Typed'], $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $nonce = AP_Nonce::create('ap_forum_new_topic_' . $forumId, $this->userId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_NEW_TOPIC,
+            'forum_id' => $forumId,
+            'topic_title' => 'Pinned notice',
+            'topic_body' => 'Please read',
+            'topic_type' => 'sticky',
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+
+        $this->assertIsString($redirect);
+        $this->assertStringContainsString('ap_forum_notice=topic_created', (string) $redirect);
+        $topics = AP_Forum::getTopics($forumId, [], $this->db);
+        $this->assertCount(1, $topics);
+        $this->assertSame('sticky', (string) $topics[0]->topic_type);
+
+        // Change type via set-topic-type action.
+        $topicId = (int) $topics[0]->topic_id;
+        $typeNonce = AP_Nonce::create('ap_forum_set_topic_type_' . $topicId, $this->userId);
+        $typeRedirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SET_TOPIC_TYPE,
+            'topic_id' => $topicId,
+            'topic_type' => 'announcement',
+            '_ap_nonce' => $typeNonce,
+        ], $this->db);
+        $this->assertIsString($typeRedirect);
+        $this->assertStringContainsString('ap_forum_notice=topic_type_updated', (string) $typeRedirect);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertSame('announcement', (string) ($topic->topic_type ?? ''));
+    }
+
+    public function testCreateStickyDeniedForMemberViaFrontHandler(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Members only type'], $this->db);
+        $member = AP_User::create([
+            'user_login' => 'member_type',
+            'user_email' => 'member_type@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Member',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+        $nonce = AP_Nonce::create('ap_forum_new_topic_' . $forumId, $memberId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_NEW_TOPIC,
+            'forum_id' => $forumId,
+            'topic_title' => 'Sneaky sticky',
+            'topic_body' => 'Should fail',
+            'topic_type' => 'sticky',
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+
+        $this->assertNull($redirect);
+        $notice = AP_Forum_Front::getNotice();
+        $this->assertNotNull($notice);
+        $this->assertSame('error', $notice['type'] ?? null);
+        $this->assertCount(0, AP_Forum::getTopics($forumId, [], $this->db));
+
+        // Standard type still works for members.
+        $nonce2 = AP_Nonce::create('ap_forum_new_topic_' . $forumId, $memberId);
+        $ok = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_NEW_TOPIC,
+            'forum_id' => $forumId,
+            'topic_title' => 'Normal topic',
+            'topic_body' => 'Hello',
+            'topic_type' => 'standard',
+            '_ap_nonce' => $nonce2,
+        ], $this->db);
+        $this->assertIsString($ok);
+        $this->assertCount(1, AP_Forum::getTopics($forumId, [], $this->db));
+    }
+
+    public function testTopicViewExposesTypeEditForStaff(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Staff type'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Type me',
+            'content' => 'Body',
+            'poster_id' => $this->userId,
+            'topic_type' => 'standard',
+        ], $this->db);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        $this->assertTrue((bool) $query->get('can_set_topic_type', false));
+        $this->assertSame('standard', (string) $query->get('topic_type', ''));
+        $allowed = $query->get('allowed_topic_types', []);
+        $this->assertIsArray($allowed);
+        $this->assertContains('sticky', $allowed);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_set_topic_type', $html);
+        $this->assertStringContainsString('Update type', $html);
     }
 }

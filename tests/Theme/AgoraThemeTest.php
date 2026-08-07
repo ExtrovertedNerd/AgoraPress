@@ -550,6 +550,25 @@ final class AgoraThemeTest extends TestCase
         $css = (string) file_get_contents($this->root . '/ap-content/themes/agora/style.css');
         $this->assertStringContainsString('.ap-forum', $css);
         $this->assertStringContainsString('.ap-forum-post', $css);
+        // SPEC B2 — two-pane post layout (author left, body/actions right).
+        $this->assertStringContainsString('.ap-forum-post--two-pane', $css);
+        $this->assertStringContainsString('.ap-forum-post__main', $css);
+        $this->assertStringContainsString('.ap-forum-post__author', $css);
+        $this->assertStringContainsString('grid-template-areas: "author main"', $css);
+        $this->assertStringContainsString('--ap-forum-author-col', $css);
+        $this->assertStringContainsString('.ap-forum-post__head-start', $css);
+        $this->assertStringContainsString('.ap-forum-post__actions', $css);
+        $this->assertStringContainsString('.ap-forum-post__joined', $css);
+        $this->assertStringContainsString('.ap-forum-post__location', $css);
+        // SPEC B2 — signature row under post body.
+        $this->assertStringContainsString('.ap-forum-post__signature', $css);
+        $this->assertStringContainsString('.ap-forum-post__signature-body', $css);
+        // SPEC B2 — bottom-right “Top” control.
+        $this->assertStringContainsString('.ap-forum-post__foot', $css);
+        $this->assertStringContainsString('.ap-forum-post__top', $css);
+        // SPEC B1 — first unread jump above OP.
+        $this->assertStringContainsString('.ap-forum-first-unread', $css);
+        $this->assertStringContainsString('.ap-forum-first-unread-wrap', $css);
         $this->assertStringContainsString('.ap-pagination', $css);
         $this->assertStringContainsString('.ap-breadcrumbs', $css);
         $this->assertStringContainsString('--ap-on-accent', $css);
@@ -557,7 +576,38 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('focus-visible', $css);
         $this->assertStringContainsString('skip-link', $css);
         $this->assertMatchesRegularExpression('/@media\s*\(\s*max-width:/', $css);
-        $this->assertStringContainsString('Version: 0.3.3', $css);
+        // Theme stylesheet version must stay in lockstep with AGORA_THEME_VERSION.
+        $this->assertStringContainsString('Version: 0.3.7', $css);
+        $functions = (string) file_get_contents($this->root . '/ap-content/themes/agora/functions.php');
+        $this->assertStringContainsString("AGORA_THEME_VERSION = '0.3.7'", $functions);
+        // Phase 5 a11y: button/focus hooks + unread contrast without opacity-on-read.
+        $this->assertStringContainsString('.ap-btn:focus-visible', $css);
+        $this->assertStringContainsString('.ap-btn--ghost:focus-visible', $css);
+        $this->assertStringContainsString('.ap-forum-like:focus-visible', $css);
+        $this->assertStringContainsString('.ap-forum-post__top:focus-visible', $css);
+        $this->assertStringContainsString('--ap-forum-unread-bar-width', $css);
+        $this->assertStringContainsString('Do not dim whole rows with opacity', $css);
+        $this->assertDoesNotMatchRegularExpression(
+            '/\.ap-forum-row--read\s*\{[^}]*opacity\s*:/',
+            $css
+        );
+        // SPEC A1–A4 board hooks (theme-local CSS; core only emits class names).
+        $this->assertStringContainsString('.ap-forum-cat-header', $css);
+        $this->assertStringContainsString('grid-column: 1 / span 2', $css);
+        $this->assertStringContainsString('--ap-forum-icon-col', $css);
+        $this->assertStringContainsString('--ap-forum-stat-col', $css);
+        $this->assertStringContainsString('--ap-forum-last-col', $css);
+        $this->assertStringContainsString('minmax(0, 1fr)', $css);
+        $this->assertStringContainsString('.ap-forum-row--unread', $css);
+        $this->assertStringContainsString('.ap-forum-row--read', $css);
+        $this->assertStringContainsString('.ap-forum-icon--unread', $css);
+        $this->assertStringContainsString('.ap-forum-icon--read', $css);
+        $this->assertStringContainsString('.ap-forum-icon--sticky.ap-forum-icon--unread', $css);
+        $this->assertStringContainsString('.ap-forum-last-post__title', $css);
+        $this->assertStringContainsString('.ap-forum-last-post__author', $css);
+        $this->assertStringContainsString('.ap-forum-last-post__time', $css);
+        $this->assertStringContainsString(':not(.ap-forum-row--unread)', $css);
+        $this->assertStringContainsString('.ap-forum-row--locked.ap-forum-row--unread', $css);
         $this->assertStringContainsString('overflow-wrap: anywhere', $css);
         $this->assertStringContainsString('--ap-field-bg', $css);
         $this->assertStringContainsString('--ap-surface:', $css);
@@ -797,7 +847,226 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('Welcome thread', $html);
         $this->assertStringContainsString('Alice', $html);
         $this->assertStringContainsString('ap-forum-post', $html);
+        $this->assertStringContainsString('ap-forum-post--two-pane', $html);
+        $this->assertStringContainsString('ap-forum-post__author', $html);
+        $this->assertStringContainsString('ap-forum-post__main', $html);
+        $this->assertStringContainsString('ap-forum-post__body', $html);
         $this->assertStringContainsString('Hello **world**', $html);
+        // SPEC B2 — Top of page control + topic top anchor.
+        $this->assertStringContainsString('id="ap-topic-top"', $html);
+        $this->assertStringContainsString('ap-forum-post__foot', $html);
+        $this->assertStringContainsString('ap-forum-post__top', $html);
+        $this->assertStringContainsString('href="#ap-topic-top"', $html);
+        $this->assertStringContainsString('aria-label="Back to top of topic"', $html);
+        $this->assertMatchesRegularExpression(
+            '/class="[^"]*ap-forum-post__top[^"]*"[^>]*>\s*Top\s*<\/a>/',
+            $html
+        );
+    }
+
+    public function testTopicPostActionButtonsHaveAccessibleLabels(): void
+    {
+        if (function_exists('ap_add_filter')) {
+            ap_add_filter('agora_topic_posts_data', static function (array $data, int $topicId): array {
+                if ($topicId !== 46) {
+                    return $data;
+                }
+
+                return [
+                    [
+                        'id' => 11,
+                        'author' => 'Carol',
+                        'author_id' => 5,
+                        'date' => '2026-08-01 12:00:00',
+                        'content' => 'Action labels body',
+                        'role' => 'Member',
+                        'number' => 1,
+                        'can_quote' => true,
+                        'can_edit' => true,
+                        'can_delete' => true,
+                        'can_like' => true,
+                        'like_count' => 3,
+                        'liked_by_me' => false,
+                        'author_stats' => [
+                            'forum_posts' => 2,
+                            'forum_likes_given' => 1,
+                            'forum_likes_received' => 3,
+                        ],
+                    ],
+                ];
+            }, 10, 2);
+        }
+
+        $query = new AP_Query([
+            'ap_forum_view' => 'topic',
+            'topic_id' => 46,
+            'topic_title' => 'Action labels topic',
+            'forum_name' => 'General',
+            'posts_per_page' => 1,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('aria-label="Post actions"', $html);
+        $this->assertStringContainsString('aria-label="Quote post #1"', $html);
+        $this->assertStringContainsString('aria-label="Edit post #1"', $html);
+        $this->assertStringContainsString('aria-label="Delete post #1"', $html);
+        $this->assertStringContainsString('aria-label="Like post #1 (3 likes)"', $html);
+        $this->assertStringContainsString('aria-pressed="false"', $html);
+        $this->assertStringContainsString('aria-label="Back to top of topic"', $html);
+    }
+
+    public function testTopicAuthorPaneRendersJoinedAndLocation(): void
+    {
+        agora_set_color_scheme('cloud', $this->db);
+        if (function_exists('ap_add_filter')) {
+            ap_add_filter('agora_topic_posts_data', static function (array $data, int $topicId): array {
+                if ($topicId !== 43) {
+                    return $data;
+                }
+
+                return [
+                    [
+                        'id' => 7,
+                        'author' => 'Alice',
+                        'author_id' => 3,
+                        'author_url' => '/author/alice/',
+                        'date' => '2026-08-01 12:00:00',
+                        'content' => 'Pane body',
+                        'role' => 'Member',
+                        'number' => 1,
+                        'joined' => '2024-03-15 09:30:00',
+                        'location' => 'Athens, GR',
+                        'avatar_html' => '',
+                        'author_stats' => [
+                            'forum_posts' => 12,
+                            'forum_likes_given' => 4,
+                            'forum_likes_received' => 9,
+                        ],
+                    ],
+                ];
+            }, 10, 2);
+        }
+
+        $query = new AP_Query([
+            'ap_forum_view' => 'topic',
+            'topic_id' => 43,
+            'topic_title' => 'Author pane topic',
+            'forum_name' => 'General',
+            'posts_per_page' => 1,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('ap-forum-post__author', $html);
+        $this->assertStringContainsString('Alice', $html);
+        $this->assertStringContainsString('Member', $html);
+        $this->assertStringContainsString('Posts', $html);
+        $this->assertStringContainsString('Likes given', $html);
+        $this->assertStringContainsString('Likes received', $html);
+        $this->assertStringContainsString('Joined', $html);
+        $this->assertStringContainsString('ap-forum-post__joined', $html);
+        $this->assertStringContainsString('Mar 15, 2024', $html);
+        $this->assertStringContainsString('Location', $html);
+        $this->assertStringContainsString('ap-forum-post__location', $html);
+        $this->assertStringContainsString('Athens, GR', $html);
+        $this->assertStringContainsString('ap-forum-post__stat--posts', $html);
+    }
+
+    public function testTopicPostRendersSignatureWhenPresent(): void
+    {
+        agora_set_color_scheme('cloud', $this->db);
+        if (function_exists('ap_add_filter')) {
+            ap_add_filter('agora_topic_posts_data', static function (array $data, int $topicId): array {
+                if ($topicId !== 44) {
+                    return $data;
+                }
+
+                return [
+                    [
+                        'id' => 8,
+                        'author' => 'Alice',
+                        'author_id' => 3,
+                        'date' => '2026-08-01 12:00:00',
+                        'content' => 'Body with sig',
+                        'role' => 'Member',
+                        'number' => 1,
+                        'signature' => 'My custom sig line',
+                        'signature_html' => '<p>My custom sig line</p>',
+                        'author_stats' => [
+                            'forum_posts' => 1,
+                            'forum_likes_given' => 0,
+                            'forum_likes_received' => 0,
+                        ],
+                    ],
+                ];
+            }, 10, 2);
+        }
+
+        $query = new AP_Query([
+            'ap_forum_view' => 'topic',
+            'topic_id' => 44,
+            'topic_title' => 'Signature topic',
+            'forum_name' => 'General',
+            'posts_per_page' => 1,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('ap-forum-post__signature', $html);
+        $this->assertStringContainsString('ap-forum-post__signature-body', $html);
+        $this->assertStringContainsString('My custom sig line', $html);
+        $this->assertStringContainsString('aria-label="Signature"', $html);
+    }
+
+    public function testTopicPostOmitsSignatureWhenEmpty(): void
+    {
+        agora_set_color_scheme('cloud', $this->db);
+        if (function_exists('ap_add_filter')) {
+            ap_add_filter('agora_topic_posts_data', static function (array $data, int $topicId): array {
+                if ($topicId !== 45) {
+                    return $data;
+                }
+
+                return [
+                    [
+                        'id' => 9,
+                        'author' => 'Bob',
+                        'author_id' => 4,
+                        'date' => '2026-08-01 12:00:00',
+                        'content' => 'No sig body',
+                        'number' => 1,
+                        'signature' => '',
+                        'signature_html' => '',
+                    ],
+                ];
+            }, 10, 2);
+        }
+
+        $query = new AP_Query([
+            'ap_forum_view' => 'topic',
+            'topic_id' => 45,
+            'topic_title' => 'No signature topic',
+            'forum_name' => 'General',
+            'posts_per_page' => 1,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('No sig body', $html);
+        $this->assertStringNotContainsString('ap-forum-post__signature', $html);
     }
 
     public function testBlogRenderUsesExcerptWhenAvailable(): void

@@ -352,8 +352,8 @@ PHP;
         $m = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $found = $m->discover();
         $this->assertNotSame([], $found);
-        $this->assertGreaterThanOrEqual(10, $m->getAvailableTargetVersion());
-        $this->assertSame(11, (int) AP_DB_VERSION);
+        $this->assertGreaterThanOrEqual(12, $m->getAvailableTargetVersion());
+        $this->assertSame(12, (int) AP_DB_VERSION);
         $this->assertSame(1, $found[0]->version());
         $this->assertStringContainsString('options', $found[0]->description());
         $this->assertSame(2, $found[1]->version());
@@ -374,5 +374,12 @@ PHP;
         $this->assertStringContainsString('unread', strtolower($found[8]->description()));
         $this->assertSame(10, $found[9]->version());
         $this->assertStringContainsString('analytics', strtolower($found[9]->description()));
+        $this->assertSame(11, $found[10]->version());
+        $this->assertStringContainsString('like', strtolower($found[10]->description()));
+        $this->assertSame(12, $found[11]->version());
+        $this->assertStringContainsString(
+            'topic type',
+            strtolower($found[11]->description())
+        );
     }
 }

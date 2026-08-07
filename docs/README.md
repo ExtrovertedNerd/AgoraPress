@@ -4,7 +4,7 @@ Guides for extending and operating AgoraPress: plugins, themes, hooks, schema, a
 
 AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). The public API uses the `ap_` prefix. The [Classic WordPress Theme Compatibility Layer](compatibility.md) optionally exposes many bare WordPress names for classic PHP themes.
 
-**Current core:** `AP_VERSION` **0.2.1-beta** · schema `AP_DB_VERSION` **11** · product status: MVP feature-complete with forum likes/moderation, Theme Options API, and local opt-in analytics; ready for live-site install.
+**Current core:** `AP_VERSION` **0.3.0-beta** · schema `AP_DB_VERSION` **12** · product status: MVP feature-complete with forum UI phpBB-parity, forum likes/moderation, Theme Options API, and local opt-in analytics; ready for live-site install.
 
 ## Guides
 

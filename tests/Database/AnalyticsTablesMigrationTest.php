@@ -74,7 +74,11 @@ final class AnalyticsTablesMigrationTest extends TestCase
             'analytics',
             strtolower($applied[9]['description'])
         );
-        $this->assertSame(10, $this->migrator->getCurrentVersion());
+        $this->assertGreaterThanOrEqual(10, $this->migrator->getCurrentVersion());
+        $this->assertSame(
+            AP_Migrator::codeTargetVersion(),
+            $this->migrator->getCurrentVersion()
+        );
         $this->assertFalse($this->migrator->needsMigration());
         $this->assertSame([], $this->migrator->migrate());
 

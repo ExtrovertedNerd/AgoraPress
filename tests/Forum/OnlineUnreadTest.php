@@ -389,4 +389,266 @@ final class OnlineUnreadTest extends TestCase
         $summary = ap_get_unread_summary($reader, [], $this->db);
         $this->assertTrue($summary['enabled']);
     }
+
+    public function testFirstUnreadPostAfterPartialRead(): void
+    {
+        $ctx = $this->createForumWithTopic('First unread chain');
+        $reader = $this->createUser('first_unread_reader');
+        $topicId = $ctx['topic_id'];
+
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+        $firstPostId = (int) ($topic->first_post_id ?? 0);
+        $this->assertGreaterThan(0, $firstPostId);
+
+        // Never read: first unread is the OP.
+        $first = AP_Forum_Read::getFirstUnreadPost($reader, $topicId, $this->db);
+        $this->assertNotNull($first);
+        $this->assertSame($firstPostId, (int) $first->post_id);
+        $this->assertSame($firstPostId, AP_Forum_Read::getFirstUnreadPostId($reader, $topicId, $this->db));
+        $this->assertSame($firstPostId, ap_get_first_unread_post_id($reader, $topicId, $this->db));
+
+        // Mark as of OP time so a later reply is the first unread.
+        $op = AP_Forum::getPost($firstPostId, $this->db);
+        $this->assertNotNull($op);
+        $this->assertTrue(AP_Forum_Read::markTopicRead($reader, $topicId, $this->db, [
+            'mark_time' => (string) $op->post_time,
+        ]));
+        $this->assertNull(AP_Forum_Read::getFirstUnreadPost($reader, $topicId, $this->db));
+        $this->assertSame(0, AP_Forum_Read::getFirstUnreadPostId($reader, $topicId, $this->db));
+
+        // Force older mark, then create a reply (newer post_time).
+        $this->db->update(
+            'topic_track',
+            ['mark_time' => '2000-01-01 00:00:00'],
+            ['user_id' => $reader, 'topic_id' => $topicId]
+        );
+
+        $replyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'poster_id' => $ctx['user_id'],
+            'content' => 'Reply that should be first unread',
+        ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
+
+        // With mark before both posts, first unread is still the OP (oldest after mark).
+        $this->assertSame($firstPostId, AP_Forum_Read::getFirstUnreadPostId($reader, $topicId, $this->db));
+
+        // Mark through OP; first unread becomes the reply.
+        // Ensure reply is strictly after OP mark (same-second clocks are common in tests).
+        $reply = AP_Forum::getPost($replyId, $this->db);
+        $this->assertNotNull($reply);
+        $opTs = strtotime((string) $op->post_time) ?: time();
+        $replyTime = date('Y-m-d H:i:s', $opTs + 60);
+        $this->db->update(
+            'forum_posts',
+            ['post_time' => $replyTime],
+            ['post_id' => $replyId]
+        );
+        $this->db->update(
+            'topics',
+            ['topic_last_post_time' => $replyTime],
+            ['topic_id' => $topicId]
+        );
+
+        $this->assertTrue(AP_Forum_Read::markTopicRead($reader, $topicId, $this->db, [
+            'mark_time' => (string) $op->post_time,
+        ]));
+
+        $this->assertSame($replyId, AP_Forum_Read::getFirstUnreadPostId($reader, $topicId, $this->db));
+        $this->assertSame($replyId, (int) (ap_get_first_unread_post($reader, $topicId, $this->db)?->post_id ?? 0));
+
+        // Guests / fully read after mark at/after reply: no first unread.
+        $this->assertSame(0, AP_Forum_Read::getFirstUnreadPostId(0, $topicId, $this->db));
+        $this->assertTrue(AP_Forum_Read::markTopicRead($reader, $topicId, $this->db, [
+            'mark_time' => $replyTime,
+        ]));
+        $this->assertSame(0, AP_Forum_Read::getFirstUnreadPostId($reader, $topicId, $this->db));
+    }
+
+    public function testAnnotateForumsAndDisplayDataUnreadFlags(): void
+    {
+        $ctx = $this->createForumWithTopic('Display unread flags');
+        $reader = $this->createUser('display_reader');
+        $forumId = $ctx['forum_id'];
+        $topicId = $ctx['topic_id'];
+
+        $index = AP_Forum::getIndexData($this->db, ['user_id' => $reader]);
+        $this->assertNotEmpty($index);
+        $foundForum = null;
+        foreach ($index as $cat) {
+            foreach ($cat['forums'] as $forum) {
+                if ((int) ($forum['id'] ?? 0) === $forumId) {
+                    $foundForum = $forum;
+                    break 2;
+                }
+            }
+        }
+        $this->assertNotNull($foundForum);
+        $this->assertTrue($foundForum['is_unread']);
+
+        $topics = AP_Forum::getTopicsDisplayData($forumId, ['user_id' => $reader], $this->db);
+        $this->assertNotEmpty($topics);
+        $this->assertTrue($topics[0]['is_unread']);
+        $this->assertSame($topicId, (int) $topics[0]['id']);
+
+        AP_Forum_Read::markTopicRead($reader, $topicId, $this->db);
+
+        $indexRead = AP_Forum::getIndexData($this->db, ['user_id' => $reader]);
+        $foundRead = null;
+        foreach ($indexRead as $cat) {
+            foreach ($cat['forums'] as $forum) {
+                if ((int) ($forum['id'] ?? 0) === $forumId) {
+                    $foundRead = $forum;
+                    break 2;
+                }
+            }
+        }
+        $this->assertNotNull($foundRead);
+        $this->assertFalse($foundRead['is_unread']);
+
+        $topicsRead = AP_Forum::getTopicsDisplayData($forumId, ['user_id' => $reader], $this->db);
+        $this->assertFalse($topicsRead[0]['is_unread']);
+
+        // Guest / anonymous viewer: never unread.
+        $indexGuest = AP_Forum::getIndexData($this->db, ['user_id' => 0]);
+        foreach ($indexGuest as $cat) {
+            foreach ($cat['forums'] as $forum) {
+                $this->assertFalse($forum['is_unread'] ?? true);
+            }
+        }
+
+        $annotatedForums = AP_Forum_Read::annotateForums($reader, [
+            ['id' => $forumId, 'name' => 'X'],
+        ], $this->db);
+        $this->assertFalse($annotatedForums[0]['is_unread']);
+        $this->assertFalse(ap_annotate_forums_unread(0, [['id' => $forumId]], $this->db)[0]['is_unread']);
+    }
+
+    public function testTopicAndForumTrackRowsPersist(): void
+    {
+        $ctx = $this->createForumWithTopic('Persist tracks');
+        $reader = $this->createUser('track_persist');
+
+        $this->assertTrue(AP_Forum_Read::markTopicRead($reader, $ctx['topic_id'], $this->db));
+        $topicMark = AP_Forum_Read::getTopicMarkTime($reader, $ctx['topic_id'], $this->db);
+        $this->assertNotNull($topicMark);
+        $this->assertNotSame(AP_Forum_Read::EMPTY_DATETIME, $topicMark);
+
+        $row = $this->db->getRow(
+            'SELECT user_id, topic_id, forum_id, mark_time FROM '
+            . $this->db->quoteIdentifier($this->db->table('topic_track'))
+            . ' WHERE user_id = ? AND topic_id = ?',
+            [$reader, $ctx['topic_id']]
+        );
+        $this->assertNotNull($row);
+        $this->assertSame($ctx['forum_id'], (int) $row->forum_id);
+
+        $this->assertTrue(AP_Forum_Read::markForumRead($reader, $ctx['forum_id'], $this->db));
+        $forumMark = AP_Forum_Read::getForumMarkTime($reader, $ctx['forum_id'], $this->db);
+        $this->assertNotNull($forumMark);
+
+        // markForumRead clears per-topic tracks by default (rollup).
+        $this->assertNull(AP_Forum_Read::getTopicMarkTime($reader, $ctx['topic_id'], $this->db));
+        $this->assertFalse(AP_Forum_Read::isTopicUnread($reader, $ctx['topic_id'], $this->db));
+    }
+
+    public function testMarkTopicReadOnViewRules(): void
+    {
+        $ctx = $this->createForumWithTopic('Mark on view');
+        $reader = $this->createUser('view_reader');
+        $topicId = $ctx['topic_id'];
+        $poster = $ctx['user_id'];
+
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+        $opId = (int) ($topic->first_post_id ?? 0);
+        $this->assertGreaterThan(0, $opId);
+
+        $base = time() - 600;
+        $opTime = date('Y-m-d H:i:s', $base);
+        $this->db->update('forum_posts', ['post_time' => $opTime], ['post_id' => $opId]);
+        $this->db->update(
+            'topics',
+            [
+                'topic_time' => $opTime,
+                'topic_last_post_time' => $opTime,
+            ],
+            ['topic_id' => $topicId]
+        );
+
+        // Guests: no mark, no first-unread id.
+        $guest = AP_Forum_Read::markTopicReadOnView(0, $topicId, $this->db);
+        $this->assertFalse($guest['marked']);
+        $this->assertSame(0, $guest['first_unread_post_id']);
+        $this->assertNull(AP_Forum_Read::getTopicMarkTime($reader, $topicId, $this->db));
+
+        // Never viewed: first unread is OP; mark advances through viewed posts.
+        $this->assertTrue(AP_Forum_Read::isTopicUnread($reader, $topicId, $this->db));
+        $result = AP_Forum_Read::markTopicReadOnView($reader, $topicId, $this->db, [
+            'page' => 1,
+            'per_page' => 20,
+        ]);
+        $this->assertTrue($result['marked']);
+        $this->assertSame($opId, $result['first_unread_post_id']);
+        $this->assertSame($opTime, $result['mark_time']);
+        $this->assertFalse(AP_Forum_Read::isTopicUnread($reader, $topicId, $this->db));
+        $this->assertSame($opTime, AP_Forum_Read::getTopicMarkTime($reader, $topicId, $this->db));
+
+        // Procedural helper matches.
+        $proc = ap_mark_topic_read_on_view($reader, $topicId, $this->db, [
+            'page' => 1,
+            'per_page' => 20,
+        ]);
+        $this->assertArrayHasKey('marked', $proc);
+        $this->assertSame(0, $proc['first_unread_post_id']);
+
+        // Multi-page: page 1 only covers the OP; later reply stays unread.
+        $replyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'poster_id' => $poster,
+            'content' => 'Page-two style reply',
+        ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
+        $replyTime = date('Y-m-d H:i:s', $base + 120);
+        $this->db->update('forum_posts', ['post_time' => $replyTime], ['post_id' => $replyId]);
+        $this->db->update('topics', ['topic_last_post_time' => $replyTime], ['topic_id' => $topicId]);
+
+        // Reset mark so both posts are "after" the watermark.
+        $this->db->update(
+            'topic_track',
+            ['mark_time' => '2000-01-01 00:00:00'],
+            ['user_id' => $reader, 'topic_id' => $topicId]
+        );
+
+        $page1 = AP_Forum_Read::markTopicReadOnView($reader, $topicId, $this->db, [
+            'page' => 1,
+            'per_page' => 1,
+        ]);
+        $this->assertTrue($page1['marked']);
+        $this->assertSame($opId, $page1['first_unread_post_id']);
+        $this->assertSame($opTime, $page1['mark_time']);
+        // Reply is newer than page-1 mark → still unread overall.
+        $this->assertTrue(AP_Forum_Read::isTopicUnread($reader, $topicId, $this->db));
+        $this->assertSame($replyId, AP_Forum_Read::getFirstUnreadPostId($reader, $topicId, $this->db));
+
+        $page2 = AP_Forum_Read::markTopicReadOnView($reader, $topicId, $this->db, [
+            'page' => 2,
+            'per_page' => 1,
+        ]);
+        $this->assertTrue($page2['marked']);
+        $this->assertSame($replyId, $page2['first_unread_post_id']);
+        $this->assertSame($replyTime, $page2['mark_time']);
+        $this->assertFalse(AP_Forum_Read::isTopicUnread($reader, $topicId, $this->db));
+
+        // Tracking disabled: no mark write.
+        AP_Options::update(AP_Forum_Read::OPTION_ENABLED, '0', $this->db);
+        $disabled = AP_Forum_Read::markTopicReadOnView($reader, $topicId, $this->db, [
+            'page' => 1,
+            'per_page' => 20,
+        ]);
+        $this->assertFalse($disabled['marked']);
+        $this->assertSame(0, $disabled['first_unread_post_id']);
+        AP_Options::update(AP_Forum_Read::OPTION_ENABLED, '1', $this->db);
+    }
 }

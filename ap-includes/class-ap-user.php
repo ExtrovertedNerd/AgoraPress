@@ -205,6 +205,76 @@ class AP_User
     }
 
     /**
+     * Batch-load display names for many user IDs (board index last-post; no N+1).
+     *
+     * Prefers display_name, falls back to user_login. Missing IDs are omitted.
+     *
+     * @param list<int> $userIds
+     *
+     * @return array<int, string> user_id => display label
+     */
+    public static function getDisplayNamesByIds(array $userIds, ?AP_DB $db = null): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($id): int => (int) $id, $userIds),
+            static fn (int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+        $table = $db->quoteIdentifier($db->table('users'));
+        $ph = implode(', ', array_fill(0, count($ids), '?'));
+        $out = [];
+
+        try {
+            $rows = $db->getResults(
+                'SELECT ' . $db->quoteIdentifier('ID') . ', '
+                . $db->quoteIdentifier('display_name') . ', '
+                . $db->quoteIdentifier('user_login')
+                . ' FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('ID') . ' IN (' . $ph . ')',
+                $ids
+            );
+        } catch (Throwable) {
+            foreach ($ids as $id) {
+                try {
+                    $user = self::getById($id, $db);
+                    if ($user !== null) {
+                        $label = (string) ($user->display_name ?? '');
+                        if ($label === '') {
+                            $label = (string) ($user->user_login ?? '');
+                        }
+                        if ($label !== '') {
+                            $out[$id] = $label;
+                        }
+                    }
+                } catch (Throwable) {
+                    // skip
+                }
+            }
+
+            return $out;
+        }
+
+        foreach ($rows as $row) {
+            $uid = (int) (is_object($row) ? ($row->ID ?? $row->id ?? 0) : ($row['ID'] ?? $row['id'] ?? 0));
+            if ($uid < 1) {
+                continue;
+            }
+            $display = (string) (is_object($row) ? ($row->display_name ?? '') : ($row['display_name'] ?? ''));
+            $login = (string) (is_object($row) ? ($row->user_login ?? '') : ($row['user_login'] ?? ''));
+            $label = $display !== '' ? $display : $login;
+            if ($label !== '') {
+                $out[$uid] = $label;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Fetch a user by login (case-sensitive match on stored value).
      */
     public static function getByLogin(string $login, ?AP_DB $db = null): ?self
@@ -533,6 +603,10 @@ class AP_User
         self::updateMeta($id, 'first_name', ap_sanitize_text_field((string) ($data['first_name'] ?? '')), $db);
         self::updateMeta($id, 'last_name', ap_sanitize_text_field((string) ($data['last_name'] ?? '')), $db);
         self::updateMeta($id, 'description', ap_sanitize_textarea_field((string) ($data['description'] ?? '')), $db);
+        self::updateMeta($id, 'location', ap_sanitize_text_field((string) ($data['location'] ?? '')), $db);
+        if (array_key_exists('signature', $data)) {
+            self::updateMeta($id, 'signature', self::sanitizeSignature((string) $data['signature']), $db);
+        }
 
         // Role assignment.
         $role = trim((string) ($data['role'] ?? ''));
@@ -654,7 +728,7 @@ class AP_User
         }
 
         // Profile meta (only when keys present).
-        foreach (['first_name', 'last_name', 'nickname'] as $metaKey) {
+        foreach (['first_name', 'last_name', 'nickname', 'location'] as $metaKey) {
             if (array_key_exists($metaKey, $data)) {
                 self::updateMeta($id, $metaKey, ap_sanitize_text_field((string) $data[$metaKey]), $db);
             }
@@ -666,6 +740,9 @@ class AP_User
                 ap_sanitize_textarea_field((string) $data['description']),
                 $db
             );
+        }
+        if (array_key_exists('signature', $data)) {
+            self::updateMeta($id, 'signature', self::sanitizeSignature((string) $data['signature']), $db);
         }
 
         // Role (when provided and roles API is available).
@@ -949,9 +1026,51 @@ class AP_User
     }
 
     /**
-     * Profile meta bag used by admin forms.
+     * Max stored length for forum signatures (user meta `signature`).
+     * Soft cap keeps topic views compact; BBCode/Markdown still allowed within it.
+     */
+    public const SIGNATURE_MAX_LENGTH = 500;
+
+    /**
+     * Sanitize a forum signature for storage (textarea rules + length cap).
+     */
+    public static function sanitizeSignature(string $value): string
+    {
+        $value = function_exists('ap_sanitize_textarea_field')
+            ? ap_sanitize_textarea_field($value)
+            : trim(str_replace("\0", '', $value));
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        $max = self::SIGNATURE_MAX_LENGTH;
+        if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+            if (mb_strlen($value) > $max) {
+                $value = mb_substr($value, 0, $max);
+            }
+        } elseif (strlen($value) > $max) {
+            $value = substr($value, 0, $max);
+        }
+
+        return $value;
+    }
+
+    /**
+     * Profile meta bag used by admin forms and public profile surfaces.
      *
-     * @return array{first_name: string, last_name: string, nickname: string, description: string}
+     * `location` is optional free-text (city/region); shown in the forum topic
+     * author pane when non-empty (SPEC B2).
+     * `signature` is optional free-text shown under forum posts when the global
+     * “enable signatures” setting is on and the value is non-empty (SPEC B2).
+     *
+     * @return array{
+     *   first_name: string,
+     *   last_name: string,
+     *   nickname: string,
+     *   description: string,
+     *   location: string,
+     *   signature: string
+     * }
      */
     public static function getProfileMeta(int $userId, ?AP_DB $db = null): array
     {
@@ -962,7 +1081,64 @@ class AP_User
             'last_name' => (string) (self::getMeta($userId, 'last_name', $db) ?? ''),
             'nickname' => (string) (self::getMeta($userId, 'nickname', $db) ?? ''),
             'description' => (string) (self::getMeta($userId, 'description', $db) ?? ''),
+            'location' => (string) (self::getMeta($userId, 'location', $db) ?? ''),
+            'signature' => (string) (self::getMeta($userId, 'signature', $db) ?? ''),
         ];
+    }
+
+    /**
+     * Batch-load one usermeta key for many users (topic author pane; avoid N+1).
+     *
+     * @param list<int> $userIds
+     *
+     * @return array<int, string> user_id => meta value (missing keys omitted / empty string)
+     */
+    public static function getMetaForUsers(array $userIds, string $metaKey, ?AP_DB $db = null): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($id): int => (int) $id, $userIds),
+            static fn (int $id): bool => $id > 0
+        )));
+        $metaKey = trim($metaKey);
+        if ($ids === [] || $metaKey === '') {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+        $table = $db->quoteIdentifier($db->table('usermeta'));
+        $idPh = implode(', ', array_fill(0, count($ids), '?'));
+        $params = array_merge($ids, [$metaKey]);
+        $out = [];
+        foreach ($ids as $id) {
+            $out[$id] = '';
+        }
+
+        try {
+            $rows = $db->getResults(
+                'SELECT ' . $db->quoteIdentifier('user_id') . ', '
+                . $db->quoteIdentifier('meta_value')
+                . ' FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('user_id') . ' IN (' . $idPh . ')'
+                . ' AND ' . $db->quoteIdentifier('meta_key') . ' = ?',
+                $params
+            );
+        } catch (Throwable) {
+            foreach ($ids as $id) {
+                $out[$id] = (string) (self::getMeta($id, $metaKey, $db) ?? '');
+            }
+
+            return $out;
+        }
+
+        foreach ($rows as $row) {
+            $uid = (int) (is_object($row) ? ($row->user_id ?? 0) : ($row['user_id'] ?? 0));
+            $raw = is_object($row) ? ($row->meta_value ?? '') : ($row['meta_value'] ?? '');
+            if ($uid > 0 && array_key_exists($uid, $out)) {
+                $out[$uid] = (string) $raw;
+            }
+        }
+
+        return $out;
     }
 
     // -------------------------------------------------------------------------

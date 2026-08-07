@@ -50,6 +50,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         'last_name' => (string) ($_POST['last_name'] ?? ''),
         'nickname' => (string) ($_POST['nickname'] ?? ''),
         'description' => (string) ($_POST['description'] ?? ''),
+        'location' => (string) ($_POST['location'] ?? ''),
+        'signature' => (string) ($_POST['signature'] ?? ''),
         'role' => (string) ($_POST['role'] ?? ''),
     ];
     // Keep object fields in sync for redisplay.

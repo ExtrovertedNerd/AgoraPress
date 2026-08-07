@@ -143,6 +143,7 @@ if (!class_exists('AP_Migration_0005_Forum_Tables', false)) {
                     . ' `forum_desc` TEXT NOT NULL,'
                     . ' `forum_order` INT NOT NULL DEFAULT 0,'
                     . ' `topic_count` BIGINT NOT NULL DEFAULT 0,'
+                    // post_count = approved opening posts + replies (not replies-only).
                     . ' `post_count` BIGINT NOT NULL DEFAULT 0,'
                     . ' `last_post_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,'
                     . ' `last_poster_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,'
@@ -326,6 +327,7 @@ if (!class_exists('AP_Migration_0005_Forum_Tables', false)) {
                     . " forum_desc TEXT NOT NULL DEFAULT '',"
                     . ' forum_order INTEGER NOT NULL DEFAULT 0,'
                     . ' topic_count BIGINT NOT NULL DEFAULT 0,'
+                    // post_count = approved opening posts + replies (not replies-only).
                     . ' post_count BIGINT NOT NULL DEFAULT 0,'
                     . ' last_post_id BIGINT NOT NULL DEFAULT 0,'
                     . ' last_poster_id BIGINT NOT NULL DEFAULT 0,'
@@ -494,6 +496,7 @@ if (!class_exists('AP_Migration_0005_Forum_Tables', false)) {
                     . " forum_desc TEXT NOT NULL DEFAULT '',"
                     . ' forum_order INTEGER NOT NULL DEFAULT 0,'
                     . ' topic_count INTEGER NOT NULL DEFAULT 0,'
+                    // post_count = approved opening posts + replies (not replies-only).
                     . ' post_count INTEGER NOT NULL DEFAULT 0,'
                     . ' last_post_id INTEGER NOT NULL DEFAULT 0,'
                     . ' last_poster_id INTEGER NOT NULL DEFAULT 0,'

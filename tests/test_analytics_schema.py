@@ -32,7 +32,9 @@ def test_migration_file_exists() -> None:
 
 def test_db_version_is_ten() -> None:
     src = VERSION.read_text(encoding="utf-8")
-    assert "define('AP_DB_VERSION', '10')" in src
+    m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", src)
+    assert m is not None
+    assert int(m.group(1)) >= 10
     assert "Version 10" in src
     assert "analytics_hits" in src
     assert "analytics_daily" in src

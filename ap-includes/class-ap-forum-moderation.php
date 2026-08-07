@@ -187,7 +187,12 @@ class AP_Forum_Moderation
     }
 
     /**
-     * Set topic type (normal | sticky | announce | global).
+     * Set topic type (standard | sticky | announcement | rules).
+     *
+     * ACL: sticky_topics for sticky; announce_topics for announcement/rules;
+     * demoting to standard needs the matching elevating permission. Pass
+     * moderator_id = 0 to skip ACL (installers/CLI/tests). Full moderate_forum
+     * is not required when the user has the type-specific cap.
      */
     public static function setTopicType(
         int $topicId,
@@ -200,8 +205,27 @@ class AP_Forum_Moderation
         if ($topic === null) {
             return false;
         }
-        if (!self::moderatorMayAct($moderatorId, (int) $topic->forum_id, $db)) {
-            return false;
+
+        $type = AP_Forum::normalizeTopicType($type);
+        $from = AP_Forum::normalizeTopicType((string) ($topic->topic_type ?? AP_Forum::TOPIC_TYPE_STANDARD));
+
+        if ($moderatorId > 0) {
+            if (
+                !class_exists('AP_Forum_Permissions', false)
+                || !AP_Forum_Permissions::userCanSetTopicType(
+                    $moderatorId,
+                    (int) $topic->forum_id,
+                    $type,
+                    $db,
+                    $from
+                )
+            ) {
+                return false;
+            }
+        }
+
+        if ($type === $from) {
+            return true;
         }
 
         return AP_Forum::updateTopic($topicId, ['topic_type' => $type], $db);
@@ -448,7 +472,7 @@ class AP_Forum_Moderation
             'topic_slug' => $slug,
             'topic_poster' => $posterId,
             'topic_status' => AP_Forum::TOPIC_STATUS_OPEN,
-            'topic_type' => AP_Forum::TOPIC_TYPE_NORMAL,
+            'topic_type' => AP_Forum::TOPIC_TYPE_STANDARD,
             'topic_approved' => 1,
             'topic_views' => 0,
             'reply_count' => 0,

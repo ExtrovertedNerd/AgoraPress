@@ -3,13 +3,37 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.2.1-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.0-beta**).
 
 ## [Unreleased]
 
+## [0.3.0-beta] - 2026-08-07
+
+Schema `AP_DB_VERSION` **12** (topic type enum). Privacy posture unchanged: no telemetry by default; board stats are local DB aggregates only.
+
+### Package
+
+- Beta package `0.3.0-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
 ### Added
 
-- (Post-release work lands here.)
+- **Forum UI phpBB-parity** (board index + topic view):
+  - **Board index:** category header columns (Title | Topics | Posts | Last Post); 5-column forum/topic rows (icon, title, topics, posts, 3-line last post)
+  - **Read/unread:** per-user row classes (`ap-forum-row--unread` / `ap-forum-row--read`); guests get neutral styling without faking state
+  - **Topic types:** `standard` | `sticky` | `announcement` | `rules` (+ locked affordance); create/edit and caps-gated type control
+  - **Icons:** type + read/unread variants via stable theme hooks
+  - **Topic view:** “First unread post” jump (hidden when N/A); two-pane posts (author left / body+actions right)
+  - **Author pane:** avatar, username, role/rank, post count, likes given/received, joined date, location (when set)
+  - **Actions:** quote, edit/mod (caps), like/unlike; signature row when enabled; in-page “Top” control
+  - **Board footer:** Total Topics · Total Posts · Total Members (posts = opening posts + replies; live SQL, no cache lag)
+  - Migration **12**: topic type enum normalize/backfill (`normal`→`standard`, `announce`/`global`→`announcement`)
+  - Default **Agora** theme markup/CSS for board index, topic list, and two-pane topic view
+  - Helpers/tests: board row payloads, board stats, read markers, first-unread, permission matrix smokes
+
+### Changed
+
+- Forum read-tracking and stats helpers extended for board index aggregates and first-unread on view (no N+1 on index).
+- Profile/user edit surfaces location (and signature) fields used by the author pane when present.
 
 ## [0.2.1-beta] - 2026-08-06
 

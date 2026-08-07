@@ -488,6 +488,7 @@ final class AdminForumsTest extends TestCase
             'forum_search_enabled' => '1',
             'forum_online_enabled' => '1',
             'forum_unread_tracking_enabled' => '0',
+            'forum_signatures_enabled' => '0',
         ], $this->db);
 
         $this->assertTrue($ok);
@@ -496,6 +497,7 @@ final class AdminForumsTest extends TestCase
         $this->assertSame(45, (int) AP_Options::get('forum_flood_interval', 30, $this->db));
         $this->assertSame('1', (string) AP_Options::get('forum_posts_require_approval', '0', $this->db));
         $this->assertSame('0', (string) AP_Options::get('forum_unread_tracking_enabled', '1', $this->db));
+        $this->assertSame('0', (string) AP_Options::get('forum_signatures_enabled', '1', $this->db));
         $this->assertStringContainsString('viagra', (string) AP_Options::get('forum_spam_blacklist', '', $this->db));
     }
 

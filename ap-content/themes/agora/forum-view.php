@@ -23,6 +23,9 @@ $forumClosed = $q instanceof AP_Query && !empty($q->get('forum_closed', false));
 $canPost = $q instanceof AP_Query && !empty($q->get('can_post_topic', false));
 $notFound = $q instanceof AP_Query && !empty($q->get('ap_forum_not_found', false));
 $disabled = $q instanceof AP_Query && !empty($q->get('ap_forum_disabled', false));
+$allowedTopicTypes = $q instanceof AP_Query && is_array($q->get('allowed_topic_types', null))
+    ? $q->get('allowed_topic_types', [])
+    : [];
 if ($forumName === '') {
     $forumName = 'Forum';
 }
@@ -43,6 +46,9 @@ if (function_exists('ap_is_user_logged_in') && class_exists('AP_Session', false)
     }
 }
 $nonceAction = 'ap_forum_new_topic_' . $forumId;
+if ($allowedTopicTypes === [] && $canPost && $forumId > 0 && function_exists('ap_forum_allowed_topic_types_for_create')) {
+    $allowedTopicTypes = ap_forum_allowed_topic_types_for_create($forumId);
+}
 ?>
 <nav class="ap-breadcrumbs" aria-label="Breadcrumb">
     <ol>
@@ -53,9 +59,14 @@ $nonceAction = 'ap_forum_new_topic_' . $forumId;
 </nav>
 
 <div class="ap-forum ap-forum--view">
-    <header class="ap-forum__header">
+    <header class="ap-forum__header<?php echo $forumClosed ? ' ap-forum__header--locked' : ''; ?>">
         <div>
-            <h1 class="ap-archive-title"><?php echo agora_esc($forumName); ?></h1>
+            <h1 class="ap-archive-title">
+                <?php if ($forumClosed) : ?>
+                    <span class="ap-badge ap-badge--locked">Locked</span>
+                <?php endif; ?>
+                <?php echo agora_esc($forumName); ?>
+            </h1>
             <?php if ($forumDesc !== '') : ?>
                 <p class="ap-forum__lead"><?php echo agora_esc($forumDesc); ?></p>
             <?php else : ?>
@@ -76,21 +87,53 @@ $nonceAction = 'ap_forum_new_topic_' . $forumId;
 <?php endif; ?>
 
 <?php if ($disabled) : ?>
-    <div class="ap-empty" role="status">
-        <p>The forum module is currently disabled.</p>
-    </div>
+    <?php
+    echo function_exists('ap_forum_empty_state_html')
+        ? ap_forum_empty_state_html('forum_disabled')
+        : '<div class="ap-empty ap-forum-empty ap-forum-empty--forum_disabled" role="status"><p>The forum module is currently disabled.</p></div>';
+    ?>
 <?php elseif ($notFound) : ?>
-    <div class="ap-empty" role="status">
-        <p>Forum not found.</p>
-        <p><a href="<?php echo agora_esc_url($forumsUrl); ?>">Back to forums</a></p>
-    </div>
+    <?php
+    echo function_exists('ap_forum_empty_state_html')
+        ? ap_forum_empty_state_html('forum_not_found', ['back_url' => $forumsUrl])
+        : '<div class="ap-empty ap-forum-empty ap-forum-empty--forum_not_found" role="status"><p>Forum not found.</p><p><a href="'
+            . agora_esc_url($forumsUrl) . '">Back to forums</a></p></div>';
+    ?>
 <?php elseif ($topics === []) : ?>
-    <div class="ap-empty" role="status">
-        <p>No topics yet in this forum.</p>
-        <p>Be the first to start a conversation.</p>
-    </div>
+    <?php
+    // Empty forum: distinct copy when closed vs open (and CTA when user can post).
+    if (function_exists('ap_forum_empty_state_html')) {
+        if ($forumClosed) {
+            echo ap_forum_empty_state_html('forum_empty_closed');
+        } else {
+            echo ap_forum_empty_state_html('forum_empty', [
+                'can_post' => $canPost,
+                'cta_url' => $canPost ? '#new-topic' : '',
+            ]);
+        }
+    } elseif ($forumClosed) {
+        echo '<div class="ap-empty ap-forum-empty ap-forum-empty--forum_empty_closed" role="status">'
+            . '<p>This forum is closed and has no topics yet.</p></div>';
+    } else {
+        echo '<div class="ap-empty ap-forum-empty ap-forum-empty--forum_empty" role="status">'
+            . '<p>No topics yet in this forum.</p>';
+        if ($canPost) {
+            echo '<p class="ap-forum-empty__cta"><a class="ap-btn" href="#new-topic">Start the first topic</a></p>';
+        } else {
+            echo '<p>Be the first to start a conversation.</p>';
+        }
+        echo '</div>';
+    }
+    ?>
 <?php else : ?>
     <section class="ap-forum-panel" aria-label="Topics">
+        <?php // Column labels align with SPEC A4 topic rows (Topics N/A → em-dash in rows). ?>
+        <div class="ap-forum-cat-header" role="row" aria-hidden="true">
+            <span class="ap-forum-cat-header__title">Title</span>
+            <span class="ap-forum-cat-header__topics">Topics</span>
+            <span class="ap-forum-cat-header__posts">Posts</span>
+            <span class="ap-forum-cat-header__last">Last Post</span>
+        </div>
         <ul class="ap-forum-list">
             <?php foreach ($topics as $topic) : ?>
                 <?php
@@ -101,22 +144,69 @@ $nonceAction = 'ap_forum_new_topic_' . $forumId;
                 $url = (string) ($topic['url'] ?? '#');
                 $author = (string) ($topic['author'] ?? '');
                 $replies = (int) ($topic['replies'] ?? 0);
-                $views = (int) ($topic['views'] ?? 0);
+                // Posts = OP + replies (not replies-only). Prefer payload from
+                // topicToDisplayRow; fall back for older themes/helpers.
+                $posts = isset($topic['posts'])
+                    ? (int) $topic['posts']
+                    : (isset($topic['post_count']) ? (int) $topic['post_count'] : $replies + 1);
                 $sticky = !empty($topic['sticky']);
                 $locked = !empty($topic['locked']);
                 $announce = !empty($topic['announcement']);
+                $rules = !empty($topic['rules']);
                 $unread = !empty($topic['is_unread']);
-                $lastDate = (string) ($topic['last_date'] ?? '');
-                $lastAuthor = (string) ($topic['last_author'] ?? '');
+                $iconType = (string) ($topic['icon_type'] ?? 'standard');
+                $last = is_array($topic['last_post'] ?? null) ? $topic['last_post'] : null;
+                $lastTitle = $last !== null
+                    ? (string) ($last['title'] ?? $title)
+                    : $title;
+                $lastAuthor = $last !== null
+                    ? (string) ($last['author'] ?? $topic['last_author'] ?? '')
+                    : (string) ($topic['last_author'] ?? '');
+                $lastTime = $last !== null
+                    ? (string) ($last['time'] ?? $last['date'] ?? $topic['last_date'] ?? '')
+                    : (string) ($topic['last_date'] ?? '');
+                $lastUrl = $last !== null
+                    ? (string) ($last['url'] ?? $url)
+                    : $url;
+                // SPEC A1: guests → neutral; logged-in → read/unread.
+                $tracking = function_exists('ap_is_user_logged_in') && ap_is_user_logged_in();
+                $rowClass = function_exists('ap_forum_row_classes')
+                    ? ap_forum_row_classes([
+                        'is_unread' => $unread,
+                        'tracking' => $tracking,
+                        'topic' => true,
+                        'icon_type' => $iconType,
+                        'locked' => $locked,
+                    ])
+                    : ('ap-forum-list__item ap-forum-list__item--topic ap-forum-row ap-forum-row--topic'
+                        . ($unread ? ' ap-forum-list__item--unread ap-forum-row--unread' : ' ap-forum-row--read')
+                        . ($locked ? ' ap-forum-row--locked' : ''));
                 ?>
-                <li class="ap-forum-list__item ap-forum-list__item--topic<?php echo $unread ? ' ap-forum-list__item--unread' : ''; ?>">
-                    <div>
+                <li class="<?php echo agora_esc_attr($rowClass); ?>">
+                    <?php // SPEC A4 col 1: Icon (type + read/unread/neutral variant) ?>
+                    <?php
+                    if (function_exists('ap_forum_row_icon_html')) {
+                        echo ap_forum_row_icon_html($iconType, [
+                            'is_unread' => $unread,
+                            'tracking' => $tracking,
+                        ]);
+                    } else {
+                        echo '<span class="ap-forum-row__icon ap-forum-list__icon">'
+                            . '<span class="ap-forum-icon ap-forum-icon--standard" aria-hidden="true"></span>'
+                            . '</span>';
+                    }
+                    ?>
+                    <?php // SPEC A4 col 2: Title ?>
+                    <div class="ap-forum-list__main ap-forum-row__title">
                         <h2 class="ap-forum-list__name">
                             <?php if ($sticky) : ?>
                                 <span class="ap-badge ap-badge--sticky">Sticky</span>
                             <?php endif; ?>
                             <?php if ($announce) : ?>
                                 <span class="ap-badge ap-badge--announce">Announcement</span>
+                            <?php endif; ?>
+                            <?php if ($rules) : ?>
+                                <span class="ap-badge ap-badge--rules">Rules</span>
                             <?php endif; ?>
                             <?php if ($locked) : ?>
                                 <span class="ap-badge ap-badge--locked">Locked</span>
@@ -130,21 +220,41 @@ $nonceAction = 'ap_forum_new_topic_' . $forumId;
                             <p class="ap-forum-list__desc">Started by <?php echo agora_esc($author); ?></p>
                         <?php endif; ?>
                     </div>
-                    <div class="ap-forum-stat">
-                        <span class="ap-forum-stat__value"><?php echo $replies; ?></span>
-                        <span class="ap-forum-stat__label">Replies</span>
+                    <?php // SPEC A4 col 3: Topics N/A on pure topic lists ?>
+                    <div class="ap-forum-stat ap-forum-list__topics ap-forum-row__topics" aria-label="Topics not applicable">
+                        <span class="ap-forum-stat__value ap-forum-list__empty">—</span>
+                        <span class="ap-forum-stat__label">Topics</span>
                     </div>
-                    <div class="ap-forum-stat">
-                        <span class="ap-forum-stat__value"><?php echo $views; ?></span>
-                        <span class="ap-forum-stat__label">Views</span>
+                    <?php // SPEC A4 col 4: Posts (OP + replies) ?>
+                    <div class="ap-forum-stat ap-forum-list__posts ap-forum-row__posts" aria-label="<?php echo agora_esc_attr($posts . ' posts'); ?>">
+                        <span class="ap-forum-stat__value"><?php echo $posts; ?></span>
+                        <span class="ap-forum-stat__label">Posts</span>
                     </div>
-                    <div class="ap-forum-list__last">
-                        <?php if ($lastAuthor !== '') : ?>
-                            <strong><?php echo agora_esc($lastAuthor); ?></strong>
-                        <?php endif; ?>
-                        <?php if ($lastDate !== '') : ?>
-                            <?php echo agora_esc($lastDate); ?>
-                        <?php endif; ?>
+                    <?php // SPEC A4 col 5: Last Post — 3 lines ?>
+                    <div class="ap-forum-list__last ap-forum-row__last ap-forum-last-post">
+                        <span class="ap-forum-last-post__title">
+                            <?php if ($lastTitle !== '' && $lastUrl !== '') : ?>
+                                <a href="<?php echo agora_esc_url($lastUrl); ?>"><?php echo agora_esc($lastTitle); ?></a>
+                            <?php elseif ($lastTitle !== '') : ?>
+                                <?php echo agora_esc($lastTitle); ?>
+                            <?php else : ?>
+                                <span class="ap-forum-list__empty">—</span>
+                            <?php endif; ?>
+                        </span>
+                        <span class="ap-forum-last-post__author">
+                            <?php if ($lastAuthor !== '') : ?>
+                                by <?php echo agora_esc($lastAuthor); ?>
+                            <?php else : ?>
+                                <span class="ap-forum-list__empty">—</span>
+                            <?php endif; ?>
+                        </span>
+                        <span class="ap-forum-last-post__time">
+                            <?php if ($lastTime !== '') : ?>
+                                <time datetime="<?php echo agora_esc_attr($lastTime); ?>"><?php echo agora_esc($lastTime); ?></time>
+                            <?php else : ?>
+                                <span class="ap-forum-list__empty">—</span>
+                            <?php endif; ?>
+                        </span>
                     </div>
                 </li>
             <?php endforeach; ?>
@@ -153,11 +263,14 @@ $nonceAction = 'ap_forum_new_topic_' . $forumId;
 <?php endif; ?>
 
 <?php if (!$disabled && !$notFound && $forumId > 0) : ?>
-    <?php if ($forumClosed) : ?>
-        <div class="ap-empty" role="status">
-            <p>This forum is closed. New topics are not accepted.</p>
-        </div>
-    <?php elseif ($canPost) : ?>
+    <?php if ($forumClosed && $topics !== []) : ?>
+        <?php
+        // Closed notice only when topics exist (empty+closed already used forum_empty_closed).
+        echo function_exists('ap_forum_empty_state_html')
+            ? ap_forum_empty_state_html('forum_closed')
+            : '<div class="ap-empty ap-forum-empty ap-forum-empty--forum_closed" role="status"><p>This forum is closed. New topics are not accepted.</p></div>';
+        ?>
+    <?php elseif ($canPost && !$forumClosed) : ?>
         <section class="ap-forum-form" id="new-topic" aria-labelledby="new-topic-heading">
             <h2 id="new-topic-heading" class="ap-comments__title">Start a new topic</h2>
             <form method="post" action="">
@@ -174,6 +287,18 @@ $nonceAction = 'ap_forum_new_topic_' . $forumId;
                     <label for="agora-topic-title">Subject</label>
                     <input type="text" id="agora-topic-title" name="topic_title" required maxlength="255" placeholder="Topic subject" autocomplete="off">
                 </div>
+                <?php
+                // SPEC A2: type control within sticky/announce permissions.
+                if (function_exists('ap_forum_topic_type_select_html')) {
+                    echo ap_forum_topic_type_select_html($allowedTopicTypes, [
+                        'id' => 'agora-topic-type',
+                        'name' => 'topic_type',
+                        'selected' => 'standard',
+                        'label' => 'Topic type',
+                        'hide_single' => true,
+                    ]);
+                }
+                ?>
                 <div class="ap-field">
                     <?php
                     if (function_exists('ap_editor')) {

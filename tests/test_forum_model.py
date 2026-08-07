@@ -47,10 +47,19 @@ def test_forum_class_defines_domain_api() -> None:
         "function incrementTopicViews",
         "FORUM_TYPE_CATEGORY",
         "TOPIC_STATUS_LOCKED",
+        "TOPIC_TYPE_STANDARD",
         "TOPIC_TYPE_STICKY",
+        "TOPIC_TYPE_ANNOUNCEMENT",
+        "TOPIC_TYPE_RULES",
         "function uniqueForumSlug",
         "function uniqueTopicSlug",
         "function wouldCreateForumCycle",
+        "function forumToDisplayRow",
+        "function forumIconType",
+        "function topicIconType",
+        "function buildForumLastPostPayload",
+        "function postUrl",
+        "function buildForumRowPreload",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-forum.php"
 
@@ -69,6 +78,10 @@ def test_functions_expose_forum_helpers() -> None:
         "function ap_get_topic_posts_data",
         "function ap_delete_topic",
         "function ap_update_forum",
+        "function ap_forum_to_display_row",
+        "function ap_forum_icon_type",
+        "function ap_topic_icon_type",
+        "function ap_forum_post_url",
     ):
         assert needle in src, f"Expected {needle!r} in functions.php"
 
@@ -172,6 +185,20 @@ def test_forum_hierarchy_topics_replies_via_php() -> None:
         if ($index === [] || ($index[0]['name'] ?? '') !== 'Community') {{
             fwrite(STDERR, "index\\n");
             exit(9);
+        }}
+        $row = $index[0]['forums'][0] ?? null;
+        if (!is_array($row)
+            || ($row['icon_type'] ?? '') !== 'standard'
+            || (int) ($row['topic_count'] ?? 0) !== 1
+            || (int) ($row['post_count'] ?? 0) !== 2
+            || !is_array($row['last_post'] ?? null)
+            || ($row['last_post']['title'] ?? '') !== 'First thread'
+            || !isset($row['last_post']['author'], $row['last_post']['time'], $row['last_post']['url'])
+            || !str_contains((string) $row['last_post']['url'], '#post-')
+            || !array_key_exists('is_unread', $row)
+        ) {{
+            fwrite(STDERR, "forum_row_payload\\n");
+            exit(11);
         }}
 
         // Locked topic blocks reply.

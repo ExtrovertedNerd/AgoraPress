@@ -97,6 +97,8 @@ final class AdminUsersTest extends TestCase
             'last_name' => 'Author',
             'nickname' => 'ally',
             'description' => 'Writes things.',
+            'location' => 'Athens',
+            'signature' => 'Forum sig α',
         ], $this->db);
 
         $this->assertTrue($created['ok'], implode('; ', $created['errors']));
@@ -110,18 +112,24 @@ final class AdminUsersTest extends TestCase
         $this->assertSame('Author', $meta['last_name']);
         $this->assertSame('ally', $meta['nickname']);
         $this->assertSame('Writes things.', $meta['description']);
+        $this->assertSame('Athens', $meta['location']);
+        $this->assertSame('Forum sig α', $meta['signature']);
 
         $updated = AP_User::update($created['id'], [
             'user_email' => 'alice2@example.test',
             'display_name' => 'Alice Updated',
             'role' => 'editor',
             'first_name' => 'Alicia',
+            'location' => 'Sparta',
+            'signature' => 'Updated sig',
         ], $this->db);
         $this->assertTrue($updated['ok'], implode('; ', $updated['errors']));
         $this->assertSame('alice2@example.test', $updated['user']->user_email);
         $this->assertSame('Alice Updated', $updated['user']->display_name);
         $this->assertSame('editor', AP_Roles::getUserRole($created['id'], $this->db));
         $this->assertSame('Alicia', AP_User::getMeta($created['id'], 'first_name', $this->db));
+        $this->assertSame('Sparta', AP_User::getMeta($created['id'], 'location', $this->db));
+        $this->assertSame('Updated sig', AP_User::getMeta($created['id'], 'signature', $this->db));
 
         $this->assertTrue(AP_User::delete($created['id'], $this->db));
         $this->assertNull(AP_User::getById($created['id'], $this->db));
@@ -315,6 +323,8 @@ final class AdminUsersTest extends TestCase
             'last_name' => 'User',
             'nickname' => 'self',
             'description' => '',
+            'location' => '',
+            'signature' => 'Self forum signature',
             'user_url' => '',
         ], $id, 'profile', $this->db);
 
@@ -322,6 +332,37 @@ final class AdminUsersTest extends TestCase
         $this->assertSame('profile_updated', $result['message_key']);
         $this->assertSame('author', AP_Roles::getUserRole($id, $this->db));
         $this->assertSame('self2@example.test', $result['user']->user_email);
+        $this->assertSame('Self forum signature', AP_User::getMeta($id, 'signature', $this->db));
+    }
+
+    public function testSanitizeSignatureCapsLength(): void
+    {
+        $max = AP_User::SIGNATURE_MAX_LENGTH;
+        $long = str_repeat('x', $max + 40);
+        $clean = AP_User::sanitizeSignature($long);
+        $this->assertSame($max, function_exists('mb_strlen') ? mb_strlen($clean) : strlen($clean));
+        $this->assertSame('', AP_User::sanitizeSignature("  \n  "));
+    }
+
+    public function testProfileFormIncludesSignatureField(): void
+    {
+        $user = AP_User::create([
+            'user_login' => 'sigform',
+            'user_email' => 'sigform@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+            'signature' => 'Hello from form',
+        ], $this->db);
+        $this->assertTrue($user['ok']);
+        $u = AP_User::getById($user['id'], $this->db);
+        $this->assertNotNull($u);
+
+        require_once $this->root . '/ap-admin/includes/class-ap-admin-user-edit.php';
+        $html = AP_Admin_User_Edit::renderForm($u, 'profile', $user['id'], [], $this->db);
+        $this->assertStringContainsString('name="signature"', $html);
+        $this->assertStringContainsString('id="signature"', $html);
+        $this->assertStringContainsString('Hello from form', $html);
+        $this->assertStringContainsString('Forum signature', $html);
     }
 
     public function testListTablePrepareAndRender(): void
@@ -488,6 +529,7 @@ final class AdminUsersTest extends TestCase
         $this->assertStringContainsString('name="pass1"', $html);
         $this->assertStringContainsString('name="role"', $html);
         $this->assertStringContainsString('name="description"', $html);
+        $this->assertStringContainsString('name="location"', $html);
         $this->assertStringContainsString('Add New User', $html);
     }
 

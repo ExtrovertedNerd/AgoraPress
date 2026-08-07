@@ -39,7 +39,7 @@ REQUIRED_PHRASES = (
     "ap_",
     "PHP 8.2",
     "GPLv2",
-    "0.2.0-beta",
+    "0.3.0-beta",
     "Tools → Analytics",
     "analytics_enabled",
 )
@@ -93,11 +93,12 @@ def test_mentions_three_modules(readme_text: str) -> None:
 
 
 def test_mentions_local_analytics_and_schema_version(readme_text: str) -> None:
-    """0.2.0-beta docs: opt-in local analytics + schema AP_DB_VERSION 10."""
+    """Current beta docs: opt-in local analytics + schema AP_DB_VERSION ≥ 10."""
     lower = readme_text.lower()
-    assert "0.2.0-beta" in readme_text
+    assert "0.3.0-beta" in readme_text
     assert "ap_db_version" in lower or "AP_DB_VERSION" in readme_text
-    assert re.search(r"\b10\b", readme_text), "Schema target 10 should appear"
+    # Schema target must match shipped AP_DB_VERSION (currently 12: topic type enum).
+    assert re.search(r"\b12\b", readme_text), "Schema target 12 should appear"
     assert "local analytics" in lower or "tools → analytics" in lower
     assert "off by default" in lower or "default off" in lower or "analytics_enabled" in lower
     assert "no third-party" in lower or "third-party" in lower

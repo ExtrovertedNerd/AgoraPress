@@ -7,6 +7,7 @@ Runnable via:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import textwrap
@@ -66,7 +67,9 @@ def test_db_version_constant_is_integer_string() -> None:
     src = VERSION.read_text(encoding="utf-8")
     assert "AP_DB_VERSION" in src
     assert "define('AP_DB_VERSION'" in src
-    assert "define('AP_DB_VERSION', '10')" in src
+    m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", src)
+    assert m is not None, "AP_DB_VERSION define not found"
+    assert int(m.group(1)) >= 10
 
 
 def test_shipped_core_options_users_migration_exists() -> None:
@@ -170,6 +173,35 @@ def test_shipped_forum_tables_migration_exists() -> None:
         "AUTOINCREMENT",
     ):
         assert needle in src, f"Expected {needle} in forum tables migration"
+
+
+def test_shipped_forum_likes_and_topic_type_migrations_exist() -> None:
+    likes = MIGRATIONS_DIR / "0011_forum_likes_stats.php"
+    assert likes.is_file(), "Missing 0011_forum_likes_stats.php"
+    likes_src = likes.read_text(encoding="utf-8")
+    for needle in (
+        "AP_Migration_0011_Forum_Likes_Stats",
+        "forum_post_likes",
+        "like_count",
+    ):
+        assert needle in likes_src, f"Expected {needle} in 0011 likes migration"
+
+    topic_type = MIGRATIONS_DIR / "0012_topic_type_enum.php"
+    assert topic_type.is_file(), "Missing 0012_topic_type_enum.php"
+    type_src = topic_type.read_text(encoding="utf-8")
+    for needle in (
+        "AP_Migration_0012_Topic_Type_Enum",
+        "topic_type",
+        "standard",
+        "announcement",
+        "rules",
+        "normal",
+    ):
+        assert needle in type_src, f"Expected {needle} in 0012 topic type migration"
+
+    ver = VERSION.read_text(encoding="utf-8")
+    m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", ver)
+    assert m is not None and int(m.group(1)) >= 12
 
 
 def test_shipped_core_migration_applies_via_php() -> None:
@@ -394,8 +426,8 @@ def test_shipped_core_migration_applies_via_php() -> None:
             fwrite(STDERR, "forum name mismatch\\n");
             exit(15);
         }}
-        if ($m->getCurrentVersion() !== 10) {{
-            fwrite(STDERR, "current version not 10\\n");
+        if ($m->getCurrentVersion() !== (int) AP_DB_VERSION) {{
+            fwrite(STDERR, "current version not AP_DB_VERSION (" . AP_DB_VERSION . ")\\n");
             exit(9);
         }}
         if ($m->migrate() !== []) {{

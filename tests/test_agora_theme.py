@@ -71,6 +71,23 @@ def test_style_css_has_six_scheme_selectors_and_no_images() -> None:
     )
 
 
+def test_agora_theme_version_lockstep() -> None:
+    """style.css header Version and AGORA_THEME_VERSION stay in lockstep (board CSS bump)."""
+    css = STYLE.read_text(encoding="utf-8")
+    src = FUNCTIONS.read_text(encoding="utf-8")
+    m = re.search(r"^Version:\s*(\S+)", css, flags=re.M)
+    assert m, "style.css missing Version: header"
+    version = m.group(1)
+    assert f"AGORA_THEME_VERSION = '{version}'" in src, (
+        f"AGORA_THEME_VERSION must match style.css Version {version!r}"
+    )
+    # Board CSS is a theme-local bump (0.3.4+); keep progressive.
+    parts = version.split(".")
+    assert len(parts) >= 2
+    major, minor = int(parts[0]), int(parts[1])
+    assert (major, minor) >= (0, 3)
+
+
 def test_style_css_polish_responsive_accessible_forum() -> None:
     css = STYLE.read_text(encoding="utf-8")
     # Responsive breakpoints
@@ -82,6 +99,13 @@ def test_style_css_polish_responsive_accessible_forum() -> None:
     assert "prefers-reduced-motion" in css
     assert "screen-reader-text" in css
     assert "prefers-contrast" in css or "forced-colors" in css
+    # Phase 5 — button focus + unread contrast (no opacity dimming of read rows).
+    assert ".ap-btn:focus-visible" in css
+    assert ".ap-btn--ghost:focus-visible" in css
+    assert ".ap-forum-like:focus-visible" in css
+    assert "--ap-forum-unread-bar-width" in css
+    assert "Do not dim whole rows with opacity" in css
+    assert not re.search(r"\.ap-forum-row--read\s*\{[^}]*opacity\s*:", css)
     # Typography tokens
     assert "--ap-font-display" in css
     assert "--ap-text-base" in css or "font-size" in css
@@ -89,6 +113,17 @@ def test_style_css_polish_responsive_accessible_forum() -> None:
     assert ".ap-forum" in css
     assert ".ap-forum-list" in css
     assert ".ap-forum-post" in css
+    # SPEC B2 — two-pane topic post layout
+    assert ".ap-forum-post--two-pane" in css
+    assert ".ap-forum-post__main" in css
+    assert ".ap-forum-post__author" in css
+    assert "author main" in css
+    # SPEC B2 — Top of page control
+    assert ".ap-forum-post__foot" in css
+    assert ".ap-forum-post__top" in css
+    # SPEC B1 — First unread post jump
+    assert ".ap-forum-first-unread" in css
+    assert ".ap-forum-first-unread-wrap" in css
     assert ".ap-breadcrumbs" in css
     assert ".ap-pagination" in css
     # On-accent for dark-scheme button contrast
@@ -185,14 +220,150 @@ def test_forum_templates_markup() -> None:
     assert "ap-forum" in forum
     assert "ap-breadcrumbs" in forum
     assert "agora_get_forum_index_data" in forum
+    # SPEC A3 — category header label row (Title spans icon+title).
+    assert "ap-forum-cat-header" in forum
+    assert "ap-forum-cat-header__title" in forum
+    assert "ap-forum-cat-header__topics" in forum
+    assert "ap-forum-cat-header__posts" in forum
+    assert "ap-forum-cat-header__last" in forum
+    assert ">Title<" in forum
+    assert ">Topics<" in forum
+    assert ">Posts<" in forum
+    assert ">Last Post<" in forum
+    # SPEC A4 — five-column forum rows + 3-line last post.
+    assert "ap-forum-row" in forum
+    assert "ap-forum-last-post__title" in forum
+    assert "ap-forum-last-post__author" in forum
+    assert "ap-forum-last-post__time" in forum
+    assert "ap_forum_row_icon_html" in forum
+    # SPEC A1 — read/unread/neutral row classes + icon variants.
+    assert "ap_forum_row_classes" in forum
+    assert "tracking" in forum
 
     view = (AGORA / "forum-view.php").read_text(encoding="utf-8")
     assert "ap-forum" in view
     assert "agora_get_forum_topics_data" in view
+    assert "ap-forum-row" in view
+    assert "ap-forum-last-post" in view
+    assert "ap_forum_row_icon_html" in view
+    assert "ap_forum_row_classes" in view
 
     topic = (AGORA / "topic.php").read_text(encoding="utf-8")
     assert "ap-forum-post" in topic
     assert "agora_get_topic_posts_data" in topic
+    # SPEC B2 — two-pane post (author left, body/actions right).
+    assert "ap-forum-post--two-pane" in topic
+    assert "ap-forum-post__author" in topic
+    assert "ap-forum-post__main" in topic
+    assert "ap-forum-post__body" in topic
+    assert "ap-forum-post__actions" in topic
+    assert "ap-forum-post__head-start" in topic
+    # SPEC B2 author pane: joined + location (omit location when empty).
+    assert "ap-forum-post__joined" in topic
+    assert "ap-forum-post__location" in topic
+    assert "ap-forum-post__stat--joined" in topic
+    assert "ap-forum-post__stat--location" in topic
+    # SPEC B2 — Top of page control (in-page jump to topic top).
+    assert 'id="ap-topic-top"' in topic
+    assert "ap-forum-post__foot" in topic
+    assert "ap-forum-post__top" in topic
+    assert 'href="#ap-topic-top"' in topic
+    assert 'aria-label="Back to top of topic"' in topic
+    # Post action button labels (Phase 5 a11y).
+    assert "aria-label=" in topic
+    assert "Quote post #" in topic
+    assert "Edit post #" in topic
+    assert "Delete post #" in topic
+    assert "Like post #" in topic
+    # SPEC B1 — First unread post link above OP when applicable.
+    assert "first_unread_post_id" in topic
+    assert "ap-forum-first-unread" in topic
+    assert "ap_forum_first_unread_link_html" in topic
+    assert "First unread post" in topic
+
+
+def test_forum_category_header_css_grid() -> None:
+    """Category header shares board grid; Title spans icon+title columns."""
+    css = STYLE.read_text(encoding="utf-8")
+    assert ".ap-forum-cat-header" in css
+    assert "ap-forum-cat-header__title" in css
+    # Title spans icon + title columns (grid-column 1 / span 2).
+    assert re.search(
+        r"\.ap-forum-cat-header__title\s*\{[^}]*grid-column:\s*1\s*/\s*span\s*2",
+        css,
+        flags=re.S,
+    )
+    # Five-column board grid via tokens (icon | title | topics | posts | last).
+    assert "--ap-forum-icon-col" in css
+    assert "--ap-forum-stat-col" in css
+    assert "--ap-forum-last-col" in css
+    assert "minmax(0, 1fr)" in css
+    # SPEC A4 row/icon/last-post hooks.
+    assert ".ap-forum-icon" in css
+    assert ".ap-forum-last-post__title" in css
+    assert ".ap-forum-last-post__author" in css
+    assert ".ap-forum-last-post__time" in css
+    # SPEC A1/A2 — read/unread row + icon state variants.
+    assert ".ap-forum-row--unread" in css
+    assert ".ap-forum-row--read" in css
+    assert ".ap-forum-icon--unread" in css
+    assert ".ap-forum-icon--read" in css
+    assert ".ap-forum-icon--sticky.ap-forum-icon--unread" in css
+    assert ".ap-forum-icon--announcement.ap-forum-icon--unread" in css
+    assert ".ap-forum-icon--rules.ap-forum-icon--unread" in css
+    assert ".ap-forum-icon--locked.ap-forum-icon--unread" in css
+    # Unread wins over zebra stripe; locked+unread dual bar.
+    assert ":not(.ap-forum-row--unread)" in css
+    assert ".ap-forum-row--locked.ap-forum-row--unread" in css
+    # Responsive: hide category labels on narrow boards.
+    assert re.search(
+        r"@media\s*\(max-width:\s*699px\)\s*\{[^}]*\.ap-forum-cat-header",
+        css,
+        flags=re.S,
+    )
+
+
+def test_agora_board_css_stays_theme_local() -> None:
+    """Board layout CSS lives in Agora theme only — not core — so custom themes stay free."""
+    includes = ROOT / "ap-includes"
+    # Core must not ship board-row layout rules that override third-party themes.
+    for path in includes.rglob("*.css"):
+        text = path.read_text(encoding="utf-8")
+        assert ".ap-forum-row--unread" not in text, f"core CSS must not style board rows: {path}"
+        assert ".ap-forum-cat-header" not in text, f"core CSS must not style cat header: {path}"
+    # Markup helpers stay in PHP (stable class names), styling in themes.
+    functions = (ROOT / "ap-includes" / "functions.php").read_text(encoding="utf-8")
+    assert "ap-forum-row--unread" in functions
+    assert "ap-forum-list__item" in functions
+    assert "ap-forum-row__icon" in functions
+
+
+def test_known_custom_theme_styles_stable_board_hooks() -> None:
+    """zeroshits (known custom theme) styles the same stable board hooks — no hard break."""
+    zs = ROOT / "ap-content" / "themes" / "zeroshits"
+    if not zs.is_dir():
+        return
+    style = (zs / "style.css").read_text(encoding="utf-8")
+    for needle in (
+        ".ap-forum-cat-header",
+        ".ap-forum-row",
+        ".ap-forum-row--unread",
+        ".ap-forum-row--read",
+        ".ap-forum-row--locked",
+        ".ap-forum-icon--unread",
+        ".ap-forum-icon--read",
+        ".ap-forum-last-post__title",
+        ".ap-forum-last-post__author",
+        ".ap-forum-last-post__time",
+        "ap-forum-list__item",
+    ):
+        assert needle in style, f"zeroshits missing stable hook {needle!r}"
+    # Dual legacy + new class surface so either selector path works.
+    assert ".ap-forum-list__item" in style or "ap-forum-list__item" in style
+    forum = (zs / "forum.php").read_text(encoding="utf-8")
+    assert "ap-forum-row" in forum
+    assert "ap-forum-cat-header" in forum
+    assert "ap_forum_row_classes" in forum or "ap-forum-row--" in forum
 
 
 def test_theme_options_admin_and_menu() -> None:

@@ -9,7 +9,25 @@
  * Forum types: category | forum | link
  * Forum status: open | closed | hidden
  * Topic status: open | locked | moved | deleted
- * Topic type: normal | sticky | announce | global
+ * Topic type: standard | sticky | announcement | rules
+ *
+ * ## Post-count definition (SPEC §C — pick one, stay consistent)
+ *
+ * **Posts = opening posts + replies** (not replies-only). Everywhere UI or
+ * denormalized counters expose a “Posts” total, count each approved
+ * `forum_posts` row under a visible topic:
+ *
+ * | Surface                         | Source                                              |
+ * |---------------------------------|-----------------------------------------------------|
+ * | Board footer “Total Posts”      | {@see AP_Forum_Stats::getTotalPosts()}              |
+ * | Forum row Posts column          | `forums.post_count` via {@see forumToDisplayRow()}  |
+ * | Topic list Posts column         | `reply_count + 1` via {@see topicToDisplayRow()}    |
+ * | Denormalized `forums.post_count`| Maintained by {@see bumpForumStats()} / adjust…     |
+ *
+ * Soft-deleted / unapproved topics and unapproved posts are excluded.
+ * `topics.reply_count` remains replies-only (excludes the opening post).
+ * Per-user `forum_posts` usermeta is “approved posts authored” (profile /
+ * author pane), not a board-footer aggregate.
  *
  * @package AgoraPress
  */
@@ -45,13 +63,31 @@ class AP_Forum
 
     public const TOPIC_STATUS_DELETED = 'deleted';
 
-    public const TOPIC_TYPE_NORMAL = 'normal';
+    /** Default topic — ordinary thread. */
+    public const TOPIC_TYPE_STANDARD = 'standard';
 
     public const TOPIC_TYPE_STICKY = 'sticky';
 
-    public const TOPIC_TYPE_ANNOUNCE = 'announce';
+    public const TOPIC_TYPE_ANNOUNCEMENT = 'announcement';
 
-    public const TOPIC_TYPE_GLOBAL = 'global';
+    /** Sticky-style info / forum rules thread. */
+    public const TOPIC_TYPE_RULES = 'rules';
+
+    /**
+     * @deprecated Use {@see TOPIC_TYPE_STANDARD}. Alias for legacy code/plugins.
+     */
+    public const TOPIC_TYPE_NORMAL = self::TOPIC_TYPE_STANDARD;
+
+    /**
+     * @deprecated Use {@see TOPIC_TYPE_ANNOUNCEMENT}. Alias for legacy code/plugins.
+     */
+    public const TOPIC_TYPE_ANNOUNCE = self::TOPIC_TYPE_ANNOUNCEMENT;
+
+    /**
+     * @deprecated phpBB global announce maps to announcement.
+     *             Use {@see TOPIC_TYPE_ANNOUNCEMENT}.
+     */
+    public const TOPIC_TYPE_GLOBAL = self::TOPIC_TYPE_ANNOUNCEMENT;
 
     /** Epoch placeholder used when no last activity exists. */
     public const EMPTY_DATETIME = '1970-01-01 00:00:00';
@@ -180,10 +216,10 @@ class AP_Forum
     public static function topicTypes(): array
     {
         return [
-            self::TOPIC_TYPE_NORMAL,
+            self::TOPIC_TYPE_STANDARD,
             self::TOPIC_TYPE_STICKY,
-            self::TOPIC_TYPE_ANNOUNCE,
-            self::TOPIC_TYPE_GLOBAL,
+            self::TOPIC_TYPE_ANNOUNCEMENT,
+            self::TOPIC_TYPE_RULES,
         ];
     }
 
@@ -212,7 +248,20 @@ class AP_Forum
     {
         $type = self::sanitizeKey($type);
 
-        return in_array($type, self::topicTypes(), true) ? $type : self::TOPIC_TYPE_NORMAL;
+        // Legacy labels (pre-SPEC) and soft aliases.
+        $aliases = [
+            'normal' => self::TOPIC_TYPE_STANDARD,
+            'announce' => self::TOPIC_TYPE_ANNOUNCEMENT,
+            'global' => self::TOPIC_TYPE_ANNOUNCEMENT,
+            'info' => self::TOPIC_TYPE_RULES,
+        ];
+        if (isset($aliases[$type])) {
+            $type = $aliases[$type];
+        }
+
+        return in_array($type, self::topicTypes(), true)
+            ? $type
+            : self::TOPIC_TYPE_STANDARD;
     }
 
     public static function isTopicLocked(object|string $topicOrStatus): bool
@@ -224,6 +273,20 @@ class AP_Forum
         return self::normalizeTopicStatus($status) === self::TOPIC_STATUS_LOCKED;
     }
 
+    /**
+     * Whether a forum (or raw status) is closed — no new topics accepted.
+     *
+     * Themes map closed forums to locked icons / badges (SPEC A2 “Locked”).
+     */
+    public static function isForumClosed(object|string $forumOrStatus): bool
+    {
+        $status = is_object($forumOrStatus)
+            ? (string) ($forumOrStatus->forum_status ?? '')
+            : (string) $forumOrStatus;
+
+        return self::normalizeForumStatus($status) === self::FORUM_STATUS_CLOSED;
+    }
+
     public static function isTopicSticky(object|string $topicOrType): bool
     {
         $type = is_object($topicOrType)
@@ -231,11 +294,62 @@ class AP_Forum
             : (string) $topicOrType;
         $type = self::normalizeTopicType($type);
 
+        // Sticky, announcement, and rules float above standard topics.
         return in_array($type, [
             self::TOPIC_TYPE_STICKY,
-            self::TOPIC_TYPE_ANNOUNCE,
-            self::TOPIC_TYPE_GLOBAL,
+            self::TOPIC_TYPE_ANNOUNCEMENT,
+            self::TOPIC_TYPE_RULES,
         ], true);
+    }
+
+    /**
+     * Board-index / forum-list icon key (type only; pair with is_unread for variants).
+     *
+     * Values: standard | locked | link
+     * Themes map these to assets/CSS (e.g. ap-forum-icon--locked).
+     */
+    public static function forumIconType(object|string $forumOrType, ?string $status = null): string
+    {
+        if (is_object($forumOrType)) {
+            $type = (string) ($forumOrType->forum_type ?? self::FORUM_TYPE_FORUM);
+            $status = (string) ($forumOrType->forum_status ?? self::FORUM_STATUS_OPEN);
+        } else {
+            $type = (string) $forumOrType;
+            $status = (string) ($status ?? self::FORUM_STATUS_OPEN);
+        }
+
+        $type = self::normalizeForumType($type);
+        if ($type === self::FORUM_TYPE_LINK) {
+            return 'link';
+        }
+        if (self::normalizeForumStatus($status) === self::FORUM_STATUS_CLOSED) {
+            return 'locked';
+        }
+
+        return 'standard';
+    }
+
+    /**
+     * Topic-list icon key (type + locked override; pair with is_unread for variants).
+     *
+     * Values: standard | sticky | announcement | rules | locked
+     * Locked status wins so closed threads are obvious even when sticky/announce.
+     */
+    public static function topicIconType(object|string $topicOrType, ?string $status = null): string
+    {
+        if (is_object($topicOrType)) {
+            $type = (string) ($topicOrType->topic_type ?? self::TOPIC_TYPE_STANDARD);
+            $status = (string) ($topicOrType->topic_status ?? self::TOPIC_STATUS_OPEN);
+        } else {
+            $type = (string) $topicOrType;
+            $status = (string) ($status ?? self::TOPIC_STATUS_OPEN);
+        }
+
+        if (self::normalizeTopicStatus($status) === self::TOPIC_STATUS_LOCKED) {
+            return 'locked';
+        }
+
+        return self::normalizeTopicType($type);
     }
 
     // -------------------------------------------------------------------------
@@ -698,52 +812,113 @@ class AP_Forum
      * Matches Agora theme expectations:
      * list of ['name' => string, 'forums' => list of display rows]
      *
+     * Each forum row includes SPEC A4 payload fields via {@see forumToDisplayRow()}:
+     * icon_type, is_unread, topic/post counts, last_post (title, author, time, url).
+     *
+     * When unread tracking is available, each forum row includes `is_unread`
+     * for the current user (or `user_id` from $args). Guests get is_unread=false.
+     *
+     * Performance (board index — no N+1):
+     * - One child-forum query per category (forum + link types filtered in PHP).
+     * - Last-topic rows + author display names batch-loaded via
+     *   {@see buildForumRowPreload()} (2 queries total for titles/authors).
+     * - Unread flags via a single {@see AP_Forum_Read::annotateForums()} pass
+     *   (bulk forum/topic marks + candidate topics; not per-forum isForumUnread).
+     *
+     * @param array<string, mixed> $args Optional: user_id (int; default current user)
+     *
      * @return list<array{name: string, forums: list<array<string, mixed>>}>
      */
-    public static function getIndexData(?AP_DB $db = null): array
+    public static function getIndexData(?AP_DB $db = null, array $args = []): array
     {
         $db = self::resolveDb($db);
         $roots = self::getChildForums(0, [], $db);
         $categories = [];
         $orphanForums = [];
+        /** @var list<object> $allForumObjects */
+        $allForumObjects = [];
 
         foreach ($roots as $root) {
             $type = (string) $root->forum_type;
             if ($type === self::FORUM_TYPE_CATEGORY) {
-                $children = self::getChildForums((int) $root->forum_id, [
-                    'type' => self::FORUM_TYPE_FORUM,
-                ], $db);
-                // Also include link type children as forums in the list.
-                $links = self::getChildForums((int) $root->forum_id, [
-                    'type' => self::FORUM_TYPE_LINK,
-                ], $db);
-                $forums = array_merge($children, $links);
-                usort($forums, static function (object $a, object $b): int {
-                    $oa = (int) $a->forum_order;
-                    $ob = (int) $b->forum_order;
-                    if ($oa !== $ob) {
-                        return $oa <=> $ob;
+                // One child query per category (forum + link); filter in PHP.
+                $children = self::getChildForums((int) $root->forum_id, [], $db);
+                $forums = [];
+                foreach ($children as $child) {
+                    $childType = (string) ($child->forum_type ?? '');
+                    if ($childType === self::FORUM_TYPE_FORUM || $childType === self::FORUM_TYPE_LINK) {
+                        $forums[] = $child;
                     }
-
-                    return (int) $a->forum_id <=> (int) $b->forum_id;
-                });
+                }
+                $allForumObjects = array_merge($allForumObjects, $forums);
                 $categories[] = [
                     'name' => (string) $root->forum_name,
-                    'forums' => array_map(
-                        static fn (object $f): array => self::forumToDisplayRow($f, $db),
-                        $forums
-                    ),
+                    'forums' => $forums, // objects; converted after batch preload
                 ];
             } elseif ($type === self::FORUM_TYPE_FORUM || $type === self::FORUM_TYPE_LINK) {
-                $orphanForums[] = self::forumToDisplayRow($root, $db);
+                $orphanForums[] = $root;
+                $allForumObjects[] = $root;
             }
         }
 
+        // Batch last-topic titles + author display names (no per-row SELECT).
+        $preload = self::buildForumRowPreload($allForumObjects, $db);
+
+        foreach ($categories as $i => $category) {
+            $objects = is_array($category['forums'] ?? null) ? $category['forums'] : [];
+            $rows = [];
+            foreach ($objects as $forumObj) {
+                if (is_object($forumObj)) {
+                    $rows[] = self::forumToDisplayRow($forumObj, $db, $preload);
+                }
+            }
+            $categories[$i]['forums'] = $rows;
+        }
+
         if ($orphanForums !== []) {
+            $orphanRows = [];
+            foreach ($orphanForums as $forumObj) {
+                $orphanRows[] = self::forumToDisplayRow($forumObj, $db, $preload);
+            }
             $categories[] = [
                 'name' => 'Forums',
-                'forums' => $orphanForums,
+                'forums' => $orphanRows,
             ];
+        }
+
+        // Single annotate pass for the whole board (O(1) mark/topic queries).
+        $userId = self::resolveViewerUserId($args, $db);
+        if (class_exists('AP_Forum_Read', false)) {
+            $flat = [];
+            /** @var list<array{0: int, 1: int}> $positions */
+            $positions = [];
+            foreach ($categories as $i => $category) {
+                $forums = is_array($category['forums'] ?? null) ? $category['forums'] : [];
+                foreach ($forums as $j => $forum) {
+                    if (is_array($forum)) {
+                        $positions[] = [$i, $j];
+                        $flat[] = $forum;
+                    }
+                }
+            }
+            if ($flat !== []) {
+                $annotated = AP_Forum_Read::annotateForums($userId, $flat, $db);
+                foreach ($positions as $k => $pos) {
+                    if (isset($annotated[$k]) && is_array($annotated[$k])) {
+                        $categories[$pos[0]]['forums'][$pos[1]] = $annotated[$k];
+                    }
+                }
+            }
+        } else {
+            foreach ($categories as $i => $category) {
+                $forums = is_array($category['forums'] ?? null) ? $category['forums'] : [];
+                foreach ($forums as $j => $forum) {
+                    if (is_array($forum)) {
+                        $forums[$j]['is_unread'] = false;
+                    }
+                }
+                $categories[$i]['forums'] = $forums;
+            }
         }
 
         return $categories;
@@ -851,7 +1026,7 @@ class AP_Forum
         $content = str_replace("\0", '', $content);
 
         $posterId = max(0, (int) ($data['topic_poster'] ?? $data['poster_id'] ?? $data['user_id'] ?? 0));
-        $type = self::normalizeTopicType((string) ($data['topic_type'] ?? $data['type'] ?? self::TOPIC_TYPE_NORMAL));
+        $type = self::normalizeTopicType((string) ($data['topic_type'] ?? $data['type'] ?? self::TOPIC_TYPE_STANDARD));
         $status = self::normalizeTopicStatus((string) ($data['topic_status'] ?? $data['status'] ?? self::TOPIC_STATUS_OPEN));
         $approved = array_key_exists('topic_approved', $data)
             ? ((int) $data['topic_approved'] ? 1 : 0)
@@ -1076,7 +1251,7 @@ class AP_Forum
 
         if (array_key_exists('topic_type', $data) || array_key_exists('type', $data)) {
             $update['topic_type'] = self::normalizeTopicType(
-                (string) ($data['topic_type'] ?? $data['type'] ?? self::TOPIC_TYPE_NORMAL)
+                (string) ($data['topic_type'] ?? $data['type'] ?? self::TOPIC_TYPE_STANDARD)
             );
         }
 
@@ -1269,9 +1444,9 @@ class AP_Forum
             $params[] = self::normalizeTopicType((string) $args['type']);
         }
 
-        // Sticky/announce/global float to top.
+        // Announcement / rules / sticky float above standard.
         $sql .= ' ORDER BY CASE ' . $db->quoteIdentifier('topic_type')
-            . " WHEN 'global' THEN 0 WHEN 'announce' THEN 1 WHEN 'sticky' THEN 2 ELSE 3 END ASC, "
+            . " WHEN 'announcement' THEN 0 WHEN 'rules' THEN 1 WHEN 'sticky' THEN 2 ELSE 3 END ASC, "
             . $db->quoteIdentifier('topic_last_post_time') . ' DESC, '
             . $db->quoteIdentifier('topic_id') . ' DESC';
 
@@ -1474,6 +1649,11 @@ class AP_Forum
     /**
      * Theme-friendly topic list for a forum.
      *
+     * Annotates each row with `is_unread` for the current user (or `user_id`
+     * in $args) when unread tracking is available.
+     *
+     * @param array<string, mixed> $args Pass-through to getTopics; also user_id
+     *
      * @return list<array<string, mixed>>
      */
     public static function getTopicsDisplayData(int $forumId, array $args = [], ?AP_DB $db = null): array
@@ -1483,6 +1663,14 @@ class AP_Forum
         $out = [];
         foreach ($topics as $topic) {
             $out[] = self::topicToDisplayRow($topic, $db);
+        }
+
+        $userId = self::resolveViewerUserId($args, $db);
+        if (class_exists('AP_Forum_Read', false)) {
+            return AP_Forum_Read::annotateTopics($userId, $out, $db);
+        }
+        foreach ($out as $i => $row) {
+            $out[$i]['is_unread'] = false;
         }
 
         return $out;
@@ -1900,6 +2088,8 @@ class AP_Forum
     /**
      * Theme-friendly post list for a topic.
      *
+     * Action flags (SPEC B2): can_quote, can_edit, can_delete, can_like, can_moderate.
+     *
      * @return list<array<string, mixed>>
      */
     public static function getPostsDisplayData(int $topicId, array $args = [], ?AP_DB $db = null): array
@@ -1915,20 +2105,101 @@ class AP_Forum
             }
         }
         $postIds = [];
+        $authorIds = [];
+        $forumIdForTopic = 0;
         foreach ($posts as $p) {
             $postIds[] = (int) $p->post_id;
+            $aid = (int) ($p->poster_id ?? 0);
+            if ($aid > 0) {
+                $authorIds[] = $aid;
+            }
+            if ($forumIdForTopic < 1) {
+                $forumIdForTopic = (int) ($p->forum_id ?? 0);
+            }
         }
         $likedMap = [];
         if ($viewerId > 0 && class_exists('AP_Forum_Like', false) && $postIds !== []) {
             $likedMap = AP_Forum_Like::likedMapForUser($viewerId, $postIds, $db);
         }
+        // One batch usermeta query for all distinct authors (posts + likes given/received).
+        $authorStatsMap = [];
+        if ($authorIds !== [] && class_exists('AP_Forum_Stats', false)) {
+            $authorStatsMap = AP_Forum_Stats::getAuthorPanelStatsForUsers($authorIds, $db);
+        }
+        // Batch location + signature for author pane / post footer (SPEC B2) — avoid N+1.
+        $locationMap = [];
+        $signatureMap = [];
+        $sigsEnabled = self::signaturesEnabled($db);
+        if ($authorIds !== [] && class_exists('AP_User', false)) {
+            try {
+                $locationMap = AP_User::getMetaForUsers($authorIds, 'location', $db);
+            } catch (Throwable) {
+                $locationMap = [];
+            }
+            if ($sigsEnabled) {
+                try {
+                    $signatureMap = AP_User::getMetaForUsers($authorIds, 'signature', $db);
+                } catch (Throwable) {
+                    $signatureMap = [];
+                }
+            }
+        }
+
+        // Topic-level reply gate for Quote (SPEC B2): reply cap + not locked.
+        $canQuote = false;
+        if ($viewerId > 0 && $topicId > 0) {
+            $topic = self::getTopic($topicId, $db);
+            if ($topic !== null && !self::isTopicLocked($topic)) {
+                $fid = (int) ($topic->forum_id ?? $forumIdForTopic);
+                if ($fid > 0 && class_exists('AP_Forum_Permissions', false)) {
+                    $canQuote = AP_Forum_Permissions::userCanPostReply($viewerId, $fid, $db);
+                } elseif ($fid > 0) {
+                    $canQuote = true;
+                }
+            }
+        }
+
+        // Like requires login + view on the forum (no separate like ACL).
+        $canViewForum = $viewerId > 0;
+        if ($viewerId > 0 && $forumIdForTopic > 0 && class_exists('AP_Forum_Permissions', false)) {
+            $canViewForum = AP_Forum_Permissions::userCanViewForum($viewerId, $forumIdForTopic, $db);
+        }
+
         $out = [];
         $n = 0;
         foreach ($posts as $post) {
             $n++;
-            $row = self::postToDisplayRow($post, $n, $db);
+            $aid = (int) ($post->poster_id ?? 0);
+            $preloaded = $aid > 0 && isset($authorStatsMap[$aid]) ? $authorStatsMap[$aid] : null;
+            if ($preloaded !== null && $aid > 0 && array_key_exists($aid, $locationMap)) {
+                $preloaded['location'] = (string) $locationMap[$aid];
+            } elseif ($preloaded === null && $aid > 0 && array_key_exists($aid, $locationMap)) {
+                $preloaded = [
+                    'forum_posts' => 0,
+                    'forum_likes_given' => 0,
+                    'forum_likes_received' => 0,
+                    'location' => (string) $locationMap[$aid],
+                ];
+            }
+            if ($aid > 0) {
+                // Always set signature key when batching so postToDisplayRow skips per-user meta.
+                if ($preloaded === null) {
+                    $preloaded = [
+                        'forum_posts' => 0,
+                        'forum_likes_given' => 0,
+                        'forum_likes_received' => 0,
+                    ];
+                }
+                if ($sigsEnabled && array_key_exists($aid, $signatureMap)) {
+                    $preloaded['signature'] = (string) $signatureMap[$aid];
+                } else {
+                    $preloaded['signature'] = '';
+                }
+            }
+            $row = self::postToDisplayRow($post, $n, $db, $preloaded);
             $row['liked_by_me'] = !empty($likedMap[(int) $post->post_id]);
-            $row['can_like'] = $viewerId > 0;
+            $row['can_like'] = $viewerId > 0 && $canViewForum;
+            $row['can_quote'] = $canQuote;
             $row['can_edit'] = self::userCanEditPost($viewerId, $post, $db);
             $row['can_delete'] = self::userCanDeletePost($viewerId, $post, $db);
             $row['can_moderate'] = $viewerId > 0 && class_exists('AP_Forum_Permissions', false)
@@ -1937,6 +2208,82 @@ class AP_Forum
         }
 
         return $out;
+    }
+
+    /**
+     * Build BBCode citation markup for starting a reply with a quote (SPEC B2).
+     *
+     * Soft-caps long bodies so the reply form stays usable. Author is sanitized
+     * for use inside a [quote=…] attribute (no brackets/newlines).
+     *
+     * @param int $maxLen Max characters of body to include (0 = unlimited). Default 2000.
+     */
+    public static function buildQuoteMarkup(string $author, string $content, int $maxLen = 2000): string
+    {
+        $author = trim(str_replace(["\r", "\n", "\0", '[', ']', '"', "'"], '', $author));
+        if ($author === '') {
+            $author = 'Guest';
+        }
+        // Keep attribute compact for long display names.
+        if (function_exists('mb_substr')) {
+            if (mb_strlen($author) > 80) {
+                $author = mb_substr($author, 0, 80);
+            }
+        } elseif (strlen($author) > 80) {
+            $author = substr($author, 0, 80);
+        }
+
+        $content = str_replace("\0", '', $content);
+        $content = str_replace(["\r\n", "\r"], "\n", $content);
+        $content = trim($content);
+        if ($maxLen > 0) {
+            if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+                if (mb_strlen($content) > $maxLen) {
+                    $content = rtrim(mb_substr($content, 0, $maxLen)) . '…';
+                }
+            } elseif (strlen($content) > $maxLen) {
+                $content = rtrim(substr($content, 0, $maxLen)) . '…';
+            }
+        }
+
+        return '[quote=' . $author . ']' . $content . "[/quote]\n\n";
+    }
+
+    /**
+     * Quote markup for a post, or empty string when the post is unavailable.
+     *
+     * Does not enforce reply permissions — callers should gate the Quote UI.
+     */
+    public static function getQuoteMarkupForPost(int $postId, ?AP_DB $db = null): string
+    {
+        if ($postId < 1) {
+            return '';
+        }
+        $db = self::resolveDb($db);
+        $post = self::getPost($postId, $db);
+        if ($post === null || (int) ($post->post_approved ?? 0) !== 1) {
+            return '';
+        }
+        $author = 'Guest';
+        $posterId = (int) ($post->poster_id ?? 0);
+        if ($posterId > 0 && class_exists('AP_User', false)) {
+            $user = method_exists('AP_User', 'getById')
+                ? AP_User::getById($posterId, $db)
+                : null;
+            if ($user !== null) {
+                $name = trim((string) ($user->display_name ?? ''));
+                if ($name === '') {
+                    $name = trim((string) ($user->user_login ?? ''));
+                }
+                if ($name !== '') {
+                    $author = $name;
+                }
+            }
+        } elseif (!empty($post->poster_name)) {
+            $author = (string) $post->poster_name;
+        }
+
+        return self::buildQuoteMarkup($author, (string) ($post->post_content ?? ''));
     }
 
     /**
@@ -2655,62 +3002,321 @@ class AP_Forum
     // -------------------------------------------------------------------------
 
     /**
+     * Theme-friendly board-index forum row (SPEC §A2/A4).
+     *
+     * Payload keys:
+     * - icon_type: standard | locked | link (pair with is_unread for variants)
+     * - is_unread: bool (false until annotateForums / getIndexData)
+     * - is_closed / is_locked: closed forum (no new topics; locked icon/badge)
+     * - is_empty: no topics and no posts (themes show “No posts” last-post placeholders)
+     * - topics / topic_count: denormalized approved topic count
+     * - posts / post_count: denormalized **opening posts + replies** (not replies-only;
+     *   same definition as board footer Total Posts — see class docblock)
+     * - last_post: null when empty, else title, author, time, url (+ ids)
+     *
+     * @param array{
+     *   topics?: array<int, object>,
+     *   authors?: array<int, string>
+     * } $preload Optional batch maps from {@see buildForumRowPreload()} (avoids N+1).
+     *
      * @return array<string, mixed>
      */
-    public static function forumToDisplayRow(object $forum, ?AP_DB $db = null): array
+    public static function forumToDisplayRow(object $forum, ?AP_DB $db = null, array $preload = []): array
     {
         $id = (int) $forum->forum_id;
         $url = self::forumUrl($forum);
-        $last = null;
-        if ((int) ($forum->last_post_id ?? 0) > 0) {
-            $last = [
-                'post_id' => (int) $forum->last_post_id,
-                'topic_id' => (int) ($forum->last_topic_id ?? 0),
-                'author_id' => (int) ($forum->last_poster_id ?? 0),
-                'date' => (string) ($forum->last_post_time ?? ''),
-            ];
-            if (class_exists('AP_User', false) && (int) ($forum->last_poster_id ?? 0) > 0) {
-                try {
-                    $user = AP_User::getById((int) $forum->last_poster_id, $db);
-                    if ($user !== null) {
-                        $last['author'] = (string) ($user->display_name ?? $user->user_login ?? '');
-                    }
-                } catch (Throwable) {
-                    // User layer / DB optional in isolated tests.
-                }
-            }
-            if ((int) ($forum->last_topic_id ?? 0) > 0) {
-                try {
-                    $topic = self::getTopic((int) $forum->last_topic_id, $db);
-                    if ($topic !== null) {
-                        $last['title'] = (string) $topic->topic_title;
-                    }
-                } catch (Throwable) {
-                    // Ignore when no DB available.
-                }
-            }
-        }
+        $topicCount = (int) ($forum->topic_count ?? 0);
+        // post_count = approved OP + replies in this forum (not replies-only).
+        $postCount = (int) ($forum->post_count ?? 0);
+        $last = self::buildForumLastPostPayload($forum, $db, $preload);
+        $isClosed = self::isForumClosed($forum);
+        // Empty = no visible activity (counts zero; last_post is also null).
+        $isEmpty = $topicCount === 0 && $postCount === 0;
 
         return [
             'id' => $id,
             'name' => (string) $forum->forum_name,
             'slug' => (string) $forum->forum_slug,
-            'description' => (string) $forum->forum_desc,
+            'description' => (string) ($forum->forum_desc ?? ''),
             'url' => $url,
-            'topics' => (int) $forum->topic_count,
-            'posts' => (int) $forum->post_count,
+            // Counts (both aliases for theme / API convenience).
+            'topics' => $topicCount,
+            'topic_count' => $topicCount,
+            'posts' => $postCount,
+            'post_count' => $postCount,
             'type' => (string) $forum->forum_type,
             'status' => (string) $forum->forum_status,
+            'icon_type' => self::forumIconType($forum),
             'last_post' => $last,
+            // Closed forum affordances (SPEC A2 Locked). is_locked aliases is_closed.
+            'is_closed' => $isClosed,
+            'is_locked' => $isClosed,
+            // Empty forum: themes render “No posts” / “—” last-post placeholders.
+            'is_empty' => $isEmpty,
+            // Default until annotateForums / getIndexData sets per-user state.
+            // Guests and disabled tracking stay false (neutral / not unread).
+            'is_unread' => false,
         ];
     }
 
     /**
+     * Last-post block for a forum row: title, author, time, url (SPEC §A4 col 5).
+     *
+     * Empty forums return null so themes can render "No posts" / "—".
+     *
+     * @param array{
+     *   topics?: array<int, object>,
+     *   authors?: array<int, string>
+     * } $preload
+     *
+     * @return array{
+     *   title: string,
+     *   author: string,
+     *   time: string,
+     *   date: string,
+     *   url: string,
+     *   post_id: int,
+     *   topic_id: int,
+     *   author_id: int
+     * }|null
+     */
+    public static function buildForumLastPostPayload(
+        object $forum,
+        ?AP_DB $db = null,
+        array $preload = []
+    ): ?array {
+        $postId = (int) ($forum->last_post_id ?? 0);
+        if ($postId < 1) {
+            return null;
+        }
+
+        $topicId = (int) ($forum->last_topic_id ?? 0);
+        $authorId = (int) ($forum->last_poster_id ?? 0);
+        $time = (string) ($forum->last_post_time ?? '');
+        if ($time === self::EMPTY_DATETIME) {
+            $time = '';
+        }
+
+        $title = '';
+        $topic = null;
+        if ($topicId > 0) {
+            $topicMap = is_array($preload['topics'] ?? null) ? $preload['topics'] : [];
+            if (isset($topicMap[$topicId]) && is_object($topicMap[$topicId])) {
+                $topic = $topicMap[$topicId];
+            } else {
+                try {
+                    $topic = self::getTopic($topicId, $db);
+                } catch (Throwable) {
+                    $topic = null;
+                }
+            }
+            if ($topic !== null) {
+                $title = (string) ($topic->topic_title ?? '');
+            }
+        }
+
+        $author = '';
+        $authorMap = is_array($preload['authors'] ?? null) ? $preload['authors'] : [];
+        if ($authorId > 0 && isset($authorMap[$authorId]) && is_string($authorMap[$authorId])) {
+            $author = $authorMap[$authorId];
+        } elseif ($authorId > 0 && class_exists('AP_User', false)) {
+            try {
+                $user = AP_User::getById($authorId, $db);
+                if ($user !== null) {
+                    $author = (string) ($user->display_name ?? $user->user_login ?? '');
+                }
+            } catch (Throwable) {
+                // User layer optional in isolated tests.
+            }
+        }
+
+        $lastUrl = '';
+        if ($topic !== null) {
+            $lastUrl = self::postUrl($topic, $postId);
+        } elseif ($topicId > 0) {
+            // Topic row missing but id known — still produce a usable topic URL.
+            $lastUrl = self::topicUrl($topicId);
+            if ($postId > 0) {
+                $lastUrl .= '#post-' . $postId;
+            }
+        }
+
+        return [
+            'title' => $title,
+            'author' => $author,
+            'time' => $time,
+            // Alias used by older theme markup (agora forum.php).
+            'date' => $time,
+            'url' => $lastUrl,
+            'post_id' => $postId,
+            'topic_id' => $topicId,
+            'author_id' => $authorId,
+        ];
+    }
+
+    /**
+     * Permalink to a forum post (topic URL + #post-{id} anchor).
+     */
+    public static function postUrl(object|int $topic, int $postId): string
+    {
+        $base = self::topicUrl($topic);
+        if ($postId < 1) {
+            return $base;
+        }
+
+        return $base . '#post-' . $postId;
+    }
+
+    /**
+     * Batch-load last topics + author display names for forum row building.
+     *
+     * @param list<object> $forums
+     *
+     * @return array{topics: array<int, object>, authors: array<int, string>}
+     */
+    public static function buildForumRowPreload(array $forums, ?AP_DB $db = null): array
+    {
+        $topicIds = [];
+        $authorIds = [];
+        foreach ($forums as $forum) {
+            if (!is_object($forum)) {
+                continue;
+            }
+            $tid = (int) ($forum->last_topic_id ?? 0);
+            $aid = (int) ($forum->last_poster_id ?? 0);
+            if ($tid > 0) {
+                $topicIds[$tid] = $tid;
+            }
+            if ($aid > 0) {
+                $authorIds[$aid] = $aid;
+            }
+        }
+
+        return [
+            'topics' => self::getTopicsByIds(array_values($topicIds), $db),
+            'authors' => self::getAuthorDisplayNames(array_values($authorIds), $db),
+        ];
+    }
+
+    /**
+     * @param list<int> $topicIds
+     *
+     * @return array<int, object>
+     */
+    public static function getTopicsByIds(array $topicIds, ?AP_DB $db = null): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($id): int => (int) $id, $topicIds),
+            static fn (int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        try {
+            $db = self::resolveDb($db);
+        } catch (Throwable) {
+            return [];
+        }
+
+        $table = $db->quoteIdentifier($db->table('topics'));
+        $ph = implode(', ', array_fill(0, count($ids), '?'));
+        try {
+            $rows = $db->getResults(
+                'SELECT * FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('topic_id') . ' IN (' . $ph . ')',
+                $ids
+            );
+        } catch (Throwable) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $normalized = self::normalizeTopicRow($row);
+            $out[(int) $normalized->topic_id] = $normalized;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Batch-load display names for last-post authors (one SELECT; no N+1).
+     *
+     * @param list<int> $userIds
+     *
+     * @return array<int, string>
+     */
+    public static function getAuthorDisplayNames(array $userIds, ?AP_DB $db = null): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($id): int => (int) $id, $userIds),
+            static fn (int $id): bool => $id > 0
+        )));
+        $out = [];
+        if ($ids === []) {
+            return $out;
+        }
+
+        try {
+            $db = self::resolveDb($db);
+        } catch (Throwable) {
+            return $out;
+        }
+
+        // Prefer AP_User batch when available.
+        if (class_exists('AP_User', false) && method_exists('AP_User', 'getDisplayNamesByIds')) {
+            try {
+                /** @var array<int, string> $names */
+                $names = AP_User::getDisplayNamesByIds($ids, $db);
+
+                return $names;
+            } catch (Throwable) {
+                // Fall through to direct SQL.
+            }
+        }
+
+        try {
+            $table = $db->quoteIdentifier($db->table('users'));
+            $ph = implode(', ', array_fill(0, count($ids), '?'));
+            $rows = $db->getResults(
+                'SELECT ' . $db->quoteIdentifier('ID') . ', '
+                . $db->quoteIdentifier('display_name') . ', '
+                . $db->quoteIdentifier('user_login')
+                . ' FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('ID') . ' IN (' . $ph . ')',
+                $ids
+            );
+        } catch (Throwable) {
+            return $out;
+        }
+
+        foreach ($rows as $row) {
+            $uid = (int) (is_object($row) ? ($row->ID ?? $row->id ?? 0) : ($row['ID'] ?? $row['id'] ?? 0));
+            if ($uid < 1) {
+                continue;
+            }
+            $display = (string) (is_object($row) ? ($row->display_name ?? '') : ($row['display_name'] ?? ''));
+            $login = (string) (is_object($row) ? ($row->user_login ?? '') : ($row['user_login'] ?? ''));
+            $out[$uid] = $display !== '' ? $display : $login;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Theme-friendly topic list row (SPEC §A2/A4).
+     *
+     * Count keys (consistent post definition — see class docblock):
+     * - replies: `topics.reply_count` (replies only; excludes opening post)
+     * - posts / post_count: opening post + replies (`reply_count + 1`) — same
+     *   meaning as forum-row and board-footer “Posts” columns
+     *
      * @return array<string, mixed>
      */
     public static function topicToDisplayRow(object $topic, ?AP_DB $db = null): array
     {
-        $type = (string) $topic->topic_type;
+        $type = self::normalizeTopicType((string) $topic->topic_type);
         $status = (string) $topic->topic_status;
         $author = '';
         if (class_exists('AP_User', false) && (int) $topic->topic_poster > 0) {
@@ -2735,38 +3341,157 @@ class AP_Forum
             }
         }
 
+        $lastPostId = (int) ($topic->last_post_id ?? 0);
+        $topicUrl = self::topicUrl($topic);
+        $lastUrl = $lastPostId > 0 ? self::postUrl($topic, $lastPostId) : $topicUrl;
+        $lastTime = (string) $topic->topic_last_post_time;
+        $replyCount = max(0, (int) $topic->reply_count);
+        // Posts = OP + replies (not replies-only). Matches forums.post_count / board footer.
+        $postCount = $replyCount + 1;
+
         return [
             'id' => (int) $topic->topic_id,
             'forum_id' => (int) $topic->forum_id,
             'title' => (string) $topic->topic_title,
             'slug' => (string) $topic->topic_slug,
-            'url' => self::topicUrl($topic),
+            'url' => $topicUrl,
             'author' => $author,
             'author_id' => (int) $topic->topic_poster,
-            'replies' => (int) $topic->reply_count,
+            'replies' => $replyCount,
+            // SPEC §C / board “Posts”: opening post + replies.
+            'posts' => $postCount,
+            'post_count' => $postCount,
             'views' => (int) $topic->topic_views,
             'sticky' => $type === self::TOPIC_TYPE_STICKY,
-            'announcement' => in_array($type, [self::TOPIC_TYPE_ANNOUNCE, self::TOPIC_TYPE_GLOBAL], true),
+            'announcement' => $type === self::TOPIC_TYPE_ANNOUNCEMENT,
+            'rules' => $type === self::TOPIC_TYPE_RULES,
             'locked' => $status === self::TOPIC_STATUS_LOCKED,
             'type' => $type,
             'status' => $status,
-            'last_date' => (string) $topic->topic_last_post_time,
+            'icon_type' => self::topicIconType($topic),
+            'last_date' => $lastTime,
             'last_author' => $lastAuthor,
             'last_poster_id' => (int) $topic->last_poster_id,
+            // Nested last_post for parity with forum rows (title / author / time / url).
+            'last_post' => $lastPostId > 0 || $lastTime !== ''
+                ? [
+                    'title' => (string) $topic->topic_title,
+                    'author' => $lastAuthor,
+                    'time' => $lastTime,
+                    'date' => $lastTime,
+                    'url' => $lastUrl,
+                    'post_id' => $lastPostId,
+                    'topic_id' => (int) $topic->topic_id,
+                    'author_id' => (int) $topic->last_poster_id,
+                ]
+                : null,
+            // Default until annotateTopics / getTopicsDisplayData sets per-user state.
+            'is_unread' => false,
         ];
     }
 
     /**
+     * Whether forum signatures are enabled site-wide (Settings → Forums).
+     * Default on when the option is missing (fresh installs / older DBs).
+     */
+    public static function signaturesEnabled(?AP_DB $db = null): bool
+    {
+        try {
+            if (function_exists('ap_get_option')) {
+                return (string) ap_get_option('forum_signatures_enabled', '1', $db) !== '0';
+            }
+            if (class_exists('AP_Options', false)) {
+                return (string) AP_Options::get('forum_signatures_enabled', '1', $db) !== '0';
+            }
+        } catch (Throwable) {
+            // fall through
+        }
+
+        return true;
+    }
+
+    /**
+     * Safe HTML for a forum signature (same pipeline as post bodies; empty in → empty out).
+     */
+    public static function formatSignatureHtml(string $raw): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return '';
+        }
+
+        return self::displayHtml($raw, '');
+    }
+
+    /**
+     * @param array{
+     *   forum_posts?: int,
+     *   forum_likes_given?: int,
+     *   forum_likes_received?: int,
+     *   location?: string,
+     *   signature?: string
+     * }|null $authorStatsPreload Optional batch-loaded author panel stats / location /
+     *                              signature (avoids per-post meta queries).
+     *
      * @return array<string, mixed>
      */
-    public static function postToDisplayRow(object $post, int $number = 0, ?AP_DB $db = null): array
-    {
+    public static function postToDisplayRow(
+        object $post,
+        int $number = 0,
+        ?AP_DB $db = null,
+        ?array $authorStatsPreload = null
+    ): array {
         $author = 'Guest';
-        if (class_exists('AP_User', false) && (int) $post->poster_id > 0) {
+        $authorUrl = '';
+        $role = '';
+        $roleSlug = '';
+        $avatarHtml = '';
+        $joined = '';
+        $location = '';
+        $signature = '';
+        $posterId = (int) ($post->poster_id ?? 0);
+        if (class_exists('AP_User', false) && $posterId > 0) {
             try {
-                $user = AP_User::getById((int) $post->poster_id, $db);
+                $user = AP_User::getById($posterId, $db);
                 if ($user !== null) {
                     $author = (string) ($user->display_name ?? $user->user_login ?? 'Guest');
+                    $login = (string) ($user->user_login ?? '');
+                    $nicename = (string) ($user->user_nicename ?? '');
+                    $authorKey = $nicename !== '' ? $nicename : $login;
+                    $joined = trim((string) ($user->user_registered ?? ''));
+                    if ($authorKey !== '' && class_exists('AP_Rewrite', false)) {
+                        try {
+                            $authorUrl = (string) AP_Rewrite::getAuthorLink($authorKey, $db);
+                        } catch (Throwable) {
+                            $authorUrl = '';
+                        }
+                    }
+                    if (function_exists('ap_get_user_role')) {
+                        try {
+                            $roleSlug = (string) ap_get_user_role($posterId, $db);
+                        } catch (Throwable) {
+                            $roleSlug = '';
+                        }
+                    } elseif (class_exists('AP_Roles', false)) {
+                        try {
+                            $roleSlug = (string) AP_Roles::getUserRole($posterId, $db);
+                        } catch (Throwable) {
+                            $roleSlug = '';
+                        }
+                    }
+                    if ($roleSlug !== '' && class_exists('AP_Roles', false)) {
+                        $def = AP_Roles::getRole($roleSlug, $db);
+                        $role = is_array($def)
+                            ? (string) ($def['name'] ?? $roleSlug)
+                            : $roleSlug;
+                    }
+                    if (function_exists('ap_get_avatar')) {
+                        try {
+                            $avatarHtml = (string) ap_get_avatar($posterId, 96, '', $author, [], $db);
+                        } catch (Throwable) {
+                            $avatarHtml = '';
+                        }
+                    }
                 }
             } catch (Throwable) {
                 // optional
@@ -2787,24 +3512,68 @@ class AP_Forum
         }
 
         $likeCount = (int) ($post->like_count ?? 0);
+        // Author pane: post count + likes given + likes received (SPEC B2).
         $authorStats = [
             'forum_posts' => 0,
+            'forum_likes_given' => 0,
             'forum_likes_received' => 0,
         ];
-        if (class_exists('AP_Forum_Stats', false) && (int) $post->poster_id > 0) {
-            $stats = AP_Forum_Stats::getUserStats((int) $post->poster_id, $db);
+        if ($authorStatsPreload !== null) {
             $authorStats = [
-                'forum_posts' => (int) ($stats['forum_posts'] ?? 0),
-                'forum_likes_received' => (int) ($stats['forum_likes_received'] ?? 0),
+                'forum_posts' => (int) ($authorStatsPreload['forum_posts'] ?? 0),
+                'forum_likes_given' => (int) ($authorStatsPreload['forum_likes_given'] ?? 0),
+                'forum_likes_received' => (int) ($authorStatsPreload['forum_likes_received'] ?? 0),
             ];
+            if (array_key_exists('location', $authorStatsPreload)) {
+                $location = trim((string) $authorStatsPreload['location']);
+            }
+            if (array_key_exists('signature', $authorStatsPreload)) {
+                $signature = trim((string) $authorStatsPreload['signature']);
+            }
+        } elseif (class_exists('AP_Forum_Stats', false) && $posterId > 0) {
+            $authorStats = AP_Forum_Stats::getAuthorPanelStats($posterId, $db);
         }
+        // Location: prefer batch preload; otherwise single meta read (omit empty).
+        if ($location === '' && $posterId > 0 && class_exists('AP_User', false)
+            && ($authorStatsPreload === null || !array_key_exists('location', $authorStatsPreload))
+        ) {
+            try {
+                $location = trim((string) (AP_User::getMeta($posterId, 'location', $db) ?? ''));
+            } catch (Throwable) {
+                $location = '';
+            }
+        }
+        // Signature: only when site-wide enabled; empty when disabled or user has none (SPEC B2).
+        $sigsEnabled = self::signaturesEnabled($db);
+        if (!$sigsEnabled) {
+            $signature = '';
+        } elseif ($signature === '' && $posterId > 0 && class_exists('AP_User', false)
+            && ($authorStatsPreload === null || !array_key_exists('signature', $authorStatsPreload))
+        ) {
+            try {
+                $signature = trim((string) (AP_User::getMeta($posterId, 'signature', $db) ?? ''));
+            } catch (Throwable) {
+                $signature = '';
+            }
+        }
+        $signatureHtml = $signature !== '' ? self::formatSignatureHtml($signature) : '';
 
         return [
             'id' => (int) $post->post_id,
             'topic_id' => (int) $post->topic_id,
             'forum_id' => (int) $post->forum_id,
             'author' => $author,
-            'author_id' => (int) $post->poster_id,
+            'author_id' => $posterId,
+            'author_url' => $authorUrl,
+            'role' => $role,
+            'role_slug' => $roleSlug,
+            'avatar_html' => $avatarHtml,
+            // SPEC B2 author pane: registration date + optional location.
+            'joined' => $joined,
+            'location' => $location,
+            // SPEC B2 post footer: signature when enabled + present.
+            'signature' => $signature,
+            'signature_html' => $signatureHtml,
             'date' => (string) $post->post_time,
             'content' => $raw,
             'content_html' => $contentHtml,
@@ -2817,6 +3586,7 @@ class AP_Forum
             'like_count' => max(0, $likeCount),
             'liked_by_me' => false,
             'can_like' => false,
+            'can_quote' => false,
             'can_edit' => false,
             'can_delete' => false,
             'can_moderate' => false,
@@ -2932,29 +3702,36 @@ class AP_Forum
     // -------------------------------------------------------------------------
 
     /**
+     * Human label for a canonical topic type (forms, badges, admin).
+     */
+    public static function topicTypeLabel(string $type): string
+    {
+        return match (self::normalizeTopicType($type)) {
+            self::TOPIC_TYPE_STICKY => 'Sticky',
+            self::TOPIC_TYPE_ANNOUNCEMENT => 'Announcement',
+            self::TOPIC_TYPE_RULES => 'Rules',
+            default => 'Standard',
+        };
+    }
+
+    /**
      * ACL gate for createTopic when check_permissions is enabled.
+     *
+     * Requires post_topics plus sticky_topics / announce_topics for elevated types.
      */
     private static function userMayCreateTopic(int $userId, int $forumId, string $type, AP_DB $db): bool
     {
+        if (!class_exists('AP_Forum_Permissions', false)) {
+            return true;
+        }
+
         if (!AP_Forum_Permissions::userCanPostTopic($userId, $forumId, $db)) {
             return false;
         }
 
-        if (
-            $type === self::TOPIC_TYPE_STICKY
-            && !AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_STICKY, $db)
-        ) {
-            return false;
-        }
+        $type = self::normalizeTopicType($type);
 
-        if (
-            ($type === self::TOPIC_TYPE_ANNOUNCE || $type === self::TOPIC_TYPE_GLOBAL)
-            && !AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_ANNOUNCE, $db)
-        ) {
-            return false;
-        }
-
-        return true;
+        return AP_Forum_Permissions::userCanSetTopicType($userId, $forumId, $type, $db, null);
     }
 
     private static function wouldCreateForumCycle(int $id, int $parentId, AP_DB $db): bool
@@ -2990,6 +3767,13 @@ class AP_Forum
         return max(1, (int) $max + 1);
     }
 
+    /**
+     * Adjust denormalized forum counters and last-post pointers after create.
+     *
+     * $postDelta counts **posts** (opening posts + replies), not replies-only.
+     * Creating a topic: topicDelta +1, postDelta +1 (the OP). Creating a reply:
+     * topicDelta 0, postDelta +1. Soft-delete of a topic: postDelta = -(reply_count + 1).
+     */
     private static function bumpForumStats(
         int $forumId,
         int $topicDelta,
@@ -3006,6 +3790,7 @@ class AP_Forum
         }
         $db->update('forums', [
             'topic_count' => max(0, (int) $forum->topic_count + $topicDelta),
+            // posts = OP + replies (see class docblock “Post-count definition”).
             'post_count' => max(0, (int) $forum->post_count + $postDelta),
             'last_post_id' => $lastPostId,
             'last_poster_id' => $lastPosterId,
@@ -3014,6 +3799,12 @@ class AP_Forum
         ], ['forum_id' => $forumId]);
     }
 
+    /**
+     * Adjust topic/post counters without updating last-post pointers.
+     *
+     * $postDelta uses the same post definition as {@see bumpForumStats()}
+     * (opening posts + replies, not replies-only).
+     */
     private static function adjustForumStats(int $forumId, int $topicDelta, int $postDelta, AP_DB $db): void
     {
         $forum = self::getForum($forumId, $db);
@@ -3022,6 +3813,7 @@ class AP_Forum
         }
         $db->update('forums', [
             'topic_count' => max(0, (int) $forum->topic_count + $topicDelta),
+            // posts = OP + replies (see class docblock “Post-count definition”).
             'post_count' => max(0, (int) $forum->post_count + $postDelta),
         ], ['forum_id' => $forumId]);
     }
@@ -3172,7 +3964,7 @@ class AP_Forum
         $o->topic_slug = (string) ($row->topic_slug ?? '');
         $o->topic_poster = (int) ($row->topic_poster ?? 0);
         $o->topic_status = (string) ($row->topic_status ?? self::TOPIC_STATUS_OPEN);
-        $o->topic_type = (string) ($row->topic_type ?? self::TOPIC_TYPE_NORMAL);
+        $o->topic_type = self::normalizeTopicType((string) ($row->topic_type ?? self::TOPIC_TYPE_STANDARD));
         $o->topic_approved = (int) ($row->topic_approved ?? 1);
         $o->topic_views = (int) ($row->topic_views ?? 0);
         $o->reply_count = (int) ($row->reply_count ?? 0);
@@ -3283,6 +4075,27 @@ class AP_Forum
     private static function nowLocal(): string
     {
         return date('Y-m-d H:i:s');
+    }
+
+    /**
+     * Resolve viewer for unread annotation: explicit user_id arg, else current user.
+     *
+     * @param array<string, mixed> $args
+     */
+    private static function resolveViewerUserId(array $args, ?AP_DB $db): int
+    {
+        if (array_key_exists('user_id', $args)) {
+            return max(0, (int) $args['user_id']);
+        }
+        if (function_exists('ap_get_current_user_id')) {
+            try {
+                return max(0, (int) ap_get_current_user_id($db));
+            } catch (Throwable) {
+                return 0;
+            }
+        }
+
+        return 0;
     }
 
     private static function resolveDb(?AP_DB $db): AP_DB

@@ -284,8 +284,9 @@ final class PhpbbImporterTest extends TestCase
     {
         $this->assertSame(AP_Forum::TOPIC_STATUS_LOCKED, AP_Phpbb_Importer::mapTopicStatus(1));
         $this->assertSame(AP_Forum::TOPIC_TYPE_STICKY, AP_Phpbb_Importer::mapTopicType(1));
-        $this->assertSame(AP_Forum::TOPIC_TYPE_ANNOUNCE, AP_Phpbb_Importer::mapTopicType(2));
-        $this->assertSame(AP_Forum::TOPIC_TYPE_GLOBAL, AP_Phpbb_Importer::mapTopicType(3));
+        $this->assertSame(AP_Forum::TOPIC_TYPE_ANNOUNCEMENT, AP_Phpbb_Importer::mapTopicType(2));
+        $this->assertSame(AP_Forum::TOPIC_TYPE_ANNOUNCEMENT, AP_Phpbb_Importer::mapTopicType(3));
+        $this->assertSame(AP_Forum::TOPIC_TYPE_STANDARD, AP_Phpbb_Importer::mapTopicType(0));
         $this->assertSame(AP_Forum::FORUM_TYPE_CATEGORY, AP_Phpbb_Importer::mapForumType(0));
         $this->assertSame(AP_Forum::FORUM_TYPE_FORUM, AP_Phpbb_Importer::mapForumType(1));
         $this->assertSame(AP_Forum::FORUM_TYPE_LINK, AP_Phpbb_Importer::mapForumType(2));
