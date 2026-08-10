@@ -104,13 +104,22 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                     }
                 }
                 $commentError = isset($_GET['comment_error']) ? (string) $_GET['comment_error'] : '';
-                $commentOk = isset($_GET['comment_ok']);
+                $commentOk = isset($_GET['comment_ok']) ? (string) $_GET['comment_ok'] : '';
                 if ($commentsOpen) :
                     ?>
                 <section class="ap-comment-form" id="respond" aria-labelledby="reply-title">
                     <h3 id="reply-title" class="ap-comments__title">Leave a comment</h3>
-                    <?php if ($commentOk) : ?>
-                        <p class="ap-entry__excerpt" role="status">Thank you — your comment has been submitted.</p>
+                    <?php if ($commentOk !== '') : ?>
+                        <p class="ap-entry__excerpt" role="status">
+                            <?php
+                            if ($commentOk === '1' || $commentOk === 'approved') {
+                                echo 'Thank you — your comment has been posted.';
+                            } else {
+                                // pending / hold / spam / any non-approved success token
+                                echo 'Thank you — your comment has been submitted and is awaiting moderation.';
+                            }
+                            ?>
+                        </p>
                     <?php endif; ?>
                     <?php if ($commentError !== '') : ?>
                         <p class="ap-entry__excerpt" role="alert">
@@ -121,6 +130,7 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                                 'identity' => 'Name and a valid email are required.',
                                 'login' => 'You must log in to comment.',
                                 'closed' => 'Comments are closed for this post.',
+                                'server' => 'Something went wrong while saving your comment. Please try again.',
                                 default => 'Could not post your comment. Please try again.',
                             };
                             ?>

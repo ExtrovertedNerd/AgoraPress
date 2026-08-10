@@ -5158,7 +5158,13 @@ function ap_handle_comment_form_post(?AP_DB $db = null): string
     $email = '';
     $url = '';
     if ($userId > 0 && class_exists('AP_User', false)) {
-        $user = AP_User::get($userId, $db);
+        // Prefer getById (canonical); older call sites used a non-existent get().
+        $user = method_exists('AP_User', 'getById')
+            ? AP_User::getById($userId, $db)
+            : null;
+        if ($user === null && function_exists('ap_get_user_by')) {
+            $user = ap_get_user_by('id', $userId, $db);
+        }
         if ($user !== null) {
             $author = $user->display_name !== '' ? $user->display_name : $user->user_login;
             $email = (string) $user->user_email;
@@ -5203,9 +5209,17 @@ function ap_handle_comment_form_post(?AP_DB $db = null): string
         return $fail('closed');
     }
 
+    // Tell the theme whether the comment is live or held for moderation
+    // (guests default to hold; spam checkers may also demote status).
+    $okToken = 'pending';
+    $inserted = ap_get_comment($newId, $db);
+    if ($inserted !== null && AP_Comment::isApproved($inserted)) {
+        $okToken = '1';
+    }
+
     $sep = str_contains($redirectBase, '?') ? '&' : '?';
 
-    return $redirectBase . $sep . 'comment_ok=1#comment-' . $newId;
+    return $redirectBase . $sep . 'comment_ok=' . rawurlencode($okToken) . '#comment-' . $newId;
 }
 
 /**

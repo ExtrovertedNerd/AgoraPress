@@ -101,8 +101,33 @@ if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
                 }
                 exit(0);
             }
-        } catch (Throwable) {
-            // Fall through to normal render.
+        } catch (Throwable $apCommentEx) {
+            // Prefer a redirect with an error token over a silent fall-through
+            // (logged-in posts previously threw on AP_User::get and looked like a no-op).
+            if (isset($_POST['ap_comment_action']) && (string) $_POST['ap_comment_action'] === 'ap_comment_post') {
+                $postId = (int) ($_POST['comment_post_ID'] ?? $_POST['post_ID'] ?? 0);
+                $failUrl = '';
+                if ($postId > 0 && function_exists('ap_get_permalink') && class_exists('AP_Post', false)) {
+                    try {
+                        $failPost = AP_Post::get($postId);
+                        if ($failPost !== null) {
+                            $failUrl = ap_get_permalink($failPost);
+                        }
+                    } catch (Throwable) {
+                        $failUrl = '';
+                    }
+                }
+                if ($failUrl === '' && function_exists('ap_home_url')) {
+                    $failUrl = ap_home_url('/');
+                }
+                if ($failUrl !== '' && !headers_sent()) {
+                    $sep = str_contains($failUrl, '?') ? '&' : '?';
+                    header('Location: ' . $failUrl . $sep . 'comment_error=server#respond', true, 302);
+                    exit(0);
+                }
+            }
+            unset($apCommentEx);
+            // Fall through to normal render when we cannot redirect.
         }
     }
     if (function_exists('ap_set_query') && class_exists('AP_Query', false)) {
