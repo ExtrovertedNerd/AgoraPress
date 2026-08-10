@@ -3,13 +3,40 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.2-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.3-beta**).
 
 ## [Unreleased]
 
 ### Added
 
 - (Post-release work lands here.)
+
+## [0.3.3-beta] - 2026-08-10
+
+Comment display and ownership: NBSP rendering, edit/delete own comments by role. No schema change (`AP_DB_VERSION` **12**); privacy posture unchanged (no telemetry by default).
+
+### Package
+
+- Beta package `0.3.3-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
+### Fixed
+
+- **Literal `&nbsp;` in comments:** visual editor often inserts non-breaking spaces between punctuation and emoji; display escaped them to `&amp;nbsp;`. `AP_Content_Format::normalizeNbsp()` converts `&nbsp;`, numeric entities, Unicode NBSP, and double-encoded forms to ordinary spaces on format and on comment insert/update.
+
+### Added
+
+- **Comment ownership caps:**
+  - `delete_own_comments` — Subscriber and above may trash their own comments
+  - `edit_own_comments` — Author and above may edit their own comments
+  - Meta caps `edit_comment` / `delete_comment` map by ownership; moderators/admins keep full access via `moderate_comments`
+  - `ensureDefaults()` merges new default caps into existing built-in roles on upgrade
+- **Front-end edit/delete:** Agora and ZeroShits show Edit / Delete on comments the viewer can manage; inline edit form and POST handlers (`ap_comment_edit`, `ap_comment_delete`)
+- **Admin comment editor:** `ap-admin/comment.php` plus **Edit** row action on Comments list (content, author fields; status when moderating)
+
+### Tests
+
+- NBSP normalization in content format and comment insert
+- Role matrix: subscriber delete-own, author edit/delete-own, admin edit-all
 
 ## [0.3.2-beta] - 2026-08-10
 

@@ -46,6 +46,7 @@ $taglines = [
     'With great power comes great responsibility… to flush.',
     'No soup for you — and no shits either.',
     'They’re taking the hobbits to Isengard. We’re taking a dump.',
+    'You can either shit in the sink, or sink in the shit. Now let that shit sink in.',
     'Yippee-ki-yay, bathroom-goer.',
 ];
 $tagline = $taglines[array_rand($taglines)];

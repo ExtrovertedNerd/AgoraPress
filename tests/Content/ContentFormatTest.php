@@ -52,6 +52,36 @@ final class ContentFormatTest extends TestCase
         $this->assertStringContainsString('<del>Strike</del>', $html);
     }
 
+    public function testNbspEntityDisplaysAsRegularSpace(): void
+    {
+        // Visual editor often inserts &nbsp; between period and emoji.
+        $html = AP_Content_Format::format(
+            'You could be a little more enthusiastic.&nbsp;😏',
+            ['mode' => 'auto', 'context' => 'comment']
+        );
+        $this->assertStringNotContainsString('&amp;nbsp;', $html);
+        $this->assertStringNotContainsString('&nbsp;', $html);
+        $this->assertStringContainsString('enthusiastic. 😏', $html);
+
+        // Already in a paragraph with entity.
+        $html2 = AP_Content_Format::format(
+            '<p>Hello.&nbsp;world</p>',
+            ['mode' => 'html', 'context' => 'comment']
+        );
+        $this->assertStringNotContainsString('&nbsp;', $html2);
+        $this->assertStringContainsString('Hello. world', $html2);
+
+        // Unicode NBSP (U+00A0).
+        $html3 = AP_Content_Format::format("Hi.\xC2\xA0there", ['mode' => 'auto']);
+        $this->assertStringContainsString('Hi. there', $html3);
+
+        // Double-encoded form after htmlspecialchars.
+        $this->assertSame(
+            'a b',
+            trim(strip_tags(AP_Content_Format::normalizeNbsp('a&amp;nbsp;b')))
+        );
+    }
+
     public function testBbcodeUrlAndImg(): void
     {
         $html = AP_Content_Format::format(

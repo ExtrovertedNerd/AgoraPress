@@ -44,6 +44,10 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                     }
                     ?>
                 </h2>
+                <?php
+                $editCommentId = isset($_GET['comment_edit']) ? (int) $_GET['comment_edit'] : 0;
+                $viewerId = function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id() : 0;
+                ?>
                 <?php if ($count === 0) : ?>
                     <p class="ap-entry__excerpt">No comments yet. Be the first to drop a deuce of wisdom.</p>
                 <?php else : ?>
@@ -57,6 +61,11 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                             $date = (string) ($comment->comment_date ?? '');
                             $content = (string) ($comment->comment_content ?? '');
                             $cid = (int) ($comment->comment_ID ?? 0);
+                            $canEdit = $cid > 0 && function_exists('ap_user_can_edit_comment')
+                                && ap_user_can_edit_comment($cid, $viewerId);
+                            $canDelete = $cid > 0 && function_exists('ap_user_can_delete_comment')
+                                && ap_user_can_delete_comment($cid, $viewerId);
+                            $isEditing = $editCommentId === $cid && $canEdit;
                             ?>
                             <li class="ap-comment" id="comment-<?php echo $cid; ?>">
                                 <div class="ap-comment__meta">
@@ -67,6 +76,53 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                                         </time>
                                     <?php endif; ?>
                                 </div>
+                                <?php if ($isEditing) : ?>
+                                    <form method="post" action="" class="ap-comment-form__form ap-comment-form__form--edit">
+                                        <input type="hidden" name="ap_comment_action" value="ap_comment_edit">
+                                        <input type="hidden" name="comment_ID" value="<?php echo (int) $cid; ?>">
+                                        <input type="hidden" name="comment_post_ID" value="<?php echo (int) $postId; ?>">
+                                        <?php
+                                        if (function_exists('ap_nonce_field')) {
+                                            echo ap_nonce_field('ap-comment-edit-' . $cid);
+                                        }
+                                        if (function_exists('ap_editor')) {
+                                            echo ap_editor([
+                                                'id' => 'agora-comment-edit-' . $cid,
+                                                'name' => 'comment',
+                                                'value' => $content,
+                                                'mode' => class_exists('AP_Editor', false)
+                                                    ? AP_Editor::modeForContext('comment')
+                                                    : 'visual',
+                                                'rows' => 5,
+                                                'required' => true,
+                                                'label' => 'Edit comment',
+                                            ]);
+                                        } else {
+                                            echo '<label for="agora-comment-edit-' . (int) $cid . '">Edit comment</label>';
+                                            echo '<textarea id="agora-comment-edit-' . (int) $cid . '" name="comment" required rows="5">'
+                                                . (function_exists('ap_esc_textarea')
+                                                    ? ap_esc_textarea($content)
+                                                    : htmlspecialchars($content, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'))
+                                                . '</textarea>';
+                                        }
+                                        ?>
+                                        <p class="ap-comment__actions">
+                                            <button type="submit" class="ap-btn">Save</button>
+                                            <a class="ap-btn ap-btn--ghost" href="<?php
+                                                $cancel = '';
+                                                if ($postId > 0 && function_exists('ap_get_permalink') && function_exists('ap_get_post')) {
+                                                    $p = ap_get_post($postId);
+                                                    if ($p) {
+                                                        $cancel = ap_get_permalink($p);
+                                                    }
+                                                }
+                                                echo function_exists('ap_esc_url')
+                                                    ? ap_esc_url(($cancel !== '' ? $cancel : '') . '#comment-' . $cid)
+                                                    : htmlspecialchars(($cancel !== '' ? $cancel : '') . '#comment-' . $cid, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                                            ?>">Cancel</a>
+                                        </p>
+                                    </form>
+                                <?php else : ?>
                                 <div class="ap-comment__body">
                                     <?php
                                     // Format visual HTML / legacy Markdown for safe display.
@@ -80,6 +136,28 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                                     }
                                     ?>
                                 </div>
+                                <?php if ($canEdit || $canDelete) : ?>
+                                    <div class="ap-comment__actions row-actions">
+                                        <?php if ($canEdit) : ?>
+                                            <a href="?comment_edit=<?php echo (int) $cid; ?>#comment-<?php echo (int) $cid; ?>">Edit</a>
+                                        <?php endif; ?>
+                                        <?php if ($canEdit && $canDelete) : ?> | <?php endif; ?>
+                                        <?php if ($canDelete) : ?>
+                                            <form method="post" action="" class="ap-comment-delete-form" style="display:inline">
+                                                <input type="hidden" name="ap_comment_action" value="ap_comment_delete">
+                                                <input type="hidden" name="comment_ID" value="<?php echo (int) $cid; ?>">
+                                                <input type="hidden" name="comment_post_ID" value="<?php echo (int) $postId; ?>">
+                                                <?php
+                                                if (function_exists('ap_nonce_field')) {
+                                                    echo ap_nonce_field('ap-comment-delete-' . $cid);
+                                                }
+                                                ?>
+                                                <button type="submit" class="ap-comment-delete-btn submitdelete" style="background:none;border:0;padding:0;color:inherit;cursor:pointer;text-decoration:underline;font:inherit">Delete</button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
+                                <?php endif; ?>
                             </li>
                         <?php endforeach; ?>
                     </ol>
@@ -94,7 +172,7 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                 } elseif (isset($GLOBALS['ap_post']) && $GLOBALS['ap_post'] instanceof AP_Post) {
                     $commentsOpen = ($GLOBALS['ap_post']->comment_status ?? 'open') === 'open';
                 }
-                $loggedIn = function_exists('ap_get_current_user_id') && ap_get_current_user_id() > 0;
+                $loggedIn = $viewerId > 0;
                 $requireReg = false;
                 if (class_exists('AP_Options', false) && function_exists('ap_db')) {
                     try {
@@ -112,12 +190,12 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                     <?php if ($commentOk !== '') : ?>
                         <p class="ap-entry__excerpt" role="status">
                             <?php
-                            if ($commentOk === '1' || $commentOk === 'approved') {
-                                echo 'Thank you — your comment has been posted.';
-                            } else {
-                                // pending / hold / spam / any non-approved success token
-                                echo 'Thank you — your comment has been submitted and is awaiting moderation.';
-                            }
+                            echo match ($commentOk) {
+                                '1', 'approved' => 'Thank you — your comment has been posted.',
+                                'edited' => 'Your comment has been updated.',
+                                'deleted' => 'Your comment has been removed.',
+                                default => 'Thank you — your comment has been submitted and is awaiting moderation.',
+                            };
                             ?>
                         </p>
                     <?php endif; ?>
@@ -130,6 +208,7 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
                                 'identity' => 'Name and a valid email are required.',
                                 'login' => 'You must log in to comment.',
                                 'closed' => 'Comments are closed for this post.',
+                                'forbidden' => 'You do not have permission to do that.',
                                 'server' => 'Something went wrong while saving your comment. Please try again.',
                                 default => 'Could not post your comment. Please try again.',
                             };

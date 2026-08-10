@@ -540,6 +540,15 @@ class AP_Comments_List_Table
             ]);
         };
 
+        $actorId = function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id($this->resolveDb()) : 0;
+        $canEdit = $actorId > 0
+            && class_exists('AP_Roles', false)
+            && AP_Roles::userCan($actorId, 'edit_comment', $id, $this->resolveDb());
+        if ($canEdit) {
+            $editUrl = AP_Admin::url('comment.php', ['c' => $id]);
+            $links[] = '<a href="' . ap_esc_url($editUrl) . '">Edit</a>';
+        }
+
         if ($status === AP_Comment::STATUS_HOLD) {
             $links[] = '<a href="' . ap_esc_url($actionUrl('approve', $id)) . '">Approve</a>';
         }

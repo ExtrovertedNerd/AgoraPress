@@ -60,6 +60,8 @@ class AP_Roles
 
         $subscriber = [
             'read' => true,
+            // Own blog comments: trash/delete when logged in as author of the row.
+            'delete_own_comments' => true,
         ];
 
         $contributor = $subscriber + [
@@ -72,6 +74,8 @@ class AP_Roles
             'edit_published_posts' => true,
             'delete_published_posts' => true,
             'upload_files' => true,
+            // Own blog comments: edit content when logged in as author of the row.
+            'edit_own_comments' => true,
         ];
 
         $editor = $author + [
@@ -92,7 +96,6 @@ class AP_Roles
             'read_private_pages' => true,
             'manage_categories' => true,
             'moderate_comments' => true,
-            'edit_comment' => true,
             // Site-wide forum moderation (per-forum ACL still applies for non-mods).
             'moderate_forums' => true,
         ];
@@ -169,9 +172,10 @@ class AP_Roles
             'read_private_pages',
             // Media
             'upload_files',
-            // Comments
+            // Comments (primitives; edit_comment / delete_comment are meta caps)
             'moderate_comments',
-            'edit_comment',
+            'edit_own_comments',
+            'delete_own_comments',
             // Taxonomies
             'manage_categories',
             // Appearance (foundation for Phase 4)
@@ -229,9 +233,31 @@ class AP_Roles
         $db = self::resolveDb($db);
         $existing = self::readRolesOption($db);
         if ($existing !== []) {
-            // Merge any newly introduced primitive caps into administrator so
-            // upgrades (e.g. privacy tools) do not leave admin without them.
+            // Merge newly introduced default caps into built-in roles so upgrades
+            // (privacy tools, comment ownership, …) do not leave roles stale.
             $dirty = false;
+            $defaults = self::defaultRoleDefinitions();
+            foreach ($defaults as $slug => $def) {
+                if (!isset($existing[$slug]) || !is_array($existing[$slug])) {
+                    continue;
+                }
+                if (!isset($existing[$slug]['capabilities']) || !is_array($existing[$slug]['capabilities'])) {
+                    $existing[$slug]['capabilities'] = [];
+                }
+                $defaultCaps = is_array($def['capabilities'] ?? null) ? $def['capabilities'] : [];
+                foreach ($defaultCaps as $cap => $grant) {
+                    if (!$grant) {
+                        continue;
+                    }
+                    $cap = self::normalizeCap((string) $cap);
+                    if ($cap === '' || !empty($existing[$slug]['capabilities'][$cap])) {
+                        continue;
+                    }
+                    $existing[$slug]['capabilities'][$cap] = true;
+                    $dirty = true;
+                }
+            }
+            // Administrator always receives every known primitive.
             if (isset($existing['administrator']['capabilities']) && is_array($existing['administrator']['capabilities'])) {
                 foreach (self::allPrimitiveCapabilities() as $cap) {
                     if (empty($existing['administrator']['capabilities'][$cap])) {
@@ -763,7 +789,7 @@ class AP_Roles
         $metaCaps = [
             'edit_post', 'delete_post', 'read_post',
             'edit_page', 'delete_page', 'read_page',
-            'edit_comment',
+            'edit_comment', 'delete_comment',
         ];
         if (!in_array($cap, $metaCaps, true)) {
             return [$cap];
@@ -774,6 +800,9 @@ class AP_Roles
 
         if ($cap === 'edit_comment') {
             return self::mapEditComment($userId, $id, $db);
+        }
+        if ($cap === 'delete_comment') {
+            return self::mapDeleteComment($userId, $id, $db);
         }
 
         $isPage = str_contains($cap, 'page');
@@ -792,7 +821,6 @@ class AP_Roles
             return ['moderate_comments'];
         }
 
-        // Without a loaded comment model, require moderate_comments for any edit.
         if (!class_exists('AP_Comment', false)) {
             return ['moderate_comments'];
         }
@@ -807,8 +835,54 @@ class AP_Roles
             return ['do_not_allow'];
         }
 
-        // Authors of the parent post with edit_posts may moderate their own threads lightly;
-        // core keeps it simple: moderate_comments for all comment edits.
+        $ownerId = (int) ($comment->user_id ?? 0);
+        // Owner: Author+ with edit_own_comments. Moderators use moderate_comments for any.
+        if ($ownerId > 0 && $ownerId === $userId) {
+            $allcaps = self::getUserCapabilities($userId, $db);
+            if (!empty($allcaps['moderate_comments'])) {
+                return ['moderate_comments'];
+            }
+
+            return ['edit_own_comments'];
+        }
+
+        return ['moderate_comments'];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function mapDeleteComment(int $userId, int $commentId, ?AP_DB $db): array
+    {
+        if ($commentId < 1) {
+            return ['moderate_comments'];
+        }
+
+        if (!class_exists('AP_Comment', false)) {
+            return ['moderate_comments'];
+        }
+
+        try {
+            $comment = AP_Comment::get($commentId, $db);
+        } catch (Throwable) {
+            return ['moderate_comments'];
+        }
+
+        if ($comment === null) {
+            return ['do_not_allow'];
+        }
+
+        $ownerId = (int) ($comment->user_id ?? 0);
+        // Owner: Subscriber+ with delete_own_comments. Moderators delete any.
+        if ($ownerId > 0 && $ownerId === $userId) {
+            $allcaps = self::getUserCapabilities($userId, $db);
+            if (!empty($allcaps['moderate_comments'])) {
+                return ['moderate_comments'];
+            }
+
+            return ['delete_own_comments'];
+        }
+
         return ['moderate_comments'];
     }
 
