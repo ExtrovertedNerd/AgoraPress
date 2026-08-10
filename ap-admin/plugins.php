@@ -117,6 +117,15 @@ require __DIR__ . '/admin-header.php';
                         '_ap_nonce',
                         $userId > 0 ? $userId : null
                     );
+                    // Settings → admin.php?page={id} when the plugin registered a page
+                    // with matching plugin basename, is active, and the user has the cap.
+                    $settingsLink = $isActive
+                        ? AP_Admin::pluginSettingsActionLink(
+                            $file,
+                            $db,
+                            $userId > 0 ? $userId : null
+                        )
+                        : null;
                     ?>
                     <tr class="<?php echo $isActive ? 'ap-plugin-active' : 'ap-plugin-inactive'; ?>">
                         <td>
@@ -155,10 +164,15 @@ require __DIR__ . '/admin-header.php';
                                 <span class="ap-badge">Inactive</span>
                             <?php endif; ?>
                         </td>
-                        <td>
+                        <td class="ap-plugin-actions">
                             <a class="button button-small" href="<?php echo ap_esc_url($actionUrl); ?>">
                                 <?php echo $isActive ? 'Deactivate' : 'Activate'; ?>
                             </a>
+                            <?php if ($settingsLink !== null) : ?>
+                                <a class="button button-small ap-plugin-settings-link" href="<?php echo ap_esc_url($settingsLink['url']); ?>">
+                                    <?php echo ap_esc_html($settingsLink['label']); ?>
+                                </a>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

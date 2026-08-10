@@ -170,6 +170,8 @@ final class AdminCapabilityTest extends TestCase
             'post.php' => 'requireCapability',
             'post-new.php' => 'requireCapability',
             'revision.php' => 'requireCapability',
+            // Registered plugin pages: cap from AP_Admin_Menu registry.
+            'admin.php' => 'capabilityForRegisteredPage',
             'edit-comments.php' => 'moderate_comments',
             'edit-tags.php' => 'manage_categories',
             'upload.php' => 'upload_files',

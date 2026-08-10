@@ -257,7 +257,698 @@ class AP_Admin
             'forum-groups.php' => 'manage_forums',
             // Dynamic (documented for tests / tooling):
             // edit.php, post.php, post-new.php, revision.php → edit_posts|edit_pages
+            // admin.php → capability from AP_Admin_Menu registry for ?page={id}
+            //   (use capabilityForScreen() / registeredScreenCapabilities())
         ];
+    }
+
+    /**
+     * Capability map for registered ACP pages (registry id → capability).
+     *
+     * Keys match menu item ids / {@see registeredPageScreenContext()} screen ids
+     * so screenCapabilities tooling and sidebar active state stay aligned.
+     *
+     * @return array<string, string> page id => capability
+     */
+    public static function registeredScreenCapabilities(): array
+    {
+        if (!class_exists('AP_Admin_Menu', false)) {
+            return [];
+        }
+
+        $map = [];
+        foreach (AP_Admin_Menu::all() as $id => $page) {
+            $map[(string) $id] = self::capabilityForRegisteredPage($page);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Resolve the required capability for an admin screen.
+     *
+     * Static core screens use {@see screenCapabilities()}. Registered plugin
+     * pages (admin.php?page={id}) resolve via the AP_Admin_Menu allowlist.
+     * Unknown screens return null (callers must not treat that as allow).
+     *
+     * @param string      $screen   Basename (e.g. options-general.php) or admin.php
+     * @param string|null $pageSlug Optional ?page= id; when null and $screen is
+     *                              admin.php, reads {@see requestPageSlug()}.
+     */
+    public static function capabilityForScreen(string $screen, ?string $pageSlug = null): ?string
+    {
+        $screen = str_replace('\\', '/', trim($screen));
+        $base = strtolower(basename($screen));
+        if ($base === '') {
+            return null;
+        }
+
+        // Registered router: admin.php?page={id} (allowlist only).
+        if ($base === 'admin.php' || $base === 'admin') {
+            $slug = $pageSlug !== null ? self::sanitizePageSlug($pageSlug) : self::requestPageSlug();
+            if ($slug === '') {
+                return null;
+            }
+            $page = self::getRegisteredAdminPage($slug);
+            if ($page === null) {
+                return null;
+            }
+
+            return self::capabilityForRegisteredPage($page);
+        }
+
+        $map = self::screenCapabilities();
+        if (isset($map[$base])) {
+            return $map[$base];
+        }
+
+        // Menu / screen id for a registered page (same key as sidebar active id).
+        $asId = self::sanitizePageSlug($base);
+        if ($asId !== '' && class_exists('AP_Admin_Menu', false) && AP_Admin_Menu::exists($asId)) {
+            $page = self::getRegisteredAdminPage($asId);
+            if ($page !== null) {
+                return self::capabilityForRegisteredPage($page);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * URL for a registered ACP admin page (admin.php?page={id}).
+     *
+     * Extra query args are merged; `page` always wins and is sanitized.
+     *
+     * @param array<string, scalar|null> $query
+     */
+    public static function pageUrl(string $pageId, array $query = []): string
+    {
+        $id = self::sanitizePageSlug($pageId);
+        $query['page'] = $id;
+
+        return self::url('admin.php', $query);
+    }
+
+    /**
+     * Sanitize a ?page= slug (URL-safe [a-z0-9_\-]).
+     *
+     * Prefer {@see AP_Admin_Menu::sanitizeId()} when the registry class is loaded.
+     */
+    public static function sanitizePageSlug(string $raw): string
+    {
+        if (class_exists('AP_Admin_Menu', false)) {
+            return AP_Admin_Menu::sanitizeId($raw);
+        }
+
+        $id = strtolower(trim($raw));
+        if ($id === '') {
+            return '';
+        }
+
+        return preg_replace('/[^a-z0-9_\-]/', '', $id) ?? '';
+    }
+
+    /**
+     * Read and sanitize the current request’s ?page= slug (or a raw override).
+     */
+    public static function requestPageSlug(?string $raw = null): string
+    {
+        if ($raw === null) {
+            $raw = (string) ($_GET['page'] ?? '');
+        }
+
+        return self::sanitizePageSlug($raw);
+    }
+
+    /**
+     * Look up a registered admin page by id (registry allowlist only).
+     *
+     * @return array{
+     *   id: string,
+     *   parent: string,
+     *   title: string,
+     *   menu: string,
+     *   capability: string,
+     *   callback: callable|string,
+     *   plugin: string,
+     *   position: int
+     * }|null
+     */
+    public static function getRegisteredAdminPage(string $pageId): ?array
+    {
+        if (!class_exists('AP_Admin_Menu', false)) {
+            return null;
+        }
+
+        return AP_Admin_Menu::get($pageId);
+    }
+
+    /**
+     * Resolve the registered admin page for the current (or given) ?page= slug.
+     *
+     * Returns null when the slug is empty, fails sanitization, or is not in the
+     * AP_Admin_Menu allowlist. Callers (admin.php) must treat null as a safe
+     * 404 — never as a filesystem path to include.
+     *
+     * @return array{
+     *   id: string,
+     *   parent: string,
+     *   title: string,
+     *   menu: string,
+     *   capability: string,
+     *   callback: callable|string,
+     *   plugin: string,
+     *   position: int
+     * }|null
+     */
+    public static function resolveRequestedAdminPage(?string $raw = null): ?array
+    {
+        $pageId = self::requestPageSlug($raw);
+        if ($pageId === '') {
+            return null;
+        }
+
+        return self::getRegisteredAdminPage($pageId);
+    }
+
+    /**
+     * Default safe message for unknown admin.php?page= values.
+     *
+     * Intentionally static — never interpolates the raw query string (avoids
+     * reflecting path-like or XSS payloads into the 404 body).
+     */
+    public static function unknownAdminPageMessage(): string
+    {
+        return 'The requested admin page was not found.';
+    }
+
+    /**
+     * Resolve a stored admin-page callback to a real callable, or null if unusable.
+     *
+     * Accepts:
+     * - Real callables (closures, invokables, array callables)
+     * - {@see AP_Admin_String_Callback} wrappers (string function names normalized
+     *   at registration) once the named target is loadable
+     * - Legacy bare string function names / Class::method once loadable
+     */
+    public static function resolveAdminPageCallback(mixed $callback): ?callable
+    {
+        if ($callback instanceof AP_Admin_String_Callback) {
+            // Only succeed when the named function/method exists (soft-fail otherwise).
+            return $callback->isResolved() ? $callback : null;
+        }
+
+        if (is_string($callback)) {
+            $callback = trim($callback);
+            if ($callback === '') {
+                return null;
+            }
+            // Legacy bare strings: accept only when already callable.
+            if (!is_callable($callback)) {
+                return null;
+            }
+
+            /** @var callable $callback */
+            return $callback;
+        }
+
+        if (!is_callable($callback)) {
+            return null;
+        }
+
+        /** @var callable $callback */
+        return $callback;
+    }
+
+    /**
+     * Invoke a registered admin page callback.
+     *
+     * Returns false when the callback cannot be resolved (does not include paths).
+     * String function-name wrappers fail soft when the target is not yet loadable.
+     */
+    public static function invokeAdminPageCallback(mixed $callback): bool
+    {
+        $fn = self::resolveAdminPageCallback($callback);
+        if ($fn === null) {
+            return false;
+        }
+        $fn();
+
+        return true;
+    }
+
+    /**
+     * Capability required to view a registered admin page (from the allowlist record).
+     *
+     * Falls back to {@see AP_Admin_Menu::DEFAULT_CAPABILITY} when the page omits
+     * capability (should not happen for normalized registry rows).
+     */
+    public static function capabilityForRegisteredPage(array $page): string
+    {
+        $cap = trim((string) ($page['capability'] ?? ''));
+        if ($cap !== '') {
+            return $cap;
+        }
+        if (class_exists('AP_Admin_Menu', false)) {
+            return AP_Admin_Menu::DEFAULT_CAPABILITY;
+        }
+
+        return 'manage_options';
+    }
+
+    /**
+     * Build admin chrome variables for a registered page (title, menu screen id, body class).
+     *
+     * Used by admin.php before including admin-header.php so the sidebar can mark
+     * the item active (Phase 3 menu merge uses the registry id as screen id).
+     *
+     * @param array{
+     *   id?: string,
+     *   title?: string,
+     *   menu?: string,
+     *   capability?: string,
+     *   callback?: mixed,
+     *   parent?: string,
+     *   plugin?: string,
+     *   position?: int
+     * } $page
+     *
+     * @return array{title: string, screen: string, body_class: string}
+     */
+    public static function registeredPageScreenContext(array $page): array
+    {
+        $id = self::sanitizePageSlug((string) ($page['id'] ?? ''));
+        $title = trim((string) ($page['title'] ?? ''));
+        if ($title === '') {
+            $title = trim((string) ($page['menu'] ?? ''));
+        }
+        if ($title === '') {
+            $title = $id !== '' ? $id : 'Admin';
+        }
+
+        $safeId = $id !== '' ? preg_replace('/[^a-z0-9_\-]/', '', $id) ?? '' : '';
+        $bodyClass = 'ap-admin-registered-page';
+        if ($safeId !== '') {
+            $bodyClass .= ' ap-admin-page--' . $safeId;
+        }
+
+        return [
+            'title' => $title,
+            'screen' => $id,
+            'body_class' => $bodyClass,
+        ];
+    }
+
+    /**
+     * Whether a sidebar menu item should be marked active for the current screen.
+     *
+     * Screen id is the menu item id (e.g. posts, options-general) or a registered
+     * admin page id from {@see registeredPageScreenContext()} / admin.php.
+     */
+    public static function isMenuItemActive(string $itemId, string $currentScreen): bool
+    {
+        $itemId = trim($itemId);
+        $currentScreen = trim($currentScreen);
+        if ($itemId === '' || $currentScreen === '') {
+            return false;
+        }
+
+        return $itemId === $currentScreen;
+    }
+
+    /**
+     * Set the `active` flag on each menu item from the current screen id.
+     *
+     * Used by {@see menuItems()} so core and registry-merged items share one
+     * active-state path. Matches item id to $currentScreen exactly.
+     *
+     * @param list<array{id: string, label?: string, url?: string, active?: bool, cap?: string, module?: string, section?: string}> $items
+     *
+     * @return list<array{id: string, label?: string, url?: string, active: bool, cap?: string, module?: string, section?: string}>
+     */
+    public static function applyMenuActiveState(array $items, string $currentScreen): array
+    {
+        $out = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $id = (string) ($item['id'] ?? '');
+            $item['active'] = self::isMenuItemActive($id, $currentScreen);
+            $out[] = $item;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Map a registry `parent` key to a sidebar menu section key.
+     *
+     * - settings → settings
+     * - plugins  → plugins
+     * - tools    → tools
+     * - '' / unknown → plugins (default placement under Plugins)
+     */
+    public static function menuSectionForRegisteredParent(string $parent): string
+    {
+        if (class_exists('AP_Admin_Menu', false)) {
+            $parent = AP_Admin_Menu::sanitizeParent($parent);
+        } else {
+            $parent = strtolower(trim($parent));
+        }
+
+        return match ($parent) {
+            'settings' => 'settings',
+            'tools' => 'tools',
+            'plugins' => 'plugins',
+            default => 'plugins',
+        };
+    }
+
+    /**
+     * Whether a registered page may appear in the ACP sidebar.
+     *
+     * Pages without a `plugin` key are always eligible (capability filtering is
+     * applied later in {@see menuItems()}). When `plugin` is set, the linked
+     * plugin must be active — inactive plugins hide their menu entries.
+     *
+     * If the plugin subsystem is unavailable, linked pages stay visible so
+     * structural tests and early boot do not drop registry entries.
+     *
+     * @param array{plugin?: string, ...} $page
+     */
+    public static function isRegisteredPagePluginActive(array $page, ?AP_DB $db = null): bool
+    {
+        $plugin = trim((string) ($page['plugin'] ?? ''));
+        if ($plugin === '') {
+            return true;
+        }
+
+        if (!class_exists('AP_Plugin', false)) {
+            return true;
+        }
+
+        return AP_Plugin::isActive($plugin, $db);
+    }
+
+    /**
+     * Normalize a plugin basename the same way the registry stores `plugin`.
+     */
+    public static function normalizePluginBasename(string $pluginBasename): string
+    {
+        $pluginBasename = str_replace('\\', '/', trim($pluginBasename));
+
+        return ltrim($pluginBasename, '/');
+    }
+
+    /**
+     * Whether the viewer may open a registered page (capability check).
+     *
+     * When $userId is a positive int, uses {@see userCan()}. Otherwise uses
+     * {@see currentUserCan()}. If the roles layer is not loaded, returns true
+     * so structural unit tests without a full auth stack still work.
+     */
+    public static function viewerCanAccessRegisteredPage(
+        array $page,
+        ?int $userId = null,
+        ?AP_DB $db = null
+    ): bool {
+        $cap = self::capabilityForRegisteredPage($page);
+        if ($userId !== null && $userId > 0) {
+            return self::userCan($userId, $cap, null, $db);
+        }
+        if (!class_exists('AP_Roles', false)) {
+            return true;
+        }
+
+        return self::currentUserCan($cap, $db);
+    }
+
+    /**
+     * Settings action links for a plugin on plugins.php.
+     *
+     * Looks up registry pages with matching `plugin` basename. Returns only when
+     * the plugin is active (when AP_Plugin is available) and the viewer has each
+     * page’s capability. Ordered by registry position (stable by id).
+     *
+     * Each link uses the admin router URL ({@see pageUrl()}) — never a raw path
+     * under ap-content/plugins/.
+     *
+     * @return list<array{id: string, label: string, url: string, capability: string}>
+     */
+    public static function pluginSettingsActionLinks(
+        string $pluginBasename,
+        ?AP_DB $db = null,
+        ?int $userId = null
+    ): array {
+        $pluginBasename = self::normalizePluginBasename($pluginBasename);
+        if ($pluginBasename === '' || !class_exists('AP_Admin_Menu', false)) {
+            return [];
+        }
+
+        // plugins.php only shows Settings for active plugins.
+        if (class_exists('AP_Plugin', false) && !AP_Plugin::isActive($pluginBasename, $db)) {
+            return [];
+        }
+
+        $pages = AP_Admin_Menu::forPlugin($pluginBasename);
+        if ($pages === []) {
+            return [];
+        }
+
+        // Sort by position (stable by id) — forPlugin returns insertion order.
+        usort(
+            $pages,
+            static function (array $a, array $b): int {
+                $pos = ($a['position'] ?? 50) <=> ($b['position'] ?? 50);
+                if ($pos !== 0) {
+                    return $pos;
+                }
+
+                return strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? ''));
+            }
+        );
+
+        $links = [];
+        foreach ($pages as $page) {
+            $id = (string) ($page['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            if (!self::viewerCanAccessRegisteredPage($page, $userId, $db)) {
+                continue;
+            }
+            $label = trim((string) ($page['menu'] ?? ''));
+            if ($label === '') {
+                $label = trim((string) ($page['title'] ?? ''));
+            }
+            if ($label === '') {
+                $label = $id;
+            }
+            $links[] = [
+                'id' => $id,
+                'label' => $label,
+                'url' => self::pageUrl($id),
+                'capability' => self::capabilityForRegisteredPage($page),
+            ];
+        }
+
+        return $links;
+    }
+
+    /**
+     * Primary Settings action link for a plugin (first by position), or null.
+     *
+     * Label is always “Settings” for the plugins list row action (WordPress-style).
+     * Menu/title from the registry is available via {@see pluginSettingsActionLinks()}.
+     *
+     * @return array{id: string, label: string, url: string, capability: string}|null
+     */
+    public static function pluginSettingsActionLink(
+        string $pluginBasename,
+        ?AP_DB $db = null,
+        ?int $userId = null
+    ): ?array {
+        $links = self::pluginSettingsActionLinks($pluginBasename, $db, $userId);
+        if ($links === []) {
+            return null;
+        }
+        $primary = $links[0];
+        $primary['label'] = 'Settings';
+
+        return $primary;
+    }
+
+    /**
+     * Build sidebar menu item rows from the AP_Admin_Menu registry.
+     *
+     * Ordered by registry position (stable by id). Active state is left false;
+     * {@see applyMenuActiveState()} is applied after merge in {@see menuItems()}.
+     * Entries tied to an inactive plugin (`plugin` key) are omitted.
+     *
+     * @return list<array{id: string, label: string, url: string, active: bool, cap: string, module: string, section: string}>
+     */
+    public static function registeredMenuItems(?AP_DB $db = null): array
+    {
+        if (!class_exists('AP_Admin_Menu', false)) {
+            return [];
+        }
+
+        $items = [];
+        foreach (AP_Admin_Menu::allSorted() as $page) {
+            $id = (string) ($page['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            if (!self::isRegisteredPagePluginActive($page, $db)) {
+                continue;
+            }
+            $items[] = [
+                'id' => $id,
+                'label' => (string) ($page['menu'] !== '' ? $page['menu'] : $page['title']),
+                'url' => self::pageUrl($id),
+                'active' => false,
+                'cap' => self::capabilityForRegisteredPage($page),
+                'module' => '',
+                'section' => self::menuSectionForRegisteredParent((string) ($page['parent'] ?? '')),
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * Merge registry pages into the core sidebar menu by parent section.
+     *
+     * Registered items are inserted after the last core item of their section so
+     * the sidebar keeps one contiguous block per section. When a section has no
+     * core items, those registry rows are appended. Core item ids are never
+     * replaced (first wins — protects hardcoded ACP entries). Pages linked to
+     * inactive plugins are not merged (see {@see registeredMenuItems()}).
+     *
+     * @param list<array{id: string, label?: string, url?: string, active?: bool, cap?: string, module?: string, section?: string}> $items
+     *
+     * @return list<array{id: string, label?: string, url?: string, active?: bool, cap?: string, module?: string, section?: string}>
+     */
+    public static function mergeRegisteredMenuItems(array $items, ?AP_DB $db = null): array
+    {
+        $registered = self::registeredMenuItems($db);
+        if ($registered === []) {
+            return $items;
+        }
+
+        $coreIds = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $id = (string) ($item['id'] ?? '');
+            if ($id !== '') {
+                $coreIds[$id] = true;
+            }
+        }
+
+        /** @var array<string, list<array{id: string, label: string, url: string, active: bool, cap: string, module: string, section: string}>> $bySection */
+        $bySection = [];
+        foreach ($registered as $item) {
+            $id = (string) $item['id'];
+            if ($id === '' || isset($coreIds[$id])) {
+                continue;
+            }
+            $section = (string) ($item['section'] !== '' ? $item['section'] : 'plugins');
+            $bySection[$section][] = $item;
+        }
+        if ($bySection === []) {
+            return $items;
+        }
+
+        $lastIndexBySection = [];
+        foreach ($items as $i => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $section = (string) ($item['section'] ?? '');
+            if ($section !== '') {
+                $lastIndexBySection[$section] = $i;
+            }
+        }
+
+        $out = [];
+        $inserted = [];
+        foreach ($items as $i => $item) {
+            $out[] = $item;
+            if (!is_array($item)) {
+                continue;
+            }
+            $section = (string) ($item['section'] ?? '');
+            if (
+                $section !== ''
+                && isset($bySection[$section])
+                && ($lastIndexBySection[$section] ?? -1) === $i
+            ) {
+                foreach ($bySection[$section] as $reg) {
+                    $out[] = $reg;
+                }
+                $inserted[$section] = true;
+            }
+        }
+
+        foreach ($bySection as $section => $regs) {
+            if (isset($inserted[$section])) {
+                continue;
+            }
+            foreach ($regs as $reg) {
+                $out[] = $reg;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Build the HTML body for an admin 404 (unknown ?page=) without exiting.
+     *
+     * Escapes the message; does not read or embed $_GET. Used by {@see notFound()}
+     * and unit tests.
+     */
+    public static function notFoundHtml(string $message = 'Not found'): string
+    {
+        $safe = function_exists('ap_esc_html')
+            ? ap_esc_html($message)
+            : htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $home = self::url('index.php');
+        $homeEsc = function_exists('ap_esc_url')
+            ? ap_esc_url($home)
+            : htmlspecialchars($home, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>Not found — AgoraPress</title></head><body>'
+            . '<main style="font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:1rem">'
+            . '<h1>Page not found</h1>'
+            . '<p>' . $safe . '</p>'
+            . '<p><a href="' . $homeEsc . '">Back to dashboard</a></p>'
+            . '</main></body></html>';
+    }
+
+    /**
+     * Emit a 404 page and stop (unknown / unregistered admin.php?page= values).
+     *
+     * Safe error for the registry allowlist router: never includes a path from
+     * query input. Prefer {@see unknownAdminPageMessage()} so the body does not
+     * reflect the raw ?page= value.
+     *
+     * @return never
+     */
+    public static function notFound(string $message = 'Not found'): never
+    {
+        if (!headers_sent()) {
+            http_response_code(404);
+            header('Content-Type: text/html; charset=utf-8');
+        }
+
+        echo self::notFoundHtml($message);
+        exit(0);
     }
 
     /**
@@ -577,7 +1268,57 @@ class AP_Admin
     }
 
     /**
+     * Native action name for ACP menu registration (preferred).
+     *
+     * Fired once per authenticated admin request from admin-bootstrap so
+     * plugins can call {@see ap_register_admin_page()} (and WP add_*_page
+     * shims) before the sidebar is built.
+     */
+    public const ADMIN_MENU_HOOK = 'ap_admin_menu';
+
+    /**
+     * WordPress-compatible alias of {@see ADMIN_MENU_HOOK}.
+     *
+     * Same request, same timing — listeners on either name run during
+     * {@see fireAdminMenu()}.
+     */
+    public const ADMIN_MENU_HOOK_WP = 'admin_menu';
+
+    /**
+     * Fire admin_menu-equivalent actions once per request.
+     *
+     * Order: native {@see ADMIN_MENU_HOOK} (`ap_admin_menu`), then WP alias
+     * {@see ADMIN_MENU_HOOK_WP} (`admin_menu`). Subsequent calls in the same
+     * request are no-ops (tracked via {@see ap_did_action()}).
+     *
+     * Invoked from ap-admin/admin-bootstrap.php after login (not on the login
+     * screen where `$ap_admin_skip_auth` is set).
+     *
+     * @return bool True when actions were fired on this call; false when skipped.
+     */
+    public static function fireAdminMenu(): bool
+    {
+        if (!function_exists('ap_do_action')) {
+            return false;
+        }
+
+        // Once per request — ap_do_action increments even with zero callbacks.
+        if (function_exists('ap_did_action') && ap_did_action(self::ADMIN_MENU_HOOK) > 0) {
+            return false;
+        }
+
+        ap_do_action(self::ADMIN_MENU_HOOK);
+        ap_do_action(self::ADMIN_MENU_HOOK_WP);
+
+        return true;
+    }
+
+    /**
      * Admin menu items for the sidebar (filtered by current user capabilities).
+     *
+     * Core hardcoded items are listed first; pages from {@see AP_Admin_Menu}
+     * are merged by parent section via {@see mergeRegisteredMenuItems()}
+     * (settings → settings, plugins → plugins, tools → tools, empty → plugins).
      *
      * Optional keys: cap, module, section (for visual grouping in the shell).
      *
@@ -893,6 +1634,14 @@ class AP_Admin
                 'section' => 'settings',
             ],
         ];
+
+        // Plugin-registered ACP pages (settings / plugins / tools / default plugins).
+        // Linked-plugin pages are omitted when that plugin is inactive.
+        $items = self::mergeRegisteredMenuItems($items, $db);
+
+        // Single active-state path: item id === $current (registry page ids use
+        // the same convention via registeredPageScreenContext / admin.php).
+        $items = self::applyMenuActiveState($items, $current);
 
         // Filter by capability only for an authenticated request. Unauthenticated
         // callers (structural unit tests, pre-login) receive the full menu map.

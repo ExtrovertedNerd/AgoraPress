@@ -4,7 +4,7 @@ Guides for extending and operating AgoraPress: plugins, themes, hooks, schema, a
 
 AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). The public API uses the `ap_` prefix. The [Classic WordPress Theme Compatibility Layer](compatibility.md) optionally exposes many bare WordPress names for classic PHP themes.
 
-**Current core:** `AP_VERSION` **0.3.0-beta** · schema `AP_DB_VERSION` **12** · product status: MVP feature-complete with forum UI phpBB-parity, forum likes/moderation, Theme Options API, and local opt-in analytics; ready for live-site install.
+**Current core:** `AP_VERSION` **0.3.1-beta** · schema `AP_DB_VERSION` **12** · product status: MVP feature-complete with plugin admin pages (ACP registry + router), forum UI phpBB-parity, forum likes/moderation, Theme Options API, and local opt-in analytics; ready for live-site install.
 
 ## Guides
 
@@ -12,7 +12,7 @@ AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). Th
 |-------|----------------|
 | [Hooks](hooks.md) | Actions, filters, priorities, lifecycle hooks |
 | [Theme hierarchy](themes.md) | Template files, child themes, Agora defaults, assets, template tags |
-| [Plugin API](plugins.md) | Headers, activation, MU-plugins, shortcodes, settings, REST registration |
+| [Plugin API](plugins.md) | Headers, activation, MU-plugins, shortcodes, settings, ACP admin pages, REST registration |
 | [Visual editor](editor.md) | Lightweight visual WYSIWYG (no block editor in core) |
 | [Compatibility layer](compatibility.md) | WP shims, hook maps, conversion CLI, limitations |
 | [Database schema](schema.md) | Tables, migrations, prefix, multi-driver notes |
@@ -43,7 +43,7 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 | Comments | `AP_Comment`, discussion settings |
 | Forums | `AP_Forum*`, `AP_Forum_Like`, `AP_Forum_Stats`, dedicated tables (see [schema](schema.md)) |
 | Themes | `AP_Theme` (hierarchy, theme_mods, Theme Options), default `ap-content/themes/agora/` |
-| Plugins | `AP_Plugin`, `ap-content/plugins/`, `mu-plugins/` |
+| Plugins | `AP_Plugin`, `ap-content/plugins/`, `mu-plugins/`, ACP pages via `ap_register_admin_page` |
 | REST | `AP_Rest` → `/ap-json/` namespace `ap/v1` |
 | CLI | `ap-cli` → option, plugin, theme, user, **post**, db, cache, cron, rewrite, site, core |
 | Analytics | `AP_Analytics` → Tools → Analytics (`ap-admin/analytics.php`); opt-in, local DB only |
@@ -73,6 +73,7 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 | Hooks | `ap-includes/hooks.php`, `class-ap-hook.php`, `class-ap-hooks.php` |
 | Themes | `ap-includes/class-ap-theme.php` (hierarchy, theme_mods, Theme Options), `template-tags.php`, `class-ap-assets.php` |
 | Plugins | `ap-includes/class-ap-plugin.php`, procedural helpers in `functions.php` |
+| Plugin admin pages | `class-ap-admin-menu.php`, `ap-admin/admin.php`, `AP_Admin::pageUrl()` |
 | Posts / CLI content | `class-ap-post.php`, `class-ap-cli.php` (`cmdPost`) |
 | Visual editor | `ap-includes/class-ap-editor.php`, `css/ap-editor.css`, `js/ap-editor.js` |
 | Compatibility | `ap-includes/compatibility/` |
