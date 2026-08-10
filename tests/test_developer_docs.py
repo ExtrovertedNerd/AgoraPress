@@ -58,7 +58,7 @@ def test_docs_index_links_guides(docs_root: Path) -> None:
 
 def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
-    assert "0.3.2-beta" in index
+    assert "0.3.3-beta" in index
     assert "AP_Analytics" in index or "analytics" in index.lower()
     assert "class-ap-analytics.php" in index
 

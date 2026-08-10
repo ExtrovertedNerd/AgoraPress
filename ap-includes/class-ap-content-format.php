@@ -54,6 +54,10 @@ class AP_Content_Format
             return '';
         }
 
+        // Visual editors often insert &nbsp; / U+00A0 between punctuation and
+        // emoji; treat them as ordinary spaces so display never shows the entity.
+        $content = self::normalizeNbsp($content);
+
         $mode = self::normalizeMode((string) ($args['mode'] ?? self::MODE_AUTO));
         $context = (string) ($args['context'] ?? '');
 
@@ -65,12 +69,37 @@ class AP_Content_Format
             default => self::pipelineAuto($content),
         };
 
+        // Second pass after escape pipelines (e.g. &nbsp; → &amp;nbsp;).
+        $html = self::normalizeNbsp($html);
+
         if (function_exists('ap_apply_filters')) {
             /** @var string $html */
             $html = ap_apply_filters('ap_format_content', $html, $content, $mode, $context, $args);
         }
 
         return $html;
+    }
+
+    /**
+     * Convert non-breaking spaces (Unicode + HTML entities) to regular spaces.
+     *
+     * Handles named/numeric entities and double-encoded forms produced when
+     * contenteditable HTML is run through htmlspecialchars in auto mode.
+     */
+    public static function normalizeNbsp(string $text): string
+    {
+        if ($text === '') {
+            return '';
+        }
+
+        // UTF-8 non-breaking space (U+00A0).
+        $text = str_replace("\xC2\xA0", ' ', $text);
+
+        // Double-encoded entity first, then single.
+        $text = preg_replace('/&amp;nbsp;/i', ' ', $text) ?? $text;
+        $text = preg_replace('/&nbsp;|&#0*160;|&#x0*a0;/i', ' ', $text) ?? $text;
+
+        return $text;
     }
 
     /**

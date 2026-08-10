@@ -5096,7 +5096,9 @@ function ap_insert_comment(array $data, ?AP_DB $db = null, array $args = []): in
 }
 
 /**
- * Handle front-end comment form POST (ap_comment_action=ap_comment_post).
+ * Handle front-end comment form POST (create / edit / delete).
+ *
+ * Actions: ap_comment_post | ap_comment_edit | ap_comment_delete
  *
  * Returns a redirect URL on success/handled error, or empty string when not a
  * comment form request.
@@ -5107,22 +5109,68 @@ function ap_handle_comment_form_post(?AP_DB $db = null): string
         return '';
     }
     $action = (string) ($_POST['ap_comment_action'] ?? '');
-    if ($action !== 'ap_comment_post') {
+    if (!in_array($action, ['ap_comment_post', 'ap_comment_edit', 'ap_comment_delete'], true)) {
         return '';
     }
 
     $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+
+    if ($action === 'ap_comment_edit') {
+        return ap_handle_comment_edit_post($db);
+    }
+    if ($action === 'ap_comment_delete') {
+        return ap_handle_comment_delete_post($db);
+    }
+
+    return ap_handle_comment_create_post($db);
+}
+
+/**
+ * Whether the user may edit a comment (own with edit_own_comments, or moderate).
+ */
+function ap_user_can_edit_comment(int $commentId, ?int $userId = null, ?AP_DB $db = null): bool
+{
+    if ($commentId < 1) {
+        return false;
+    }
+    $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+    if ($userId === null) {
+        $userId = function_exists('ap_get_current_user_id') ? ap_get_current_user_id($db) : 0;
+    }
+    if ($userId < 1 || !class_exists('AP_Roles', false)) {
+        return false;
+    }
+
+    return AP_Roles::userCan($userId, 'edit_comment', $commentId, $db);
+}
+
+/**
+ * Whether the user may delete/trash a comment (own with delete_own_comments, or moderate).
+ */
+function ap_user_can_delete_comment(int $commentId, ?int $userId = null, ?AP_DB $db = null): bool
+{
+    if ($commentId < 1) {
+        return false;
+    }
+    $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+    if ($userId === null) {
+        $userId = function_exists('ap_get_current_user_id') ? ap_get_current_user_id($db) : 0;
+    }
+    if ($userId < 1 || !class_exists('AP_Roles', false)) {
+        return false;
+    }
+
+    return AP_Roles::userCan($userId, 'delete_comment', $commentId, $db);
+}
+
+/**
+ * Create a new front-end comment (guest or logged-in).
+ */
+function ap_handle_comment_create_post(?AP_DB $db = null): string
+{
+    $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
     $postId = (int) ($_POST['comment_post_ID'] ?? $_POST['post_ID'] ?? 0);
-    $redirectBase = '';
-    if ($postId > 0 && function_exists('ap_get_permalink') && class_exists('AP_Post', false)) {
-        $post = AP_Post::get($postId, $db);
-        if ($post !== null) {
-            $redirectBase = ap_get_permalink($post);
-        }
-    }
-    if ($redirectBase === '' && function_exists('ap_home_url')) {
-        $redirectBase = ap_home_url('/');
-    }
+    $redirectBase = ap_comment_redirect_base($postId, $db);
     $fail = static function (string $code) use ($redirectBase): string {
         $sep = str_contains($redirectBase, '?') ? '&' : '?';
 
@@ -5140,7 +5188,6 @@ function ap_handle_comment_form_post(?AP_DB $db = null): string
         return $fail('nonce');
     }
 
-    // Registration required?
     $requireReg = false;
     if (class_exists('AP_Options', false)) {
         $requireReg = (string) AP_Options::get('comment_registration', '0', $db) === '1';
@@ -5158,7 +5205,6 @@ function ap_handle_comment_form_post(?AP_DB $db = null): string
     $email = '';
     $url = '';
     if ($userId > 0 && class_exists('AP_User', false)) {
-        // Prefer getById (canonical); older call sites used a non-existent get().
         $user = method_exists('AP_User', 'getById')
             ? AP_User::getById($userId, $db)
             : null;
@@ -5209,8 +5255,6 @@ function ap_handle_comment_form_post(?AP_DB $db = null): string
         return $fail('closed');
     }
 
-    // Tell the theme whether the comment is live or held for moderation
-    // (guests default to hold; spam checkers may also demote status).
     $okToken = 'pending';
     $inserted = ap_get_comment($newId, $db);
     if ($inserted !== null && AP_Comment::isApproved($inserted)) {
@@ -5220,6 +5264,127 @@ function ap_handle_comment_form_post(?AP_DB $db = null): string
     $sep = str_contains($redirectBase, '?') ? '&' : '?';
 
     return $redirectBase . $sep . 'comment_ok=' . rawurlencode($okToken) . '#comment-' . $newId;
+}
+
+/**
+ * Edit an existing comment (front-end or shared handler).
+ */
+function ap_handle_comment_edit_post(?AP_DB $db = null): string
+{
+    $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+    $commentId = (int) ($_POST['comment_ID'] ?? $_POST['comment_id'] ?? 0);
+    $comment = $commentId > 0 ? ap_get_comment($commentId, $db) : null;
+    $postId = $comment !== null ? (int) $comment->comment_post_ID : 0;
+    $redirectBase = ap_comment_redirect_base($postId, $db);
+    $fail = static function (string $code) use ($redirectBase, $commentId): string {
+        $sep = str_contains($redirectBase, '?') ? '&' : '?';
+        $hash = $commentId > 0 ? '#comment-' . $commentId : '#respond';
+
+        return $redirectBase . $sep . 'comment_error=' . rawurlencode($code) . $hash;
+    };
+
+    if ($comment === null) {
+        return $fail('invalid');
+    }
+
+    $userId = function_exists('ap_get_current_user_id') ? ap_get_current_user_id($db) : 0;
+    if ($userId < 1) {
+        return $fail('login');
+    }
+
+    $nonce = (string) ($_POST['_ap_nonce'] ?? '');
+    if (function_exists('ap_check_nonce') && !ap_check_nonce($nonce, 'ap-comment-edit-' . $commentId, $userId)) {
+        return $fail('nonce');
+    }
+
+    if (!ap_user_can_edit_comment($commentId, $userId, $db)) {
+        return $fail('forbidden');
+    }
+
+    $content = trim((string) ($_POST['comment'] ?? $_POST['comment_content'] ?? ''));
+    if ($content === '') {
+        return $fail('empty');
+    }
+
+    $ok = ap_update_comment($commentId, ['comment_content' => $content], $db);
+    if (!$ok) {
+        return $fail('server');
+    }
+
+    $sep = str_contains($redirectBase, '?') ? '&' : '?';
+
+    return $redirectBase . $sep . 'comment_ok=edited#comment-' . $commentId;
+}
+
+/**
+ * Trash (or force-delete when already trash) a comment.
+ */
+function ap_handle_comment_delete_post(?AP_DB $db = null): string
+{
+    $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+    $commentId = (int) ($_POST['comment_ID'] ?? $_POST['comment_id'] ?? 0);
+    $comment = $commentId > 0 ? ap_get_comment($commentId, $db) : null;
+    $postId = $comment !== null ? (int) $comment->comment_post_ID : 0;
+    $redirectBase = ap_comment_redirect_base($postId, $db);
+    $fail = static function (string $code) use ($redirectBase): string {
+        $sep = str_contains($redirectBase, '?') ? '&' : '?';
+
+        return $redirectBase . $sep . 'comment_error=' . rawurlencode($code) . '#comments';
+    };
+
+    if ($comment === null) {
+        return $fail('invalid');
+    }
+
+    $userId = function_exists('ap_get_current_user_id') ? ap_get_current_user_id($db) : 0;
+    if ($userId < 1) {
+        return $fail('login');
+    }
+
+    $nonce = (string) ($_POST['_ap_nonce'] ?? '');
+    if (function_exists('ap_check_nonce') && !ap_check_nonce($nonce, 'ap-comment-delete-' . $commentId, $userId)) {
+        return $fail('nonce');
+    }
+
+    if (!ap_user_can_delete_comment($commentId, $userId, $db)) {
+        return $fail('forbidden');
+    }
+
+    // Soft-delete (trash) unless already trash or force requested by moderators.
+    $force = !empty($_POST['force_delete'])
+        && class_exists('AP_Roles', false)
+        && AP_Roles::userCan($userId, 'moderate_comments', null, $db);
+    $ok = ap_delete_comment($commentId, $force, $db);
+    if (!$ok) {
+        return $fail('server');
+    }
+
+    $sep = str_contains($redirectBase, '?') ? '&' : '?';
+
+    return $redirectBase . $sep . 'comment_ok=deleted#comments';
+}
+
+/**
+ * Permalink base for comment redirects (post permalink or home).
+ */
+function ap_comment_redirect_base(int $postId, ?AP_DB $db = null): string
+{
+    $redirectBase = '';
+    if ($postId > 0 && function_exists('ap_get_permalink') && class_exists('AP_Post', false)) {
+        try {
+            $post = AP_Post::get($postId, $db);
+            if ($post !== null) {
+                $redirectBase = ap_get_permalink($post);
+            }
+        } catch (Throwable) {
+            $redirectBase = '';
+        }
+    }
+    if ($redirectBase === '' && function_exists('ap_home_url')) {
+        $redirectBase = ap_home_url('/');
+    }
+
+    return $redirectBase;
 }
 
 /**

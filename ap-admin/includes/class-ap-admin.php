@@ -224,6 +224,8 @@ class AP_Admin
             'user-new.php' => 'create_users',
             'user-edit.php' => 'edit_users',
             'edit-comments.php' => 'moderate_comments',
+            // comment.php checks edit_comment meta-cap per ID after login.
+            'comment.php' => 'read',
             'edit-tags.php' => 'manage_categories',
             'upload.php' => 'upload_files',
             'media.php' => 'upload_files',
@@ -1746,6 +1748,7 @@ class AP_Admin
             'menu_item_moved' => ['Menu item order updated.', 'success'],
             'menu_item_removed' => ['Menu item removed.', 'success'],
             'menu_locations_saved' => ['Menu locations updated.', 'success'],
+            'comment_updated' => ['Comment updated.', 'success'],
             'comment_approved' => ['Comment approved.', 'success'],
             'comment_unapproved' => ['Comment unapproved.', 'success'],
             'comment_spammed' => ['Comment marked as spam.', 'success'],

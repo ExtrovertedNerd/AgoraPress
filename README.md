@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** **`0.3.2-beta`** — MVP feature-complete with plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
+> **Status:** **`0.3.3-beta`** — MVP feature-complete with plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 

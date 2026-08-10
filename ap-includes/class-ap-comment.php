@@ -273,6 +273,17 @@ class AP_Comment
             return 0;
         }
         $content = str_replace("\0", '', $content);
+        // Store ordinary spaces instead of NBSP entities from the visual editor.
+        if (class_exists('AP_Content_Format', false) && method_exists('AP_Content_Format', 'normalizeNbsp')) {
+            $content = AP_Content_Format::normalizeNbsp($content);
+        } else {
+            $content = str_replace("\xC2\xA0", ' ', $content);
+            $content = preg_replace('/&amp;nbsp;|&nbsp;|&#0*160;|&#x0*a0;/i', ' ', $content) ?? $content;
+        }
+        $content = trim($content);
+        if ($content === '') {
+            return 0;
+        }
 
         // Parent post must exist.
         $post = null;
@@ -487,7 +498,18 @@ class AP_Comment
             if ($content === '') {
                 return false;
             }
-            $update['comment_content'] = str_replace("\0", '', $content);
+            $content = str_replace("\0", '', $content);
+            if (class_exists('AP_Content_Format', false) && method_exists('AP_Content_Format', 'normalizeNbsp')) {
+                $content = AP_Content_Format::normalizeNbsp($content);
+            } else {
+                $content = str_replace("\xC2\xA0", ' ', $content);
+                $content = preg_replace('/&amp;nbsp;|&nbsp;|&#0*160;|&#x0*a0;/i', ' ', $content) ?? $content;
+            }
+            $content = trim($content);
+            if ($content === '') {
+                return false;
+            }
+            $update['comment_content'] = $content;
         }
 
         if ($update === []) {

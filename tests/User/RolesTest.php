@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace AgoraPress\Tests\User;
 
+use AP_Comment;
 use AP_DB;
 use AP_Migrator;
 use AP_Options;
@@ -36,6 +37,7 @@ final class RolesTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
+        require_once $this->root . '/ap-includes/class-ap-comment.php';
         require_once $this->root . '/ap-includes/class-ap-roles.php';
         require_once $this->root . '/ap-includes/functions.php';
 
@@ -266,6 +268,66 @@ final class RolesTest extends TestCase
         $this->assertTrue(ap_user_can($id, 'edit_posts', null, $this->db));
         $this->assertFalse(ap_user_can($id, 'publish_posts', null, $this->db));
         $this->assertSame(['edit_posts'], ap_map_meta_cap('edit_posts', $id, null, $this->db));
+    }
+
+    public function testCommentOwnershipCaps(): void
+    {
+        $subId = $this->createUser('commsub');
+        $authorId = $this->createUser('commauthor');
+        $adminId = $this->createUser('commadmin');
+        $otherId = $this->createUser('commother');
+        AP_Roles::setUserRole($subId, 'subscriber', $this->db);
+        AP_Roles::setUserRole($authorId, 'author', $this->db);
+        AP_Roles::setUserRole($adminId, 'administrator', $this->db);
+        AP_Roles::setUserRole($otherId, 'author', $this->db);
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Discuss',
+            'post_content' => 'Body',
+            'post_status' => 'publish',
+            'comment_status' => 'open',
+            'post_author' => $authorId,
+        ], $this->db);
+
+        $subComment = AP_Comment::insert([
+            'comment_post_ID' => $postId,
+            'comment_author' => 'Sub',
+            'comment_content' => 'Subscriber says hi',
+            'comment_approved' => '1',
+            'user_id' => $subId,
+        ], $this->db);
+        $authorComment = AP_Comment::insert([
+            'comment_post_ID' => $postId,
+            'comment_author' => 'Author',
+            'comment_content' => 'Author says hi',
+            'comment_approved' => '1',
+            'user_id' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $subComment);
+        $this->assertGreaterThan(0, $authorComment);
+
+        // Subscriber: delete own, not edit own, not touch others.
+        $this->assertTrue(AP_Roles::userCan($subId, 'delete_comment', $subComment, $this->db));
+        $this->assertFalse(AP_Roles::userCan($subId, 'edit_comment', $subComment, $this->db));
+        $this->assertFalse(AP_Roles::userCan($subId, 'delete_comment', $authorComment, $this->db));
+        $this->assertFalse(AP_Roles::userCan($subId, 'edit_comment', $authorComment, $this->db));
+
+        // Author: edit + delete own; not others.
+        $this->assertTrue(AP_Roles::userCan($authorId, 'edit_comment', $authorComment, $this->db));
+        $this->assertTrue(AP_Roles::userCan($authorId, 'delete_comment', $authorComment, $this->db));
+        $this->assertFalse(AP_Roles::userCan($authorId, 'edit_comment', $subComment, $this->db));
+        $this->assertFalse(AP_Roles::userCan($authorId, 'delete_comment', $subComment, $this->db));
+
+        // Admin: edit and delete all.
+        $this->assertTrue(AP_Roles::userCan($adminId, 'edit_comment', $subComment, $this->db));
+        $this->assertTrue(AP_Roles::userCan($adminId, 'edit_comment', $authorComment, $this->db));
+        $this->assertTrue(AP_Roles::userCan($adminId, 'delete_comment', $subComment, $this->db));
+
+        // Procedural helpers.
+        $this->assertTrue(function_exists('ap_user_can_edit_comment'));
+        $this->assertTrue(function_exists('ap_user_can_delete_comment'));
+        $this->assertTrue(ap_user_can_edit_comment($authorComment, $authorId, $this->db));
+        $this->assertTrue(ap_user_can_delete_comment($subComment, $subId, $this->db));
     }
 
     public function testInstallerSeedsRolesAndAdmin(): void

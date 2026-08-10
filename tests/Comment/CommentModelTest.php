@@ -106,6 +106,22 @@ final class CommentModelTest extends TestCase
         $this->assertSame('comment', $comment->comment_type);
     }
 
+    public function testInsertNormalizesNbspToRegularSpace(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-content-format.php';
+        $id = AP_Comment::insert([
+            'comment_post_ID' => $this->postId,
+            'comment_author' => 'Nbsp',
+            'comment_content' => 'Enthusiastic.&nbsp;😏',
+            'comment_approved' => '1',
+        ], $this->db);
+        $this->assertGreaterThan(0, $id);
+        $comment = AP_Comment::get($id, $this->db);
+        $this->assertNotNull($comment);
+        $this->assertSame('Enthusiastic. 😏', $comment->comment_content);
+        $this->assertStringNotContainsString('&nbsp;', $comment->comment_content);
+    }
+
     public function testGuestDefaultsToPendingLoggedInToApproved(): void
     {
         $guestId = AP_Comment::insert([
