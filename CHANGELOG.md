@@ -3,9 +3,38 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.0-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.1-beta**).
 
 ## [Unreleased]
+
+### Added
+
+- (Post-release work lands here.)
+
+## [0.3.1-beta] - 2026-08-09
+
+Plugin admin pages in the Control Panel (registry + allowlisted router). No schema change (`AP_DB_VERSION` **12**); privacy posture unchanged (no telemetry by default).
+
+### Package
+
+- Beta package `0.3.1-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
+### Added
+
+- **Plugin admin pages (ACP registry + router)**:
+  - Native `ap_register_admin_page()` / `AP_Admin_Menu` allowlist (`id`, parent, title, menu, capability, callback, optional `plugin` + `position`)
+  - Helpers: `ap_get_admin_page()`, `ap_get_admin_pages()`, `ap_get_admin_pages_sorted()`, `ap_get_admin_pages_for_plugin()`, `AP_Admin::pageUrl()`
+  - Router `ap-admin/admin.php?page={id}`: login, registry lookup only, capability gate, admin chrome, callback invoke; unknown / path-like `?page=` → safe 404 (no arbitrary plugin path includes)
+  - Sidebar merge into Settings / Plugins / Tools; hide items when the linked plugin is inactive
+  - **Plugins** list: **Settings** action for active plugins that registered a matching page
+  - Admin bootstrap fires `ap_admin_menu` then `admin_menu` after login
+  - WordPress-compatible shims: `add_options_page`, `add_plugins_page`, `add_menu_page`, `add_submenu_page` (parent slug map; string function-name callbacks)
+  - Sample plugin `ap-content/plugins/logos/` (Settings → Logos demo)
+  - Developer docs: `docs/plugins.md` admin pages section
+
+### Changed
+
+- Core menu items and module filters unchanged; registered pages merge alongside hardcoded ACP entries.
 
 ## [0.3.0-beta] - 2026-08-07
 

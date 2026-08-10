@@ -346,6 +346,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-transient.php';
     // Settings API (register_setting / sections / fields / sanitized group save).
     require_once AP_ABSPATH . 'ap-includes/class-ap-settings.php';
+    // Plugin admin page registry (ACP allowlist; ?page= router uses this store).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-admin-menu.php';
     // Plugin discovery, headers, activation, MU + active-plugin loading.
     require_once AP_ABSPATH . 'ap-includes/class-ap-plugin.php';
     // Shortcode API ([tag] expansion in content).

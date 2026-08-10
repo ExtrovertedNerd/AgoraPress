@@ -225,7 +225,111 @@ Built-ins: Text, Recent Posts, Categories, Search, Pages, Navigation Menu.
 4. **Prepared statements** via `$apdb` / `AP_DB` only — never concatenate user input into SQL  
 5. Fail closed if the Forum/Blog module is off when you depend on it  
 
-## Admin UI
+## Admin pages (settings screens in the ACP)
+
+Plugins should **not** expose raw PHP under `ap-content/plugins/**` as admin endpoints. Register a settings (or tools) screen in the Control Panel so it loads through the admin shell: login, capability check, header/footer, and sidebar.
+
+**Source:** `ap-includes/class-ap-admin-menu.php`  
+**Router:** `ap-admin/admin.php?page={id}`  
+**Helpers:** `ap_register_admin_page()`, `ap_get_admin_page()`, `ap_get_admin_pages()`, `AP_Admin::pageUrl()`  
+**Sample:** `ap-content/plugins/logos/logos.php`
+
+### Register a page
+
+Call `ap_register_admin_page()` from the plugin main file (or on `ap_admin_menu` / `admin_menu` during admin bootstrap). First registration wins for a given `id` (duplicates are rejected).
+
+```php
+function myplugin_render_settings(): void
+{
+    echo '<div class="ap-wrap">';
+    echo '<h1>' . ap_esc_html__('My Plugin', 'myplugin') . '</h1>';
+    // Forms: nonces + capability checks (default cap is manage_options).
+    echo '</div>';
+}
+
+ap_register_admin_page([
+    'id'         => 'myplugin',           // unique slug → admin.php?page=myplugin
+    'parent'     => 'settings',           // settings | plugins | tools | '' (default → Plugins)
+    'title'      => 'My Plugin',          // document / screen title
+    'menu'       => 'My Plugin',          // sidebar label
+    'capability' => 'manage_options',     // checked on every render
+    'callback'   => 'myplugin_render_settings', // callable or function-name string
+    'plugin'     => ap_plugin_basename(__FILE__), // ties Settings link on plugins.php
+    'position'   => 50,                   // optional menu sort order
+]);
+```
+
+| Key | Required | Notes |
+|-----|----------|--------|
+| `id` | yes | URL-safe slug (`[a-z0-9_\-]`); becomes `?page=` |
+| `callback` | yes | Real callable or function name / `Class::method` string (late-bound) |
+| `parent` | no | `settings`, `plugins`, `tools`, or `''` (Plugins section) |
+| `title` / `menu` | no | One fills the other when omitted; fallback is `id` |
+| `capability` | no | Default `manage_options` |
+| `plugin` | no | Plugin basename; when set, a **Settings** action appears on Plugins when active |
+| `position` | no | Default `50` |
+
+Lookup helpers:
+
+```php
+ap_get_admin_page(string $id): ?array
+ap_get_admin_pages(): array                 // id-keyed, insertion order
+ap_get_admin_pages_sorted(): array          // by position
+ap_get_admin_pages_for_plugin(string $basename): array
+AP_Admin::pageUrl('myplugin');              // admin.php?page=myplugin
+```
+
+### How the router works
+
+1. Admin bootstrap requires login and fires **`ap_admin_menu`** then **`admin_menu`** so plugins can register pages.  
+2. Request hits `ap-admin/admin.php?page={id}`.  
+3. The slug is looked up **only** in the `AP_Admin_Menu` allowlist (never treated as a filesystem path).  
+4. Unknown / empty / path-like `?page=` → safe **404** (no includes, no callback).  
+5. `AP_Admin::requireCapability($page['capability'])` on every render.  
+6. Admin header → invoke registered callback → admin footer.
+
+### Menu and Plugins list
+
+- Registered pages merge into the ACP sidebar under the mapped section (`settings` / `plugins` / `tools`).  
+- When `plugin` is set and that plugin is **inactive**, the menu item is hidden.  
+- On **Plugins** (`ap-admin/plugins.php`), an active plugin with a registered page gets a **Settings** link → `AP_Admin::pageUrl($id)`.  
+- Core hardcoded menu items are unchanged; modules still filter as today.
+
+### WordPress-compatible shims
+
+Thin wrappers map classic WP registration onto the same registry (same router and cap gate):
+
+| Shim | Maps to |
+|------|---------|
+| `add_options_page(...)` | parent `settings` |
+| `add_plugins_page(...)` | parent `plugins` |
+| `add_menu_page(...)` | parent `''` (Plugins section default) |
+| `add_submenu_page($parent, ...)` | parent via map (`options-general.php` → settings, `plugins.php` → plugins, `tools.php` → tools, …) |
+
+Prefer registering on `ap_admin_menu` (or `admin_menu`) if you use the WP shims so the menu fires after login:
+
+```php
+ap_add_action('ap_admin_menu', static function (): void {
+    add_options_page(
+        'My Plugin',
+        'My Plugin',
+        'manage_options',
+        'myplugin',
+        'myplugin_render_settings'
+    );
+});
+```
+
+String function-name callbacks are accepted (wrapped for late binding), matching classic WP plugin style.
+
+### Security notes
+
+1. **Registry allowlist only** — never include a path from query input.  
+2. **Capability check every request** (default `manage_options`).  
+3. Do **not** rely on direct HTTP to `ap-content/plugins/**/admin/*.php` as public admin endpoints.  
+4. Use nonces and sanitization/escaping on any form you render in the callback.
+
+### Admin UI (core screens)
 
 - **Plugins** screen: `ap-admin/plugins.php` (cap `activate_plugins`)  
 - Nonce-protected activate / deactivate links  
@@ -238,3 +342,4 @@ Built-ins: Text, Recent Posts, Categories, Search, Pages, Navigation Menu.
 | Themes | [themes.md](themes.md) |
 | Schema / custom tables | Prefer options/postmeta first; migrations are core-owned ([schema.md](schema.md)) |
 | Roles | `ap_user_can`, `AP_Roles` |
+| Admin pages | `ap_register_admin_page`, `AP_Admin_Menu`, `ap-admin/admin.php` |

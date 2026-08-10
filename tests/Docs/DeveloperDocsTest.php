@@ -152,10 +152,10 @@ final class DeveloperDocsTest extends TestCase
         }
     }
 
-    public function testDocsIndexReflects030BetaAndAnalytics(): void
+    public function testDocsIndexReflects031BetaAndAnalytics(): void
     {
         $index = $this->readDoc('README.md');
-        $this->assertStringContainsString('0.3.0-beta', $index);
+        $this->assertStringContainsString('0.3.1-beta', $index);
         $this->assertStringContainsString('AP_Analytics', $index);
         $this->assertStringContainsString('class-ap-analytics.php', $index);
         $this->assertStringContainsString('AP_Forum_Like', $index);
@@ -198,6 +198,14 @@ final class DeveloperDocsTest extends TestCase
                 'ap_add_shortcode',
                 'ap_register_setting',
                 'ap_rest_api_init',
+                // ACP admin page registration (settings screens in the Control Panel)
+                'ap_register_admin_page',
+                'admin.php?page=',
+                'ap_admin_menu',
+                'add_options_page',
+                'manage_options',
+                'AP_Admin_Menu',
+                'AP_Admin::pageUrl',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(

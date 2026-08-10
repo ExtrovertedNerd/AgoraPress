@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** **`0.3.0-beta`** — MVP feature-complete with forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
+> **Status:** **`0.3.1-beta`** — MVP feature-complete with plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 
@@ -36,7 +36,7 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 | **Default theme** | Agora — six pure-CSS schemes (3 light + 3 dark), guest Log in / Register, topic like/edit/delete/lock toolbar, dark-mode form contrast, long-string wrapping |
 | **Admin** | Responsive light/dark UI, roles/caps, users, Site Health, **Tools → Analytics** (opt-in local pageviews), **Appearance → Theme Options** (Additional CSS + theme Settings API / theme_mods), Import (WXR + phpBB), privacy export/erase |
 | **Ops** | Installers, one-click core update (no site identity), `ap-cli`, release packaging, Apache/Nginx hardening examples |
-| **Extensibility** | Hooks, plugins/mu-plugins, shortcodes, Settings/Options API, REST (`/ap-json/`), Classic WP theme shims |
+| **Extensibility** | Hooks, plugins/mu-plugins, shortcodes, Settings/Options API, plugin ACP pages (`ap_register_admin_page` + WP shims), REST (`/ap-json/`), Classic WP theme shims |
 
 ### Non-goals (v1)
 

@@ -1,8 +1,8 @@
 # Vision & Features Compliance
 
-**Date:** 2026-08-07  
+**Date:** 2026-08-09  
 **Scope:** Full codebase reevaluation against the project constitution (`VISION.md`, `FEATURES.md`, `SPEC.md` under the operator’s private process tree).  
-**Version under review:** `AP_VERSION` `0.3.0-beta`
+**Version under review:** `AP_VERSION` `0.3.1-beta`
 
 This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves.
 
@@ -26,6 +26,7 @@ AgoraPress still matches the mission: a **free, lightweight, privacy-respecting*
 | Forum likes + edit/moderation UI | Pass (shipped in 0.2.1-beta; ACL-gated) |
 | Theme Options / theme_mods API | Pass (shipped in 0.2.1-beta) |
 | Forum UI phpBB-parity (board index + topic view) | Pass (shipped in 0.3.0-beta) |
+| Plugin admin pages (ACP registry + router) | Pass (shipped in 0.3.1-beta) |
 
 No bloat or phone-home paths were found in core product code. Network egress from core is limited to:
 
@@ -167,7 +168,7 @@ Users, forums, topics, and posts import; attachments, private messages, and rank
 
 ### D7 — README / status language
 
-Product README status tracks the shipped release line (`0.3.0-beta`) and reflects that installer, CMS, forums (including phpBB-parity board UI and likes/moderation UI), admin, compatibility layer, packaging, live-site hardening, Theme Options API, and opt-in local analytics are **implemented**, not Phase-1 stubs.
+Product README status tracks the shipped release line (`0.3.1-beta`) and reflects that installer, CMS, forums (including phpBB-parity board UI and likes/moderation UI), admin (including plugin ACP registry + router), compatibility layer, packaging, live-site hardening, Theme Options API, and opt-in local analytics are **implemented**, not Phase-1 stubs.
 
 ### D8 — Local site analytics (SPEC 0.2.0-beta)
 

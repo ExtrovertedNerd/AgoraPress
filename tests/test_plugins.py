@@ -100,11 +100,16 @@ def test_admin_plugins_screen_and_menu() -> None:
     assert "ap_deactivate_plugin" in screen
     assert "ap_nonce_url" in screen or "ap_check_nonce" in screen
     assert "ap_get_mu_plugins" in screen
+    # Settings action → registry router (admin.php?page=), only when active.
+    assert "pluginSettingsActionLink" in screen
+    assert "ap-plugin-settings-link" in screen
 
     admin = ADMIN_CLASS.read_text(encoding="utf-8")
     assert "plugins.php" in admin
     assert "'activate_plugins'" in admin or '"activate_plugins"' in admin
     assert "Installed Plugins" in admin
+    assert "function pluginSettingsActionLink" in admin
+    assert "function pluginSettingsActionLinks" in admin
 
 
 def test_phpunit_plugin_api() -> None:

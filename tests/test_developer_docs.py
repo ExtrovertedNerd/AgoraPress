@@ -56,9 +56,9 @@ def test_docs_index_links_guides(docs_root: Path) -> None:
         assert name in index, f"docs/README.md should link to {name}"
 
 
-def test_docs_index_reflects_030_beta(docs_root: Path) -> None:
+def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
-    assert "0.3.0-beta" in index
+    assert "0.3.1-beta" in index
     assert "AP_Analytics" in index or "analytics" in index.lower()
     assert "class-ap-analytics.php" in index
 
@@ -141,6 +141,13 @@ def test_plugins_doc_content(docs_root: Path) -> None:
         "ap_add_shortcode",
         "ap_register_setting",
         "ap_rest_api_init",
+        # ACP admin page registration (settings screens in the Control Panel)
+        "ap_register_admin_page",
+        "admin.php?page=",
+        "ap_admin_menu",
+        "add_options_page",
+        "manage_options",
+        "ap_admin::pageurl",
     ):
         assert phrase in text, f"plugins.md missing: {phrase}"
 

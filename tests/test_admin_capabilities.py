@@ -33,7 +33,14 @@ def test_admin_capability_helpers_exist() -> None:
         "function deleteMetaCapForPostType",
         "function publishCapabilityForPostType",
         "function screenCapabilities",
+        "function registeredScreenCapabilities",
+        "function capabilityForScreen",
+        "function isMenuItemActive",
+        "function applyMenuActiveState",
         "denyAccess",
+        "function notFound",
+        "function pageUrl",
+        "function getRegisteredAdminPage",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-admin.php"
 
@@ -46,6 +53,8 @@ def test_screens_gate_with_require_capability() -> None:
         "post-new.php": "editCapabilityForPostType",
         "post.php": "editMetaCapForPostType",
         "revision.php": "editMetaCapForPostType",
+        # Registered plugin pages: cap from registry, not a fixed string.
+        "admin.php": "capabilityForRegisteredPage",
         "edit-comments.php": "moderate_comments",
         "edit-tags.php": "manage_categories",
         "upload.php": "upload_files",

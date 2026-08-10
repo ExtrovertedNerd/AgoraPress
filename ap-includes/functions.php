@@ -1745,6 +1745,317 @@ function ap_is_mu_plugin_loaded(string $plugin): bool
 }
 
 // -----------------------------------------------------------------------------
+// Plugin admin pages (ACP registry allowlist)
+// -----------------------------------------------------------------------------
+
+/**
+ * Register a plugin (or core) admin page for the Control Panel.
+ *
+ * Pages appear under the ACP sidebar (when menu merge is wired) and load only
+ * through the admin router (?page={id}) — never via arbitrary plugin paths.
+ *
+ * Required:
+ * - id        Unique slug (sanitized to [a-z0-9_-]); used as ?page=
+ * - callback  Callable or string function name / Class::method (strings are
+ *             normalized to callable wrappers at registration)
+ *
+ * Optional:
+ * - parent      settings | plugins | tools | '' (default placement)
+ * - title       Document / screen title (defaults to menu or id)
+ * - menu        Sidebar label (defaults to title or id)
+ * - capability  Required cap (default manage_options)
+ * - plugin      Plugin basename for Settings links on plugins.php
+ * - position    Sort order (default 50)
+ *
+ * Returns false when id is missing/invalid, callback is missing/invalid, or
+ * the id is already registered (first registration wins).
+ *
+ * @param array{
+ *   id?: string,
+ *   parent?: string,
+ *   title?: string,
+ *   menu?: string,
+ *   capability?: string,
+ *   callback?: callable|string,
+ *   plugin?: string,
+ *   position?: int|string
+ * } $args
+ *
+ * @see AP_Admin_Menu::register()
+ */
+function ap_register_admin_page(array $args): bool
+{
+    if (!class_exists('AP_Admin_Menu', false)) {
+        return false;
+    }
+
+    return AP_Admin_Menu::register($args);
+}
+
+/**
+ * Fetch one registered ACP admin page by id.
+ *
+ * Returns null when the id is unknown, empty/invalid after sanitization, or
+ * the admin menu class is not loaded.
+ *
+ * @return array{
+ *   id: string,
+ *   parent: string,
+ *   title: string,
+ *   menu: string,
+ *   capability: string,
+ *   callback: callable|string,
+ *   plugin: string,
+ *   position: int
+ * }|null
+ *
+ * @see AP_Admin_Menu::get()
+ * @see ap_register_admin_page()
+ */
+function ap_get_admin_page(string $id): ?array
+{
+    if (!class_exists('AP_Admin_Menu', false)) {
+        return null;
+    }
+
+    return AP_Admin_Menu::get($id);
+}
+
+/**
+ * All registered ACP admin pages (id-keyed, insertion order).
+ *
+ * Empty array when nothing is registered or the admin menu class is not loaded.
+ * For menu rendering ordered by position, use {@see ap_get_admin_pages_sorted()}.
+ *
+ * @return array<string, array{
+ *   id: string,
+ *   parent: string,
+ *   title: string,
+ *   menu: string,
+ *   capability: string,
+ *   callback: callable|string,
+ *   plugin: string,
+ *   position: int
+ * }>
+ *
+ * @see AP_Admin_Menu::all()
+ * @see ap_register_admin_page()
+ */
+function ap_get_admin_pages(): array
+{
+    if (!class_exists('AP_Admin_Menu', false)) {
+        return [];
+    }
+
+    return AP_Admin_Menu::all();
+}
+
+/**
+ * Registered ACP admin pages sorted by position (stable by id for ties).
+ *
+ * @return list<array{
+ *   id: string,
+ *   parent: string,
+ *   title: string,
+ *   menu: string,
+ *   capability: string,
+ *   callback: callable|string,
+ *   plugin: string,
+ *   position: int
+ * }>
+ *
+ * @see AP_Admin_Menu::allSorted()
+ * @see ap_get_admin_pages()
+ */
+function ap_get_admin_pages_sorted(): array
+{
+    if (!class_exists('AP_Admin_Menu', false)) {
+        return [];
+    }
+
+    return AP_Admin_Menu::allSorted();
+}
+
+/**
+ * Pages registered for a plugin basename (Settings link lookup on plugins.php).
+ *
+ * @return list<array{
+ *   id: string,
+ *   parent: string,
+ *   title: string,
+ *   menu: string,
+ *   capability: string,
+ *   callback: callable|string,
+ *   plugin: string,
+ *   position: int
+ * }>
+ *
+ * @see AP_Admin_Menu::forPlugin()
+ */
+function ap_get_admin_pages_for_plugin(string $pluginBasename): array
+{
+    if (!class_exists('AP_Admin_Menu', false)) {
+        return [];
+    }
+
+    return AP_Admin_Menu::forPlugin($pluginBasename);
+}
+
+// -----------------------------------------------------------------------------
+// WordPress-compatible admin menu page shims (thin wrappers → AP_Admin_Menu)
+// -----------------------------------------------------------------------------
+
+/**
+ * Register a top-level ACP admin page (WordPress add_menu_page() shim).
+ *
+ * Maps to {@see ap_register_admin_page()} with parent '' (default Plugins section).
+ * $icon_url is accepted for signature compatibility and ignored (no ACP icons yet).
+ *
+ * @param callable|string|array|null $callback
+ * @param int|float|string|null      $position
+ *
+ * @return string|false Hook name on success, false on failure.
+ *
+ * @see AP_Admin_Menu::registerFromWp()
+ * @see add_submenu_page()
+ */
+if (!function_exists('add_menu_page')) {
+    function add_menu_page(
+        string $page_title,
+        string $menu_title,
+        string $capability,
+        string $menu_slug,
+        mixed $callback = '',
+        string $icon_url = '',
+        int|float|string|null $position = null
+    ): string|false {
+        unset($icon_url); // Signature parity only.
+
+        if (!class_exists('AP_Admin_Menu', false)) {
+            return false;
+        }
+
+        return AP_Admin_Menu::registerFromWp(
+            '',
+            $page_title,
+            $menu_title,
+            $capability,
+            $menu_slug,
+            $callback,
+            $position
+        );
+    }
+}
+
+/**
+ * Register a submenu ACP admin page (WordPress add_submenu_page() shim).
+ *
+ * Parent is mapped via {@see AP_Admin_Menu::mapWpParent()} (e.g.
+ * options-general.php → settings, plugins.php → plugins).
+ *
+ * @param callable|string|array|null $callback
+ * @param int|float|string|null      $position
+ *
+ * @return string|false Hook name on success, false on failure.
+ *
+ * @see AP_Admin_Menu::mapWpParent()
+ * @see AP_Admin_Menu::registerFromWp()
+ */
+if (!function_exists('add_submenu_page')) {
+    function add_submenu_page(
+        string $parent_slug,
+        string $page_title,
+        string $menu_title,
+        string $capability,
+        string $menu_slug,
+        mixed $callback = '',
+        int|float|string|null $position = null
+    ): string|false {
+        if (!class_exists('AP_Admin_Menu', false)) {
+            return false;
+        }
+
+        $parent = AP_Admin_Menu::mapWpParent($parent_slug);
+
+        return AP_Admin_Menu::registerFromWp(
+            $parent,
+            $page_title,
+            $menu_title,
+            $capability,
+            $menu_slug,
+            $callback,
+            $position
+        );
+    }
+}
+
+/**
+ * Register a Settings-section ACP page (WordPress add_options_page() shim).
+ *
+ * Equivalent to add_submenu_page('options-general.php', …) → parent settings.
+ *
+ * @param callable|string|array|null $callback
+ * @param int|float|string|null      $position
+ *
+ * @return string|false Hook name on success, false on failure.
+ *
+ * @see add_submenu_page()
+ */
+if (!function_exists('add_options_page')) {
+    function add_options_page(
+        string $page_title,
+        string $menu_title,
+        string $capability,
+        string $menu_slug,
+        mixed $callback = '',
+        int|float|string|null $position = null
+    ): string|false {
+        return add_submenu_page(
+            'options-general.php',
+            $page_title,
+            $menu_title,
+            $capability,
+            $menu_slug,
+            $callback,
+            $position
+        );
+    }
+}
+
+/**
+ * Register a Plugins-section ACP page (WordPress add_plugins_page() shim).
+ *
+ * Equivalent to add_submenu_page('plugins.php', …) → parent plugins.
+ *
+ * @param callable|string|array|null $callback
+ * @param int|float|string|null      $position
+ *
+ * @return string|false Hook name on success, false on failure.
+ *
+ * @see add_submenu_page()
+ */
+if (!function_exists('add_plugins_page')) {
+    function add_plugins_page(
+        string $page_title,
+        string $menu_title,
+        string $capability,
+        string $menu_slug,
+        mixed $callback = '',
+        int|float|string|null $position = null
+    ): string|false {
+        return add_submenu_page(
+            'plugins.php',
+            $page_title,
+            $menu_title,
+            $capability,
+            $menu_slug,
+            $callback,
+            $position
+        );
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Object Cache API (wrappers; primary definitions live in class-ap-object-cache.php)
 // -----------------------------------------------------------------------------
 

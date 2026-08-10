@@ -47,4 +47,8 @@ if (empty($ap_admin_skip_auth)) {
     if (class_exists('AP_Version_Check', false)) {
         AP_Version_Check::maybeQueueAdminNotice();
     }
+
+    // Fire ap_admin_menu + admin_menu once so plugins can register ACP pages
+    // (ap_register_admin_page / future add_*_page shims) before the sidebar.
+    AP_Admin::fireAdminMenu();
 }
