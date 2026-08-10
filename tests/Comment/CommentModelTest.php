@@ -125,6 +125,147 @@ final class CommentModelTest extends TestCase
         $this->assertSame('1', AP_Comment::get($userId, $this->db)?->comment_approved);
     }
 
+    public function testCommentModerationOptionHoldsLoggedInUsers(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-options.php';
+        \AP_Options::flushCache();
+        \AP_Options::update('comment_moderation', '1', $this->db);
+
+        $id = AP_Comment::insert([
+            'comment_post_ID' => $this->postId,
+            'comment_author' => 'Member',
+            'comment_content' => 'Should still need approval',
+            'user_id' => 9,
+        ], $this->db);
+        $this->assertGreaterThan(0, $id);
+        $this->assertSame('0', AP_Comment::get($id, $this->db)?->comment_approved);
+
+        // Explicit approved still wins when caller sets comment_approved.
+        $forced = AP_Comment::insert([
+            'comment_post_ID' => $this->postId,
+            'comment_author' => 'Mod',
+            'comment_content' => 'Forced approve',
+            'comment_approved' => '1',
+            'user_id' => 9,
+        ], $this->db);
+        $this->assertSame('1', AP_Comment::get($forced, $this->db)?->comment_approved);
+
+        \AP_Options::update('comment_moderation', '0', $this->db);
+        \AP_Options::flushCache();
+    }
+
+    public function testFormPostRedirectSignalsPendingForGuests(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-options.php';
+        require_once $this->root . '/ap-includes/class-ap-nonce.php';
+        require_once $this->root . '/ap-includes/class-ap-rewrite.php';
+        if (!defined('AP_NONCE_KEY')) {
+            define('AP_NONCE_KEY', 'test-nonce-key-' . str_repeat('c', 32));
+        }
+        if (!defined('AP_NONCE_SALT')) {
+            define('AP_NONCE_SALT', 'test-nonce-salt-' . str_repeat('d', 32));
+        }
+
+        \AP_Options::update('home', 'https://example.test', $this->db);
+        \AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $nonce = ap_create_nonce('ap-comment-post-' . $this->postId, null);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'ap_comment_action' => 'ap_comment_post',
+            'comment_post_ID' => $this->postId,
+            'comment_parent' => 0,
+            '_ap_nonce' => $nonce,
+            'author' => 'FormGuest',
+            'email' => 'formguest@example.test',
+            'comment' => 'Hello from the form',
+        ];
+
+        $redirect = ap_handle_comment_form_post($this->db);
+        $this->assertStringContainsString('comment_ok=pending', $redirect);
+        $this->assertMatchesRegularExpression('/#comment-\d+/', $redirect);
+
+        $pending = AP_Comment::query([
+            'post_id' => $this->postId,
+            'status' => 'hold',
+        ], $this->db);
+        $this->assertNotEmpty($pending);
+        $this->assertSame('FormGuest', $pending[0]->comment_author);
+
+        unset($_POST);
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+    }
+
+    public function testFormPostLoggedInDoesNotThrowAndApproves(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-options.php';
+        require_once $this->root . '/ap-includes/class-ap-user.php';
+        require_once $this->root . '/ap-includes/class-ap-session.php';
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
+        require_once $this->root . '/ap-includes/class-ap-nonce.php';
+        require_once $this->root . '/ap-includes/class-ap-rewrite.php';
+        if (!defined('AP_NONCE_KEY')) {
+            define('AP_NONCE_KEY', 'test-nonce-key-' . str_repeat('c', 32));
+        }
+        if (!defined('AP_NONCE_SALT')) {
+            define('AP_NONCE_SALT', 'test-nonce-salt-' . str_repeat('d', 32));
+        }
+        if (!defined('AP_LOGGED_IN_KEY')) {
+            define('AP_LOGGED_IN_KEY', 'test-logged-in-key-' . str_repeat('e', 32));
+        }
+        if (!defined('AP_LOGGED_IN_SALT')) {
+            define('AP_LOGGED_IN_SALT', 'test-logged-in-salt-' . str_repeat('f', 32));
+        }
+
+        \AP_Roles::ensureDefaults($this->db);
+        \AP_Options::update('home', 'https://example.test', $this->db);
+        \AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $created = \AP_User::create([
+            'user_login' => 'commentadmin',
+            'user_email' => 'commentadmin@example.test',
+            'password' => 'password12345',
+            'role' => 'administrator',
+            'display_name' => 'Comment Admin',
+        ], $this->db);
+        $uid = (int) $created['id'];
+        $this->assertGreaterThan(0, $uid);
+
+        \AP_Session::enableTestMode([]);
+        \AP_Session::setAuthCookie($uid, true, $this->db);
+        $this->assertSame($uid, ap_get_current_user_id($this->db));
+
+        // Regression: handler must not call AP_User::get() (does not exist).
+        $this->assertFalse(method_exists(\AP_User::class, 'get'));
+        $this->assertTrue(method_exists(\AP_User::class, 'getById'));
+
+        $nonce = ap_create_nonce('ap-comment-post-' . $this->postId, $uid);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'ap_comment_action' => 'ap_comment_post',
+            'comment_post_ID' => $this->postId,
+            'comment_parent' => 0,
+            '_ap_nonce' => $nonce,
+            'comment' => 'Posted while logged in as admin',
+        ];
+
+        $redirect = ap_handle_comment_form_post($this->db);
+        $this->assertStringContainsString('comment_ok=1', $redirect);
+
+        $approved = AP_Comment::query([
+            'post_id' => $this->postId,
+            'status' => 'approve',
+        ], $this->db);
+        $this->assertNotEmpty($approved);
+        $this->assertSame('Comment Admin', $approved[0]->comment_author);
+        $this->assertSame($uid, $approved[0]->user_id);
+        $this->assertSame('1', $approved[0]->comment_approved);
+
+        \AP_Session::disableTestMode();
+        unset($_POST);
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+    }
+
     public function testRejectsEmptyContentAndClosedComments(): void
     {
         $this->assertSame(0, AP_Comment::insert([

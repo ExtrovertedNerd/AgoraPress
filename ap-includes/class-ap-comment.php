@@ -315,10 +315,24 @@ class AP_Comment
         }
 
         // Default approval: logged-in users approve; guests hold.
+        // Discussion setting "comment_moderation" forces hold for everyone.
         if (isset($data['comment_approved'])) {
             $approved = self::normalizeStatus((string) $data['comment_approved']);
         } else {
             $approved = $userId > 0 ? self::STATUS_APPROVED : self::STATUS_HOLD;
+            if (
+                $approved === self::STATUS_APPROVED
+                && class_exists('AP_Options', false)
+            ) {
+                try {
+                    $forceModeration = (string) AP_Options::get('comment_moderation', '0', $db) === '1';
+                } catch (Throwable) {
+                    $forceModeration = false;
+                }
+                if ($forceModeration) {
+                    $approved = self::STATUS_HOLD;
+                }
+            }
         }
 
         $now = self::nowLocal();

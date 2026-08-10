@@ -3,13 +3,35 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.1-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.2-beta**).
 
 ## [Unreleased]
 
 ### Added
 
 - (Post-release work lands here.)
+
+## [0.3.2-beta] - 2026-08-10
+
+Blog comment posting fix for logged-in users. No schema change (`AP_DB_VERSION` **12**); privacy posture unchanged (no telemetry by default).
+
+### Package
+
+- Beta package `0.3.2-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
+### Fixed
+
+- **Logged-in blog comments never saved:** front-end handler called non-existent `AP_User::get()`; the exception was swallowed by `index.php`, so admin/member posts appeared to succeed but wrote nothing to the database. Guests were unaffected (different code path).
+- Handler now uses `AP_User::getById()` / `ap_get_user_by('id', …)`.
+- Comment form POST exceptions redirect with `comment_error=server` instead of failing silently.
+- Success messaging distinguishes approved vs pending moderation (`comment_ok=1` / `comment_ok=pending`) in Agora and ZeroShits themes.
+- Discussion setting **Comment must be manually approved** (`comment_moderation`) is honored for logged-in users when enabled.
+
+### Tests
+
+- Regression: logged-in form post approves and redirects without throwing.
+- Guest form post signals `comment_ok=pending`.
+- `comment_moderation` option holds logged-in inserts unless status is forced.
 
 ## [0.3.1-beta] - 2026-08-09
 

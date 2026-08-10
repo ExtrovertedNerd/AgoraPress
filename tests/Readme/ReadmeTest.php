@@ -85,7 +85,7 @@ final class ReadmeTest extends TestCase
             'table prefix' => ['ap_'],
             'php version' => ['PHP 8.2'],
             'license short' => ['GPLv2'],
-            'beta version' => ['0.3.1-beta'],
+            'beta version' => ['0.3.2-beta'],
             'analytics screen' => ['Tools → Analytics'],
             'analytics option' => ['analytics_enabled'],
         ];
@@ -134,7 +134,7 @@ final class ReadmeTest extends TestCase
     public function testMentionsLocalAnalyticsAndSchemaVersion(): void
     {
         $lower = strtolower($this->readme);
-        $this->assertStringContainsString('0.3.1-beta', $this->readme);
+        $this->assertStringContainsString('0.3.2-beta', $this->readme);
         $this->assertMatchesRegularExpression('/AP_DB_VERSION/i', $this->readme);
         // Schema target tracks AP_DB_VERSION (12: topic type enum + backfill).
         $this->assertMatchesRegularExpression('/\b12\b/', $this->readme);
