@@ -739,7 +739,7 @@ class AP_Comment
      * - user_id: int
      * - search / s: search author/email/content
      * - orderby: date|id|parent|karma (default date)
-     * - order: ASC|DESC (default DESC)
+     * - order: ASC|DESC (default DESC for query(); getByPost/getTree default ASC)
      * - limit / number: int (default 0 = no limit for model; admin passes per_page)
      * - offset / paged: pagination
      * - hierarchical: bool — when true and post_id set, returns only top-level
@@ -1036,6 +1036,9 @@ class AP_Comment
     /**
      * Flat list of comments for a post (public-facing helper).
      *
+     * Defaults to approved only, chronological order (oldest first / newest last).
+     * Pass order=DESC to reverse. Admin lists should keep using query() with DESC.
+     *
      * @param array<string, mixed> $args
      *
      * @return list<self>
@@ -1049,6 +1052,9 @@ class AP_Comment
         if (!isset($args['status'])) {
             $args['status'] = 'approve';
         }
+        // Public threads read top-to-bottom: oldest first, newest last.
+        $args['order'] = $args['order'] ?? 'ASC';
+        $args['orderby'] = $args['orderby'] ?? 'date';
 
         return self::query($args, $db);
     }

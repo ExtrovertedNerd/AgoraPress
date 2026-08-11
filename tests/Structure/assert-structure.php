@@ -31,6 +31,7 @@ $requiredPaths = [
     'docs/themes.md',
     'docs/plugins.md',
     'docs/editor.md',
+    'docs/site-icon.md',
     'docs/compatibility.md',
     'docs/schema.md',
     'docs/vision-compliance.md',

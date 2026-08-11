@@ -174,6 +174,7 @@ final class SettingsApiTest extends TestCase
             $this->assertNotEmpty($regs, "Expected registered settings for group {$group}");
         }
         $this->assertArrayHasKey('blogname', AP_Settings::getRegisteredSettings('general'));
+        $this->assertArrayHasKey('site_icon', AP_Settings::getRegisteredSettings('general'));
         $this->assertArrayHasKey('ap_module_blog', AP_Settings::getRegisteredSettings('modules'));
     }
 
@@ -193,6 +194,7 @@ final class SettingsApiTest extends TestCase
             'start_of_week' => '0',
             'siteurl' => 'https://example.test',
             'home' => 'https://example.test',
+            'site_icon' => 42,
         ], $this->db);
 
         $this->assertTrue($ok);
@@ -205,6 +207,8 @@ final class SettingsApiTest extends TestCase
         $this->assertSame('author', AP_Options::get('default_role', '', $this->db));
         $this->assertSame('Europe/Paris', AP_Options::get('timezone_string', '', $this->db));
         $this->assertSame('0', (string) AP_Options::get('start_of_week', '1', $this->db));
+        $this->assertSame(42, AP_Options::siteIcon($this->db));
+        $this->assertSame('42', (string) AP_Options::get('site_icon', '0', $this->db));
 
         // Disable CAPTCHA again via settings save.
         $ok2 = AP_Options::updateGeneralSettings([
@@ -217,6 +221,47 @@ final class SettingsApiTest extends TestCase
         ], $this->db);
         $this->assertTrue($ok2);
         $this->assertSame('off', (string) AP_Options::get('registration_captcha', 'math', $this->db));
+        // site_icon omitted from input → preserved (not wiped to 0).
+        $this->assertSame(42, AP_Options::siteIcon($this->db));
+    }
+
+    public function testSiteIconOptionSaveAndClear(): void
+    {
+        $this->assertSame(0, AP_Options::siteIcon($this->db));
+
+        $ok = AP_Options::updateGeneralSettings([
+            'blogname' => 'Icon Site',
+            'admin_email' => 'admin@example.test',
+            'site_icon' => '99',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame(99, AP_Options::siteIcon($this->db));
+
+        // Negative / non-numeric coerced to 0 via max(0, (int)).
+        $ok = AP_Options::updateGeneralSettings([
+            'blogname' => 'Icon Site',
+            'admin_email' => 'admin@example.test',
+            'site_icon' => -5,
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame(0, AP_Options::siteIcon($this->db));
+
+        $ok = AP_Options::updateGeneralSettings([
+            'blogname' => 'Icon Site',
+            'admin_email' => 'admin@example.test',
+            'site_icon' => 7,
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame(7, AP_Options::siteIcon($this->db));
+
+        // Explicit clear.
+        $ok = AP_Options::updateGeneralSettings([
+            'blogname' => 'Icon Site',
+            'admin_email' => 'admin@example.test',
+            'site_icon' => 0,
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame(0, AP_Options::siteIcon($this->db));
     }
 
     public function testModulesAtLeastOneRequired(): void
@@ -358,10 +403,29 @@ final class SettingsApiTest extends TestCase
                 'custom_css',
                 'uploads_use_yearmonth_folders',
                 'use_smilies',
+                'site_icon',
             ] as $opt
         ) {
             $this->assertStringContainsString("'" . $opt . "'", $src);
         }
+    }
+
+    public function testGeneralScreenHasSiteIconField(): void
+    {
+        $path = $this->root . '/ap-admin/options-general.php';
+        $this->assertFileExists($path);
+        $src = (string) file_get_contents($path);
+        // Media picker: upload + library + preview + remove (not a bare ID input).
+        $this->assertStringContainsString('renderSiteIconField', $src);
+        $this->assertStringContainsString('processSiteIconSave', $src);
+        $this->assertStringContainsString('siteIconPickerScript', $src);
+        $this->assertStringContainsString('siteIcon', $src);
+        $this->assertStringContainsString('multipart/form-data', $src);
+        $this->assertStringContainsString('enctype', $src);
+        // Save gated by manage_options (page) + processSiteIconSave (nonce + cap).
+        $this->assertStringContainsString("requireCapability('manage_options')", $src);
+        $this->assertStringContainsString("message_key'] === 'nonce'", $src);
+        $this->assertStringContainsString("message_key'] === 'cap'", $src);
     }
 
     public function testBootstrapLoadsSettingsApi(): void

@@ -679,6 +679,21 @@ class AP_Settings
                 return (string) max(0, min(6, $n));
             },
         ]);
+        // Site icon: media attachment ID (0 = none → no link tags; root favicon.ico stays passive).
+        // Derivatives via AP_Media::generateSiteIconSizes on set.
+        self::registerSetting('general', 'site_icon', [
+            'type' => 'integer',
+            'default' => '0',
+            'description' => 'Attachment ID for the site favicon set (0 = none; root favicon.ico remains a passive browser fallback).',
+            'sanitize_callback' => static function (mixed $v): string {
+                // Absent from input (partial programmatic saves): keep the stored value.
+                if ($v === null) {
+                    return (string) max(0, (int) AP_Options::get('site_icon', '0'));
+                }
+
+                return (string) max(0, (int) $v);
+            },
+        ]);
 
         // --- Modules ---
         foreach (['ap_module_static_pages', 'ap_module_blog', 'ap_module_forum'] as $mod) {

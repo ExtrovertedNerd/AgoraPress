@@ -122,6 +122,39 @@ final class CommentModelTest extends TestCase
         $this->assertStringNotContainsString('&nbsp;', $comment->comment_content);
     }
 
+    public function testGetByPostOrdersOldestFirst(): void
+    {
+        $first = AP_Comment::insert([
+            'comment_post_ID' => $this->postId,
+            'comment_author' => 'First',
+            'comment_content' => 'Oldest',
+            'comment_approved' => '1',
+            'comment_date' => '2026-01-01 10:00:00',
+            'comment_date_gmt' => '2026-01-01 10:00:00',
+        ], $this->db);
+        $second = AP_Comment::insert([
+            'comment_post_ID' => $this->postId,
+            'comment_author' => 'Second',
+            'comment_content' => 'Newest',
+            'comment_approved' => '1',
+            'comment_date' => '2026-01-02 10:00:00',
+            'comment_date_gmt' => '2026-01-02 10:00:00',
+        ], $this->db);
+        $this->assertGreaterThan(0, $first);
+        $this->assertGreaterThan(0, $second);
+
+        $list = AP_Comment::getByPost($this->postId, [], $this->db);
+        $this->assertCount(2, $list);
+        $this->assertSame('First', $list[0]->comment_author);
+        $this->assertSame('Second', $list[1]->comment_author);
+        $this->assertSame('Oldest', $list[0]->comment_content);
+        $this->assertSame('Newest', $list[1]->comment_content);
+
+        // Explicit DESC still works when requested.
+        $rev = AP_Comment::getByPost($this->postId, ['order' => 'DESC'], $this->db);
+        $this->assertSame('Second', $rev[0]->comment_author);
+    }
+
     public function testGuestDefaultsToPendingLoggedInToApproved(): void
     {
         $guestId = AP_Comment::insert([

@@ -491,6 +491,16 @@ class AP_Options
     // -------------------------------------------------------------------------
 
     /**
+     * Site icon attachment ID (0 when none).
+     *
+     * Stored option name: site_icon. Used for favicon / apple-touch-icon output.
+     */
+    public static function siteIcon(?AP_DB $db = null): int
+    {
+        return max(0, (int) self::get('site_icon', 0, $db));
+    }
+
+    /**
      * Persist General settings (site identity, membership, locale/time).
      *
      * @param array<string, mixed> $settings
@@ -504,6 +514,7 @@ class AP_Options
                 'users_can_register', 'require_email_verification', 'registration_captcha',
                 'default_role',
                 'timezone_string', 'WPLANG', 'date_format', 'time_format', 'start_of_week',
+                'site_icon',
             ];
             $input = [];
             foreach ($map as $key) {
@@ -521,7 +532,14 @@ class AP_Options
                 $input['registration_captcha'] = 'off';
             }
 
-            return AP_Settings::save('general', $input, $db);
+            $previousIcon = array_key_exists('site_icon', $input) ? self::siteIcon($db) : 0;
+            $ok = AP_Settings::save('general', $input, $db);
+            // Generate new favicon pack and/or clean up the previous attachment's derivatives.
+            if ($ok && array_key_exists('site_icon', $input)) {
+                self::applySiteIconChange($previousIcon, self::siteIcon($db), $db);
+            }
+
+            return $ok;
         }
 
         $ok = true;
@@ -599,8 +617,49 @@ class AP_Options
         if (isset($settings['start_of_week'])) {
             $ok = self::update('start_of_week', (string) max(0, min(6, (int) $settings['start_of_week'])), $db) && $ok;
         }
+        if (array_key_exists('site_icon', $settings)) {
+            $previousIcon = self::siteIcon($db);
+            $newIcon = max(0, (int) $settings['site_icon']);
+            $ok = self::update('site_icon', (string) $newIcon, $db) && $ok;
+            if ($ok) {
+                self::applySiteIconChange($previousIcon, $newIcon, $db);
+            }
+        }
 
         return $ok;
+    }
+
+    /**
+     * When site_icon changes: drop derivatives on the old attachment (if different),
+     * generate the favicon pack for the new attachment (if any).
+     *
+     * Remove (new = 0) cleans only. Replace cleans previous then generates for new.
+     * Same ID re-save regenerates in place (generate already replaces files).
+     */
+    public static function applySiteIconChange(int $previousId, int $newId, ?AP_DB $db = null): void
+    {
+        $previousId = max(0, $previousId);
+        $newId = max(0, $newId);
+
+        if ($previousId > 0 && $previousId !== $newId && class_exists('AP_Media', false)) {
+            AP_Media::cleanupSiteIconDerivatives($previousId, $db);
+        }
+
+        if ($newId > 0) {
+            self::ensureSiteIconDerivatives($newId, $db);
+        }
+    }
+
+    /**
+     * Generate site-icon pixel sizes when the option is set (best-effort).
+     */
+    public static function ensureSiteIconDerivatives(int $attachmentId, ?AP_DB $db = null): void
+    {
+        $attachmentId = max(0, $attachmentId);
+        if ($attachmentId < 1 || !class_exists('AP_Media', false)) {
+            return;
+        }
+        AP_Media::generateSiteIconSizes($attachmentId, $db);
     }
 
     /**

@@ -1944,6 +1944,61 @@ a.ap-button-danger {
     gap: 0.35rem;
 }
 
+/* Site icon picker (Settings → General) */
+.ap-site-icon-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.ap-site-icon-label {
+    font-weight: 600;
+}
+
+.ap-site-icon-preview {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+    min-height: 96px;
+}
+
+.ap-site-icon-img {
+    display: block;
+    width: 96px;
+    height: 96px;
+    object-fit: contain;
+    border-radius: var(--ap-radius, 6px);
+    border: 1px solid var(--ap-border);
+    background: var(--ap-bg);
+    padding: 0.25rem;
+}
+
+.ap-site-icon-placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 96px;
+    height: 96px;
+    border-radius: var(--ap-radius, 6px);
+    border: 1px dashed var(--ap-border);
+    background: var(--ap-bg);
+    color: var(--ap-muted, #666);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 0.35rem;
+}
+
+.ap-site-icon-status {
+    margin: 0;
+    flex: 1 1 12rem;
+}
+
+.ap-site-icon-library select,
+.ap-site-icon-upload input[type="file"] {
+    max-width: 100%;
+}
+
 /* Settings screens */
 .ap-form--settings {
     max-width: 48rem;

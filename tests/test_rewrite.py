@@ -102,10 +102,15 @@ def test_htaccess_and_nginx_front_controller() -> None:
     assert "index.php" in ht
     assert "sqlite" in ht.lower()
     assert "ap-includes" in ht
+    # Existing files (manual root favicon.ico) are not rewritten to index.php.
+    assert "REQUEST_FILENAME} !-f" in ht
+    assert "favicon.ico" in ht
     nginx = NGINX.read_text(encoding="utf-8")
     assert "try_files" in nginx
+    assert "try_files $uri" in nginx
     assert "index.php" in nginx
     assert "sqlite" in nginx.lower()
+    assert "favicon.ico" in nginx
 
 
 def test_rewrite_runtime_via_php() -> None:

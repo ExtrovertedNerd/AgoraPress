@@ -36,6 +36,7 @@ final class DeveloperDocsTest extends TestCase
             'themes' => ['themes.md'],
             'plugins' => ['plugins.md'],
             'editor' => ['editor.md'],
+            'site icon' => ['site-icon.md'],
             'compatibility' => ['compatibility.md'],
             'schema' => ['schema.md'],
             'vision compliance' => ['vision-compliance.md'],
@@ -65,6 +66,7 @@ final class DeveloperDocsTest extends TestCase
                 'themes.md',
                 'plugins.md',
                 'editor.md',
+                'site-icon.md',
                 'compatibility.md',
                 'schema.md',
                 'vision-compliance.md',
@@ -74,6 +76,38 @@ final class DeveloperDocsTest extends TestCase
                 $link,
                 $index,
                 "docs/README.md should link to {$link}"
+            );
+        }
+    }
+
+    public function testSiteIconDocCoversFaviconPack(): void
+    {
+        $text = $this->readDoc('site-icon.md');
+        foreach (
+            [
+                'site_icon',
+                'Settings → General',
+                'AP_Media',
+                'generateSiteIconSizes',
+                'SITE_ICON_SIZES',
+                '32',
+                '180',
+                '192',
+                '512',
+                'ico',
+                'ap_head',
+                'apple-touch-icon',
+                'ap_site_icon_meta_tags',
+                'favicon.ico',
+                'manage_options',
+                'GD',
+                'Imagick',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "site-icon.md should mention: {$needle}"
             );
         }
     }
@@ -155,7 +189,7 @@ final class DeveloperDocsTest extends TestCase
     public function testDocsIndexReflects031BetaAndAnalytics(): void
     {
         $index = $this->readDoc('README.md');
-        $this->assertStringContainsString('0.3.3-beta', $index);
+        $this->assertStringContainsString('0.3.4-beta', $index);
         $this->assertStringContainsString('AP_Analytics', $index);
         $this->assertStringContainsString('class-ap-analytics.php', $index);
         $this->assertStringContainsString('AP_Forum_Like', $index);

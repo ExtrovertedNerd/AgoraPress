@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** **`0.3.3-beta`** — MVP feature-complete with plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
+> **Status:** **`0.3.4-beta`** — MVP feature-complete with Site Icon (favicon pack), plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 
@@ -337,6 +337,7 @@ Full extension guides live under [`docs/`](docs/README.md):
 | [docs/themes.md](docs/themes.md) | Template hierarchy, Agora theme, assets |
 | [docs/plugins.md](docs/plugins.md) | Plugin headers, shortcodes, settings |
 | [docs/editor.md](docs/editor.md) | Visual editor contract (no blocks in core) |
+| [docs/site-icon.md](docs/site-icon.md) | Site icon / favicon pack (admin, sizes, head tags) |
 | [docs/compatibility.md](docs/compatibility.md) | Classic WordPress Theme Compatibility Layer |
 | [docs/schema.md](docs/schema.md) | Tables, migrations, multi-driver notes |
 | [docs/vision-compliance.md](docs/vision-compliance.md) | Principles checklist & intentional deviations |

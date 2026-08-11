@@ -688,14 +688,20 @@ HTACCESS;
 
         $file = self::getAttachedFile($id, $db);
         $meta = self::getMetadata($id, $db);
+
+        // Drop intermediate + site-icon derivatives before the post row is removed.
+        // AP_Post::delete() may already unlink the original file for attachments.
+        if ($file !== '') {
+            self::deleteIntermediateFiles($meta, $file);
+            self::deleteSiteIconFiles($meta, $file);
+        }
+
         $ok = AP_Post::delete($id, true, $db);
         if (!$ok) {
             return false;
         }
 
         if ($file !== '' && is_file($file)) {
-            // Intermediate sizes first (same directory as original).
-            self::deleteIntermediateFiles($meta, $file);
             // Only unlink files that still live under the uploads basedir.
             $base = realpath(self::basedir());
             $real = realpath($file);
@@ -1337,7 +1343,7 @@ HTACCESS;
     }
 
     // -------------------------------------------------------------------------
-    // Image editing (GD) — scale / crop / intermediate sizes / max display width
+    // Image editing (GD / Imagick) — scale / crop / intermediate / site icon
     // -------------------------------------------------------------------------
 
     /** Option: max CSS display width for content images (px). 0 = no fixed cap. */
@@ -1346,8 +1352,24 @@ HTACCESS;
     /** Default max display width when option is unset. */
     public const DEFAULT_MAX_DISPLAY_WIDTH = 1200;
 
+    /**
+     * Pixel sizes generated for the site icon favicon set (PNG, square crop).
+     *
+     * @var list<int>
+     */
+    public const SITE_ICON_SIZES = [32, 180, 192, 512];
+
+    /**
+     * Attachment metadata key under {@see ATTACHMENT_META} for site-icon derivatives.
+     * Kept separate from intermediate `sizes` so thumbnail regen does not wipe them.
+     */
+    public const SITE_ICON_META_KEY = 'site_icon';
+
     /** @var bool Whether content-image CSS printer was registered. */
     private static bool $contentCssRegistered = false;
+
+    /** @var bool Whether site-icon link tags printer was registered. */
+    private static bool $siteIconTagsRegistered = false;
 
     /**
      * Whether GD can load/save common raster formats used by AgoraPress.
@@ -1357,6 +1379,30 @@ HTACCESS;
         return extension_loaded('gd')
             && function_exists('imagecreatetruecolor')
             && function_exists('imagecopyresampled');
+    }
+
+    /**
+     * Whether Imagick is available for load/save/resample.
+     */
+    public static function imagickAvailable(): bool
+    {
+        return extension_loaded('imagick') && class_exists(\Imagick::class, false);
+    }
+
+    /**
+     * Whether any supported image editor (GD or Imagick) is available.
+     */
+    public static function imageEditorAvailable(): bool
+    {
+        return self::gdAvailable() || self::imagickAvailable();
+    }
+
+    /**
+     * Size name stored for a site-icon pixel derivative (e.g. site_icon-32).
+     */
+    public static function siteIconSizeName(int $px): string
+    {
+        return 'site_icon-' . max(1, $px);
     }
 
     /**
@@ -1374,6 +1420,37 @@ HTACCESS;
         }
 
         ap_add_action('ap_head', [self::class, 'printContentImageCss'], 20);
+    }
+
+    /**
+     * Register ap_head printer for site icon (favicon) link tags (idempotent).
+     *
+     * Prints only when option site_icon &gt; 0. When unset, core emits nothing so a
+     * manual root favicon.ico remains a passive browser fallback (web servers
+     * already serve existing files via .htaccess !-f / nginx try_files $uri).
+     * Core never invents a &lt;link rel="icon" href="/favicon.ico"&gt; tag.
+     */
+    public static function registerSiteIconTags(): void
+    {
+        if (self::$siteIconTagsRegistered) {
+            return;
+        }
+        self::$siteIconTagsRegistered = true;
+
+        if (!function_exists('ap_add_action')) {
+            return;
+        }
+
+        // After SEO (priority 1), before most theme/plugin head content.
+        ap_add_action('ap_head', [self::class, 'printSiteIconTags'], 2);
+    }
+
+    /**
+     * Reset site-icon head registration flag (tests).
+     */
+    public static function resetSiteIconTagsRegistration(): void
+    {
+        self::$siteIconTagsRegistered = false;
     }
 
     /**
@@ -1471,7 +1548,7 @@ HTACCESS;
     {
         $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
         $meta = self::getMetadata($attachmentId, $db);
-        if (!self::gdAvailable()) {
+        if (!self::imageEditorAvailable()) {
             return $meta;
         }
 
@@ -1547,6 +1624,339 @@ HTACCESS;
     }
 
     /**
+     * Generate site-icon derivatives (32 / 180 / 192 / 512 PNG + ICO or 32px fallback).
+     *
+     * Called when the site_icon option is set or changed. Uses square center-crop
+     * via {@see resampleFile} (GD or Imagick). Stores paths under attachment
+     * metadata key {@see SITE_ICON_META_KEY} (not intermediate `sizes`).
+     *
+     * @return array{
+     *   ok: bool,
+     *   error: string,
+     *   sizes: array<string, array{file: string, width: int, height: int, mime-type: string}>,
+     *   meta: array<string, mixed>
+     * }
+     */
+    public static function generateSiteIconSizes(int $attachmentId, ?AP_DB $db = null): array
+    {
+        $empty = static fn (string $error, array $meta = []): array => [
+            'ok' => false,
+            'error' => $error,
+            'sizes' => [],
+            'meta' => $meta,
+        ];
+
+        $attachmentId = max(0, $attachmentId);
+        if ($attachmentId < 1) {
+            return $empty('Invalid attachment ID.');
+        }
+
+        $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        $meta = self::getMetadata($attachmentId, $db);
+
+        if (!self::imageEditorAvailable()) {
+            return $empty('Image editing requires the PHP GD or Imagick extension.', $meta);
+        }
+
+        $abs = self::getAttachedFile($attachmentId, $db);
+        if ($abs === '' || !is_file($abs)) {
+            return $empty('Site icon file is missing on disk.', $meta);
+        }
+
+        $post = AP_Post::get($attachmentId, $db);
+        $mime = $post !== null ? (string) $post->post_mime_type : '';
+        if ($mime === '') {
+            $mime = self::detectMime($abs);
+        }
+        if ($mime === '' || !self::isImageMime($mime) || str_contains(strtolower($mime), 'svg')) {
+            return $empty('Site icon must be a raster image.', $meta);
+        }
+
+        // Drop previous site-icon derivatives before regenerating.
+        self::deleteSiteIconFiles($meta, $abs);
+
+        $dir = dirname($abs);
+        $baseName = pathinfo($abs, PATHINFO_FILENAME);
+        $generated = [];
+        $pngMime = 'image/png';
+
+        foreach (self::SITE_ICON_SIZES as $px) {
+            $px = (int) $px;
+            if ($px < 1) {
+                continue;
+            }
+            $destName = $baseName . '-' . self::siteIconSizeName($px) . '.png';
+            $destPath = $dir . '/' . $destName;
+            $result = self::resampleFile($abs, $destPath, $mime, $px, $px, true);
+            if (!$result['ok'] || !is_file($destPath)) {
+                continue;
+            }
+
+            $key = (string) $px;
+            $generated[$key] = [
+                'file' => $destName,
+                'width' => (int) $result['width'],
+                'height' => (int) $result['height'],
+                'mime-type' => $pngMime,
+            ];
+        }
+
+        if ($generated === []) {
+            return $empty('Could not generate any site icon sizes.', $meta);
+        }
+
+        // ICO: prefer Imagick multi-size when available; else pack 32px PNG into .ico.
+        // When ICO cannot be written, the 32px PNG remains the browser fallback.
+        $icoWritten = self::writeSiteIconIco($dir, $baseName, $generated, $abs, $mime);
+        if ($icoWritten !== null) {
+            $generated['ico'] = $icoWritten;
+        }
+
+        $meta[self::SITE_ICON_META_KEY] = $generated;
+        if ($db !== null) {
+            AP_Post::updateMeta($attachmentId, self::ATTACHMENT_META, (string) json_encode($meta), $db);
+        }
+
+        return [
+            'ok' => true,
+            'error' => '',
+            'sizes' => $generated,
+            'meta' => $meta,
+        ];
+    }
+
+    /**
+     * Remove site-icon derivative files and clear their metadata for an attachment.
+     *
+     * Does not delete the original media file or intermediate sizes (thumbnail etc.).
+     * Used when the site_icon option is cleared or pointed at a different attachment.
+     *
+     * @return bool True when cleanup ran (or nothing to do); false for invalid id.
+     */
+    public static function cleanupSiteIconDerivatives(int $attachmentId, ?AP_DB $db = null): bool
+    {
+        $attachmentId = max(0, $attachmentId);
+        if ($attachmentId < 1) {
+            return false;
+        }
+
+        $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        $meta = self::getMetadata($attachmentId, $db);
+        $icons = is_array($meta[self::SITE_ICON_META_KEY] ?? null)
+            ? $meta[self::SITE_ICON_META_KEY]
+            : [];
+        if ($icons === []) {
+            return true;
+        }
+
+        $abs = self::getAttachedFile($attachmentId, $db);
+        if ($abs !== '') {
+            self::deleteSiteIconFiles($meta, $abs);
+        }
+        // Always clear metadata even if the original file is missing (orphaned stubs).
+
+        unset($meta[self::SITE_ICON_META_KEY]);
+        if ($db !== null) {
+            AP_Post::updateMeta($attachmentId, self::ATTACHMENT_META, (string) json_encode($meta), $db);
+        }
+
+        return true;
+    }
+
+    /**
+     * Site-icon derivative map from attachment metadata (empty when none).
+     *
+     * @return array<string, array{file?: string, width?: int, height?: int, mime-type?: string}>
+     */
+    public static function getSiteIconSizes(int $attachmentId, ?AP_DB $db = null): array
+    {
+        $meta = self::getMetadata($attachmentId, $db);
+        $icons = $meta[self::SITE_ICON_META_KEY] ?? null;
+        if (!is_array($icons)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($icons as $key => $entry) {
+            if (is_array($entry) && (string) ($entry['file'] ?? '') !== '') {
+                $out[(string) $key] = $entry;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Public URL for a site-icon size (px int, "ico", or size name). Empty when missing.
+     */
+    public static function getSiteIconUrl(int $attachmentId, int|string $size = 32, ?AP_DB $db = null): string
+    {
+        $icons = self::getSiteIconSizes($attachmentId, $db);
+        $key = is_int($size) ? (string) $size : (string) $size;
+        if ($key === 'favicon' || $key === 'icon') {
+            $key = 'ico';
+        }
+        if (!isset($icons[$key])) {
+            // Fall back to 32px PNG when ICO was not generated.
+            if ($key === 'ico' && isset($icons['32'])) {
+                $key = '32';
+            } else {
+                return '';
+            }
+        }
+
+        $file = (string) ($icons[$key]['file'] ?? '');
+        if ($file === '') {
+            return '';
+        }
+
+        $relative = self::getAttachedFileRelative($attachmentId, $db);
+        if ($relative === '') {
+            return '';
+        }
+        $dir = str_replace('\\', '/', dirname($relative));
+        $sub = ($dir === '.' || $dir === '') ? $file : ($dir . '/' . $file);
+
+        return self::baseurl() . '/' . implode('/', array_map('rawurlencode', explode('/', $sub)));
+    }
+
+    /**
+     * Absolute path for a site-icon derivative file, or empty string.
+     */
+    public static function getSiteIconPath(int $attachmentId, int|string $size = 32, ?AP_DB $db = null): string
+    {
+        $icons = self::getSiteIconSizes($attachmentId, $db);
+        $key = is_int($size) ? (string) $size : (string) $size;
+        if ($key === 'favicon' || $key === 'icon') {
+            $key = 'ico';
+        }
+        if (!isset($icons[$key]) && $key === 'ico' && isset($icons['32'])) {
+            $key = '32';
+        }
+        if (!isset($icons[$key])) {
+            return '';
+        }
+        $file = (string) ($icons[$key]['file'] ?? '');
+        if ($file === '' || str_contains($file, '..') || str_contains($file, '/') || str_contains($file, '\\')) {
+            return '';
+        }
+
+        $abs = self::getAttachedFile($attachmentId, $db);
+        if ($abs === '') {
+            return '';
+        }
+        $path = dirname($abs) . '/' . $file;
+
+        return is_file($path) ? $path : '';
+    }
+
+    /**
+     * Build &lt;link&gt; tags for the configured site icon (empty when none / site_icon = 0).
+     *
+     * Emits standard favicon + apple-touch-icon tags from generated derivatives.
+     * Browsers pick the best asset; no user-agent sniffing.
+     *
+     * When site_icon is 0 / unset: returns [] and does not scan for or link to a
+     * document-root favicon.ico. That file stays a passive browser default — if
+     * an operator places one at the web root, the server serves it as a static
+     * file and browsers request it when no icon link tags are present.
+     *
+     * Filter: ap_site_icon_meta_tags (list of HTML tag strings, attachment ID, db).
+     * Applied only when a site_icon attachment is configured.
+     *
+     * @return list<string>
+     */
+    public static function getSiteIconMetaTags(?AP_DB $db = null): array
+    {
+        $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        $attachmentId = 0;
+        if (class_exists('AP_Options', false)) {
+            $attachmentId = AP_Options::siteIcon($db);
+        }
+        $attachmentId = max(0, $attachmentId);
+        // No managed site icon: leave head clean so root favicon.ico can act as
+        // a passive fallback. Do not emit a synthetic /favicon.ico link tag.
+        if ($attachmentId < 1) {
+            return [];
+        }
+
+        $escUrl = static function (string $url): string {
+            if ($url === '') {
+                return '';
+            }
+
+            return function_exists('ap_esc_url')
+                ? ap_esc_url($url)
+                : htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        };
+
+        $tags = [];
+        $icons = self::getSiteIconSizes($attachmentId, $db);
+
+        // Prefer real ICO when generated (sizes="any"); do not duplicate the 32px PNG fallback.
+        if (isset($icons['ico'])) {
+            $icoUrl = self::getSiteIconUrl($attachmentId, 'ico', $db);
+            if ($icoUrl !== '') {
+                $tags[] = '<link rel="icon" href="' . $escUrl($icoUrl) . '" sizes="any" type="image/x-icon">';
+            }
+        }
+
+        $pngSizes = [
+            32 => '32x32',
+            192 => '192x192',
+            512 => '512x512',
+        ];
+        foreach ($pngSizes as $px => $sizesAttr) {
+            $url = self::getSiteIconUrl($attachmentId, $px, $db);
+            if ($url === '') {
+                continue;
+            }
+            $tags[] = '<link rel="icon" href="' . $escUrl($url) . '" sizes="' . $sizesAttr . '" type="image/png">';
+        }
+
+        $apple = self::getSiteIconUrl($attachmentId, 180, $db);
+        if ($apple !== '') {
+            $tags[] = '<link rel="apple-touch-icon" href="' . $escUrl($apple) . '" sizes="180x180">';
+        }
+
+        // No derivatives yet: single icon from the original attachment (still better than nothing).
+        if ($tags === []) {
+            $fallback = self::getAttachmentUrl($attachmentId, $db);
+            if ($fallback !== '') {
+                $tags[] = '<link rel="icon" href="' . $escUrl($fallback) . '">';
+            }
+        }
+
+        if (function_exists('ap_apply_filters')) {
+            $filtered = ap_apply_filters('ap_site_icon_meta_tags', $tags, $attachmentId, $db);
+            if (is_array($filtered)) {
+                $out = [];
+                foreach ($filtered as $tag) {
+                    if (is_string($tag) && $tag !== '') {
+                        $out[] = $tag;
+                    }
+                }
+                $tags = $out;
+            }
+        }
+
+        return $tags;
+    }
+
+    /**
+     * Print site icon &lt;link&gt; tags for ap_head.
+     *
+     * No-op when site_icon is 0 so a manual root favicon.ico remains usable as a
+     * passive browser fallback (no core-emitted icon link tags to override it).
+     */
+    public static function printSiteIconTags(?AP_DB $db = null): void
+    {
+        foreach (self::getSiteIconMetaTags($db) as $tag) {
+            echo $tag . "\n";
+        }
+    }
+
+    /**
      * Scale (and optionally crop) the original attachment file in place.
      *
      * @return array{ok: bool, error: string, width: int, height: int, meta: array<string, mixed>}
@@ -1566,8 +1976,8 @@ HTACCESS;
             'meta' => [],
         ];
 
-        if (!self::gdAvailable()) {
-            return $fail('Image editing requires the PHP GD extension.');
+        if (!self::imageEditorAvailable()) {
+            return $fail('Image editing requires the PHP GD or Imagick extension.');
         }
 
         $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
@@ -1666,7 +2076,7 @@ HTACCESS;
     }
 
     /**
-     * Resample a source image file to a destination path.
+     * Resample a source image file to a destination path (GD preferred, Imagick fallback).
      *
      * @return array{ok: bool, error: string, width: int, height: int}
      */
@@ -1685,12 +2095,51 @@ HTACCESS;
             'height' => 0,
         ];
 
-        if (!self::gdAvailable()) {
-            return $fail('GD is not available.');
+        if (!self::imageEditorAvailable()) {
+            return $fail('GD or Imagick is not available.');
         }
         if (!is_readable($srcPath)) {
             return $fail('Source image is not readable.');
         }
+
+        // Prefer destination extension when writing a different format (e.g. PNG crops).
+        $destExt = strtolower(pathinfo($destPath, PATHINFO_EXTENSION));
+        $outMime = $mime;
+        if ($destExt === 'png') {
+            $outMime = 'image/png';
+        } elseif (in_array($destExt, ['jpg', 'jpeg', 'jpe'], true)) {
+            $outMime = 'image/jpeg';
+        } elseif ($destExt === 'webp') {
+            $outMime = 'image/webp';
+        } elseif ($destExt === 'gif') {
+            $outMime = 'image/gif';
+        }
+
+        if (self::gdAvailable()) {
+            return self::resampleFileGd($srcPath, $destPath, $mime, $outMime, $maxWidth, $maxHeight, $crop);
+        }
+
+        return self::resampleFileImagick($srcPath, $destPath, $outMime, $maxWidth, $maxHeight, $crop);
+    }
+
+    /**
+     * @return array{ok: bool, error: string, width: int, height: int}
+     */
+    private static function resampleFileGd(
+        string $srcPath,
+        string $destPath,
+        string $srcMime,
+        string $outMime,
+        int $maxWidth,
+        int $maxHeight,
+        bool $crop
+    ): array {
+        $fail = static fn (string $error): array => [
+            'ok' => false,
+            'error' => $error,
+            'width' => 0,
+            'height' => 0,
+        ];
 
         $info = @getimagesize($srcPath);
         if (!is_array($info) || !isset($info[0], $info[1]) || (int) $info[0] < 1 || (int) $info[1] < 1) {
@@ -1698,9 +2147,9 @@ HTACCESS;
         }
         $srcW = (int) $info[0];
         $srcH = (int) $info[1];
-        $mime = $mime !== '' ? $mime : (string) ($info['mime'] ?? '');
+        $srcMime = $srcMime !== '' ? $srcMime : (string) ($info['mime'] ?? '');
 
-        $src = self::createImageFromFile($srcPath, $mime);
+        $src = self::createImageFromFile($srcPath, $srcMime);
         if ($src === null) {
             return $fail('Could not load the image (unsupported format or corrupt file).');
         }
@@ -1736,7 +2185,7 @@ HTACCESS;
             $cropW = $srcW;
             $cropH = $srcH;
 
-            if ($dstW === $srcW && $dstH === $srcH) {
+            if ($dstW === $srcW && $dstH === $srcH && strtolower($srcMime) === strtolower($outMime)) {
                 // No change needed — copy file as-is when paths differ.
                 if ($srcPath !== $destPath) {
                     if (!@copy($srcPath, $destPath)) {
@@ -1764,7 +2213,7 @@ HTACCESS;
         }
 
         // Preserve alpha for PNG / WebP / GIF.
-        if (self::mimeSupportsAlpha($mime)) {
+        if (self::mimeSupportsAlpha($outMime) || self::mimeSupportsAlpha($srcMime)) {
             imagealphablending($dst, false);
             imagesavealpha($dst, true);
             $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
@@ -1792,7 +2241,7 @@ HTACCESS;
             return $fail('Resampling failed.');
         }
 
-        $saved = self::saveImageToFile($dst, $destPath, $mime);
+        $saved = self::saveImageToFile($dst, $destPath, $outMime);
         imagedestroy($dst);
         if (!$saved) {
             return $fail('Could not write the processed image.');
@@ -1805,6 +2254,114 @@ HTACCESS;
             'width' => $dstW,
             'height' => $dstH,
         ];
+    }
+
+    /**
+     * @return array{ok: bool, error: string, width: int, height: int}
+     */
+    private static function resampleFileImagick(
+        string $srcPath,
+        string $destPath,
+        string $outMime,
+        int $maxWidth,
+        int $maxHeight,
+        bool $crop
+    ): array {
+        $fail = static fn (string $error): array => [
+            'ok' => false,
+            'error' => $error,
+            'width' => 0,
+            'height' => 0,
+        ];
+
+        if (!self::imagickAvailable()) {
+            return $fail('Imagick is not available.');
+        }
+
+        try {
+            $img = new \Imagick();
+            $img->readImage($srcPath);
+            if ($img->getNumberImages() > 1) {
+                // Use first frame for multi-frame sources (GIF/ICO).
+                $img = $img->coalesceImages();
+                $img->setIteratorIndex(0);
+                $frame = $img->getImage();
+                $img->clear();
+                $img->destroy();
+                $img = $frame;
+            }
+
+            $srcW = (int) $img->getImageWidth();
+            $srcH = (int) $img->getImageHeight();
+            if ($srcW < 1 || $srcH < 1) {
+                $img->clear();
+                $img->destroy();
+
+                return $fail('Source is not a valid image.');
+            }
+
+            $maxWidth = max(0, $maxWidth);
+            $maxHeight = max(0, $maxHeight);
+
+            if ($crop && $maxWidth > 0 && $maxHeight > 0) {
+                $img->cropThumbnailImage($maxWidth, $maxHeight);
+                $dstW = $maxWidth;
+                $dstH = $maxHeight;
+            } else {
+                $dstW = $srcW;
+                $dstH = $srcH;
+                if ($maxWidth > 0 && $dstW > $maxWidth) {
+                    $dstH = (int) max(1, round($dstH * ($maxWidth / $dstW)));
+                    $dstW = $maxWidth;
+                }
+                if ($maxHeight > 0 && $dstH > $maxHeight) {
+                    $dstW = (int) max(1, round($dstW * ($maxHeight / $dstH)));
+                    $dstH = $maxHeight;
+                }
+                if ($dstW === $srcW && $dstH === $srcH) {
+                    // May still need format conversion.
+                } else {
+                    $img->resizeImage($dstW, $dstH, \Imagick::FILTER_LANCZOS, 1, true);
+                    $dstW = (int) $img->getImageWidth();
+                    $dstH = (int) $img->getImageHeight();
+                }
+            }
+
+            $format = 'png';
+            if (str_contains(strtolower($outMime), 'jpeg') || str_contains(strtolower($outMime), 'jpg')) {
+                $format = 'jpeg';
+                $img->setImageBackgroundColor('white');
+                $img = $img->mergeImageLayers(\Imagick::LAYERMETHOD_FLATTEN);
+                $img->setImageAlphaChannel(\Imagick::ALPHACHANNEL_REMOVE);
+            } elseif (str_contains(strtolower($outMime), 'webp')) {
+                $format = 'webp';
+            } elseif (str_contains(strtolower($outMime), 'gif')) {
+                $format = 'gif';
+            }
+            $img->setImageFormat($format);
+            if ($format === 'png') {
+                $img->setImageCompressionQuality(90);
+            } elseif ($format === 'jpeg') {
+                $img->setImageCompressionQuality(90);
+            }
+
+            $ok = $img->writeImage($destPath);
+            $img->clear();
+            $img->destroy();
+            if (!$ok || !is_file($destPath)) {
+                return $fail('Could not write the processed image.');
+            }
+            @chmod($destPath, 0644);
+
+            return [
+                'ok' => true,
+                'error' => '',
+                'width' => $dstW,
+                'height' => $dstH,
+            ];
+        } catch (\Throwable $e) {
+            return $fail('Imagick processing failed: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -1958,6 +2515,197 @@ HTACCESS;
                 @unlink($real);
             }
         }
+    }
+
+    /**
+     * Remove previous site-icon derivative files listed in attachment metadata.
+     *
+     * @param array<string, mixed> $meta
+     */
+    private static function deleteSiteIconFiles(array $meta, string $originalAbs): void
+    {
+        $icons = is_array($meta[self::SITE_ICON_META_KEY] ?? null)
+            ? $meta[self::SITE_ICON_META_KEY]
+            : [];
+        if ($icons === []) {
+            return;
+        }
+        $dir = dirname($originalAbs);
+        $base = realpath(self::basedir());
+        foreach ($icons as $sizeMeta) {
+            if (!is_array($sizeMeta)) {
+                continue;
+            }
+            $file = (string) ($sizeMeta['file'] ?? '');
+            if ($file === '' || str_contains($file, '..')) {
+                continue;
+            }
+            $path = $dir . '/' . basename($file);
+            if (!is_file($path)) {
+                continue;
+            }
+            $real = realpath($path);
+            if ($base !== false && $real !== false && str_starts_with($real, $base)) {
+                @unlink($real);
+            }
+        }
+    }
+
+    /**
+     * Write a .ico for the site icon set.
+     *
+     * Prefer Imagick (true ICO). Fallback: pack the 32px PNG into an ICO container
+     * (PNG-in-ICO, widely supported). Returns size meta entry or null on failure.
+     *
+     * @param array<string, array{file: string, width: int, height: int, mime-type: string}> $generated
+     *
+     * @return array{file: string, width: int, height: int, mime-type: string}|null
+     */
+    private static function writeSiteIconIco(
+        string $dir,
+        string $baseName,
+        array $generated,
+        string $sourceAbs,
+        string $sourceMime
+    ): ?array {
+        // Stable basename: {original}-site_icon.ico
+        $icoName = $baseName . '-site_icon.ico';
+        $icoPath = $dir . '/' . $icoName;
+
+        // Imagick path: write a proper ICO (optionally multi-size).
+        if (self::imagickAvailable()) {
+            try {
+                $ico = new \Imagick();
+                $added = 0;
+                foreach ([16, 32, 48] as $px) {
+                    $srcForFrame = $sourceAbs;
+                    if (isset($generated[(string) $px])) {
+                        $candidate = $dir . '/' . $generated[(string) $px]['file'];
+                        if (is_file($candidate)) {
+                            $srcForFrame = $candidate;
+                        }
+                    } elseif (isset($generated['32'])) {
+                        $candidate = $dir . '/' . $generated['32']['file'];
+                        if (is_file($candidate)) {
+                            $srcForFrame = $candidate;
+                        }
+                    }
+                    $frame = new \Imagick($srcForFrame);
+                    $frame->setImageFormat('png');
+                    if ((int) $frame->getImageWidth() !== $px || (int) $frame->getImageHeight() !== $px) {
+                        $frame->cropThumbnailImage($px, $px);
+                    }
+                    $frame->setImageFormat('ico');
+                    $ico->addImage($frame);
+                    $frame->clear();
+                    $frame->destroy();
+                    $added++;
+                }
+                if ($added > 0) {
+                    $ico->setImageFormat('ico');
+                    $ok = $ico->writeImages($icoPath, true);
+                    $ico->clear();
+                    $ico->destroy();
+                    if ($ok && is_file($icoPath)) {
+                        @chmod($icoPath, 0644);
+
+                        return [
+                            'file' => $icoName,
+                            'width' => 32,
+                            'height' => 32,
+                            'mime-type' => 'image/x-icon',
+                        ];
+                    }
+                } else {
+                    $ico->clear();
+                    $ico->destroy();
+                }
+            } catch (\Throwable $e) {
+                // Fall through to PNG-in-ICO.
+            }
+        }
+
+        // PNG-in-ICO from the 32px derivative (or generate one).
+        $pngPath = '';
+        if (isset($generated['32'])) {
+            $pngPath = $dir . '/' . $generated['32']['file'];
+        }
+        if ($pngPath === '' || !is_file($pngPath)) {
+            $tmpPng = $dir . '/' . $baseName . '-site_icon-32-tmp.png';
+            $r = self::resampleFile($sourceAbs, $tmpPng, $sourceMime, 32, 32, true);
+            if ($r['ok'] && is_file($tmpPng)) {
+                $pngPath = $tmpPng;
+            } else {
+                @unlink($tmpPng);
+
+                return null;
+            }
+        }
+
+        if (!self::writePngAsIco($pngPath, $icoPath)) {
+            if (str_ends_with($pngPath, '-site_icon-32-tmp.png')) {
+                @unlink($pngPath);
+            }
+
+            return null;
+        }
+        if (str_ends_with($pngPath, '-site_icon-32-tmp.png')) {
+            @unlink($pngPath);
+        }
+        @chmod($icoPath, 0644);
+
+        return [
+            'file' => $icoName,
+            'width' => 32,
+            'height' => 32,
+            'mime-type' => 'image/x-icon',
+        ];
+    }
+
+    /**
+     * Pack a PNG file into a single-image ICO container (PNG-in-ICO).
+     */
+    private static function writePngAsIco(string $pngPath, string $icoPath): bool
+    {
+        if (!is_readable($pngPath)) {
+            return false;
+        }
+        $png = @file_get_contents($pngPath);
+        if (!is_string($png) || $png === '') {
+            return false;
+        }
+
+        $info = @getimagesize($pngPath);
+        $w = 32;
+        $h = 32;
+        if (is_array($info) && isset($info[0], $info[1])) {
+            $w = (int) $info[0];
+            $h = (int) $info[1];
+        }
+        // ICO width/height bytes: 0 means 256.
+        $wByte = $w >= 256 ? 0 : max(0, min(255, $w));
+        $hByte = $h >= 256 ? 0 : max(0, min(255, $h));
+
+        $pngSize = strlen($png);
+        $offset = 6 + 16; // ICONDIR + one ICONDIRENTRY
+        // reserved(2) type=1(2) count=1(2)
+        $header = pack('vvv', 0, 1, 1);
+        // width, height, colors=0, reserved=0, planes=1, bitcount=32, size, offset
+        $entry = pack(
+            'CCCCvvVV',
+            $wByte,
+            $hByte,
+            0,
+            0,
+            1,
+            32,
+            $pngSize,
+            $offset
+        );
+
+        $written = @file_put_contents($icoPath, $header . $entry . $png);
+
+        return $written !== false && is_file($icoPath);
     }
 
     private static function relativeFromAbs(string $absPath): string

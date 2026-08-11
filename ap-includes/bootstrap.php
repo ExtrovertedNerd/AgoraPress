@@ -515,6 +515,11 @@ function ap_bootstrap(): void
         AP_Media::registerContentImageCss();
     }
 
+    // Media: site icon (favicon) link tags on ap_head when site_icon option is set.
+    if (class_exists('AP_Media', false) && method_exists('AP_Media', 'registerSiteIconTags')) {
+        AP_Media::registerSiteIconTags();
+    }
+
     // Must-use plugins load before regular plugins (always-on).
     // ap-cli may set AP_CLI_SKIP_PLUGINS to load MU only (or skip regular actives).
     if (class_exists('AP_Plugin', false)) {

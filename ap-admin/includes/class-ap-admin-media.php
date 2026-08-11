@@ -14,6 +14,16 @@ declare(strict_types=1);
 class AP_Admin_Media
 {
     /**
+     * Capability required to set or clear the site icon (Settings → General).
+     */
+    public const SITE_ICON_CAPABILITY = 'manage_options';
+
+    /**
+     * Nonce action shared with the General settings form (AP_Settings group "general").
+     */
+    public const SITE_ICON_NONCE_ACTION = 'ap_settings_general';
+
+    /**
      * Process one or more uploaded files from $_FILES['async-upload'] or ['media_file'].
      *
      * @param array<string, mixed> $files  $_FILES entry or multi-file structure.
@@ -447,5 +457,531 @@ class AP_Admin_Media
         }
 
         return implode(',', $parts);
+    }
+
+    /**
+     * accept= for site icon uploads (raster + ico; no SVG for derivative pipeline).
+     */
+    public static function siteIconAcceptAttribute(): string
+    {
+        return 'image/jpeg,image/png,image/gif,image/webp,image/x-icon,image/vnd.microsoft.icon'
+            . ',.jpg,.jpeg,.png,.gif,.webp,.ico';
+    }
+
+    /**
+     * Whether an attachment is suitable as a site icon (exists + non-SVG image).
+     */
+    public static function isUsableSiteIcon(int $id, ?AP_DB $db = null): bool
+    {
+        if ($id < 1 || !class_exists('AP_Media', false) || !class_exists('AP_Post', false)) {
+            return false;
+        }
+
+        $post = AP_Post::get($id, $db);
+        if ($post === null || $post->post_type !== 'attachment') {
+            return false;
+        }
+
+        $mime = strtolower(trim((string) $post->post_mime_type));
+        if ($mime === '' || str_contains($mime, 'svg')) {
+            return false;
+        }
+
+        return AP_Media::isImageMime($mime);
+    }
+
+    /**
+     * Resolve site_icon attachment ID from General settings form input + optional upload.
+     *
+     * Priority: new upload → remove checkbox → posted site_icon (library / hidden).
+     * Non-image or missing attachments coerce to 0 with an error when explicitly set.
+     *
+     * @param array<string, mixed> $input      POST bag
+     * @param array<string, mixed> $files      $_FILES bag (site_icon_upload key)
+     * @param array<string, mixed> $uploadArgs Extra AP_Media::handleUpload args (e.g. test_mode)
+     *
+     * @return array{ok: bool, site_icon: int, errors: list<string>}
+     */
+    public static function resolveSiteIconInput(
+        array $input,
+        array $files,
+        int $userId,
+        ?AP_DB $db = null,
+        array $uploadArgs = []
+    ): array {
+        $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        $remove = !empty($input['remove_site_icon']);
+
+        $file = $files['site_icon_upload'] ?? null;
+        $hasUpload = is_array($file)
+            && (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
+            && (string) ($file['tmp_name'] ?? '') !== '';
+
+        if ($hasUpload) {
+            if ($userId > 0 && class_exists('AP_Admin', false)
+                && !AP_Admin::userCan($userId, 'upload_files', null, $db)
+            ) {
+                return [
+                    'ok' => false,
+                    'site_icon' => max(0, (int) ($input['site_icon'] ?? 0)),
+                    'errors' => ['You do not have permission to upload files.'],
+                ];
+            }
+
+            /** @var array<string, mixed> $file */
+            $args = array_merge([
+                'post_author' => $userId,
+                'post_title' => 'Site Icon',
+                'alt_text' => 'Site Icon',
+                'skip_rate_limit' => !empty($uploadArgs['skip_rate_limit']),
+            ], $uploadArgs);
+
+            $result = AP_Media::handleUpload($file, $args, $db);
+            if (!$result['ok'] || $result['id'] < 1) {
+                return [
+                    'ok' => false,
+                    'site_icon' => max(0, (int) ($input['site_icon'] ?? 0)),
+                    'errors' => [
+                        $result['error'] !== ''
+                            ? $result['error']
+                            : 'Could not upload the site icon.',
+                    ],
+                ];
+            }
+
+            if (!self::isUsableSiteIcon($result['id'], $db)) {
+                // Uploaded something non-image somehow — do not keep it as icon.
+                return [
+                    'ok' => false,
+                    'site_icon' => max(0, (int) ($input['site_icon'] ?? 0)),
+                    'errors' => ['Site icon must be a JPEG, PNG, GIF, WebP, or ICO image.'],
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'site_icon' => $result['id'],
+                'errors' => [],
+            ];
+        }
+
+        if ($remove) {
+            return [
+                'ok' => true,
+                'site_icon' => 0,
+                'errors' => [],
+            ];
+        }
+
+        // Library select or hidden field.
+        if (!array_key_exists('site_icon', $input)) {
+            // Partial save — leave caller to omit the key so option is preserved.
+            return [
+                'ok' => true,
+                'site_icon' => -1,
+                'errors' => [],
+            ];
+        }
+
+        $id = max(0, (int) $input['site_icon']);
+        if ($id === 0) {
+            return [
+                'ok' => true,
+                'site_icon' => 0,
+                'errors' => [],
+            ];
+        }
+
+        if (!self::isUsableSiteIcon($id, $db)) {
+            return [
+                'ok' => false,
+                'site_icon' => 0,
+                'errors' => ['Selected site icon is not a valid image attachment.'],
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'site_icon' => $id,
+            'errors' => [],
+        ];
+    }
+
+    /**
+     * Whether the user may set or clear the site icon option.
+     */
+    public static function userCanManageSiteIcon(int $userId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+        if (class_exists('AP_Admin', false)) {
+            return AP_Admin::userCan($userId, self::SITE_ICON_CAPABILITY, null, $db);
+        }
+        if (class_exists('AP_Roles', false)) {
+            return AP_Roles::userCan($userId, self::SITE_ICON_CAPABILITY, null, $db);
+        }
+
+        return false;
+    }
+
+    /**
+     * Secure site-icon save for Settings → General.
+     *
+     * Enforces:
+     * 1. Valid `_ap_nonce` for {@see self::SITE_ICON_NONCE_ACTION} (same as general settings)
+     * 2. {@see self::SITE_ICON_CAPABILITY} (`manage_options`)
+     * 3. {@see resolveSiteIconInput} (upload / library / remove)
+     *
+     * By default only resolves the attachment ID for merging into
+     * {@see AP_Options::updateGeneralSettings}. Pass `$args['persist'] => true`
+     * to write the `site_icon` option immediately (unit tests / isolated saves).
+     *
+     * @param array<string, mixed> $input POST bag (must include `_ap_nonce`)
+     * @param array<string, mixed> $files $_FILES bag
+     * @param array{
+     *   persist?: bool,
+     *   skip_rate_limit?: bool,
+     *   test_mode?: bool
+     * } $args Extra flags (upload test_mode, skip_rate_limit, persist)
+     *
+     * @return array{
+     *   ok: bool,
+     *   message_key: string,
+     *   site_icon: int,
+     *   errors: list<string>,
+     *   saved: bool
+     * }
+     */
+    public static function processSiteIconSave(
+        array $input,
+        array $files,
+        int $userId,
+        ?AP_DB $db = null,
+        array $args = []
+    ): array {
+        $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        $fail = static function (string $key, string $error, int $icon = -1): array {
+            return [
+                'ok' => false,
+                'message_key' => $key,
+                'site_icon' => $icon,
+                'errors' => [$error],
+                'saved' => false,
+            ];
+        };
+
+        $nonce = (string) ($input['_ap_nonce'] ?? '');
+        if (
+            $nonce === ''
+            || !function_exists('ap_check_nonce')
+            || !ap_check_nonce($nonce, self::SITE_ICON_NONCE_ACTION, $userId > 0 ? $userId : null)
+        ) {
+            return $fail('nonce', 'Security check failed. Please try again.');
+        }
+
+        if (!self::userCanManageSiteIcon($userId, $db)) {
+            return $fail(
+                'cap',
+                'You do not have permission to manage site settings.'
+            );
+        }
+
+        $uploadArgs = [];
+        if (!empty($args['test_mode'])) {
+            $uploadArgs['test_mode'] = true;
+        }
+        if (!empty($args['skip_rate_limit'])) {
+            $uploadArgs['skip_rate_limit'] = true;
+        }
+
+        $resolved = self::resolveSiteIconInput($input, $files, $userId, $db, $uploadArgs);
+        if (!$resolved['ok']) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'site_icon' => $resolved['site_icon'],
+                'errors' => $resolved['errors'],
+                'saved' => false,
+            ];
+        }
+
+        $saved = false;
+        $persist = !empty($args['persist']);
+        if ($persist && $resolved['site_icon'] >= 0 && class_exists('AP_Options', false)) {
+            $previousIcon = AP_Options::siteIcon($db);
+            $newIcon = max(0, (int) $resolved['site_icon']);
+            $ok = AP_Options::update(
+                'site_icon',
+                (string) $newIcon,
+                $db
+            );
+            if (!$ok) {
+                return $fail('error', 'Could not save the site icon.', $newIcon);
+            }
+            $saved = true;
+            // Cleanup previous pack on remove/replace; generate for the new icon when set.
+            AP_Options::applySiteIconChange($previousIcon, $newIcon, $db);
+        }
+
+        return [
+            'ok' => true,
+            'message_key' => 'ok',
+            'site_icon' => $resolved['site_icon'],
+            'errors' => [],
+            'saved' => $saved,
+        ];
+    }
+
+    /**
+     * HTML for Settings → General → Site Icon (preview, library pick, upload, remove).
+     */
+    public static function renderSiteIconField(int $currentId, int $userId = 0, ?AP_DB $db = null): string
+    {
+        $currentId = max(0, $currentId);
+        $previewUrl = '';
+        $previewTitle = '';
+        $hasIcon = false;
+
+        if ($currentId > 0 && self::isUsableSiteIcon($currentId, $db)) {
+            $hasIcon = true;
+            $previewUrl = AP_Media::getAttachmentUrl($currentId, $db);
+            $post = AP_Post::get($currentId, $db);
+            $previewTitle = $post !== null && $post->post_title !== ''
+                ? $post->post_title
+                : 'Site Icon';
+        } elseif ($currentId > 0) {
+            // Stale / non-image ID still shown as ID but no preview.
+            $currentId = 0;
+        }
+
+        $library = self::listSiteIconCandidates(40, $db);
+
+        $html = '<div class="ap-site-icon-picker" data-ap-site-icon-picker>';
+        $html .= '<label class="ap-site-icon-label" for="site_icon">Site Icon</label>';
+
+        $html .= '<div class="ap-site-icon-preview" data-ap-site-icon-preview>';
+        if ($hasIcon && $previewUrl !== '') {
+            $html .= '<img src="' . ap_esc_url($previewUrl) . '" alt="'
+                . ap_esc_attr($previewTitle) . '" class="ap-site-icon-img" width="96" height="96"'
+                . ' data-ap-site-icon-img />';
+            $html .= '<p class="description ap-site-icon-status" data-ap-site-icon-status>'
+                . 'Current icon (attachment #' . (int) $currentId . ').</p>';
+        } else {
+            $html .= '<span class="ap-site-icon-placeholder" data-ap-site-icon-placeholder'
+                . ' aria-hidden="true">No icon</span>';
+            $html .= '<p class="description ap-site-icon-status" data-ap-site-icon-status>'
+                . 'No site icon set. Browsers may use a root <code>favicon.ico</code> if present.</p>';
+        }
+        $html .= '</div>';
+
+        // Hidden stores the chosen attachment ID for save (library / remove / upload path).
+        $html .= '<input type="hidden" name="site_icon" id="site_icon" value="'
+            . (int) $currentId . '" data-ap-site-icon-id />';
+
+        $html .= '<div class="ap-field ap-site-icon-library">';
+        $html .= '<label for="site_icon_library">Choose from Media Library</label>';
+        $html .= '<select id="site_icon_library" class="regular-text" data-ap-site-icon-library>';
+        $html .= '<option value="0"' . ($currentId === 0 ? ' selected' : '') . '>— None —</option>';
+        $foundCurrent = $currentId === 0;
+        foreach ($library as $item) {
+            $id = (int) $item['id'];
+            $sel = $id === $currentId ? ' selected' : '';
+            if ($id === $currentId) {
+                $foundCurrent = true;
+            }
+            $label = $item['title'] !== '' ? $item['title'] : ('Attachment #' . $id);
+            $html .= '<option value="' . $id . '"' . $sel
+                . ' data-url="' . ap_esc_attr($item['url']) . '">'
+                . ap_esc_html($label) . ' (#' . $id . ')</option>';
+        }
+        // Current icon not in recent list — still keep it selectable.
+        if (!$foundCurrent && $hasIcon) {
+            $html .= '<option value="' . (int) $currentId . '" selected data-url="'
+                . ap_esc_attr($previewUrl) . '">'
+                . ap_esc_html($previewTitle !== '' ? $previewTitle : ('Attachment #' . $currentId))
+                . ' (#' . (int) $currentId . ')</option>';
+        }
+        $html .= '</select>';
+        $html .= '<span class="ap-help">Recent image attachments. Or upload a new file below.</span>';
+        $html .= '</div>';
+
+        $html .= '<div class="ap-field ap-site-icon-upload">';
+        $html .= '<label for="site_icon_upload">Upload new icon</label>';
+        $html .= '<input type="file" name="site_icon_upload" id="site_icon_upload"'
+            . ' accept="' . ap_esc_attr(self::siteIconAcceptAttribute()) . '"'
+            . ' data-ap-site-icon-upload />';
+        $html .= '<span class="ap-help">JPG, PNG, GIF, WebP, or ICO. Square images work best'
+            . ' (at least 512×512 recommended). Replaces the current selection on save.</span>';
+        $html .= '</div>';
+
+        $html .= '<div class="ap-field ap-site-icon-remove"'
+            . ($hasIcon ? '' : ' hidden') . ' data-ap-site-icon-remove-wrap>';
+        $html .= '<label class="ap-checkbox-label">';
+        $html .= '<input type="checkbox" name="remove_site_icon" id="remove_site_icon" value="1"'
+            . ' data-ap-site-icon-remove /> ';
+        $html .= 'Remove site icon</label>';
+        $html .= '<span class="ap-help">Clears the favicon set after save. Does not delete the media file.</span>';
+        $html .= '</div>';
+
+        if (class_exists('AP_Admin', false)) {
+            $libUrl = AP_Admin::url('upload.php', ['mime_type' => 'image']);
+            $html .= '<p class="description">'
+                . '<a href="' . ap_esc_url($libUrl) . '">Open Media Library</a>'
+                . ' to manage uploads, then return here to select an image.</p>';
+        }
+
+        $html .= '</div>';
+
+        return $html;
+    }
+
+    /**
+     * Recent image attachments suitable for the site icon library select.
+     *
+     * @return list<array{id: int, title: string, url: string}>
+     */
+    public static function listSiteIconCandidates(int $limit = 40, ?AP_DB $db = null): array
+    {
+        if (!class_exists('AP_Media', false)) {
+            return [];
+        }
+
+        $limit = max(1, min(100, $limit));
+        $result = AP_Media::query([
+            'mime_type' => 'image/*',
+            'limit' => $limit,
+            'orderby' => 'post_date',
+            'order' => 'DESC',
+        ], $db);
+
+        $out = [];
+        foreach ($result['items'] as $post) {
+            if (!$post instanceof AP_Post) {
+                continue;
+            }
+            $id = (int) $post->ID;
+            if (!self::isUsableSiteIcon($id, $db)) {
+                continue;
+            }
+            $url = AP_Media::getAttachmentUrl($id, $db);
+            if ($url === '') {
+                continue;
+            }
+            $out[] = [
+                'id' => $id,
+                'title' => (string) $post->post_title,
+                'url' => $url,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Inline progressive-enhancement script for the site icon picker preview.
+     */
+    public static function siteIconPickerScript(): string
+    {
+        return <<<'JS'
+(function () {
+    var root = document.querySelector('[data-ap-site-icon-picker]');
+    if (!root) { return; }
+    var hidden = root.querySelector('[data-ap-site-icon-id]');
+    var library = root.querySelector('[data-ap-site-icon-library]');
+    var upload = root.querySelector('[data-ap-site-icon-upload]');
+    var remove = root.querySelector('[data-ap-site-icon-remove]');
+    var removeWrap = root.querySelector('[data-ap-site-icon-remove-wrap]');
+    var preview = root.querySelector('[data-ap-site-icon-preview]');
+    var status = root.querySelector('[data-ap-site-icon-status]');
+    var objectUrl = null;
+
+    function revoke() {
+        if (objectUrl) {
+            try { URL.revokeObjectURL(objectUrl); } catch (e) {}
+            objectUrl = null;
+        }
+    }
+
+    function setPreview(url, label, id) {
+        if (!preview) { return; }
+        var img = preview.querySelector('[data-ap-site-icon-img]');
+        var ph = preview.querySelector('[data-ap-site-icon-placeholder]');
+        if (url) {
+            if (!img) {
+                if (ph) { ph.remove(); }
+                img = document.createElement('img');
+                img.className = 'ap-site-icon-img';
+                img.width = 96;
+                img.height = 96;
+                img.setAttribute('data-ap-site-icon-img', '');
+                preview.insertBefore(img, status || null);
+            }
+            img.src = url;
+            img.alt = label || 'Site Icon';
+            if (status) {
+                status.innerHTML = id > 0
+                    ? ('Selected icon (attachment #' + id + '). Save to apply.')
+                    : 'Preview of selected file. Save to apply.';
+            }
+            if (removeWrap) { removeWrap.hidden = false; }
+        } else {
+            revoke();
+            if (img) { img.remove(); }
+            if (!preview.querySelector('[data-ap-site-icon-placeholder]')) {
+                var span = document.createElement('span');
+                span.className = 'ap-site-icon-placeholder';
+                span.setAttribute('data-ap-site-icon-placeholder', '');
+                span.setAttribute('aria-hidden', 'true');
+                span.textContent = 'No icon';
+                preview.insertBefore(span, status || null);
+            }
+            if (status) {
+                status.innerHTML = 'No site icon set. Browsers may use a root <code>favicon.ico</code> if present.';
+            }
+            if (removeWrap) { removeWrap.hidden = true; }
+        }
+    }
+
+    if (library) {
+        library.addEventListener('change', function () {
+            if (remove) { remove.checked = false; }
+            if (upload) { upload.value = ''; }
+            revoke();
+            var opt = library.options[library.selectedIndex];
+            var id = parseInt(library.value, 10) || 0;
+            if (hidden) { hidden.value = String(id); }
+            var url = opt ? (opt.getAttribute('data-url') || '') : '';
+            setPreview(id > 0 ? url : '', opt ? opt.textContent : '', id);
+        });
+    }
+
+    if (upload) {
+        upload.addEventListener('change', function () {
+            if (remove) { remove.checked = false; }
+            revoke();
+            var file = upload.files && upload.files[0];
+            if (!file) { return; }
+            objectUrl = URL.createObjectURL(file);
+            setPreview(objectUrl, file.name, 0);
+            // Hidden ID stays until save creates the attachment; remove would clear.
+            if (library && library.value !== '0') {
+                // Keep library selection visual until save; upload wins on server.
+            }
+        });
+    }
+
+    if (remove) {
+        remove.addEventListener('change', function () {
+            if (!remove.checked) { return; }
+            if (upload) { upload.value = ''; }
+            revoke();
+            if (hidden) { hidden.value = '0'; }
+            if (library) { library.value = '0'; }
+            setPreview('', '', 0);
+        });
+    }
+})();
+JS;
     }
 }

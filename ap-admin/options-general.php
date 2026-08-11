@@ -18,10 +18,35 @@ $userId = ap_get_current_user_id();
 $db = ap_db();
 
 if (AP_Settings::isSaveRequest('general')) {
-    if (!AP_Settings::verifyNonce('general', $userId > 0 ? $userId : null)) {
+    $settings = $_POST;
+    // Site icon path enforces general-settings nonce + manage_options before resolve.
+    // That same nonce gates the rest of the General form save (shared POST).
+    $iconResult = AP_Admin_Media::processSiteIconSave(
+        $settings,
+        $_FILES,
+        $userId,
+        $db
+    );
+    if ($iconResult['message_key'] === 'nonce') {
         AP_Admin::addNotice('Security check failed. Please try again.', 'error');
+    } elseif ($iconResult['message_key'] === 'cap') {
+        AP_Admin::addNotice(
+            $iconResult['errors'][0] ?? 'You do not have permission to manage site settings.',
+            'error'
+        );
+    } elseif (!$iconResult['ok']) {
+        foreach ($iconResult['errors'] as $err) {
+            AP_Admin::addNotice($err, 'error');
+        }
     } else {
-        $ok = AP_Options::updateGeneralSettings($_POST, $db);
+        if ($iconResult['site_icon'] >= 0) {
+            $settings['site_icon'] = $iconResult['site_icon'];
+        } else {
+            // site_icon omitted from a partial payload — do not wipe the option.
+            unset($settings['site_icon']);
+        }
+
+        $ok = AP_Options::updateGeneralSettings($settings, $db);
         if ($ok) {
             AP_Admin::redirect(AP_Admin::url('options-general.php', ['message' => 'general_saved']));
         }
@@ -32,6 +57,7 @@ if (AP_Settings::isSaveRequest('general')) {
 
 $blogname = (string) AP_Options::get('blogname', 'AgoraPress', $db);
 $blogdescription = (string) AP_Options::get('blogdescription', '', $db);
+$siteIcon = AP_Options::siteIcon($db);
 $siteurl = (string) AP_Options::get('siteurl', '', $db);
 $home = (string) AP_Options::get('home', '', $db);
 $adminEmail = (string) AP_Options::get('admin_email', '', $db);
@@ -110,7 +136,7 @@ require __DIR__ . '/admin-header.php';
 
 <p>Site identity, URLs, membership, and date/time preferences.</p>
 
-<form method="post" action="" class="ap-form ap-form--settings">
+<form method="post" action="" class="ap-form ap-form--settings" enctype="multipart/form-data">
     <?php AP_Settings::settingsFields('general'); ?>
 
     <fieldset class="ap-fieldset">
@@ -126,6 +152,9 @@ require __DIR__ . '/admin-header.php';
                 value="<?php echo ap_esc_attr($blogdescription); ?>">
             <span class="ap-help">In a few words, explain what this site is about.</span>
         </p>
+        <div class="ap-field ap-field--site-icon">
+            <?php echo AP_Admin_Media::renderSiteIconField($siteIcon, $userId, $db); ?>
+        </div>
     </fieldset>
 
     <fieldset class="ap-fieldset">
@@ -276,6 +305,13 @@ require __DIR__ . '/admin-header.php';
 
     <?php AP_Settings::submitButton(); ?>
 </form>
+
+<script>
+<?php
+// Static progressive-enhancement JS (no user input).
+echo AP_Admin_Media::siteIconPickerScript();
+?>
+</script>
 
 <?php
 require __DIR__ . '/admin-footer.php';
