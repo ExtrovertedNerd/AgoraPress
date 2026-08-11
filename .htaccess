@@ -39,7 +39,8 @@
     # Block direct browser access to core PHP / schema (included by bootstrap only)
     RewriteRule ^ap-includes/ - [F,L]
 
-    # Do not rewrite existing files or directories
+    # Do not rewrite existing files or directories (favicon.ico, assets, etc.)
+    # When site_icon is unset, a manual root favicon.ico is served as a static file.
     RewriteRule ^index\.php$ - [L]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d

@@ -40,7 +40,8 @@ server {
         deny all;
     }
 
-    # Front controller (required for pretty permalinks)
+    # Front controller (required for pretty permalinks).
+    # Existing files (including a manual root favicon.ico) are served first via $uri.
     location / {
         try_files $uri $uri/ /index.php?$args;
     }

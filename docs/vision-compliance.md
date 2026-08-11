@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-09  
 **Scope:** Full codebase reevaluation against the project constitution (`VISION.md`, `FEATURES.md`, `SPEC.md` under the operator’s private process tree).  
-**Version under review:** `AP_VERSION` `0.3.3-beta`
+**Version under review:** `AP_VERSION` `0.3.4-beta`
 
 This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves.
 
@@ -168,7 +168,7 @@ Users, forums, topics, and posts import; attachments, private messages, and rank
 
 ### D7 — README / status language
 
-Product README status tracks the shipped release line (`0.3.3-beta`) and reflects that installer, CMS, forums (including phpBB-parity board UI and likes/moderation UI), admin (including plugin ACP registry + router), compatibility layer, packaging, live-site hardening, Theme Options API, and opt-in local analytics are **implemented**, not Phase-1 stubs.
+Product README status tracks the shipped release line (`0.3.4-beta`) and reflects that installer, CMS, forums (including phpBB-parity board UI and likes/moderation UI), admin (including plugin ACP registry + router), Site Icon / favicon pack, compatibility layer, packaging, live-site hardening, Theme Options API, and opt-in local analytics are **implemented**, not Phase-1 stubs.
 
 ### D8 — Local site analytics (SPEC 0.2.0-beta)
 

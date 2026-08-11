@@ -1071,7 +1071,7 @@ class AP_Rewrite
     RewriteEngine On
     RewriteBase {$base}
 
-    # Do not rewrite existing files or directories
+    # Do not rewrite existing files or directories (e.g. root favicon.ico)
     RewriteRule ^index\\.php\$ - [L]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d

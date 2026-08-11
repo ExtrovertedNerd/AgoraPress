@@ -4,7 +4,7 @@ Guides for extending and operating AgoraPress: plugins, themes, hooks, schema, a
 
 AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). The public API uses the `ap_` prefix. The [Classic WordPress Theme Compatibility Layer](compatibility.md) optionally exposes many bare WordPress names for classic PHP themes.
 
-**Current core:** `AP_VERSION` **0.3.3-beta** · schema `AP_DB_VERSION` **12** · product status: MVP feature-complete with plugin admin pages (ACP registry + router), forum UI phpBB-parity, forum likes/moderation, Theme Options API, and local opt-in analytics; ready for live-site install.
+**Current core:** `AP_VERSION` **0.3.4-beta** · schema `AP_DB_VERSION` **12** · product status: MVP feature-complete with Site Icon (favicon pack), plugin admin pages (ACP registry + router), forum UI phpBB-parity, forum likes/moderation, Theme Options API, and local opt-in analytics; ready for live-site install.
 
 ## Guides
 
@@ -14,6 +14,7 @@ AgoraPress is a **clean rewrite** inspired by classic WordPress (not a fork). Th
 | [Theme hierarchy](themes.md) | Template files, child themes, Agora defaults, assets, template tags |
 | [Plugin API](plugins.md) | Headers, activation, MU-plugins, shortcodes, settings, ACP admin pages, REST registration |
 | [Visual editor](editor.md) | Lightweight visual WYSIWYG (no block editor in core) |
+| [Site icon (favicon)](site-icon.md) | Favicon pack generation, option, head tags, passive root fallback |
 | [Compatibility layer](compatibility.md) | WP shims, hook maps, conversion CLI, limitations |
 | [Database schema](schema.md) | Tables, migrations, prefix, multi-driver notes |
 | [Vision compliance](vision-compliance.md) | Principles checklist, intentional deviations, test guards |
@@ -40,6 +41,7 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 | Options / Settings | `AP_Options`, Settings API (`ap_register_setting`, …) |
 | Posts / pages | `AP_Post`, `AP_Query`, admin screens, `ap-cli post` |
 | Media | `AP_Media`, uploads under `ap-content/uploads/` |
+| Site icon | Option `site_icon` + favicon pack — see [site-icon.md](site-icon.md) |
 | Comments | `AP_Comment`, discussion settings |
 | Forums | `AP_Forum*`, `AP_Forum_Like`, `AP_Forum_Stats`, dedicated tables (see [schema](schema.md)) |
 | Themes | `AP_Theme` (hierarchy, theme_mods, Theme Options), default `ap-content/themes/agora/` |
@@ -83,6 +85,7 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 | REST | `class-ap-rest.php` |
 | Install / update | `install/`, `class-ap-installer.php`, `class-ap-core-updater.php` |
 | Analytics | `class-ap-analytics.php`, `ap-admin/analytics.php`, `ap-admin/includes/class-ap-admin-analytics.php`, migration `0010_analytics_tables.php` |
+| Site icon / favicon | `class-ap-media.php` (pack + head tags), `class-ap-options.php` (`site_icon`), `ap-admin/options-general.php` |
 
 ---
 

@@ -1107,9 +1107,11 @@ class AP_Post
             self::deleteRevisionsForParent($id, $db);
         }
 
-        // When force-deleting an attachment via the post API, remove the file.
-        // AP_Media::deleteAttachment() also unlinks; this covers ap_delete_post().
+        // When force-deleting an attachment via the post API, remove disk files.
+        // AP_Media::deleteAttachment() also unlinks (after cleaning packs); this
+        // covers ap_delete_post() and clears site-icon derivatives before the original.
         if ($post->post_type === 'attachment' && class_exists('AP_Media', false)) {
+            AP_Media::cleanupSiteIconDerivatives($id, $db);
             $attached = AP_Media::getAttachedFile($id, $db);
             if ($attached !== '' && is_file($attached)) {
                 $base = realpath(AP_Media::basedir());

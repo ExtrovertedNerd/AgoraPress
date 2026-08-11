@@ -608,6 +608,8 @@ PHP;
             'date_format' => 'Y-m-d',
             'time_format' => 'H:i',
             'start_of_week' => '1',
+            // Site icon attachment ID (0 = none). Favicon set generated when set via Settings → General.
+            'site_icon' => '0',
             // Empty structure = plain ?p= / ?page_id= links (pretty permalinks optional).
             'permalink_structure' => '',
             'category_base' => '',

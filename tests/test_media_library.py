@@ -56,9 +56,20 @@ def test_media_class_api_surface() -> None:
         "function query",
         "function mimeTypeCounts",
         "function gdAvailable",
+        "function imagickAvailable",
+        "function imageEditorAvailable",
         "function editImage",
         "function resampleFile",
         "function generateIntermediateSizes",
+        "function generateSiteIconSizes",
+        "function cleanupSiteIconDerivatives",
+        "function getSiteIconSizes",
+        "function getSiteIconUrl",
+        "function getSiteIconPath",
+        "function getSiteIconMetaTags",
+        "function printSiteIconTags",
+        "function registerSiteIconTags",
+        "SITE_ICON_SIZES",
         "function maxDisplayWidth",
         "function printContentImageCss",
         "OPTION_MAX_DISPLAY_WIDTH",
@@ -66,6 +77,11 @@ def test_media_class_api_surface() -> None:
         "ALT_META",
     ):
         assert needle in src, f"Expected {needle!r} in AP_Media"
+
+    # Passive root favicon.ico when site_icon is unset (no synthetic link tags).
+    assert "favicon.ico" in src
+    assert "Do not emit a synthetic /favicon.ico link tag" in src
+    assert "registerSiteIconTags" in BOOTSTRAP.read_text(encoding="utf-8")
 
 
 def test_media_admin_api_surface() -> None:

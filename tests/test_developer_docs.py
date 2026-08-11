@@ -22,6 +22,7 @@ REQUIRED_DOCS = (
     "themes.md",
     "plugins.md",
     "editor.md",
+    "site-icon.md",
     "compatibility.md",
     "schema.md",
     "vision-compliance.md",
@@ -49,6 +50,7 @@ def test_docs_index_links_guides(docs_root: Path) -> None:
         "themes.md",
         "plugins.md",
         "editor.md",
+        "site-icon.md",
         "compatibility.md",
         "schema.md",
         "vision-compliance.md",
@@ -58,7 +60,7 @@ def test_docs_index_links_guides(docs_root: Path) -> None:
 
 def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
-    assert "0.3.3-beta" in index
+    assert "0.3.4-beta" in index
     assert "AP_Analytics" in index or "analytics" in index.lower()
     assert "class-ap-analytics.php" in index
 
@@ -94,6 +96,29 @@ def test_editor_doc_content(docs_root: Path) -> None:
         "ap_content_format",
     ):
         assert phrase in text, f"editor.md missing: {phrase}"
+
+
+def test_site_icon_doc_content(docs_root: Path) -> None:
+    text = (docs_root / "site-icon.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "site_icon",
+        "settings → general",
+        "ap_media",
+        "generatesiteiconsizes",
+        "32",
+        "180",
+        "192",
+        "512",
+        "ico",
+        "ap_head",
+        "apple-touch-icon",
+        "ap_site_icon_meta_tags",
+        "favicon.ico",
+        "manage_options",
+        "gd",
+        "imagick",
+    ):
+        assert phrase in text, f"site-icon.md missing: {phrase}"
 
 
 def test_hooks_doc_content(docs_root: Path) -> None:

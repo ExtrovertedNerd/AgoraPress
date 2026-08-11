@@ -11,7 +11,7 @@ declare(strict_types=1);
 /**
  * Current core version (SemVer). Pre-release beta for public packaging.
  */
-define('AP_VERSION', '0.3.3-beta');
+define('AP_VERSION', '0.3.4-beta');
 
 /**
  * Database schema version expected by this codebase.

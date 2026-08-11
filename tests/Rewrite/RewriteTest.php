@@ -347,9 +347,13 @@ final class RewriteTest extends TestCase
         $apache = AP_Rewrite::apacheRewriteBlock('/');
         $this->assertStringContainsString('RewriteEngine On', $apache);
         $this->assertStringContainsString('index.php', $apache);
+        // Existing static files (manual root favicon.ico) must not hit the front controller.
+        $this->assertStringContainsString('REQUEST_FILENAME} !-f', $apache);
+        $this->assertStringContainsString('favicon.ico', $apache);
 
         $nginx = AP_Rewrite::nginxTryFilesSnippet();
         $this->assertStringContainsString('try_files', $nginx);
+        $this->assertStringContainsString('try_files $uri', $nginx);
     }
 
     public function testHomeUrlAndSiteUrl(): void
