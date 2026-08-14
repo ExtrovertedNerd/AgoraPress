@@ -32,7 +32,7 @@ No bloat or phone-home paths were found in core product code. Network egress fro
 
 1. **Version check** — admin-only, GET public `version.json`, no site identity  
 2. **Core package download** — admin-initiated one-click update, GET only, no site identity  
-3. **Hall of Fame join/leave** — explicit `manage_options` action only; domain + action (+ withdrawal token), never automatic  
+3. **Hall of Fame join/leave** — explicit `manage_options` action only; domain-control file handshake then domain + token; never automatic  
 
 ---
 

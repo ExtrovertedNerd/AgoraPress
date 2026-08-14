@@ -3,8 +3,9 @@
 /**
  * Settings — Hall of Fame & Project (voluntary domain registration).
  *
- * Fully opt-in. No anonymous installer pings. Registration sends only the
- * site domain (+ action/token) to the project API. Membership can be withdrawn.
+ * Fully opt-in. No anonymous installer pings. Join runs a file-proof
+ * handshake (domain + challenge only) so the project can confirm control
+ * of the site. Membership can be withdrawn.
  *
  * @package AgoraPress
  */
@@ -100,9 +101,11 @@ require __DIR__ . '/admin-header.php';
                 <?php endif; ?>
             </p>
             <p class="ap-help">
-                Clicking Join sends a single voluntary request containing
-                <strong>only your domain</strong> (and the join action) to the project API.
-                No telemetry, no anonymous pings, no automatic install counting.
+                Clicking Join starts a handshake: the project asks this site to write a
+                short-lived proof file containing a unique code, fetches that file to
+                confirm you control the domain, then this site deletes the file.
+                Only the domain and handshake data are sent — no telemetry, no anonymous
+                pings, no automatic install counting.
             </p>
             <form method="post" action="" class="ap-form">
                 <input type="hidden" name="ap_hof_action" value="<?php echo ap_esc_attr(AP_Hall_Of_Fame::ACTION_JOIN); ?>">
@@ -135,7 +138,8 @@ require __DIR__ . '/admin-header.php';
             <li><strong>No telemetry</strong> — core never ships phone-home collectors or a telemetry flag.</li>
             <li><strong>No installer pings</strong> — the web and CLI installers never contact the project site.</li>
             <li><strong>Voluntary only</strong> — registration happens only when an administrator clicks Join.</li>
-            <li><strong>Domain only</strong> — the registration payload is domain + action (and a withdrawal token on leave).</li>
+            <li><strong>Domain only</strong> — the registration payload is domain + handshake (and a withdrawal token on leave).</li>
+            <li><strong>Domain control</strong> — a one-time proof file on this site must match before the project lists the domain.</li>
             <li><strong>Withdrawable</strong> — Leave clears local membership and asks the project API to remove the domain.</li>
         </ul>
         <p class="ap-muted ap-help">

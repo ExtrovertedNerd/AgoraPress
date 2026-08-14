@@ -8,8 +8,10 @@
  * their site domain with the project so it can appear in a public counter /
  * random rotation and may be withdrawn later. No anonymous installer pings.
  *
- * Payload sent on join/leave is domain (+ action/token) only — never user
- * identity, email, or other site diagnostics.
+ * Join performs a file-proof handshake: the project API issues a unique
+ * code, this site writes it to a short-lived public file, the project
+ * fetches that file, then this site deletes it. Payload is still domain +
+ * action/token/challenge only — never user identity, email, or diagnostics.
  *
  * @package AgoraPress
  */
@@ -44,6 +46,11 @@ class AP_Hall_Of_Fame
     public const ACTION_JOIN = 'join';
     public const ACTION_LEAVE = 'leave';
     public const ACTION_DISMISS = 'dismiss';
+    public const ACTION_CHALLENGE = 'challenge';
+    public const ACTION_VERIFY = 'verify';
+
+    /** Issued proof filename: agorapress-hof-{hex}.txt */
+    public const PROOF_FILENAME_PATTERN = '/^agorapress-hof-[a-f0-9]{8,32}\\.txt$/';
 
     public const NONCE_JOIN = 'hall-of-fame-join';
     public const NONCE_LEAVE = 'hall-of-fame-leave';
@@ -67,6 +74,9 @@ class AP_Hall_Of_Fame
      * @var callable|null
      */
     private static $httpTransport = null;
+
+    /** @var string|null Override directory for handshake proof files (tests). */
+    private static ?string $proofRootOverride = null;
 
     /**
      * Whether this site is registered in the Hall of Fame (local option).
@@ -189,12 +199,15 @@ class AP_Hall_Of_Fame
     /**
      * Build the minimal join/leave JSON payload (domain only + action/token).
      *
-     * Intentionally excludes email, user id, site title, version, and any
-     * environment fingerprint — this is not telemetry.
+     * Handshake extras (challenge, proof_url) are optional. Intentionally
+     * excludes email, user id, site title, version, and any environment
+     * fingerprint — this is not telemetry.
      *
-     * @return array{action: string, domain: string, token?: string}
+     * @param array<string, string> $extra Extra keys (challenge, proof_url). Never email/identity.
+     *
+     * @return array{action: string, domain: string, token?: string, challenge?: string, proof_url?: string}
      */
-    public static function buildPayload(string $action, string $domain, string $token = ''): array
+    public static function buildPayload(string $action, string $domain, string $token = '', array $extra = []): array
     {
         $payload = [
             'action' => $action,
@@ -202,6 +215,11 @@ class AP_Hall_Of_Fame
         ];
         if ($token !== '') {
             $payload['token'] = $token;
+        }
+        foreach (['challenge', 'proof_url'] as $key) {
+            if (isset($extra[$key]) && is_string($extra[$key]) && $extra[$key] !== '') {
+                $payload[$key] = $extra[$key];
+            }
         }
 
         return $payload;
@@ -273,22 +291,16 @@ class AP_Hall_Of_Fame
             return $empty;
         }
 
-        $payload = self::buildPayload(self::ACTION_JOIN, $domain);
-        $response = self::httpRequest('POST', self::registrationEndpoint(), $payload);
-
-        if (!$response['ok']) {
+        $handshake = self::runHandshake($domain, $db);
+        if (!$handshake['ok']) {
             $empty['message_key'] = 'hall_of_fame_remote';
-            $empty['errors'][] = $response['error'] !== ''
-                ? $response['error']
-                : 'Could not reach the Hall of Fame service. Nothing was sent beyond this attempt.';
+            $empty['errors'][] = $handshake['error'];
             $empty['domain'] = $domain;
 
             return $empty;
         }
-
-        $token = self::extractTokenFromBody($response['body']);
+        $token = $handshake['token'];
         if ($token === '') {
-            // Server accepted but no token: generate a local withdrawal handle.
             try {
                 $token = bin2hex(random_bytes(16));
             } catch (Throwable) {
@@ -428,6 +440,185 @@ class AP_Hall_Of_Fame
     public static function resetHttpTransport(): void
     {
         self::$httpTransport = null;
+    }
+
+    /**
+     * Override the directory used for handshake proof files (tests).
+     */
+    public static function setProofRootOverride(?string $path): void
+    {
+        self::$proofRootOverride = $path !== null && $path !== ''
+            ? rtrim($path, '/\\')
+            : null;
+    }
+
+    /**
+     * Directory where the handshake proof file is written (site root by default).
+     */
+    public static function proofRoot(): string
+    {
+        if (self::$proofRootOverride !== null) {
+            return self::$proofRootOverride;
+        }
+        if (defined('AP_ABSPATH') && AP_ABSPATH !== '') {
+            return rtrim((string) AP_ABSPATH, '/\\');
+        }
+
+        return rtrim((string) getcwd(), '/\\');
+    }
+
+    /**
+     * Public base URL used to advertise the proof file (siteurl / home).
+     */
+    public static function proofPublicBase(?AP_DB $db = null): string
+    {
+        $candidates = [];
+        if (function_exists('ap_get_option')) {
+            $candidates[] = (string) ap_get_option('siteurl', '', $db);
+            $candidates[] = (string) ap_get_option('home', '', $db);
+        } elseif (class_exists('AP_Options', false)) {
+            $candidates[] = (string) AP_Options::get('siteurl', '', $db);
+            $candidates[] = (string) AP_Options::get('home', '', $db);
+        }
+        if (defined('AP_SITEURL') && is_string(AP_SITEURL)) {
+            $candidates[] = (string) AP_SITEURL;
+        }
+        foreach ($candidates as $url) {
+            $url = rtrim(trim($url), '/');
+            if ($url !== '' && preg_match('#^https?://#i', $url) === 1) {
+                return $url;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Challenge the project API, write the proof file, verify, then delete the file.
+     *
+     * @return array{ok: bool, token: string, error: string}
+     */
+    private static function runHandshake(string $domain, ?AP_DB $db = null): array
+    {
+        $fail = ['ok' => false, 'token' => '', 'error' => ''];
+        $endpoint = self::registrationEndpoint();
+
+        $challengeResponse = self::httpRequest(
+            'POST',
+            $endpoint,
+            self::buildPayload(self::ACTION_CHALLENGE, $domain)
+        );
+        if (!$challengeResponse['ok']) {
+            $fail['error'] = $challengeResponse['error'] !== ''
+                ? $challengeResponse['error']
+                : 'Could not start the Hall of Fame handshake.';
+
+            return $fail;
+        }
+
+        $decoded = json_decode($challengeResponse['body'], true);
+        $challenge = is_array($decoded) ? trim((string) ($decoded['challenge'] ?? '')) : '';
+        $filename = is_array($decoded) ? trim((string) ($decoded['filename'] ?? '')) : '';
+        if ($challenge === '' || preg_match('/^[a-f0-9]{32,64}$/', $challenge) !== 1) {
+            $fail['error'] = 'Hall of Fame service did not issue a valid handshake code.';
+
+            return $fail;
+        }
+        if (preg_match(self::PROOF_FILENAME_PATTERN, $filename) !== 1) {
+            $fail['error'] = 'Hall of Fame service issued an invalid proof filename.';
+
+            return $fail;
+        }
+
+        $written = self::writeProofFile($filename, $challenge, $db);
+        if (!$written['ok']) {
+            $fail['error'] = $written['error'];
+
+            return $fail;
+        }
+
+        $verify = self::httpRequest(
+            'POST',
+            $endpoint,
+            self::buildPayload(self::ACTION_VERIFY, $domain, '', [
+                'challenge' => $challenge,
+                'proof_url' => $written['url'],
+            ])
+        );
+        self::removeProofFile($written['path']);
+
+        if (!$verify['ok']) {
+            $fail['error'] = $verify['error'] !== ''
+                ? $verify['error']
+                : 'Domain handshake failed. The proof file was removed.';
+
+            return $fail;
+        }
+
+        return [
+            'ok' => true,
+            'token' => self::extractTokenFromBody($verify['body']),
+            'error' => '',
+        ];
+    }
+
+    /**
+     * @return array{ok: bool, path: string, url: string, error: string}
+     */
+    public static function writeProofFile(string $filename, string $challenge, ?AP_DB $db = null): array
+    {
+        $empty = ['ok' => false, 'path' => '', 'url' => '', 'error' => ''];
+        if (preg_match(self::PROOF_FILENAME_PATTERN, $filename) !== 1) {
+            $empty['error'] = 'Refusing to write an unexpected handshake filename.';
+
+            return $empty;
+        }
+        if (preg_match('/^[a-f0-9]{32,64}$/', $challenge) !== 1) {
+            $empty['error'] = 'Refusing to write an unexpected handshake code.';
+
+            return $empty;
+        }
+
+        $root = self::proofRoot();
+        if ($root === '' || !is_dir($root)) {
+            $empty['error'] = 'Site root is not writable for the handshake proof file.';
+
+            return $empty;
+        }
+        $path = $root . DIRECTORY_SEPARATOR . $filename;
+        if (@file_put_contents($path, $challenge . "\n", LOCK_EX) === false) {
+            $empty['error'] = 'Could not write the handshake proof file. Check filesystem permissions.';
+
+            return $empty;
+        }
+        @chmod($path, 0644);
+
+        $base = self::proofPublicBase($db);
+        if ($base === '') {
+            @unlink($path);
+            $empty['error'] = 'A public Site URL is required so the project can fetch the proof file.';
+
+            return $empty;
+        }
+
+        return [
+            'ok' => true,
+            'path' => $path,
+            'url' => $base . '/' . $filename,
+            'error' => '',
+        ];
+    }
+
+    public static function removeProofFile(string $path): void
+    {
+        if ($path === '' || !is_file($path)) {
+            return;
+        }
+        $base = basename($path);
+        if (preg_match(self::PROOF_FILENAME_PATTERN, $base) !== 1) {
+            return;
+        }
+        @unlink($path);
     }
 
     /**

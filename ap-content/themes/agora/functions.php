@@ -19,7 +19,7 @@ const AGORA_COLOR_SCHEME_OPTION = 'agora_color_scheme';
 const AGORA_DEFAULT_COLOR_SCHEME = 'marble';
 
 /** Stylesheet version (fallback when style.css header is unavailable). */
-const AGORA_THEME_VERSION = '0.3.7';
+const AGORA_THEME_VERSION = '0.3.8';
 
 /**
  * Register theme chrome: nav locations + modular sidebars (idempotent).

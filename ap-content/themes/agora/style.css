@@ -4,7 +4,7 @@ Theme URI: https://agorapress.extrovertednerd.com/
 Author: ExtrovertedNerd
 Author URI: https://extrovertednerd.com/
 Description: Default lightweight, image-free theme for AgoraPress. Accessible, responsive, pure CSS with six selectable color schemes (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal. Works with blog and forum templates.
-Version: 0.3.7
+Version: 0.3.8
 Requires at least: 0.1.0
 Requires PHP: 8.2
 License: GNU General Public License v2 or later
@@ -29,9 +29,9 @@ Tags: blog, forum, accessibility-ready, custom-colors, one-column, two-columns, 
   --ap-radius-sm: 6px;
   --ap-radius-lg: 14px;
   --ap-space: 1.25rem;
-  --ap-max: 42rem;
-  --ap-max-wide: 58rem;
-  --ap-max-forum: 68rem;
+  --ap-max: 68rem;
+  --ap-max-wide: var(--ap-max);
+  --ap-max-forum: var(--ap-max);
   --ap-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
   --ap-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
   --ap-focus-ring: 2px;
@@ -391,25 +391,10 @@ iframe {
 
 .site-header__inner,
 .site-main,
-.site-footer__inner {
+.site-footer__inner,
+.site-main--wide {
   width: min(var(--ap-max), 100% - 2rem);
   margin-inline: auto;
-}
-
-body.layout-wide .site-header__inner,
-body.layout-wide .site-main,
-body.layout-wide .site-footer__inner,
-body.agora-forum .site-header__inner,
-body.agora-forum .site-main,
-body.agora-forum .site-footer__inner,
-.site-main--wide {
-  width: min(var(--ap-max-wide), 100% - 2rem);
-}
-
-body.agora-forum .site-header__inner,
-body.agora-forum .site-main,
-body.agora-forum .site-footer__inner {
-  width: min(var(--ap-max-forum), 100% - 2rem);
 }
 
 .site-header__inner {

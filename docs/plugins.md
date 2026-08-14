@@ -79,6 +79,9 @@ ap_plugin_dir(string $plugin): string
 ap_plugin_url(string $plugin, string $path = '', ?AP_DB $db = null): string
 ap_register_activation_hook(string $file, callable $callback): void
 ap_register_deactivation_hook(string $file, callable $callback): void
+ap_install_plugin_from_zip(string $zipPath, array $args = []): array
+ap_upload_plugin(array $file, array $args = []): array
+ap_delete_plugin(string $plugin, ?AP_DB $db = null): array
 ```
 
 Activation includes the main file, runs registered activation callbacks, then updates `active_plugins` and fires related actions (`ap_activate_plugin`, …). Deactivation runs deactivation hooks then removes the basename from the list.
@@ -333,6 +336,19 @@ String function-name callbacks are accepted (wrapped for late binding), matching
 
 - **Plugins** screen: `ap-admin/plugins.php` (cap `activate_plugins`)  
 - Nonce-protected activate / deactivate links  
+- Zip upload (`AP_Plugin_Installer`, cap `install_plugins`): `.zip` with a **Plugin Name** PHP file at the archive root or one folder deep (`plugin-name/plugin.php`). Overwrite replaces an existing slug. Active plugins cannot be deleted (deactivate first; cap `delete_plugins`).  
+
+## Plugin installer
+
+Zip packages can be uploaded under Plugins (`AP_Plugin_Installer`), the same flow as Appearance → Themes:
+
+- Requires a PHP file with a `Plugin Name` header  
+- Single-file packages (`hello.php` at the zip root) install as `ap-content/plugins/hello.php`  
+- Folder packages (`my-plugin/my-plugin.php`) install as `ap-content/plugins/my-plugin/`  
+- Path traversal, disallowed script types, and oversized archives are rejected  
+- Installed plugins stay inactive until you activate them  
+
+CLI: `php ap-cli plugin activate my-plugin/my-plugin.php` after upload.
 
 ## Related APIs
 

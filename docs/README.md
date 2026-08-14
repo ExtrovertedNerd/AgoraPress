@@ -74,7 +74,7 @@ CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches 
 |------|----------------|
 | Hooks | `ap-includes/hooks.php`, `class-ap-hook.php`, `class-ap-hooks.php` |
 | Themes | `ap-includes/class-ap-theme.php` (hierarchy, theme_mods, Theme Options), `template-tags.php`, `class-ap-assets.php` |
-| Plugins | `ap-includes/class-ap-plugin.php`, procedural helpers in `functions.php` |
+| Plugins | `ap-includes/class-ap-plugin.php`, `class-ap-plugin-installer.php`, procedural helpers in `functions.php` |
 | Plugin admin pages | `class-ap-admin-menu.php`, `ap-admin/admin.php`, `AP_Admin::pageUrl()` |
 | Posts / CLI content | `class-ap-post.php`, `class-ap-cli.php` (`cmdPost`) |
 | Visual editor | `ap-includes/class-ap-editor.php`, `css/ap-editor.css`, `js/ap-editor.js` |

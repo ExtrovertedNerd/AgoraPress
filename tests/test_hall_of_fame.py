@@ -47,6 +47,9 @@ def test_core_class_privacy_api() -> None:
         "function isTelemetry",
         "function normalizeDomain",
         "function shouldShowPrompt",
+        "function writeProofFile",
+        "ACTION_CHALLENGE",
+        "ACTION_VERIFY",
         "DEFAULT_ENDPOINT",
         "no telemetry",
         "domain only",
@@ -78,6 +81,8 @@ def test_admin_screen_and_menu() -> None:
         "AP_Hall_Of_Fame::join",
         "voluntary",
         "PUBLIC_PAGE_URL",
+        "handshake",
+        "proof file",
     ):
         assert needle in screen, f"options-hall-of-fame.php missing {needle!r}"
     assert "show_donation_button" not in screen

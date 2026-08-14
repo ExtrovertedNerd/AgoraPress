@@ -7,9 +7,9 @@ Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.4-beta*
 
 ## [Unreleased]
 
-## [0.3.4-beta] - 2026-08-11
+## [0.3.4-beta] - 2026-08-14
 
-Site Icon (favicon pack) for Settings → General. No schema change (`AP_DB_VERSION` **12**); privacy posture unchanged (no telemetry by default).
+Installer contrast, plugin zip install, Hall of Fame handshake, unified Agora desktop width, plus Site Icon. No schema change (`AP_DB_VERSION` **12**); privacy posture unchanged (no telemetry by default).
 
 ### Package
 
@@ -17,14 +17,25 @@ Site Icon (favicon pack) for Settings → General. No schema change (`AP_DB_VERS
 
 ### Added
 
+- **Plugin zip upload:** Plugins screen installs a classic plugin from a `.zip` (`AP_Plugin_Installer`) — single-file or `folder/plugin.php`, optional overwrite, delete when inactive
+- **Hall of Fame handshake:** Join writes a short-lived proof file; the project API fetches it to confirm domain control before listing the site
 - **Site Icon (favicon pack):** Settings → General → Site Icon — upload, Media Library pick, preview, remove (`manage_options` + nonce); option `site_icon` = attachment ID (`0` = none)
 - **Derivatives on set/change:** PNG sizes **32 / 180 / 192 / 512** plus multi-size `.ico` when possible (GD or Imagick); cleanup of previous pack on replace/remove; meta under `_ap_attachment_metadata` key `site_icon` (not intermediate `sizes`)
 - **Front-end head tags:** `AP_Media::printSiteIconTags()` on `ap_head` when `site_icon` &gt; 0 (`rel="icon"` + `apple-touch-icon`); filter `ap_site_icon_meta_tags`; no synthetic root `favicon.ico` link when unset (manual web-root `favicon.ico` remains a passive browser fallback)
 - **Developer docs:** `docs/site-icon.md` (admin flow, sizes, head output, hooks)
 
+### Changed
+
+- **Agora desktop width:** blog, pages, and forums share one shell (`--ap-max` 68rem) so the header/main/footer no longer jump between views
+
+### Fixed
+
+- **Installer dark mode:** form fields, buttons, and notices stay readable when the browser is in dark mode (no white text on a white field)
+
 ### Tests
 
 - Option save/preserve/remove on General settings; site-icon generation/cleanup helpers; head tag output when set vs unset; rewrite leaves static root `favicon.ico` alone
+- Plugin zip installer (folder + single-file, overwrite, path traversal); installer dark-mode CSS; Hall of Fame handshake client; Agora unified shell width
 
 ## [0.3.3-beta] - 2026-08-10
 

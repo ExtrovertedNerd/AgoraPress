@@ -116,63 +116,88 @@ function ap_install_render(string $title, string $body, array $errors = [], stri
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
+    <meta name="color-scheme" content="light dark">
     <title>{$safeTitle} — AgoraPress Installer</title>
     <style>
-        :root { color-scheme: light dark; --bg: #f4f5f7; --fg: #1a1a1a; --card: #fff;
-            --border: #dde1e6; --accent: #1a5fb4; --ok: #2ec27e; --bad: #c01c28;
-            --muted: #5c6370; --input: #fff; }
+        :root {
+            color-scheme: light;
+            --bg: #f4f5f7; --fg: #1a1a1a; --card: #fff; --border: #dde1e6;
+            --accent: #1a5fb4; --accent-text: #fff; --ok: #2ec27e; --bad: #c01c28;
+            --muted: #5c6370; --input: #fff;
+        }
         @media (prefers-color-scheme: dark) {
-            :root { --bg: #12141a; --fg: #e8eaed; --card: #1c1f28; --border: #2a2f3a;
-                --accent: #62a0ea; --ok: #57e389; --bad: #f66151; --muted: #9aa0a6; --input: #12141a; }
+            :root {
+                color-scheme: dark;
+                --bg: #12141a; --fg: #e8eaed; --card: #1c1f28; --border: #2a2f3a;
+                --accent: #62a0ea; --accent-text: #0b1a2b; --ok: #57e389; --bad: #f66151;
+                --muted: #9aa0a6; --input: #12141a;
+            }
         }
         * { box-sizing: border-box; }
         body {
             margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
             line-height: 1.5; background: var(--bg); color: var(--fg);
         }
+        a { color: var(--accent); }
         .wrap { max-width: 40rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
-        header h1 { margin: 0 0 0.25rem; font-size: 1.5rem; font-weight: 650; }
+        header h1 { margin: 0 0 0.25rem; font-size: 1.5rem; font-weight: 650; color: var(--fg); }
         header .meta { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
         .steps { list-style: none; display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem;
             padding: 0; margin: 0 0 1.25rem; font-size: 0.85rem; color: var(--muted); }
         .steps .current { color: var(--accent); font-weight: 600; }
         main {
-            background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+            background: var(--card); color: var(--fg); border: 1px solid var(--border); border-radius: 8px;
             padding: 1.5rem 1.25rem; box-shadow: 0 1px 2px rgba(0,0,0,0.04);
         }
-        h2 { margin: 0 0 0.75rem; font-size: 1.2rem; }
+        h2 { margin: 0 0 0.75rem; font-size: 1.2rem; color: var(--fg); }
         p { margin: 0 0 0.75rem; }
         p:last-child { margin-bottom: 0; }
         table.checks { width: 100%; border-collapse: collapse; margin: 0 0 1rem; font-size: 0.95rem; }
-        table.checks th, table.checks td { text-align: left; padding: 0.45rem 0.35rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+        table.checks th, table.checks td { text-align: left; padding: 0.45rem 0.35rem; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--fg); }
         table.checks th { font-weight: 600; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
         .badge { display: inline-block; font-size: 0.75rem; font-weight: 650; padding: 0.1rem 0.45rem; border-radius: 999px; }
         .badge.ok { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); }
         .badge.bad { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
-        .badge.warn { background: color-mix(in srgb, #e5a50a 22%, transparent); color: #c88800; }
-        label { display: block; font-weight: 600; margin: 0.75rem 0 0.3rem; font-size: 0.95rem; }
-        label .hint { font-weight: 400; color: var(--muted); font-size: 0.85rem; }
-        input[type="text"], input[type="password"], input[type="email"], input[type="url"], select {
-            width: 100%; padding: 0.5rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
-            background: var(--input); color: var(--fg); font: inherit;
+        .badge.warn { background: color-mix(in srgb, #e5a50a 22%, transparent); color: #8a5a00; }
+        @media (prefers-color-scheme: dark) {
+            .badge.warn { color: #f8e45c; }
         }
-        input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); border-color: var(--accent); }
+        label { display: block; font-weight: 600; margin: 0.75rem 0 0.3rem; font-size: 0.95rem; color: var(--fg); }
+        label .hint { font-weight: 400; color: var(--muted); font-size: 0.85rem; }
+        input[type="text"], input[type="password"], input[type="email"], input[type="url"], select, textarea {
+            width: 100%; padding: 0.5rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
+            background: var(--input); background-color: var(--input); color: var(--fg);
+            -webkit-text-fill-color: var(--fg); caret-color: var(--fg); font: inherit;
+            color-scheme: inherit;
+        }
+        select option { background: var(--input); color: var(--fg); }
+        input::placeholder, textarea::placeholder {
+            color: var(--muted); -webkit-text-fill-color: var(--muted); opacity: 0.9;
+        }
+        input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+            -webkit-text-fill-color: var(--fg); caret-color: var(--fg);
+            box-shadow: 0 0 0 1000px var(--input) inset;
+            transition: background-color 99999s ease-out 0s;
+        }
+        input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); border-color: var(--accent); }
+        textarea { min-height: 8rem; resize: vertical; line-height: 1.45; }
+        textarea.config-fallback { font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; }
         .row { display: grid; gap: 0.5rem 1rem; }
         @media (min-width: 36rem) { .row.two { grid-template-columns: 1fr 1fr; } }
         .actions { margin-top: 1.25rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
         button, .button {
             display: inline-block; border: 0; border-radius: 6px; padding: 0.55rem 1rem;
             font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
-            background: var(--accent); color: #fff;
+            background: var(--accent); color: var(--accent-text); -webkit-text-fill-color: var(--accent-text);
         }
         button.secondary, .button.secondary { background: transparent; color: var(--accent);
-            border: 1px solid var(--border); }
+            -webkit-text-fill-color: var(--accent); border: 1px solid var(--border); }
         button:disabled { opacity: 0.55; cursor: not-allowed; }
-        .notice { border-radius: 6px; padding: 0.75rem 1rem; margin: 0 0 1rem; }
+        .notice { border-radius: 6px; padding: 0.75rem 1rem; margin: 0 0 1rem; color: var(--fg); }
         .notice.error { background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
         .notice.error ul { margin: 0; padding-left: 1.2rem; }
         .notice.success { background: color-mix(in srgb, var(--ok) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); }
-        code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; padding: 0.1em 0.35em; border-radius: 4px; background: color-mix(in srgb, var(--border) 60%, transparent); }
+        code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; padding: 0.1em 0.35em; border-radius: 4px; background: color-mix(in srgb, var(--border) 60%, transparent); color: var(--fg); }
         .field-group { margin-bottom: 0.25rem; }
     </style>
 </head>
@@ -536,7 +561,7 @@ if ($step === 'run') {
     if (!empty($_SESSION['ap_install_config_fallback']) && is_string($_SESSION['ap_install_config_fallback'])) {
         $cfg = ap_install_h($_SESSION['ap_install_config_fallback']);
         $fallback = '<p>Generated <code>ap-config.php</code> (copy if write failed):</p>'
-            . '<textarea readonly rows="12" style="width:100%;font-family:monospace;font-size:0.8rem">'
+            . '<textarea readonly rows="12" class="config-fallback">'
             . $cfg . '</textarea>';
     }
 
