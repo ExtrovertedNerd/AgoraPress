@@ -141,6 +141,23 @@ final class InstallUiTest extends TestCase
         $this->assertStringContainsString('function alreadyInstalledMessage', $installer);
     }
 
+    public function testInstallerCssKeepsFieldTextReadableInDarkMode(): void
+    {
+        $src = (string) file_get_contents($this->root . '/install/index.php');
+
+        $this->assertStringContainsString('color-scheme: light', $src);
+        $this->assertStringContainsString('color-scheme: dark', $src);
+        $this->assertStringContainsString('-webkit-text-fill-color: var(--fg)', $src);
+        $this->assertStringContainsString('input:-webkit-autofill', $src);
+        $this->assertStringContainsString('--accent-text', $src);
+        $this->assertStringContainsString('color-scheme: inherit', $src);
+        $this->assertStringContainsString('select, textarea', $src);
+        $this->assertStringContainsString('select option', $src);
+        // Advertising both schemes at once lets the UA paint white control
+        // text onto author light field backgrounds during form steps.
+        $this->assertStringNotContainsString('color-scheme: light dark', $src);
+    }
+
     public function testNotInstalledPageLinksToInstaller(): void
     {
         if (!defined('AP_ABSPATH')) {

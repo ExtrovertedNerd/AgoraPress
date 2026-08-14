@@ -1,10 +1,11 @@
 <?php
 
 /**
- * Plugins — list, activate, and deactivate installed plugins.
+ * Plugins — list, activate, deactivate, upload zip, delete.
  *
  * Discovery reads Plugin Name headers under ap-content/plugins/. Active
- * basenames are stored in the `active_plugins` option.
+ * basenames are stored in the `active_plugins` option. Zip upload mirrors
+ * Appearance → Themes (`AP_Plugin_Installer`).
  *
  * @package AgoraPress
  */
@@ -20,12 +21,50 @@ AP_Admin::consumeQueryNotice();
 $userId = ap_get_current_user_id();
 $db = ap_db();
 
-// --- Activate / deactivate (GET with nonce, WordPress-style) ---
+// --- Upload (install_plugins) ---
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['ap_plugin_action'])) {
+    $postAction = strtolower(trim((string) $_POST['ap_plugin_action']));
+
+    if ($postAction === 'upload') {
+        if (!AP_Admin::userCan($userId, 'install_plugins', null, $db)) {
+            AP_Admin::addNotice('You do not have permission to install plugins.', 'error');
+        } else {
+            $nonce = (string) ($_POST['_ap_nonce'] ?? '');
+            if (!ap_check_nonce($nonce, 'plugin-upload', $userId > 0 ? $userId : null)) {
+                AP_Admin::addNotice('Security check failed. Please try again.', 'error');
+            } else {
+                $file = isset($_FILES['pluginzip']) && is_array($_FILES['pluginzip'])
+                    ? $_FILES['pluginzip']
+                    : [];
+                $overwrite = !empty($_POST['overwrite']);
+                $result = AP_Plugin_Installer::handleUpload($file, [
+                    'overwrite' => $overwrite,
+                ]);
+                if ($result['ok']) {
+                    $params = [
+                        'message' => $result['overwritten'] ? 'plugin_replaced' : 'plugin_installed',
+                        'plugin' => $result['plugin'],
+                    ];
+                    if ($result['warnings'] !== []) {
+                        AP_Admin::addNotice(implode(' ', $result['warnings']), 'warning');
+                    }
+                    AP_Admin::redirect(AP_Admin::url('plugins.php', $params));
+                }
+                $msg = $result['errors'] !== []
+                    ? implode(' ', $result['errors'])
+                    : 'Could not install the plugin.';
+                AP_Admin::addNotice($msg, 'error');
+            }
+        }
+    }
+}
+
+// --- Activate / deactivate / delete (GET with nonce, WordPress-style) ---
 $action = strtolower(trim((string) ($_GET['action'] ?? '')));
 $plugin = isset($_GET['plugin']) ? (string) $_GET['plugin'] : '';
 $plugin = str_replace('\\', '/', $plugin);
 
-if ($action === 'activate' || $action === 'deactivate') {
+if ($action === 'activate' || $action === 'deactivate' || $action === 'delete') {
     $nonce = (string) ($_GET['_ap_nonce'] ?? $_GET['_wpnonce'] ?? '');
     $nonceAction = $action . '-plugin_' . $plugin;
     if (!ap_check_nonce($nonce, $nonceAction, $userId > 0 ? $userId : null)) {
@@ -41,7 +80,7 @@ if ($action === 'activate' || $action === 'deactivate') {
             ? implode(' ', $result['errors'])
             : 'Could not activate the plugin.';
         AP_Admin::addNotice($msg, 'error');
-    } else {
+    } elseif ($action === 'deactivate') {
         $result = ap_deactivate_plugin($plugin, $db);
         if ($result['ok']) {
             AP_Admin::redirect(AP_Admin::url('plugins.php', ['message' => 'plugin_deactivated']));
@@ -50,21 +89,59 @@ if ($action === 'activate' || $action === 'deactivate') {
             ? implode(' ', $result['errors'])
             : 'Could not deactivate the plugin.';
         AP_Admin::addNotice($msg, 'error');
+    } else {
+        $canDeleteNow = AP_Admin::userCan($userId, 'delete_plugins', null, $db)
+            || AP_Admin::userCan($userId, 'install_plugins', null, $db);
+        if (!$canDeleteNow) {
+            AP_Admin::addNotice('You do not have permission to delete plugins.', 'error');
+        } else {
+            $del = AP_Plugin_Installer::deletePlugin($plugin, $db);
+            if ($del['ok']) {
+                AP_Admin::redirect(AP_Admin::url('plugins.php', [
+                    'message' => 'plugin_deleted',
+                    'plugin' => $plugin,
+                ]));
+            }
+            $msg = $del['errors'] !== []
+                ? implode(' ', $del['errors'])
+                : 'Could not delete the plugin.';
+            AP_Admin::addNotice($msg, 'error');
+        }
     }
 }
 
 // Query-string success messages (after redirect).
 $message = (string) ($_GET['message'] ?? '');
+$msgPlugin = isset($_GET['plugin']) ? (string) $_GET['plugin'] : '';
 if ($message === 'plugin_activated') {
     AP_Admin::addNotice('Plugin activated.', 'success');
 } elseif ($message === 'plugin_deactivated') {
     AP_Admin::addNotice('Plugin deactivated.', 'success');
+} elseif ($message === 'plugin_installed') {
+    AP_Admin::addNotice(
+        'Plugin installed' . ($msgPlugin !== '' ? ': ' . $msgPlugin : '') . '. You can activate it below.',
+        'success'
+    );
+} elseif ($message === 'plugin_replaced') {
+    AP_Admin::addNotice(
+        'Plugin replaced' . ($msgPlugin !== '' ? ': ' . $msgPlugin : '') . '.',
+        'success'
+    );
+} elseif ($message === 'plugin_deleted') {
+    AP_Admin::addNotice(
+        'Plugin deleted' . ($msgPlugin !== '' ? ': ' . $msgPlugin : '') . '.',
+        'success'
+    );
 }
 
 $plugins = ap_get_plugins();
 $active = ap_get_active_plugins($db);
 $activeMap = array_fill_keys($active, true);
 $muPlugins = function_exists('ap_get_mu_plugins') ? ap_get_mu_plugins() : [];
+$canInstall = AP_Admin::userCan($userId, 'install_plugins', null, $db);
+$canDelete = AP_Admin::userCan($userId, 'delete_plugins', null, $db)
+    || AP_Admin::userCan($userId, 'install_plugins', null, $db);
+$maxZip = AP_Plugin_Installer::formatBytes(AP_Plugin_Installer::maxUploadBytes());
 
 $ap_admin_title = 'Plugins';
 $ap_admin_screen = 'plugins';
@@ -76,15 +153,46 @@ require __DIR__ . '/admin-header.php';
 
 <p class="ap-help">
     Drop plugins into <code>ap-content/plugins/</code> as a single PHP file or a
-    folder with a main PHP file containing a <strong>Plugin Name:</strong> header.
-    Activate them here to load on every request. Must-use plugins in
-    <code>ap-content/mu-plugins/</code> load automatically and cannot be deactivated here.
+    folder with a main PHP file containing a <strong>Plugin Name:</strong> header,
+    or upload a <strong>.zip</strong> below. Activate them here to load on every request.
+    Must-use plugins in <code>ap-content/mu-plugins/</code> load automatically and cannot
+    be deactivated here.
 </p>
+
+<?php if ($canInstall) : ?>
+    <div class="ap-card ap-plugin-upload" style="margin-bottom:1.5rem;">
+        <h2 class="ap-settings-section-title" style="margin-top:0;">Upload plugin</h2>
+        <p class="ap-help">
+            Package must be a zip with <code>plugin-folder/plugin.php</code> (or a
+            single <code>.php</code> file at the zip root) and a <strong>Plugin Name:</strong> header.
+            Max size: <?php echo ap_esc_html($maxZip); ?>.
+        </p>
+        <form class="ap-plugin-upload-form" method="post"
+              action="<?php echo ap_esc_url(AP_Admin::url('plugins.php')); ?>"
+              enctype="multipart/form-data">
+            <?php echo ap_nonce_field('plugin-upload', '_ap_nonce', false, $userId > 0 ? $userId : null); ?>
+            <input type="hidden" name="ap_plugin_action" value="upload" />
+            <p>
+                <label for="pluginzip" class="screen-reader-text">Plugin zip file</label>
+                <input type="file" name="pluginzip" id="pluginzip" accept=".zip,application/zip" required />
+            </p>
+            <p>
+                <label>
+                    <input type="checkbox" name="overwrite" value="1" />
+                    Overwrite if a plugin with the same folder or file name already exists
+                </label>
+            </p>
+            <p>
+                <button type="submit" class="button button-primary">Install plugin</button>
+            </p>
+        </form>
+    </div>
+<?php endif; ?>
 
 <?php if ($plugins === []) : ?>
     <div class="ap-notice ap-notice--info">
-        No plugins found. Add a PHP file under <code>ap-content/plugins/</code>
-        with a <code>Plugin Name:</code> header to get started.
+        No plugins found. Upload a plugin zip or add a PHP file under
+        <code>ap-content/plugins/</code> with a <code>Plugin Name:</code> header.
     </div>
 <?php else : ?>
     <div class="ap-table-wrap">
@@ -169,9 +277,26 @@ require __DIR__ . '/admin-header.php';
                                 <?php echo $isActive ? 'Deactivate' : 'Activate'; ?>
                             </a>
                             <?php if ($settingsLink !== null) : ?>
-                                <a class="button button-small ap-plugin-settings-link" href="<?php echo ap_esc_url($settingsLink['url']); ?>">
+                                <a class="button button-small ap-plugin-settings-link"
+                                   href="<?php echo ap_esc_url($settingsLink['url']); ?>">
                                     <?php echo ap_esc_html($settingsLink['label']); ?>
                                 </a>
+                            <?php endif; ?>
+                            <?php if ($canDelete && !$isActive) :
+                                $delUrl = ap_nonce_url(
+                                    AP_Admin::url('plugins.php', [
+                                        'action' => 'delete',
+                                        'plugin' => $file,
+                                    ]),
+                                    'delete-plugin_' . $file,
+                                    '_ap_nonce',
+                                    $userId > 0 ? $userId : null
+                                );
+                                $delConfirm = 'Delete plugin ' . $file . '? This cannot be undone.';
+                                ?>
+                                <a class="button button-small button-link-delete"
+                                   href="<?php echo ap_esc_url($delUrl); ?>"
+                                   onclick="return confirm('<?php echo ap_esc_attr($delConfirm); ?>');">Delete</a>
                             <?php endif; ?>
                         </td>
                     </tr>

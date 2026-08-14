@@ -100,6 +100,8 @@ def test_style_css_polish_responsive_accessible_forum() -> None:
     assert "screen-reader-text" in css
     assert "prefers-contrast" in css or "forced-colors" in css
     # Phase 5 — button focus + unread contrast (no opacity dimming of read rows).
+    assert "--ap-max-wide: var(--ap-max)" in css
+    assert "--ap-max-forum: var(--ap-max)" in css
     assert ".ap-btn:focus-visible" in css
     assert ".ap-btn--ghost:focus-visible" in css
     assert ".ap-forum-like:focus-visible" in css
@@ -339,12 +341,8 @@ def test_agora_board_css_stays_theme_local() -> None:
 
 
 def test_known_custom_theme_styles_stable_board_hooks() -> None:
-    """zeroshits (known custom theme) styles the same stable board hooks — no hard break."""
-    zs = ROOT / "ap-content" / "themes" / "zeroshits"
-    if not zs.is_dir():
-        return
-    style = (zs / "style.css").read_text(encoding="utf-8")
-    for needle in (
+    """Known custom themes style the same stable board hooks — no hard break."""
+    needles = (
         ".ap-forum-cat-header",
         ".ap-forum-row",
         ".ap-forum-row--unread",
@@ -356,14 +354,23 @@ def test_known_custom_theme_styles_stable_board_hooks() -> None:
         ".ap-forum-last-post__author",
         ".ap-forum-last-post__time",
         "ap-forum-list__item",
-    ):
-        assert needle in style, f"zeroshits missing stable hook {needle!r}"
-    # Dual legacy + new class surface so either selector path works.
-    assert ".ap-forum-list__item" in style or "ap-forum-list__item" in style
-    forum = (zs / "forum.php").read_text(encoding="utf-8")
-    assert "ap-forum-row" in forum
-    assert "ap-forum-cat-header" in forum
-    assert "ap_forum_row_classes" in forum or "ap-forum-row--" in forum
+    )
+    for slug in ("zeroshits", "extravirginnerd", "blindvault"):
+        theme = ROOT / "ap-content" / "themes" / slug
+        if not theme.is_dir():
+            continue
+        style_path = theme / "style.css"
+        if not style_path.is_file():
+            continue
+        style = style_path.read_text(encoding="utf-8")
+        for needle in needles:
+            assert needle in style, f"{slug} missing stable hook {needle!r}"
+        # Dual legacy + new class surface so either selector path works.
+        assert ".ap-forum-list__item" in style or "ap-forum-list__item" in style
+        forum = (theme / "forum.php").read_text(encoding="utf-8")
+        assert "ap-forum-row" in forum
+        assert "ap-forum-cat-header" in forum
+        assert "ap_forum_row_classes" in forum or "ap-forum-row--" in forum
 
 
 def test_theme_options_admin_and_menu() -> None:

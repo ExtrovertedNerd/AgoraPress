@@ -66,6 +66,24 @@ def test_installer_classes_define_expected_api() -> None:
     assert "alreadyInstalledMessage" in inst
 
 
+def test_installer_css_keeps_field_text_readable_in_dark_mode() -> None:
+    src = INSTALL.read_text(encoding="utf-8")
+    for needle in (
+        "color-scheme: light",
+        "color-scheme: dark",
+        "-webkit-text-fill-color: var(--fg)",
+        "input:-webkit-autofill",
+        "--accent-text",
+        "color-scheme: inherit",
+        "select, textarea",
+        "select option",
+    ):
+        assert needle in src, f"Expected {needle!r} in install/index.php"
+    # Advertising both schemes at once lets the UA paint white control text
+    # onto author light field backgrounds during form steps.
+    assert "color-scheme: light dark" not in src
+
+
 def test_install_index_mentions_steps() -> None:
     src = INSTALL.read_text(encoding="utf-8")
     for needle in (

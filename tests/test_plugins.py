@@ -76,6 +76,9 @@ def test_functions_expose_plugin_helpers() -> None:
         "function ap_load_active_plugins",
         "function ap_get_plugins_dir",
         "function ap_plugin_url",
+        "function ap_install_plugin_from_zip",
+        "function ap_upload_plugin",
+        "function ap_delete_plugin",
     ):
         assert needle in src, f"Expected {needle!r} in functions.php"
 
@@ -83,6 +86,7 @@ def test_functions_expose_plugin_helpers() -> None:
 def test_bootstrap_loads_plugins() -> None:
     src = BOOTSTRAP.read_text(encoding="utf-8")
     assert "class-ap-plugin.php" in src
+    assert "class-ap-plugin-installer.php" in src
     assert "loadActivePlugins" in src
     assert "loadMuPlugins" in src
 
@@ -103,6 +107,10 @@ def test_admin_plugins_screen_and_menu() -> None:
     # Settings action → registry router (admin.php?page=), only when active.
     assert "pluginSettingsActionLink" in screen
     assert "ap-plugin-settings-link" in screen
+    assert "AP_Plugin_Installer" in screen
+    assert "plugin-upload" in screen
+    assert "pluginzip" in screen
+    assert "install_plugins" in screen
 
     admin = ADMIN_CLASS.read_text(encoding="utf-8")
     assert "plugins.php" in admin

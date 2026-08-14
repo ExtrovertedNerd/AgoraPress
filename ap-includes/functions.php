@@ -1617,6 +1617,47 @@ function ap_activate_plugin(string $plugin, ?AP_DB $db = null): array
 }
 
 /**
+ * Install a plugin from a zip file path.
+ *
+ * @param array<string, mixed> $args overwrite, plugins_root, slug
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Plugin_Installer::installFromZip()
+ */
+function ap_install_plugin_from_zip(string $zipPath, array $args = []): array
+{
+    return AP_Plugin_Installer::installFromZip($zipPath, $args);
+}
+
+/**
+ * Handle a plugin zip $_FILES upload and install.
+ *
+ * @param array<string, mixed> $file
+ * @param array<string, mixed> $args
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Plugin_Installer::handleUpload()
+ */
+function ap_upload_plugin(array $file, array $args = []): array
+{
+    return AP_Plugin_Installer::handleUpload($file, $args);
+}
+
+/**
+ * Delete an installed plugin file or folder (not active).
+ *
+ * @return array{ok: bool, plugin: string, errors: list<string>}
+ *
+ * @see AP_Plugin_Installer::deletePlugin()
+ */
+function ap_delete_plugin(string $plugin, ?AP_DB $db = null): array
+{
+    return AP_Plugin_Installer::deletePlugin($plugin, $db);
+}
+
+/**
  * Deactivate a plugin (runs deactivation hooks, updates active list).
  *
  * @return array{ok: bool, errors: list<string>}

@@ -35,6 +35,8 @@ final class HallOfFameTest extends TestCase
     /** @var list<array{method: string, url: string, payload: array<string, mixed>}> */
     private array $httpCalls = [];
 
+    private string $proofDir = '';
+
     protected function setUp(): void
     {
         $this->root = dirname(__DIR__, 2);
@@ -68,6 +70,10 @@ final class HallOfFameTest extends TestCase
         AP_Hall_Of_Fame::resetHttpTransport();
         AP_Admin::clearNotices();
         $this->httpCalls = [];
+
+        $this->proofDir = sys_get_temp_dir() . '/ap-hof-proof-' . uniqid('', true);
+        $this->assertTrue(mkdir($this->proofDir, 0700, true));
+        AP_Hall_Of_Fame::setProofRootOverride($this->proofDir);
 
         $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -103,9 +109,16 @@ final class HallOfFameTest extends TestCase
     protected function tearDown(): void
     {
         AP_Hall_Of_Fame::resetHttpTransport();
+        AP_Hall_Of_Fame::setProofRootOverride(null);
         AP_Roles::flushCache();
         AP_Options::flushCache();
         AP_Admin::clearNotices();
+        if ($this->proofDir !== '' && is_dir($this->proofDir)) {
+            foreach (glob($this->proofDir . '/agorapress-hof-*.txt') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir($this->proofDir);
+        }
     }
 
     public function testPrivacyInvariants(): void
@@ -166,12 +179,65 @@ final class HallOfFameTest extends TestCase
         $this->assertSame('withdraw-abc', $status['token']);
         $this->assertNotSame('', $status['joined_at']);
 
-        $this->assertCount(1, $this->httpCalls);
-        $payload = $this->httpCalls[0]['payload'];
-        $this->assertSame('join', $payload['action']);
-        $this->assertSame('example.com', $payload['domain']);
-        $this->assertArrayNotHasKey('email', $payload);
+        $this->assertCount(2, $this->httpCalls);
+        $challenge = $this->httpCalls[0]['payload'];
+        $this->assertSame('challenge', $challenge['action']);
+        $this->assertSame('example.com', $challenge['domain']);
+        $this->assertArrayNotHasKey('email', $challenge);
+        $verify = $this->httpCalls[1]['payload'];
+        $this->assertSame('verify', $verify['action']);
+        $this->assertSame('example.com', $verify['domain']);
+        $this->assertArrayHasKey('challenge', $verify);
+        $this->assertArrayHasKey('proof_url', $verify);
+        $this->assertArrayNotHasKey('email', $verify);
         $this->assertStringContainsString('hall-of-fame', $this->httpCalls[0]['url']);
+        $leftover = glob($this->proofDir . '/agorapress-hof-*.txt') ?: [];
+        $this->assertSame([], $leftover, 'Handshake proof file must be removed after join');
+    }
+
+    public function testJoinWritesProofFileBeforeVerify(): void
+    {
+        $proofDir = $this->proofDir;
+        $seen = false;
+        AP_Hall_Of_Fame::setHttpTransport(static function (
+            string $method,
+            string $url,
+            array $payload
+        ) use (
+            $proofDir,
+            &$seen
+        ): array {
+            unset($method, $url);
+            $action = (string) ($payload['action'] ?? '');
+            if ($action === 'challenge' || $action === 'join') {
+                return [
+                    'ok' => true,
+                    'status' => 200,
+                    'body' => (string) json_encode([
+                        'ok' => true,
+                        'challenge' => 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
+                        'filename' => 'agorapress-hof-deadbeefcafebabe.txt',
+                    ]),
+                    'error' => '',
+                ];
+            }
+            $path = $proofDir . '/agorapress-hof-deadbeefcafebabe.txt';
+            $seen = is_file($path)
+                && str_contains((string) file_get_contents($path), 'a1b2c3d4e5f60718293a4b5c6d7e8f90');
+
+            return [
+                'ok' => true,
+                'status' => 200,
+                'body' => (string) json_encode(['ok' => true, 'token' => 'proof-tok']),
+                'error' => '',
+            ];
+        });
+
+        $nonce = ap_create_nonce(AP_Hall_Of_Fame::NONCE_JOIN, $this->adminId);
+        $result = AP_Hall_Of_Fame::join($this->adminId, ['_ap_nonce' => $nonce], $this->db);
+        $this->assertTrue($result['ok']);
+        $this->assertTrue($seen, 'Proof file must exist on disk when verify is requested');
+        $this->assertFileDoesNotExist($proofDir . '/agorapress-hof-deadbeefcafebabe.txt');
     }
 
     public function testJoinFailsOnRemoteErrorWithoutLocalJoin(): void
@@ -413,10 +479,30 @@ final class HallOfFameTest extends TestCase
                 'payload' => $payload,
             ];
 
+            $action = (string) ($payload['action'] ?? '');
+            if ($action === 'challenge' || $action === 'join') {
+                $body = [
+                    'ok' => true,
+                    'challenge' => 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
+                    'filename' => 'agorapress-hof-deadbeefcafebabe.txt',
+                    'expires_in' => 600,
+                ];
+            } elseif ($action === 'verify') {
+                $body = $jsonBody !== [] ? $jsonBody : ['ok' => true];
+                if (!isset($body['ok'])) {
+                    $body['ok'] = true;
+                }
+                if (!isset($body['token'])) {
+                    $body['token'] = 'tok';
+                }
+            } else {
+                $body = $jsonBody !== [] ? $jsonBody : ['ok' => true];
+            }
+
             return [
                 'ok' => true,
                 'status' => 200,
-                'body' => (string) json_encode($jsonBody !== [] ? $jsonBody : ['ok' => true]),
+                'body' => (string) json_encode($body),
                 'error' => '',
             ];
         });

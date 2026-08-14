@@ -350,6 +350,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-admin-menu.php';
     // Plugin discovery, headers, activation, MU + active-plugin loading.
     require_once AP_ABSPATH . 'ap-includes/class-ap-plugin.php';
+    // Plugin zip installer (admin upload).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-plugin-installer.php';
     // Shortcode API ([tag] expansion in content).
     require_once AP_ABSPATH . 'ap-includes/class-ap-shortcode.php';
     // Cron (scheduled events / pseudo-cron).
