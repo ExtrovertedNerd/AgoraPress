@@ -24,8 +24,8 @@ if ($targetId === $actorId && !AP_Admin::currentUserCan('edit_users')) {
 
 AP_Admin::requireCapability('edit_users');
 
-$user = AP_User::getById($targetId);
-if ($user === null) {
+$editUser = AP_User::getById($targetId);
+if ($editUser === null) {
     AP_Admin::redirect(AP_Admin::url('users.php', ['message' => 'not_found']));
 }
 
@@ -43,9 +43,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         AP_Admin::addNotice($err, 'error');
     }
     $extra = [
-        'user_email' => (string) ($_POST['user_email'] ?? $user->user_email),
-        'user_url' => (string) ($_POST['user_url'] ?? $user->user_url),
-        'display_name' => (string) ($_POST['display_name'] ?? $user->display_name),
+        'user_email' => (string) ($_POST['user_email'] ?? $editUser->user_email),
+        'user_url' => (string) ($_POST['user_url'] ?? $editUser->user_url),
+        'display_name' => (string) ($_POST['display_name'] ?? $editUser->display_name),
         'first_name' => (string) ($_POST['first_name'] ?? ''),
         'last_name' => (string) ($_POST['last_name'] ?? ''),
         'nickname' => (string) ($_POST['nickname'] ?? ''),
@@ -55,9 +55,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         'role' => (string) ($_POST['role'] ?? ''),
     ];
     // Keep object fields in sync for redisplay.
-    $user->user_email = ap_sanitize_text_field($extra['user_email']);
-    $user->user_url = (string) $extra['user_url'];
-    $user->display_name = ap_sanitize_text_field($extra['display_name']);
+    $editUser->user_email = ap_sanitize_text_field($extra['user_email']);
+    $editUser->user_url = (string) $extra['user_url'];
+    $editUser->display_name = ap_sanitize_text_field($extra['display_name']);
 }
 
 AP_Admin::consumeQueryNotice();
@@ -79,5 +79,5 @@ require __DIR__ . '/admin-header.php';
 </div>
 
 <?php
-echo AP_Admin_User_Edit::renderForm($user, 'update', $actorId, $extra);
+echo AP_Admin_User_Edit::renderForm($editUser, 'update', $actorId, $extra);
 require __DIR__ . '/admin-footer.php';

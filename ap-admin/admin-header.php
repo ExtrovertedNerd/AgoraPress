@@ -16,9 +16,10 @@ declare(strict_types=1);
 $ap_admin_title = $ap_admin_title ?? 'Admin';
 $ap_admin_screen = $ap_admin_screen ?? '';
 $ap_admin_body_class = $ap_admin_body_class ?? '';
-$user = ap_get_current_user();
-$displayName = $user !== null
-    ? ($user->display_name !== '' ? $user->display_name : $user->user_login)
+// Prefixed so this include does not clobber a screen-local $user.
+$ap_admin_user = ap_get_current_user();
+$displayName = $ap_admin_user !== null
+    ? ($ap_admin_user->display_name !== '' ? $ap_admin_user->display_name : $ap_admin_user->user_login)
     : '';
 $cssUrl = AP_Admin::url('css/admin.css');
 $version = defined('AP_VERSION') ? (string) AP_VERSION : '';

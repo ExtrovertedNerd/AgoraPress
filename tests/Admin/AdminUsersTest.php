@@ -533,6 +533,93 @@ final class AdminUsersTest extends TestCase
         $this->assertStringContainsString('Add New User', $html);
     }
 
+    public function testEditFormRendersTargetUserNotActor(): void
+    {
+        $admin = AP_User::create([
+            'user_login' => 'siteadmin',
+            'user_email' => 'siteadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+            'display_name' => 'Site Admin',
+        ], $this->db);
+        $other = AP_User::create([
+            'user_login' => 'otherperson',
+            'user_email' => 'other@example.test',
+            'password' => 'password123',
+            'role' => 'author',
+            'display_name' => 'Other Person',
+        ], $this->db);
+        $this->assertTrue($other['ok'], implode('; ', $other['errors']));
+
+        $target = AP_User::getById($other['id'], $this->db);
+        $this->assertNotNull($target);
+        $html = AP_Admin_User_Edit::renderForm($target, 'update', $admin['id'], [], $this->db);
+
+        $this->assertStringContainsString('otherperson', $html);
+        $this->assertStringContainsString('other@example.test', $html);
+        $this->assertStringContainsString('name="user_ID" value="' . $other['id'] . '"', $html);
+        $this->assertStringContainsString('user_id=' . $other['id'], $html);
+        $this->assertStringNotContainsString('siteadmin', $html);
+        $this->assertStringNotContainsString('siteadmin@example.test', $html);
+    }
+
+    public function testAdminHeaderDoesNotClobberScreenUserVariable(): void
+    {
+        $src = (string) file_get_contents($this->root . '/ap-admin/admin-header.php');
+        $this->assertDoesNotMatchRegularExpression(
+            '/\$user\s*=/',
+            $src,
+            'admin-header.php must not assign $user; that overwrites the user-edit.php target'
+        );
+        $this->assertStringContainsString('$ap_admin_user', $src);
+    }
+
+    public function testUserEditScreenKeepsTargetAfterHeaderInclude(): void
+    {
+        $src = (string) file_get_contents($this->root . '/ap-admin/user-edit.php');
+        $headerPos = strpos($src, 'admin-header.php');
+        $this->assertNotFalse($headerPos);
+        $after = substr($src, $headerPos);
+        $this->assertStringContainsString('renderForm($editUser', $after);
+        $this->assertStringNotContainsString('renderForm($user', $after);
+    }
+
+    public function testIncludingAdminHeaderDoesNotReplaceLoadedEditUser(): void
+    {
+        $other = AP_User::create([
+            'user_login' => 'headerclobber',
+            'user_email' => 'headerclobber@example.test',
+            'password' => 'password123',
+            'role' => 'author',
+            'display_name' => 'Header Clobber',
+        ], $this->db);
+        $this->assertTrue($other['ok'], implode('; ', $other['errors']));
+
+        $user = AP_User::getById($other['id'], $this->db);
+        $this->assertNotNull($user);
+        $targetId = $user->ID;
+        $targetLogin = $user->user_login;
+
+        if (!defined('AP_ABSPATH')) {
+            define('AP_ABSPATH', $this->root . '/');
+        }
+
+        $ap_admin_title = 'Edit User';
+        $ap_admin_screen = 'users';
+        $ap_admin_body_class = 'ap-user-edit-php';
+        ob_start();
+        try {
+            require $this->root . '/ap-admin/admin-header.php';
+        } finally {
+            ob_end_clean();
+        }
+
+        $this->assertInstanceOf(AP_User::class, $user);
+        $this->assertSame($targetId, $user->ID);
+        $this->assertSame($targetLogin, $user->user_login);
+        $this->assertSame('headerclobber', $user->user_login);
+    }
+
     public function testProceduralUserHelpers(): void
     {
         $this->assertTrue(function_exists('ap_create_user'));

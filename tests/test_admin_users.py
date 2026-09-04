@@ -109,6 +109,19 @@ def test_screens_require_caps_and_use_classes() -> None:
     assert "AP_Admin_User_Edit" in profile
 
 
+def test_admin_header_does_not_clobber_user_variable() -> None:
+    header = (ADMIN / "admin-header.php").read_text(encoding="utf-8")
+    assert "$user =" not in header
+    assert "$ap_admin_user" in header
+
+
+def test_user_edit_keeps_target_after_header() -> None:
+    src = (ADMIN / "user-edit.php").read_text(encoding="utf-8")
+    after = src[src.index("admin-header.php") :]
+    assert "renderForm($editUser" in after
+    assert "renderForm($user" not in after
+
+
 def test_admin_menu_includes_users() -> None:
     src = (ADMIN / "includes" / "class-ap-admin.php").read_text(encoding="utf-8")
     assert "'id' => 'users'" in src or '"id" => "users"' in src
