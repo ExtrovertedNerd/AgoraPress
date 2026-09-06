@@ -19,24 +19,34 @@ use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
-#[CoversClass(AP_Hof_Store::class)]
-#[CoversClass(AP_Hof_Api::class)]
+#[CoversClass('AP_Hof_Store')]
+#[CoversClass('AP_Hof_Api')]
 final class HallOfFamePluginTest extends TestCase
 {
     private string $root;
 
-    private AP_DB $db;
+    private ?AP_DB $db = null;
 
     protected function setUp(): void
     {
         $this->root = dirname(__DIR__, 2);
+        $pluginDir = $this->root . '/ap-content/plugins/agorapress-hall-of-fame';
+        if (
+            !is_file($pluginDir . '/includes/class-hof-store.php')
+            || !is_file($pluginDir . '/includes/class-hof-api.php')
+        ) {
+            $this->markTestSkipped(
+                'agorapress-hall-of-fame is a project-site addon, not shipped in AgoraPress core.'
+            );
+        }
+
         require_once $this->root . '/ap-includes/version.php';
         require_once $this->root . '/ap-includes/class-ap-db.php';
         require_once $this->root . '/ap-includes/class-ap-migrator.php';
         require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/functions.php';
-        require_once $this->root . '/ap-content/plugins/agorapress-hall-of-fame/includes/class-hof-store.php';
-        require_once $this->root . '/ap-content/plugins/agorapress-hall-of-fame/includes/class-hof-api.php';
+        require_once $pluginDir . '/includes/class-hof-store.php';
+        require_once $pluginDir . '/includes/class-hof-api.php';
 
         AP_Options::flushCache();
         AP_Hof_Api::resetFetchTransport();
@@ -54,8 +64,12 @@ final class HallOfFamePluginTest extends TestCase
 
     protected function tearDown(): void
     {
-        AP_Hof_Api::resetFetchTransport();
-        AP_Options::flushCache();
+        if (class_exists(AP_Hof_Api::class, false)) {
+            AP_Hof_Api::resetFetchTransport();
+        }
+        if (class_exists(AP_Options::class, false)) {
+            AP_Options::flushCache();
+        }
         unset($GLOBALS['apdb']);
     }
 

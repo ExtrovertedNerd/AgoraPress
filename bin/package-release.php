@@ -304,7 +304,7 @@ Artifacts:
   version.json
 
 Excluded: tests, vendor, .git, .github, .hephaestus, CI/tooling configs,
-caches, secrets (ap-config.php, .env), runtime uploads, and site-specific themes (oakridge, zeroshits, jarvis, extravirginnerd, blindvault).
+caches, secrets (ap-config.php, .env), and runtime uploads.
 
 HELP;
     fwrite(STDOUT, $help);
@@ -489,16 +489,6 @@ function shouldExcludeRelative(string $relative, bool $isDir): bool
         '.phpstan.cache' => true,
     ];
     if (count($parts) === 1 && isset($topLevelDevFiles[$base])) {
-        return true;
-    }
-
-    // Site-specific custom themes (not part of the product distribution).
-    $customThemes = ['oakridge' => true, 'zeroshits' => true, 'jarvis' => true, 'extravirginnerd' => true, 'blindvault' => true];
-    if (count($parts) >= 3
-        && $parts[0] === 'ap-content'
-        && $parts[1] === 'themes'
-        && isset($customThemes[$parts[2]])
-    ) {
         return true;
     }
 

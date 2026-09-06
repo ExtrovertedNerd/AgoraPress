@@ -234,8 +234,7 @@ Plugins should **not** expose raw PHP under `ap-content/plugins/**` as admin end
 
 **Source:** `ap-includes/class-ap-admin-menu.php`  
 **Router:** `ap-admin/admin.php?page={id}`  
-**Helpers:** `ap_register_admin_page()`, `ap_get_admin_page()`, `ap_get_admin_pages()`, `AP_Admin::pageUrl()`  
-**Sample:** `ap-content/plugins/logos/logos.php`
+**Helpers:** `ap_register_admin_page()`, `ap_get_admin_page()`, `ap_get_admin_pages()`, `AP_Admin::pageUrl()`
 
 ### Register a page
 

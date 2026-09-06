@@ -7,6 +7,10 @@ Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.6-beta*
 
 ## [Unreleased]
 
+### Removed
+
+- Site-specific plugins and themes other than the default Agora theme. Core ships `ap-content/themes/agora/` only.
+
 ## [0.3.6-beta] - 2026-09-06
 
 ACP Edit User loads the selected account, not the logged-in admin. No schema change (`AP_DB_VERSION` **12**); privacy posture unchanged (no telemetry by default).
@@ -115,7 +119,7 @@ Plugin admin pages in the Control Panel (registry + allowlisted router). No sche
 
 ### Added
 
-- **Plugin admin pages (ACP registry + router):** `ap_register_admin_page()` / `AP_Admin_Menu` allowlist; router `admin.php?page={id}` (capability gate, no arbitrary path includes); sidebar merge; Plugins **Settings** action; WP shims (`add_options_page`, etc.); sample `ap-content/plugins/logos/`; docs in `docs/plugins.md`
+- **Plugin admin pages (ACP registry + router):** `ap_register_admin_page()` / `AP_Admin_Menu` allowlist; router `admin.php?page={id}` (capability gate, no arbitrary path includes); sidebar merge; Plugins **Settings** action; WP shims (`add_options_page`, etc.); docs in `docs/plugins.md`
 
 ### Changed
 

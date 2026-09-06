@@ -11,6 +11,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "ap-content" / "plugins" / "agorapress-hall-of-fame"
 MAIN = PLUGIN / "agorapress-hall-of-fame.php"
@@ -18,6 +20,12 @@ STORE = PLUGIN / "includes" / "class-hof-store.php"
 API = PLUGIN / "includes" / "class-hof-api.php"
 PUBLIC = PLUGIN / "includes" / "class-hof-public.php"
 PHPUNIT = ROOT / "tests" / "Plugin" / "HallOfFamePluginTest.php"
+
+# Project-site directory listing plugin — lives in AgoraPress_Addons, not core.
+pytestmark = pytest.mark.skipif(
+    not MAIN.is_file(),
+    reason="agorapress-hall-of-fame is a project-site addon, not shipped in AgoraPress core",
+)
 
 
 def _php_bin() -> str:

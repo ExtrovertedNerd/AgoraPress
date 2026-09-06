@@ -16,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[1]
 ADMIN_PHP = ROOT / "ap-admin" / "admin.php"
 ADMIN_CLASS = ROOT / "ap-admin" / "includes" / "class-ap-admin.php"
 PHPUNIT = ROOT / "tests" / "Admin" / "AdminRouterTest.php"
-LOGOS_DEMO = ROOT / "ap-content" / "plugins" / "logos" / "logos.php"
 
 
 def _php_bin() -> str:
@@ -27,23 +26,6 @@ def test_admin_router_files_exist() -> None:
     assert ADMIN_PHP.is_file()
     assert ADMIN_CLASS.is_file()
     assert PHPUNIT.is_file()
-
-
-def test_logos_demo_plugin_ships_for_manual_smoke() -> None:
-    """Phase 3 smoke: sample Logos plugin registers ACP page (sidebar + list link)."""
-    assert LOGOS_DEMO.is_file(), "Missing ap-content/plugins/logos/logos.php"
-    src = LOGOS_DEMO.read_text(encoding="utf-8")
-    for needle in (
-        "Plugin Name: Logos",
-        "ap_register_admin_page",
-        "'id' => 'logos'",
-        "'parent' => 'settings'",
-        "'menu' => 'Logos'",
-        "'plugin'",
-        "logos_render_settings",
-        "function logos_render_settings",
-    ):
-        assert needle in src, f"Expected {needle!r} in logos demo plugin"
 
 
 def test_admin_php_router_surface() -> None:
@@ -146,7 +128,7 @@ def test_phpunit_covers_router_cap_gate() -> None:
         "testPluginSettingsActionLinksRequireActivePlugin",
         "testPluginSettingsActionLinksNormalizeBasename",
         "testPluginsPhpRendersSettingsActionLink",
-        "testLogosDemoPluginRegistersSidebarAndPluginsListLink",
+        "testPluginAdminPageRegistersSidebarAndPluginsListLink",
         "testNotFoundMethodExistsAndUses404",
         "testResolveRequestedAdminPageUnknownIsNull",
         "testUnknownAdminPageMessageIsStaticAndSafe",

@@ -340,39 +340,6 @@ def test_agora_board_css_stays_theme_local() -> None:
     assert "ap-forum-row__icon" in functions
 
 
-def test_known_custom_theme_styles_stable_board_hooks() -> None:
-    """Known custom themes style the same stable board hooks — no hard break."""
-    needles = (
-        ".ap-forum-cat-header",
-        ".ap-forum-row",
-        ".ap-forum-row--unread",
-        ".ap-forum-row--read",
-        ".ap-forum-row--locked",
-        ".ap-forum-icon--unread",
-        ".ap-forum-icon--read",
-        ".ap-forum-last-post__title",
-        ".ap-forum-last-post__author",
-        ".ap-forum-last-post__time",
-        "ap-forum-list__item",
-    )
-    for slug in ("zeroshits", "extravirginnerd", "blindvault"):
-        theme = ROOT / "ap-content" / "themes" / slug
-        if not theme.is_dir():
-            continue
-        style_path = theme / "style.css"
-        if not style_path.is_file():
-            continue
-        style = style_path.read_text(encoding="utf-8")
-        for needle in needles:
-            assert needle in style, f"{slug} missing stable hook {needle!r}"
-        # Dual legacy + new class surface so either selector path works.
-        assert ".ap-forum-list__item" in style or "ap-forum-list__item" in style
-        forum = (theme / "forum.php").read_text(encoding="utf-8")
-        assert "ap-forum-row" in forum
-        assert "ap-forum-cat-header" in forum
-        assert "ap_forum_row_classes" in forum or "ap-forum-row--" in forum
-
-
 def test_theme_options_admin_and_menu() -> None:
     opts = THEME_OPTIONS.read_text(encoding="utf-8")
     assert "agora_color_scheme" in opts

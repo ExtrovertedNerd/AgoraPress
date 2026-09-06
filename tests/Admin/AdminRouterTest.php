@@ -1177,99 +1177,111 @@ final class AdminRouterTest extends TestCase
     }
 
     /**
-     * Manual smoke (automated): ship Logos demo, register under Settings, sidebar
-     * + plugins list Settings link appear only when the plugin is active.
+     * A plugin file that calls ap_register_admin_page() shows in Settings and
+     * gets a plugins-list Settings link only while that plugin is active.
      */
-    public function testLogosDemoPluginRegistersSidebarAndPluginsListLink(): void
+    public function testPluginAdminPageRegistersSidebarAndPluginsListLink(): void
     {
-        $demo = $this->root . '/ap-content/plugins/logos/logos.php';
-        $this->assertFileExists($demo, 'Sample Logos plugin must ship for manual ACP smoke');
-
-        $src = (string) file_get_contents($demo);
-        $this->assertStringContainsString('Plugin Name: Logos', $src);
-        $this->assertStringContainsString('ap_register_admin_page', $src);
-        $this->assertStringContainsString("'id' => 'logos'", $src);
-        $this->assertStringContainsString("'parent' => 'settings'", $src);
-        $this->assertStringContainsString('logos_render_settings', $src);
-
         if (!defined('AP_ABSPATH')) {
             define('AP_ABSPATH', $this->root . '/');
         }
         require_once $this->root . '/ap-includes/functions.php';
 
         $this->bootPluginSubsystem();
-        // Discover/load against the real plugins tree (not a temp override).
-        AP_Plugin::setPluginsRootOverride(null);
-
-        $headers = AP_Plugin::getPluginHeaders('logos/logos.php');
-        $this->assertIsArray($headers);
-        $this->assertSame('Logos', $headers['Plugin Name'] ?? null);
-
-        // Load the sample plugin (same path as an active include).
-        require $demo;
-
-        $page = AP_Admin_Menu::get('logos');
-        $this->assertIsArray($page);
-        $this->assertSame('logos', $page['id']);
-        $this->assertSame('settings', $page['parent']);
-        $this->assertSame('Logos', $page['menu']);
-        $this->assertSame('logos/logos.php', $page['plugin']);
-        $this->assertInstanceOf(\AP_Admin_String_Callback::class, $page['callback']);
-        $this->assertSame('logos_render_settings', $page['callback']->target());
-        $this->assertIsCallable($page['callback']);
-        $this->assertSame('manage_options', $page['capability']);
-
-        // Inactive → no sidebar item, no plugins list Settings link.
-        $inactiveIds = array_column(AP_Admin::menuItems('', $this->pluginDb()), 'id');
-        $this->assertNotContains('logos', $inactiveIds);
-        $this->assertNull(
-            AP_Admin::pluginSettingsActionLink('logos/logos.php', $this->pluginDb())
+        $tempPlugins = sys_get_temp_dir() . '/ap-acp-demo-' . bin2hex(random_bytes(6));
+        $this->assertTrue(mkdir($tempPlugins . '/acp-demo', 0700, true));
+        $demo = $tempPlugins . '/acp-demo/acp-demo.php';
+        $written = file_put_contents(
+            $demo,
+            "<?php\n"
+            . "/**\n * Plugin Name: ACP Demo\n */\n"
+            . "function acp_demo_render_settings(): void\n"
+            . "{\n"
+            . "    echo '<div class=\"wrap\" id=\"acp-demo-settings\"><h1>ACP Demo</h1></div>';\n"
+            . "}\n"
+            . "ap_register_admin_page([\n"
+            . "    'id' => 'acp-demo',\n"
+            . "    'parent' => 'settings',\n"
+            . "    'title' => 'ACP Demo',\n"
+            . "    'menu' => 'ACP Demo',\n"
+            . "    'capability' => 'manage_options',\n"
+            . "    'callback' => 'acp_demo_render_settings',\n"
+            . "    'plugin' => 'acp-demo/acp-demo.php',\n"
+            . "]);\n"
         );
+        $this->assertNotFalse($written);
+        AP_Plugin::setPluginsRootOverride($tempPlugins);
 
-        // Active → Settings section sidebar entry + plugins.php Settings action.
-        \AP_Options::update('active_plugins', ['logos/logos.php'], $this->pluginDb());
+        try {
+            $headers = AP_Plugin::getPluginHeaders('acp-demo/acp-demo.php');
+            $this->assertIsArray($headers);
+            $this->assertSame('ACP Demo', $headers['Plugin Name'] ?? null);
 
-        $menu = AP_Admin::menuItems('logos', $this->pluginDb());
-        $logosItems = array_values(array_filter(
-            $menu,
-            static fn (array $i): bool => $i['id'] === 'logos'
-        ));
-        $this->assertCount(1, $logosItems);
-        $this->assertSame('Logos', $logosItems[0]['label']);
-        $this->assertSame('settings', $logosItems[0]['section']);
-        $this->assertTrue($logosItems[0]['active']);
-        $this->assertStringContainsString('admin.php', $logosItems[0]['url']);
-        $this->assertStringContainsString('page=logos', $logosItems[0]['url']);
-        $this->assertSame('manage_options', $logosItems[0]['cap']);
+            require $demo;
 
-        // Sits after core settings items (contiguous settings block).
-        $ids = array_column($menu, 'id');
-        $logosIdx = array_search('logos', $ids, true);
-        $generalIdx = array_search('options-general', $ids, true);
-        $this->assertNotFalse($logosIdx);
-        $this->assertNotFalse($generalIdx);
-        $this->assertGreaterThan($generalIdx, $logosIdx);
+            $page = AP_Admin_Menu::get('acp-demo');
+            $this->assertIsArray($page);
+            $this->assertSame('acp-demo', $page['id']);
+            $this->assertSame('settings', $page['parent']);
+            $this->assertSame('ACP Demo', $page['menu']);
+            $this->assertSame('acp-demo/acp-demo.php', $page['plugin']);
+            $this->assertInstanceOf(\AP_Admin_String_Callback::class, $page['callback']);
+            $this->assertSame('acp_demo_render_settings', $page['callback']->target());
+            $this->assertIsCallable($page['callback']);
+            $this->assertSame('manage_options', $page['capability']);
 
-        $settingsLink = AP_Admin::pluginSettingsActionLink(
-            'logos/logos.php',
-            $this->pluginDb()
-        );
-        $this->assertIsArray($settingsLink);
-        $this->assertSame('logos', $settingsLink['id']);
-        $this->assertSame('Settings', $settingsLink['label']);
-        $this->assertStringContainsString('admin.php', $settingsLink['url']);
-        $this->assertStringContainsString('page=logos', $settingsLink['url']);
+            $inactiveIds = array_column(AP_Admin::menuItems('', $this->pluginDb()), 'id');
+            $this->assertNotContains('acp-demo', $inactiveIds);
+            $this->assertNull(
+                AP_Admin::pluginSettingsActionLink('acp-demo/acp-demo.php', $this->pluginDb())
+            );
 
-        // Callback renders inside chrome-safe HTML (no path include from query).
-        $this->assertTrue(function_exists('logos_render_settings'));
-        ob_start();
-        $invoked = AP_Admin::invokeAdminPageCallback('logos_render_settings');
-        $output = (string) ob_get_clean();
-        $this->assertTrue($invoked);
-        $this->assertStringContainsString('Logos', $output);
-        $this->assertStringContainsString('logos-settings', $output);
+            \AP_Options::update('active_plugins', ['acp-demo/acp-demo.php'], $this->pluginDb());
 
-        $this->shutdownPluginSubsystem();
+            $menu = AP_Admin::menuItems('acp-demo', $this->pluginDb());
+            $demoItems = array_values(array_filter(
+                $menu,
+                static fn (array $i): bool => $i['id'] === 'acp-demo'
+            ));
+            $this->assertCount(1, $demoItems);
+            $this->assertSame('ACP Demo', $demoItems[0]['label']);
+            $this->assertSame('settings', $demoItems[0]['section']);
+            $this->assertTrue($demoItems[0]['active']);
+            $this->assertStringContainsString('admin.php', $demoItems[0]['url']);
+            $this->assertStringContainsString('page=acp-demo', $demoItems[0]['url']);
+            $this->assertSame('manage_options', $demoItems[0]['cap']);
+
+            $ids = array_column($menu, 'id');
+            $demoIdx = array_search('acp-demo', $ids, true);
+            $generalIdx = array_search('options-general', $ids, true);
+            $this->assertNotFalse($demoIdx);
+            $this->assertNotFalse($generalIdx);
+            $this->assertGreaterThan($generalIdx, $demoIdx);
+
+            $settingsLink = AP_Admin::pluginSettingsActionLink(
+                'acp-demo/acp-demo.php',
+                $this->pluginDb()
+            );
+            $this->assertIsArray($settingsLink);
+            $this->assertSame('acp-demo', $settingsLink['id']);
+            $this->assertSame('Settings', $settingsLink['label']);
+            $this->assertStringContainsString('admin.php', $settingsLink['url']);
+            $this->assertStringContainsString('page=acp-demo', $settingsLink['url']);
+
+            $this->assertTrue(function_exists('acp_demo_render_settings'));
+            ob_start();
+            $invoked = AP_Admin::invokeAdminPageCallback('acp_demo_render_settings');
+            $output = (string) ob_get_clean();
+            $this->assertTrue($invoked);
+            $this->assertStringContainsString('ACP Demo', $output);
+            $this->assertStringContainsString('acp-demo-settings', $output);
+        } finally {
+            AP_Plugin::setPluginsRootOverride(null);
+            @unlink($demo);
+            @rmdir($tempPlugins . '/acp-demo');
+            @rmdir($tempPlugins);
+            $this->shutdownPluginSubsystem();
+        }
     }
 
     /**
