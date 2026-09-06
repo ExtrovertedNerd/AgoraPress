@@ -1,0 +1,423 @@
+# Admin Control Panel (`/ap-admin/`)
+
+This is the **operator map of `/ap-admin/`** for AgoraPress **`0.3.6-beta`**
+(schema `AP_DB_VERSION` **12**). It describes the Control Panel **as built**:
+screens grouped by task, the capability that gates each area, the plugin zip
+installer, the voluntary Hall of Fame handshake, and the unobtrusive donation
+link. It does **not** invent screens, menus, or options.
+
+The compact landing-page bullets are in
+[`../README.md`](../README.md). This file is the operator depth guide. Plugin
+authors who need `ap_register_admin_page()` should also read
+[plugins.md](plugins.md). Roles and meta-caps are in [roles.md](roles.md).
+
+**Source (as built):** `ap-admin/` entry scripts, `ap-admin/admin-bootstrap.php`,
+`ap-admin/includes/class-ap-admin.php` (`AP_Admin`),
+`ap-includes/class-ap-admin-menu.php` (`AP_Admin_Menu`),
+`ap-includes/class-ap-plugin-installer.php` (`AP_Plugin_Installer`),
+`ap-includes/class-ap-hall-of-fame.php` (`AP_Hall_Of_Fame`),
+`ap-admin/admin-header.php`, `ap-admin/admin-footer.php`.
+
+There is **no** Gutenberg / block editor in the ACP, **no** official plugin or
+theme marketplace, and **no** paywall. Missing from this guide and from core
+means **not in core**.
+
+---
+
+## How the ACP works
+
+The Control Panel lives at **`/ap-admin/`**. Pretty permalinks are not required
+to reach it; the directory is a real folder of PHP entry scripts. After login,
+the shell (`admin-header.php` / `admin-footer.php`) wraps every screen.
+
+| Rule | As built |
+|------|----------|
+| Login | Every screen except `login.php` requires a logged-in user with the `read` capability (`AP_Admin::requireLogin()`). Users with no role cannot enter. |
+| Screen cap | Each entry script then calls `AP_Admin::requireCapability(…)` (or a meta-cap on a row). Failure is HTTP **403**. |
+| Nonces | State-changing forms use HMAC tokens (`_ap_nonce` / `AP_Nonce`). The ACP does **not** use PHP `$_SESSION` CSRF for those forms — see [security.md](security.md). |
+| Modules | Options `ap_module_static_pages`, `ap_module_blog`, and `ap_module_forum` hide related sidebar items and deny the matching screens when off. At least one module must stay on ([Settings → Modules](#settings)). |
+| Menu | Sidebar items come from `AP_Admin::menuItems()`. Plugin pages registered with `ap_register_admin_page()` merge under Settings, Plugins, or Tools. |
+| Session path | Login and the installer need a PHP `session.save_path` **writable by the php-fpm user**. A `770` directory the fpm user is not in fails CSRF / “security token” errors — [troubleshooting.md](troubleshooting.md). |
+| Color mode | Header toggle cycles System / Light / Dark (`localStorage` key `ap_admin_color_mode`). Not a setting option and not a paywall. |
+
+Unknown plugin page slugs (`admin.php?page=` not in the `AP_Admin_Menu`
+allowlist) return a safe **404**. The router never includes a filesystem path
+from query input.
+
+---
+
+## Sign in
+
+**URL:** `/ap-admin/login.php` (also `/ap-admin/` redirects here when logged
+out). This screen skips the auth gate (`$ap_admin_skip_auth`).
+
+| `?action=` | What it does |
+|------------|----------------|
+| `login` (default) | Username or email + password. Optional “remember me”. Nonce `admin-login`. Rate-limited (`AP_Rate_Limit`). Pending email verification is a distinct error. |
+| `logout` | CSRF-protected (`log-out` nonce). |
+| `register` | Shown only when option `users_can_register` is on (Settings → General). Optional math CAPTCHA + honeypot. |
+| `lostpassword` | Request a reset mail. |
+| `rp` / `resetpass` | Set a new password with the mailed key. |
+| `verifyemail` | Confirm a new account from the mailed link. |
+
+Already-logged-in visitors are sent to the dashboard (except verification
+links). Registration, default role, and “require email verification” live under
+[Settings → General](#settings), not on a separate membership screen.
+
+There is **no** TOTP / 2FA in core.
+
+---
+
+## Dashboard
+
+**Menu:** Dashboard · **URL:** `/ap-admin/index.php` · **Cap:** `read`
+
+At a Glance (module-aware counts), Activity (recent posts/pages and comments),
+and Quick Draft when the Blog module is on and the user can `edit_posts`.
+
+Administrators with `manage_options` who have not joined or dismissed Hall of
+Fame see a voluntary join prompt here. Dismiss stores option
+`hall_of_fame_dismissed` and sends **no** data. The full join/leave UI is
+[Settings → Hall of Fame](#hall-of-fame-handshake).
+
+---
+
+## Content
+
+These items sit under the **Content** sidebar section. Blog/Pages items hide
+when the matching module is off.
+
+| Task | Menu | Cap | Notes |
+|------|------|-----|-------|
+| List / bulk-edit posts | Posts (`edit.php?post_type=post`) | `edit_posts` | Blog module. Status views, bulk trash/delete. |
+| Write / edit a post | Add New / Edit (`post-new.php`, `post.php`) | `edit_posts` / meta `edit_post` | Visual editor is classic WYSIWYG — [editor.md](editor.md). No blocks in core. |
+| Revisions | `revision.php?post=` | meta `edit_post` / `edit_page` | List, restore, delete autosaves. Post type must support revisions. |
+| List / bulk-edit pages | Pages (`edit.php?post_type=page`) | `edit_pages` | Static Pages module. Hierarchical. |
+| Write / edit a page | `post-new.php?post_type=page`, `post.php` | `edit_pages` / meta `edit_page` | |
+| Categories | Categories (`edit-tags.php?taxonomy=category`) | `manage_categories` | Blog module. |
+| Tags | Tags (`edit-tags.php?taxonomy=post_tag`) | `manage_categories` | Blog module. |
+| Comments | Comments (`edit-comments.php`) | `moderate_comments` | Views: All / Pending / Approved / Spam / Trash. Bulk + row: approve, spam, trash, delete. |
+| Edit one comment | `comment.php?c=` | meta `edit_comment` | Own comments with `edit_own_comments`, or any with `moderate_comments`. |
+| Media library | Media (`upload.php`) | `upload_files` | List, upload (drag-and-drop), bulk delete. Files land under `ap-content/uploads/`. |
+| Edit one attachment | `media.php` | `upload_files` | Title / caption / alt. |
+| Add New Media | `media-new.php` | `upload_files` | Redirects to the library upload panel (`upload.php#ap-media-upload`). |
+
+Site Icon is **not** a Media screen. It lives on Settings → General
+([site-icon.md](site-icon.md)).
+
+---
+
+## Forums
+
+Visible only when the Forum module is on (`ap_module_forum`). Operator depth
+for hierarchy, topic types, likes, ACL, PMs, and module-off behaviour:
+[forums.md](forums.md).
+
+| Task | Menu | Cap | Notes |
+|------|------|-----|-------|
+| Forum tree | Forums (`forums.php`) | `manage_forums` | Categories and forums; bulk delete. |
+| Create / edit a forum | `forum-edit.php` | `manage_forums` | Per-forum visibility: Public, Members only, Read only, Moderators only, Administrators only, or a custom Guest / Registered / Moderator / Administrator matrix. |
+| Topics | Topics (`forum-topics.php`) | `moderate_forums` | Lock, sticky, approve, trash, delete. Topic types: `standard` / `sticky` / `announcement` / `rules`. |
+| Moderation queue | Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and reports. |
+| Groups | Groups (`forum-groups.php`) | `manage_forums` | Named groups and membership; used with per-forum ACL. |
+
+Site-wide forum defaults (guests, attachments, flood, search, online/unread,
+PMs, signatures, spam) are **Settings → Forums** (`options-forums.php`, cap
+`manage_options`), not the Forums menu.
+
+---
+
+## Appearance
+
+| Task | Menu | Cap | Notes |
+|------|------|-----|-------|
+| Themes | Themes (`themes.php`) | `switch_themes` | List, activate, zip upload (`install_themes`), delete. Classic PHP themes with a `Theme Name` header in `style.css`. Block / FSE packages are rejected — [compatibility.md](compatibility.md). |
+| Theme Options | Theme Options (`theme-options.php`) | `edit_theme_options` | Core always offers Additional CSS. The default Agora theme also exposes color schemes. Themes register extra fields on `ap_theme_options_register` — [themes.md](themes.md). |
+| Menus | Menus (`nav-menus.php`) | `edit_theme_options` | Pages / posts / categories / forums / useful links / custom URLs; assign to theme locations. |
+| Widgets | Widgets (`widgets.php`) | `edit_theme_options` | Assign built-in widgets (Text, Recent Posts, Categories, Search, Pages, Navigation Menu) to theme sidebars. |
+
+There is **no** theme file editor (`theme-editor.php`) in core.
+
+---
+
+## Plugins
+
+**Menu:** Installed Plugins · **URL:** `/ap-admin/plugins.php` · **Cap:**
+`activate_plugins`
+
+Lists plugins under `ap-content/plugins/` that have a **Plugin Name** header.
+Activate / deactivate links are nonce-protected. Must-use plugins in
+`ap-content/mu-plugins/` load always and **cannot** be deactivated here.
+
+An active plugin that registered an ACP page with a `plugin` basename gets a
+**Settings** link → `admin.php?page={id}`.
+
+Zip upload, overwrite, and delete are documented in
+[Plugin zip installer](#plugin-zip-installer) below. Integrator API
+(`ap_register_admin_page`, headers, MU-plugins): [plugins.md](plugins.md).
+
+There is **no** plugin directory, paid marketplace, or plugin file editor
+(`plugin-editor.php`) in core.
+
+---
+
+## Users
+
+| Task | Menu | Cap | Notes |
+|------|------|-----|-------|
+| All users | Users (`users.php`) | `list_users` | Filter by role; bulk / row delete (not the sole administrator). |
+| Add user | `user-new.php` | `create_users` | Login, email, password, role. |
+| Edit another user | `user-edit.php` | `edit_users` | Profile fields, role, password. |
+| Own profile | Profile (`profile.php`) | `read` | Any logged-in ACP user. Display name, email, avatar upload, signature, admin color-mode preference. Changing password revokes other sessions. |
+
+Default role for self-registration is Settings → General (`default_role`).
+Core roles and comment-ownership caps: [roles.md](roles.md).
+
+---
+
+## Tools
+
+| Task | Menu | Cap | Notes |
+|------|------|-----|-------|
+| Update Core | Update Core (`update-core.php`) | `update_core` | One-click zip apply from public `version.json`. **No site identity** on the check. Full guide: [updates.md](updates.md). There is **no** `php ap-cli core update` apply verb. |
+| Import | Import (`import.php`) | `import` | WordPress **WXR** (`.xml`) and **phpBB** (portable JSON **or** live database connection). `manage_options` is accepted as a fallback on the POST path. |
+| Site Health | Site Health (`site-health.php`) | `view_site_health` | Status checks (HTTPS, salts, debug, telemetry absence), system info, clear caches (expired transients). `manage_options` is accepted as a fallback. CLI: `php ap-cli site health` — [cli.md](cli.md). |
+| Analytics | Analytics (`analytics.php`) | `manage_options` | Local pageview reports. Option `analytics_enabled` default **off**. Retention `analytics_retention_days` (default **90**, range 1–3650). Data never leaves the site database. Not Hall of Fame and not version-check traffic. |
+| Export Personal Data | Export Personal Data (`export-personal-data.php`) | `export_others_personal_data` | Lookup by ID / login / email; JSON package (profile, posts, comments, forum activity, PMs). `manage_options` / `export` accepted as fallbacks. |
+| Erase Personal Data | Erase Personal Data (`erase-personal-data.php`) | `erase_others_personal_data` | Anonymize identifiers and delete the account; content is retained (reassigned or “Deleted User”). Cannot erase the sole administrator. `manage_options` / `delete_users` accepted as fallbacks. |
+
+Option `version_check_enabled` (installer default `1`) has **no** dedicated
+Settings screen — use `php ap-cli option set version_check_enabled 0`. Same
+for `rest_api_enabled` (default on; disable with CLI — [rest.md](rest.md)).
+
+---
+
+## Settings
+
+All of these require `manage_options` except Privacy (`manage_privacy_options`,
+with `manage_options` accepted as a fallback).
+
+| Task | Menu | What it stores |
+|------|------|----------------|
+| General | General (`options-general.php`) | `blogname`, `blogdescription`, **Site Icon** (`site_icon` attachment ID), `siteurl`, `home`, `admin_email`, `users_can_register`, `require_email_verification`, `registration_captcha` (`off` / `math`), `default_role`, `WPLANG`, `timezone_string`, `date_format`, `time_format`, `start_of_week`. |
+| Modules | Modules (`options-modules.php`) | Independent toggles for Static Pages, Blog, and Forum. At least one must remain enabled. Related menus and front-end routes follow these switches. |
+| Writing | Writing (`options-writing.php`) | Blog module. Default category, smilies, default comment status on new posts. |
+| Reading | Reading (`options-reading.php`) | `show_on_front` (`posts` / `page`), `page_on_front`, `page_for_posts`, `posts_per_page`, `posts_per_rss`, `rss_use_excerpt`. |
+| Discussion | Discussion (`options-discussion.php`) | Blog module. Comment defaults, moderation, registration-required comments, auto-close, threading, avatars. |
+| Media | Media Settings (`options-media.php`) | Thumbnail / medium / large sizes, crop, `uploads_use_yearmonth_folders`. |
+| Permalinks | Permalinks (`options-permalink.php`) | `permalink_structure` (Plain, Day and name, Month and name, Numeric, Post name, or custom), `category_base`, `tag_base`. Saving regenerates rewrite rules. Server `try_files` / `mod_rewrite`: [rewrites.md](rewrites.md). |
+| Privacy | Privacy (`options-privacy.php`) | Public Privacy Policy page (`wp_page_for_privacy_policy`). Links to Export / Erase Personal Data. |
+| Forums | Forums (`options-forums.php`) | Forum module. Topics/posts per page, guest view/post, PMs, attachments, flood interval, approval, search, online, unread, signatures, spam blacklist. Per-forum ACL is on **Forums → Edit**, not here. |
+| Hall of Fame | Hall of Fame (`options-hall-of-fame.php`) | Voluntary domain handshake — [section below](#hall-of-fame-handshake). |
+
+---
+
+## Plugin zip installer
+
+This is the **admin** path. The same installer class is what
+[plugins.md](plugins.md) documents for plugin authors.
+
+**Screen:** Plugins → Upload plugin (`plugins.php` POST `ap_plugin_action=upload`).
+
+| Piece | As built |
+|-------|----------|
+| Screen cap | `activate_plugins` (to see Plugins) |
+| Upload cap | `install_plugins` |
+| Delete cap | `delete_plugins`, or `install_plugins` as a fallback |
+| Class | `AP_Plugin_Installer` (`ap-includes/class-ap-plugin-installer.php`) |
+| Helpers | `ap_install_plugin_from_zip()`, `ap_upload_plugin()`, `ap_delete_plugin()` |
+| PHP | `ZipArchive` is required |
+| Max size | `AP_Plugin_Installer::DEFAULT_MAX_BYTES` = **40 MiB** (also bounded by PHP upload limits) |
+| Nonce | `plugin-upload` |
+
+### Package shape
+
+The zip must contain a PHP file with a **Plugin Name** header:
+
+- **Single-file:** `hello.php` at the zip root → `ap-content/plugins/hello.php`
+- **Folder:** `my-plugin/my-plugin.php` (header one level down) →
+  `ap-content/plugins/my-plugin/`
+
+Path traversal, disallowed script types, empty archives, and oversized zips
+are rejected. The file must look like a zip (`PK` magic).
+
+### After upload
+
+Installed plugins stay **inactive** until you activate them (Plugins screen or
+`php ap-cli plugin activate …`). Check **Overwrite if a plugin with the same
+folder or file name already exists** to replace an existing slug. Active
+plugins **cannot** be deleted — deactivate first.
+
+Drop-in without zip still works: copy a PHP file or folder into
+`ap-content/plugins/` yourself, then activate here.
+
+Theme zip upload is a **separate** flow on Appearance → Themes
+(`AP_Theme_Installer`, cap `install_themes`). It is not this installer.
+
+There is **no** CLI `plugin install` from a remote URL. `ap-cli plugin`
+supports `list` / `activate` / `deactivate` only — [cli.md](cli.md).
+
+---
+
+## Hall of Fame handshake
+
+Hall of Fame is the **only** optional way to count installs. Core never phones
+home during install or ordinary browsing. Join is an explicit administrator
+action.
+
+**Screen:** Settings → Hall of Fame (`options-hall-of-fame.php`) · **Cap:**
+`manage_options`
+
+**Source:** `ap-includes/class-ap-hall-of-fame.php`
+
+| Constant / option | As built |
+|-------------------|----------|
+| Endpoint | `https://agorapress.extrovertednerd.com/api/hall-of-fame` (`AP_Hall_Of_Fame::DEFAULT_ENDPOINT`). Override with `AP_HALL_OF_FAME_ENDPOINT` in `ap-config.php`. |
+| Public page | `https://agorapress.extrovertednerd.com/hall-of-fame` |
+| Status option | `hall_of_fame_status` = `joined` or empty |
+| Domain option | `hall_of_fame_domain` (hostname only, no path; `www.` stripped; IPs rejected) |
+| Token option | `hall_of_fame_token` (opaque withdrawal token) |
+| Joined at | `hall_of_fame_joined_at` (ISO-8601 UTC) |
+| Dismissed | `hall_of_fame_dismissed` = `1` hides the dashboard prompt |
+
+### Join flow (file-proof)
+
+1. Administrator clicks **Join the Hall of Fame** (nonce `hall-of-fame-join`).
+   Domain defaults from `siteurl` / `home`.
+2. This site POSTs `{action: "challenge", domain}` to the endpoint.
+3. The project API returns a hex `challenge` (32–64 chars) and a proof
+   `filename` matching `agorapress-hof-{hex}.txt`.
+4. This site writes that file at the **site root** (`AP_ABSPATH`) with the
+   challenge as the body, mode `0644`.
+5. This site POSTs `{action: "verify", domain, challenge, proof_url}`. The
+   project fetches the public file to confirm control of the domain.
+6. This site **deletes** the proof file immediately after the verify attempt.
+7. On success, local options are set to joined. Payload never includes email,
+   user id, site title, version, or environment data.
+
+Leave (nonce `hall-of-fame-leave`) POSTs `{action: "leave", domain, token}`
+and **always** clears local membership, even if the remote call fails (so the
+admin can re-join). Dismiss on the dashboard sends **nothing**.
+
+This is **not** telemetry, **not** `analytics_enabled`, and **not** the
+`version.json` check. Installers never contact the project site.
+
+---
+
+## Donation / tip (never a paywall)
+
+A subtle **Donate** link always appears in the admin footer
+(`ap-admin/admin-footer.php`, class `ap-footer-donate`). URL:
+
+`https://agorapress.extrovertednerd.com/donate`
+
+(`AP_Hall_Of_Fame::DONATION_URL`)
+
+It is permanent and non-optional — the constitution’s “price” for a
+free-forever CMS — and **never** blocks features, screens, updates, or
+modules. There is no toggle to hide it, and there is no paywall.
+
+Administrators also see a Hall of Fame footer link to
+`options-hall-of-fame.php`. Settings → Hall of Fame repeats the donation URL
+as a button; that screen is still voluntary membership, not a store.
+
+---
+
+## Plugin-registered ACP pages
+
+Plugins must **not** expose raw PHP under `ap-content/plugins/**` as admin
+endpoints. Register a page so it loads through the admin shell:
+
+```php
+ap_register_admin_page([
+    'id'         => 'myplugin',
+    'parent'     => 'settings',   // settings | plugins | tools | ''
+    'title'      => 'My Plugin',
+    'menu'       => 'My Plugin',
+    'capability' => 'manage_options',
+    'callback'   => 'myplugin_render_settings',
+    'plugin'     => ap_plugin_basename(__FILE__),
+    'position'   => 50,
+]);
+```
+
+**Router:** `/ap-admin/admin.php?page={id}` — allowlist only
+(`AP_Admin_Menu`). Unknown / empty / path-like `?page=` → safe 404. Capability
+is checked on every render (default `manage_options`).
+
+WordPress-compatible shims (`add_options_page`, `add_plugins_page`,
+`add_menu_page`, `add_submenu_page`) write the same registry. Full field list,
+hooks (`ap_admin_menu` / `admin_menu`), and security notes:
+[plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp).
+
+---
+
+## Capability cheat sheet
+
+Caps below are the **screen** gates (`AP_Admin::screenCapabilities()` plus
+post-type / meta-cap exceptions). Administrators have all of them. See
+[roles.md](roles.md) for who else does.
+
+| Area | Capability |
+|------|------------|
+| Enter ACP / Dashboard / Profile | `read` |
+| Posts | `edit_posts` (row: `edit_post` / `delete_post`; publish: `publish_posts`) |
+| Pages | `edit_pages` (row: `edit_page` / `delete_page`; publish: `publish_pages`) |
+| Categories / tags | `manage_categories` |
+| Comments list | `moderate_comments` (row edit: `edit_comment`) |
+| Media | `upload_files` |
+| Forums tree / edit / groups | `manage_forums` |
+| Forum topics / moderation | `moderate_forums` |
+| Themes list / activate | `switch_themes` (zip: `install_themes`) |
+| Theme Options / Menus / Widgets | `edit_theme_options` |
+| Plugins list / activate | `activate_plugins` (zip: `install_plugins`; delete: `delete_plugins`) |
+| Users list | `list_users` |
+| Add / edit users | `create_users` / `edit_users` |
+| Most Settings | `manage_options` |
+| Privacy | `manage_privacy_options` |
+| Update Core | `update_core` |
+| Import | `import` |
+| Site Health | `view_site_health` |
+| Analytics | `manage_options` |
+| Export / Erase Personal Data | `export_others_personal_data` / `erase_others_personal_data` |
+| Registered plugin pages | The `capability` stored on that `AP_Admin_Menu` row |
+
+---
+
+## Not in core
+
+Do not tell operators these exist in `/ap-admin/`:
+
+- Gutenberg / block editor / FSE theme editor
+- Official plugin or theme marketplace / directory / “Add New” from a remote catalog
+- Plugin or theme **file** editors
+- Two-factor authentication / TOTP
+- A Settings screen for `rest_api_enabled` or `version_check_enabled` (use [cli.md](cli.md))
+- `php ap-cli core update` (apply is Tools → Update Core or a manual file deploy)
+- A user self-service privacy portal (export/erase are administrator Tools)
+- Telemetry collectors, `AP_TELEMETRY`, or installer pings
+- A paywall, license key screen, or optional-hide for the footer Donate link
+
+If a plugin registered an extra sidebar item via `ap_register_admin_page()`,
+that page is **that plugin**, not core.
+
+---
+
+## Related docs
+
+| Need | Doc |
+|------|-----|
+| Install, then first login | [install.md](install.md) |
+| Pretty permalinks 404 | [rewrites.md](rewrites.md) · [troubleshooting.md](troubleshooting.md) |
+| One-click core update | [updates.md](updates.md) |
+| `php ap-cli …` | [cli.md](cli.md) |
+| Forums in depth | [forums.md](forums.md) |
+| Roles and caps | [roles.md](roles.md) |
+| REST (`/ap-json/`, `rest_api_enabled`) | [rest.md](rest.md) |
+| Nonces, deny rules, no telemetry | [security.md](security.md) |
+| Plugin headers, Settings API, ACP registration | [plugins.md](plugins.md) |
+| Site Icon pack | [site-icon.md](site-icon.md) |
+| Visual editor contract | [editor.md](editor.md) |
+| Theme Options / Agora schemes | [themes.md](themes.md) |
+| Trusted-agent rules | [bot_handbook.md](bot_handbook.md) |
+| “Does this screen exist?” | [features_and_functions.md](features_and_functions.md) |

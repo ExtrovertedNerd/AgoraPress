@@ -43,6 +43,11 @@ final class DeveloperDocsTest extends TestCase
             'install' => ['install.md'],
             'rewrites' => ['rewrites.md'],
             'updates' => ['updates.md'],
+            'cli' => ['cli.md'],
+            'admin' => ['admin.md'],
+            'forums' => ['forums.md'],
+            'roles' => ['roles.md'],
+            'rest' => ['rest.md'],
             'security' => ['security.md'],
             'troubleshooting' => ['troubleshooting.md'],
         ];
@@ -559,6 +564,389 @@ final class DeveloperDocsTest extends TestCase
                 $banned,
                 $text,
                 "docs/updates.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testCliDocCoversBuiltInCommandGroups(): void
+    {
+        $text = $this->readDoc('cli.md');
+        foreach (
+            [
+                'php ap-cli --help',
+                '--path',
+                '--url',
+                '--skip-plugins',
+                '--skip-themes',
+                'EXIT_OK',
+                'EXIT_USAGE',
+                'EXIT_ERROR',
+                'EXIT_NOT_INSTALLED',
+                'php install/cli.php',
+                'help',
+                'version',
+                'cli info',
+                'core check-update',
+                'core version',
+                'db check',
+                'db migrate',
+                'option get',
+                'option set',
+                'option delete',
+                'option list',
+                'plugin list',
+                'plugin activate',
+                'plugin deactivate',
+                'theme list',
+                'theme activate',
+                'user list',
+                'user get',
+                'user create',
+                'post list',
+                'post get',
+                'post create',
+                'post update',
+                'cache flush',
+                'cron event list',
+                'cron event run',
+                'rewrite flush',
+                'site health',
+                '--file',
+                'remote URLs',
+                'stream wrappers',
+                'draft',
+                'publish',
+                'AP_USER_PASSWORD',
+                'ap_cli_init',
+                'not in core',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "cli.md should mention: {$needle}"
+            );
+        }
+        $this->assertStringContainsString('php ap-cli core update', $text);
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/cli.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testAdminDocCoversAcpAllowlist(): void
+    {
+        $text = $this->readDoc('admin.md');
+        foreach (
+            [
+                '/ap-admin/',
+                'login.php',
+                'index.php',
+                'edit.php',
+                'post.php',
+                'post-new.php',
+                'revision.php',
+                'edit-comments.php',
+                'comment.php',
+                'edit-tags.php',
+                'media.php',
+                'media-new.php',
+                'upload.php',
+                'nav-menus.php',
+                'widgets.php',
+                'themes.php',
+                'theme-options.php',
+                'plugins.php',
+                'users.php',
+                'user-new.php',
+                'user-edit.php',
+                'profile.php',
+                'forums.php',
+                'forum-edit.php',
+                'forum-groups.php',
+                'forum-moderation.php',
+                'forum-topics.php',
+                'options-general.php',
+                'options-writing.php',
+                'options-reading.php',
+                'options-discussion.php',
+                'options-media.php',
+                'options-permalink.php',
+                'options-privacy.php',
+                'options-modules.php',
+                'options-forums.php',
+                'options-hall-of-fame.php',
+                'analytics.php',
+                'site-health.php',
+                'update-core.php',
+                'import.php',
+                'export-personal-data.php',
+                'erase-personal-data.php',
+                'admin.php?page=',
+                'ap_register_admin_page',
+                'AP_Admin_Menu',
+                'AP_Plugin_Installer',
+                'Plugin Name',
+                'ZipArchive',
+                'install_plugins',
+                'activate_plugins',
+                'Hall of Fame',
+                'handshake',
+                'agorapress-hof-',
+                'hall_of_fame_status',
+                'challenge',
+                'proof',
+                'Donate',
+                'paywall',
+                'https://agorapress.extrovertednerd.com/donate',
+                'manage_options',
+                'manage_forums',
+                'moderate_forums',
+                'update_core',
+                'view_site_health',
+                'analytics_enabled',
+                'rest_api_enabled',
+                'site_icon',
+                'Settings → Modules',
+                'Settings → General',
+                'Tools → Update Core',
+                'WXR',
+                'phpBB',
+                'session.save_path',
+                'not in core',
+                'Gutenberg',
+                'marketplace',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "admin.md should mention: {$needle}"
+            );
+        }
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/admin.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testForumsDocCoversModuleSurfaces(): void
+    {
+        $text = $this->readDoc('forums.md');
+        foreach (
+            [
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                'ap_module_forum',
+                'Settings → Modules',
+                'AP_Forum',
+                'AP_Forum_Front',
+                'AP_Forum_Permissions',
+                'AP_Forum_Moderation',
+                'AP_Forum_Like',
+                'AP_Forum_Stats',
+                'AP_Forum_Guard',
+                'AP_Forum_Read',
+                'AP_Forum_Attachment',
+                'AP_Group',
+                'AP_Private_Message',
+                'AP_Online',
+                '/forums/',
+                '/topic/',
+                'ap_forum_view',
+                'forum.php',
+                'forum-view.php',
+                'topic.php',
+                'forum-search.php',
+                'category',
+                'standard',
+                'sticky',
+                'announcement',
+                'rules',
+                'two-pane',
+                'ap-forum-post--two-pane',
+                'forum_post_likes',
+                'like_count',
+                'manage_forums',
+                'moderate_forums',
+                'view_forum',
+                'Public',
+                'Members only',
+                'forum_flood_interval',
+                'forum_search_enabled',
+                'forum_online_enabled',
+                'forum_unread_tracking_enabled',
+                'forum_private_messaging_enabled',
+                'forum_attachments_enabled',
+                'topic_track',
+                'forum_track',
+                'Total Topics',
+                'rest_module_disabled',
+                '/ap-json/ap/v1/forums',
+                'php ap-cli forum',
+                'not in core',
+                'options-forums.php',
+                'forum-moderation.php',
+                'forum-groups.php',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "forums.md should mention: {$needle}"
+            );
+        }
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/forums.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testRolesDocCoversCapabilitySurfaces(): void
+    {
+        $text = $this->readDoc('roles.md');
+        foreach (
+            [
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                'AP_Roles',
+                'ap_user_roles',
+                'ap_capabilities',
+                'ap_user_level',
+                'default_role',
+                'administrator',
+                'editor',
+                'author',
+                'contributor',
+                'subscriber',
+                'read',
+                'manage_options',
+                'list_users',
+                'promote_users',
+                'edit_posts',
+                'upload_files',
+                'moderate_comments',
+                'edit_own_comments',
+                'delete_own_comments',
+                'manage_categories',
+                'moderate_forums',
+                'manage_forums',
+                'view_site_health',
+                'export_others_personal_data',
+                'edit_comment',
+                'delete_comment',
+                'mapMetaCap',
+                'ap_user_can',
+                'ap_current_user_can',
+                'ap_add_role',
+                'ap_add_cap',
+                'AP_Forum_Permissions',
+                'AP_Group',
+                'view_forum',
+                'edit_own',
+                'delete_own',
+                'guests',
+                'registered',
+                'global_moderators',
+                'user_has_cap',
+                'php ap-cli role',
+                'not in core',
+                'users.php',
+                'user-edit.php',
+                'php ap-cli user create',
+                'example.com',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "roles.md should mention: {$needle}"
+            );
+        }
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/roles.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testRestDocCoversApiSurfaces(): void
+    {
+        $text = $this->readDoc('rest.md');
+        foreach (
+            [
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                '/ap-json/',
+                '?rest_route=',
+                'ap/v1',
+                'rest_api_enabled',
+                'X-AP-Nonce',
+                '_ap_nonce',
+                'ap_rest',
+                'HTTP Basic',
+                'cookie',
+                'AP_Rest',
+                'rest_disabled',
+                'rest_no_route',
+                'rest_module_disabled',
+                'rest_cookie_invalid_nonce',
+                'rest_not_logged_in',
+                'php ap-cli option set rest_api_enabled',
+                '/ap/v1/posts',
+                '/ap/v1/pages',
+                '/ap/v1/comments',
+                '/ap/v1/users',
+                '/ap/v1/categories',
+                '/ap/v1/tags',
+                '/ap/v1/forums',
+                '/ap/v1/topics',
+                'POST',
+                'PUT',
+                'PATCH',
+                'DELETE',
+                'ap_rest_api_init',
+                'ap_register_rest_route',
+                'ap_create_rest_nonce',
+                'ap_module_blog',
+                'edit_posts',
+                'list_users',
+                'try_files $uri $uri/ /index.php?$args',
+                'application/json',
+                'not in core',
+                'Application Passwords',
+                'OAuth',
+                'JWT',
+                'example.com',
+                'admin@example.com',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "rest.md should mention: {$needle}"
+            );
+        }
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/rest.md must not contain private marker: {$banned}"
             );
         }
     }
