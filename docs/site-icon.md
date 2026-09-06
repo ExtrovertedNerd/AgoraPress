@@ -134,4 +134,6 @@ removing the action.
 | `ap-content/uploads/` permissions | [install.md](install.md) · [troubleshooting.md](troubleshooting.md) |
 | Rewrites leave root `favicon.ico` alone | [rewrites.md](rewrites.md) |
 | Settings API patterns | [plugins.md](plugins.md) |
-| `ap_head` / `ap_site_icon_meta_tags` | [themes.md](themes.md), [hooks.md](hooks.md) |  
+| `ap_head` / `ap_site_icon_meta_tags` | [themes.md](themes.md), [hooks.md](hooks.md) |
+| Upload nonces and deny rules | [security.md](security.md) |
+| Uploads are not overwritten on update | [updates.md](updates.md) |  

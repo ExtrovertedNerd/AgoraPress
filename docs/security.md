@@ -451,13 +451,19 @@ REST master switch: option `rest_api_enabled` (default on). Set `0` to disable
 
 ---
 
-## Related
+## Related docs
 
-- [install.md](install.md) — permissions, installer CSRF, post-install
-- [rewrites.md](rewrites.md) — front controller; deny rules live in the same files
-- [updates.md](updates.md) — version check / updater, no site identity
-- [roles.md](roles.md) — capabilities
-- [rest.md](rest.md) — `X-AP-Nonce`, Basic, `rest_api_enabled`
-- [admin.md](admin.md) — ACP screens including Hall of Fame and privacy tools
-- [vision-compliance.md](vision-compliance.md) — privacy principles checklist
-- [troubleshooting.md](troubleshooting.md) — installer CSRF / session symptoms
+| Need | Doc |
+|------|-----|
+| Permissions, installer CSRF, post-install | [install.md](install.md) |
+| Front controller; deny rules in the same files | [rewrites.md](rewrites.md) |
+| Version check / updater, no site identity | [updates.md](updates.md) |
+| Capabilities | [roles.md](roles.md) |
+| `X-AP-Nonce`, Basic, `rest_api_enabled` | [rest.md](rest.md) |
+| ACP screens including Hall of Fame and privacy tools | [admin.md](admin.md) |
+| Privacy principles checklist | [vision-compliance.md](vision-compliance.md) |
+| Installer CSRF / session symptoms | [troubleshooting.md](troubleshooting.md) |
+| `php ap-cli option set` for flags with no ACP screen | [cli.md](cli.md) |
+| Plugin Settings API / nonces | [plugins.md](plugins.md) |
+| Prepared statements; no invented tables | [schema.md](schema.md) |
+| Forum flood vs login rate limits | [forums.md](forums.md) |

@@ -361,5 +361,7 @@ Symptom list: [troubleshooting.md](troubleshooting.md).
 | [forums.md](forums.md) | `/forums/` · `/topic/` |
 | [security.md](security.md) | Deny rules on the same `.htaccess` / Nginx example |
 | [troubleshooting.md](troubleshooting.md) | Pretty URL 404 → check `try_files` / `.htaccess` |
+| [admin.md](admin.md) | Settings → Permalinks (save flushes rules) |
+| [updates.md](updates.md) | One-click apply **does** copy root `.htaccess` from the package |
 
 *AgoraPress — free forever. Publish. Discuss. Own your stack.*

@@ -511,5 +511,10 @@ private host paths into public docs or tickets.
 | [security.md](security.md) | Deny rules, nonces, no telemetry |
 | [troubleshooting.md](troubleshooting.md) | Symptom → check |
 | [schema.md](schema.md) | Tables, migrations, prefix, drivers |
+| [forums.md](forums.md) | Forum module after Settings → Modules |
+| [roles.md](roles.md) | First administrator and default roles |
+| [rest.md](rest.md) | `/ap-json/` (`rest_api_enabled` default on) |
+| [site-icon.md](site-icon.md) | Settings → General favicon pack |
+| [plugins.md](plugins.md) · [themes.md](themes.md) | Drop-in under `ap-content/` |
 
 *AgoraPress — free forever. Publish. Discuss. Own your stack.*

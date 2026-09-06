@@ -402,6 +402,7 @@ If a plugin added a role or cap, that surface is **the plugin**, not core.
 | Logged-in comments / Edit User | [troubleshooting.md](troubleshooting.md) |
 | `ap_register_admin_page` capability | [plugins.md](plugins.md) |
 | `users` / `usermeta` / `forum_permissions` | [schema.md](schema.md) |
+| There is **no** `user_has_cap` filter | [hooks.md](hooks.md) |
 | Docs index | [README.md](README.md) |
 
 *AgoraPress — free forever. Publish. Discuss. Own your stack.*

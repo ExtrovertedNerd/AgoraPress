@@ -336,5 +336,10 @@ CLI conversion report for classic WP themes: see [compatibility](compatibility.m
 | `ap_enqueue_scripts`, `ap_head`, template filters | [hooks.md](hooks.md) |
 | Front-end comment/forum editor styling | [editor.md](editor.md) |
 | Pretty permalinks / front controller | [rewrites.md](rewrites.md) |
-| Site Icon in `ap_head` | [site-icon.md](site-icon.md) |  
+| Site Icon in `ap_head` | [site-icon.md](site-icon.md) |
+| Plugin zip installer (parallel surface) | [plugins.md](plugins.md) |
+| `ap-content/themes/` permissions | [install.md](install.md) |
+| Custom themes are not overwritten on update | [updates.md](updates.md) |
+| Escape on output in templates | [security.md](security.md) |
+| Compat theme looks broken | [troubleshooting.md](troubleshooting.md) |  
 

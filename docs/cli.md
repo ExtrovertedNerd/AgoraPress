@@ -707,5 +707,7 @@ shipped `docker/nginx.conf.example`).
 | [rest.md](rest.md) | HTTP JSON API — not `ap-cli` |
 | [troubleshooting.md](troubleshooting.md) | Symptom → check |
 | [hooks.md](hooks.md) | `ap_cli_init` |
+| [security.md](security.md) | Nonces, no telemetry, deny rules |
+| [forums.md](forums.md) | There is **no** `php ap-cli forum` verb |
 
 *AgoraPress — free forever. Publish. Discuss. Own your stack.*

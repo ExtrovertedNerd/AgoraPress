@@ -226,6 +226,82 @@ def test_site_icon_doc_content(docs_root: Path) -> None:
         assert banned not in text, f"docs/site-icon.md must not contain private marker: {banned}"
 
 
+HOOKS_DOC_API_FUNCTIONS = frozenset(
+    {
+        "ap_add_action",
+        "ap_do_action",
+        "ap_do_action_ref_array",
+        "ap_remove_action",
+        "ap_remove_all_actions",
+        "ap_has_action",
+        "ap_did_action",
+        "ap_current_action",
+        "ap_doing_action",
+        "ap_add_filter",
+        "ap_apply_filters",
+        "ap_apply_filters_ref_array",
+        "ap_remove_filter",
+        "ap_remove_all_filters",
+        "ap_has_filter",
+        "ap_current_filter",
+        "ap_doing_filter",
+        "ap_reset_hooks",
+        "ap_register_admin_page",
+        "ap_add_cap",
+        "ap_get_the_excerpt",
+        "ap_nav_menu",
+        "ap_print_styles",
+        "ap_print_scripts",
+    }
+)
+
+# Compat $hookMap values that native core does not ap_do_action / ap_apply_filters.
+HOOKS_DOC_COMPAT_MAP_ONLY = frozenset(
+    {
+        "ap_init",
+        "ap_template_redirect",
+        "ap_widgets_init",
+        "ap_wp",
+        "ap_print_styles",
+        "ap_print_scripts",
+        "ap_excerpt_length",
+        "ap_excerpt_more",
+        "ap_nav_menu_css_class",
+        "ap_nav_menu_args",
+    }
+)
+
+
+def _product_php_files() -> list[Path]:
+    files: list[Path] = []
+    for folder in (ROOT / "ap-includes", ROOT / "ap-admin"):
+        files.extend(folder.rglob("*.php"))
+    return files
+
+
+def _literal_hook_names_from_product() -> set[str]:
+    """Hook names passed as string literals to ap_do_action / ap_apply_filters."""
+    call = re.compile(
+        r"ap_(?:do_action(?:_ref_array)?|apply_filters(?:_ref_array)?)\s*\(\s*"
+        r"(?:self::[A-Z0-9_]+,\s*)?['\"]([a-zA-Z0-9_]+)['\"]"
+    )
+    const = re.compile(
+        r"(?:ADMIN_MENU_HOOK|CRON_HOOK)\s*=\s*['\"]([a-zA-Z0-9_]+)['\"]"
+    )
+    names: set[str] = set()
+    for path in _product_php_files():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        names.update(call.findall(text))
+        names.update(const.findall(text))
+    return names
+
+
+def _compat_hook_map_values() -> set[str]:
+    src = ROOT / "ap-includes" / "compatibility" / "class-ap-theme-compat.php"
+    text = src.read_text(encoding="utf-8")
+    return set(re.findall(r"'[a-z0-9_]+'\s*=>\s*'(ap_[a-z0-9_]+)'", text))
+
+
 def test_hooks_doc_content(docs_root: Path) -> None:
     text = (docs_root / "hooks.md").read_text(encoding="utf-8").lower()
     for phrase in (
@@ -236,6 +312,7 @@ def test_hooks_doc_content(docs_root: Path) -> None:
         "ap_add_filter",
         "ap_apply_filters",
         "ap_plugins_loaded",
+        "ap_mu_plugins_loaded",
         "ap_loaded",
         "ap_after_setup_theme",
         "ap_enqueue_scripts",
@@ -244,19 +321,86 @@ def test_hooks_doc_content(docs_root: Path) -> None:
         "ap_analytics_prune",
         "grep",
         "encyclopedia",
+        "grep for the rest",
         "not in core",
         "ap_admin_menu",
         "ap_theme_options_register",
         "ap_site_icon_meta_tags",
         "ap_cli_init",
         "ap_rest_api_init",
+        "ap_rest_enabled",
+        "ap_plugin_installed",
+        "ap_moderation_topic_soft_deleted",
+        "map target",
+        "user_has_cap",
         "plugins.md",
         "cli.md",
         "rest.md",
+        "roles.md",
+        "admin.md",
+        "compatibility.md",
     ):
         assert phrase in text, f"hooks.md missing: {phrase}"
+    assert "native core does **not** fire" in text or "native core does not fire" in text
+    assert "**no** `user_has_cap`" in text or "no `user_has_cap`" in text
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/hooks.md must not contain private marker: {banned}"
+
+
+def test_hooks_doc_selected_names_exist_in_code(docs_root: Path) -> None:
+    """hooks.md stays selected: every named ap_* token must exist in core or be labeled."""
+    doc = (docs_root / "hooks.md").read_text(encoding="utf-8")
+    mentioned = set(re.findall(r"`(ap_[a-z0-9_]+)`", doc))
+    literals = _literal_hook_names_from_product()
+    compat = _compat_hook_map_values()
+    allowed = literals | compat | HOOKS_DOC_API_FUNCTIONS
+
+    invented: list[str] = []
+    for name in sorted(mentioned):
+        if name in allowed:
+            continue
+        if name.endswith("_") and any(
+            existing.startswith(name) for existing in literals
+        ):
+            continue
+        invented.append(name)
+    assert not invented, (
+        "docs/hooks.md must not invent hook names; grep ap_do_action / "
+        f"ap_apply_filters for the rest. Unknown: {invented}"
+    )
+
+    selected, _, _ = doc.partition("## Grep for the rest")
+    for bogus in ("ap_excerpt_length", "ap_excerpt_more"):
+        for line in selected.splitlines():
+            if bogus not in line or not line.lstrip().startswith("|"):
+                continue
+            lower = line.lower()
+            assert "map" in lower or "compat" in lower or "not" in lower, (
+                f"hooks.md must not list {bogus} as a native selected hook: {line}"
+            )
+    for bogus in ("ap_print_styles", "ap_print_scripts"):
+        for line in selected.splitlines():
+            if bogus not in line or not line.lstrip().startswith("|"):
+                continue
+            lower = line.lower()
+            assert (
+                "function" in lower or "map" in lower or "compat" in lower
+            ), f"hooks.md must not list {bogus} as a native action: {line}"
+
+    compat_section = doc[doc.find("## Compat map targets") :] if "## Compat map targets" in doc else ""
+    assert compat_section, "hooks.md must list compat map targets native core does not fire"
+    for name in HOOKS_DOC_COMPAT_MAP_ONLY:
+        assert f"`{name}`" in doc, f"hooks.md should name compat-only {name}"
+        assert name in compat_section or name in (
+            "ap_init",
+            "ap_template_redirect",
+        ), f"compat-only {name} should appear in the compat-map section"
+
+    # Selected, not an encyclopedia: grepped core has many more names than this guide.
+    selected_fires = (mentioned & literals) - HOOKS_DOC_API_FUNCTIONS
+    assert len(literals) > len(selected_fires) + 20, (
+        "hooks.md should stay selected + grep for the rest, not dump every core hook"
+    )
 
 
 def test_themes_doc_content(docs_root: Path) -> None:
@@ -310,6 +454,8 @@ def test_plugins_doc_content(docs_root: Path) -> None:
         "ap_plugin_installer",
         "php ap-cli plugin install",
         "ziparchive",
+        "ap_plugin_installed",
+        "ap_plugin_deleted",
         "rest.md",
         "admin.md",
         "cli.md",
@@ -317,10 +463,42 @@ def test_plugins_doc_content(docs_root: Path) -> None:
         "security.md",
         "theme_options",
         "forums",
+        "rest_api_enabled",
+        "writes exist",
+        "get-only",
     ):
         assert phrase in text, f"plugins.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/plugins.md must not contain private marker: {banned}"
+
+
+def test_plugin_zip_installer_and_admin_page_stay_in_plugins_doc(docs_root: Path) -> None:
+    """Zip installer and ap_register_admin_page stay in plugins.md; admin.md points there."""
+    plugins = (docs_root / "plugins.md").read_text(encoding="utf-8")
+    admin = (docs_root / "admin.md").read_text(encoding="utf-8")
+
+    assert re.search(r"(?im)^##\s+Plugin installer\s*$", plugins)
+    assert re.search(r"(?im)^##\s+Admin pages", plugins)
+    for phrase in (
+        "ap_register_admin_page",
+        "AP_Plugin_Installer",
+        "ap_install_plugin_from_zip",
+        "DEFAULT_MAX_BYTES",
+        "plugin-upload",
+        "install_plugins",
+        "ZipArchive",
+        "add_options_page",
+        "ap_admin_menu",
+        "40 MiB",
+    ):
+        assert phrase in plugins, f"plugins.md is the canonical home, missing: {phrase}"
+
+    assert re.search(r"(?im)^##\s+Plugin zip installer\s*$", admin)
+    assert re.search(r"(?im)^##\s+Plugin-registered ACP pages\s*$", admin)
+    assert "plugins.md#plugin-installer" in admin
+    assert "plugins.md#admin-pages-settings-screens-in-the-acp" in admin
+    assert "ap_register_admin_page" in admin
+    assert "AP_Plugin_Installer" in admin
 
 
 def test_compatibility_doc_content(docs_root: Path) -> None:
@@ -339,6 +517,10 @@ def test_compatibility_doc_content(docs_root: Path) -> None:
         "troubleshooting.md",
         "admin.md",
         "themes.md",
+        "try_files $uri $uri/ /index.php?$args",
+        "rewrites.md",
+        "ap_init",
+        "hooks.md",
     ):
         assert phrase in text, f"compatibility.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -901,6 +1083,7 @@ def test_schema_doc_content(docs_root: Path) -> None:
         "ap_",
         "0012_topic_type_enum.php",
         "no new table",
+        "enum backfill",
         "standard",
         "sticky",
         "announcement",
@@ -943,6 +1126,338 @@ README_DOCUMENTATION_TABLE_GUIDES = (
     "docs/schema.md",
     "docs/vision-compliance.md",
 )
+
+
+def test_integrator_docs_fill_listed_gaps(docs_root: Path) -> None:
+    """Phase 4 listed gaps from the docs-map inventory, kept in integrator guides."""
+    schema = (docs_root / "schema.md").read_text(encoding="utf-8")
+    assert "0012_topic_type_enum.php" in schema
+    assert "No new table" in schema
+    assert "enum backfill" in schema.lower()
+
+    plugins = (docs_root / "plugins.md").read_text(encoding="utf-8")
+    assert "rest_api_enabled" in plugins
+    assert "GET-only" in plugins
+    assert "ap_register_admin_page" in plugins
+    assert "admin.md" in plugins
+    assert "php ap-cli plugin install" in plugins.lower()
+
+    hooks = (docs_root / "hooks.md").read_text(encoding="utf-8")
+    assert "grep" in hooks.lower()
+    assert "encyclopedia" in hooks.lower()
+    assert "grep for the rest" in hooks.lower()
+    assert "**no** `user_has_cap`" in hooks or "no `user_has_cap`" in hooks
+    assert "ap_moderation_topic_soft_deleted" in hooks
+    assert "ap_mu_plugins_loaded" in hooks
+    assert "Native core does **not** fire" in hooks or "native core does not fire" in hooks.lower()
+
+    rest = (docs_root / "rest.md").read_text(encoding="utf-8")
+    assert "ACP Settings screen" in rest
+    assert "rest_api_enabled" in rest
+
+    compatibility = (docs_root / "compatibility.md").read_text(encoding="utf-8")
+    assert "try_files $uri $uri/ /index.php?$args" in compatibility
+
+
+RELATED_HEADING = re.compile(
+    r"(?im)^##\s+Related(?:\s+docs|\s+documentation|\s+APIs)?\s*$"
+)
+RELATED_MD_LINK = re.compile(r"\]\(([^)#]+)(?:#[^)]+)?\)")
+
+# Phase 4: integrator guides point at the operator guides; operator guides
+# point back. Values are markdown link targets that must appear in the
+# file's Related section (not merely as body mentions).
+INTEGRATOR_OPERATOR_CROSS_LINKS = {
+    "hooks.md": (
+        "admin.md",
+        "cli.md",
+        "rest.md",
+        "forums.md",
+        "roles.md",
+        "security.md",
+        "updates.md",
+        "rewrites.md",
+        "install.md",
+        "troubleshooting.md",
+        "plugins.md",
+        "themes.md",
+    ),
+    "themes.md": (
+        "admin.md",
+        "cli.md",
+        "forums.md",
+        "rewrites.md",
+        "install.md",
+        "updates.md",
+        "security.md",
+        "troubleshooting.md",
+        "plugins.md",
+        "hooks.md",
+    ),
+    "plugins.md": (
+        "admin.md",
+        "cli.md",
+        "rest.md",
+        "roles.md",
+        "security.md",
+        "install.md",
+        "updates.md",
+        "rewrites.md",
+        "forums.md",
+        "troubleshooting.md",
+        "hooks.md",
+        "themes.md",
+        "schema.md",
+    ),
+    "editor.md": (
+        "admin.md",
+        "forums.md",
+        "roles.md",
+        "security.md",
+        "cli.md",
+        "plugins.md",
+        "themes.md",
+        "hooks.md",
+    ),
+    "site-icon.md": (
+        "admin.md",
+        "install.md",
+        "troubleshooting.md",
+        "rewrites.md",
+        "security.md",
+        "updates.md",
+        "plugins.md",
+        "themes.md",
+        "hooks.md",
+    ),
+    "compatibility.md": (
+        "admin.md",
+        "troubleshooting.md",
+        "rewrites.md",
+        "cli.md",
+        "updates.md",
+        "install.md",
+        "themes.md",
+        "hooks.md",
+        "plugins.md",
+    ),
+    "schema.md": (
+        "install.md",
+        "cli.md",
+        "updates.md",
+        "forums.md",
+        "admin.md",
+        "roles.md",
+        "security.md",
+        "rest.md",
+        "troubleshooting.md",
+        "plugins.md",
+    ),
+    "vision-compliance.md": (
+        "install.md",
+        "updates.md",
+        "rewrites.md",
+        "cli.md",
+        "admin.md",
+        "forums.md",
+        "roles.md",
+        "rest.md",
+        "security.md",
+        "troubleshooting.md",
+        "plugins.md",
+        "themes.md",
+        "hooks.md",
+        "site-icon.md",
+        "editor.md",
+        "compatibility.md",
+        "schema.md",
+    ),
+}
+
+OPERATOR_GUIDE_CROSS_LINKS = {
+    "install.md": (
+        "rewrites.md",
+        "cli.md",
+        "updates.md",
+        "admin.md",
+        "security.md",
+        "troubleshooting.md",
+        "schema.md",
+        "forums.md",
+        "roles.md",
+        "rest.md",
+        "site-icon.md",
+        "plugins.md",
+        "themes.md",
+    ),
+    "updates.md": (
+        "install.md",
+        "cli.md",
+        "schema.md",
+        "admin.md",
+        "security.md",
+        "troubleshooting.md",
+        "hooks.md",
+        "rewrites.md",
+        "plugins.md",
+        "themes.md",
+    ),
+    "rewrites.md": (
+        "install.md",
+        "cli.md",
+        "rest.md",
+        "forums.md",
+        "security.md",
+        "troubleshooting.md",
+        "admin.md",
+        "updates.md",
+        "site-icon.md",
+    ),
+    "cli.md": (
+        "install.md",
+        "updates.md",
+        "rewrites.md",
+        "admin.md",
+        "plugins.md",
+        "themes.md",
+        "roles.md",
+        "schema.md",
+        "rest.md",
+        "troubleshooting.md",
+        "hooks.md",
+        "security.md",
+        "forums.md",
+    ),
+    "admin.md": (
+        "install.md",
+        "rewrites.md",
+        "troubleshooting.md",
+        "updates.md",
+        "cli.md",
+        "forums.md",
+        "roles.md",
+        "rest.md",
+        "security.md",
+        "plugins.md",
+        "site-icon.md",
+        "editor.md",
+        "themes.md",
+        "schema.md",
+        "hooks.md",
+    ),
+    "forums.md": (
+        "admin.md",
+        "roles.md",
+        "rewrites.md",
+        "rest.md",
+        "schema.md",
+        "themes.md",
+        "hooks.md",
+        "security.md",
+        "troubleshooting.md",
+        "editor.md",
+        "install.md",
+        "cli.md",
+    ),
+    "roles.md": (
+        "admin.md",
+        "forums.md",
+        "cli.md",
+        "rest.md",
+        "security.md",
+        "troubleshooting.md",
+        "plugins.md",
+        "schema.md",
+        "hooks.md",
+    ),
+    "rest.md": (
+        "rewrites.md",
+        "troubleshooting.md",
+        "security.md",
+        "cli.md",
+        "roles.md",
+        "forums.md",
+        "plugins.md",
+        "hooks.md",
+        "admin.md",
+        "schema.md",
+        "install.md",
+    ),
+    "security.md": (
+        "install.md",
+        "rewrites.md",
+        "updates.md",
+        "roles.md",
+        "rest.md",
+        "admin.md",
+        "troubleshooting.md",
+        "cli.md",
+        "plugins.md",
+        "schema.md",
+        "forums.md",
+    ),
+    "troubleshooting.md": (
+        "install.md",
+        "rewrites.md",
+        "updates.md",
+        "cli.md",
+        "admin.md",
+        "forums.md",
+        "roles.md",
+        "rest.md",
+        "security.md",
+        "site-icon.md",
+        "compatibility.md",
+        "schema.md",
+        "plugins.md",
+        "themes.md",
+        "hooks.md",
+    ),
+}
+
+CROSS_LINK_CASES = tuple(
+    (name, guides)
+    for mapping in (INTEGRATOR_OPERATOR_CROSS_LINKS, OPERATOR_GUIDE_CROSS_LINKS)
+    for name, guides in mapping.items()
+)
+
+
+def _related_section(text: str, name: str) -> str:
+    match = RELATED_HEADING.search(text)
+    assert match, f"docs/{name} must have a Related / Related docs section"
+    return text[match.start() :]
+
+
+def _related_link_targets(related: str) -> set[str]:
+    return {target.split("#", 1)[0] for target in RELATED_MD_LINK.findall(related)}
+
+
+@pytest.mark.parametrize("name,guides", CROSS_LINK_CASES)
+def test_topic_guides_cross_link_operator_guides(
+    docs_root: Path, name: str, guides: tuple[str, ...]
+) -> None:
+    """Integrator and operator guides cross-link in their Related sections."""
+    path = docs_root / name
+    text = path.read_text(encoding="utf-8")
+    related = _related_section(text, name)
+    targets = _related_link_targets(related)
+    missing = [guide for guide in guides if guide not in targets]
+    assert not missing, (
+        f"docs/{name} Related section should markdown-link {missing}"
+    )
+    # bot_handbook.md and features_and_functions.md land in Phase 5; Related
+    # rows may point at them before those files exist.
+    pending = {"bot_handbook.md", "features_and_functions.md"}
+    for target in targets:
+        if not target.endswith(".md") or target in pending:
+            continue
+        if target.startswith("../"):
+            dest = ROOT / target[3:]
+        else:
+            dest = docs_root / target
+        assert dest.is_file(), (
+            f"docs/{name} Related section links to missing {target}"
+        )
 
 
 def test_readme_links_developer_docs() -> None:

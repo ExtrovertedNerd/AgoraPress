@@ -120,4 +120,8 @@ block editor. Prefer a separate package and opt-in UI.
 | Agora scheme tokens for fields | [themes.md](themes.md) |
 | `ap_format_content` and editor filters | [hooks.md](hooks.md) |
 | Gutenberg non-goal | [vision-compliance.md](vision-compliance.md) |
-| Block/FSE themes out of scope | [compatibility.md](compatibility.md) |  
+| Block/FSE themes out of scope | [compatibility.md](compatibility.md) |
+| Comment ownership caps | [roles.md](roles.md) |
+| Sanitize on save, escape on display | [security.md](security.md) |
+| `php ap-cli post` (no visual editor) | [cli.md](cli.md) |
+| Custom editors stay out of `AP_Editor` | [plugins.md](plugins.md) |  

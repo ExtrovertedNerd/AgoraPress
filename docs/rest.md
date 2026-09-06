@@ -469,3 +469,5 @@ If a plugin registered extra routes on `ap_rest_api_init`, those routes are
 | Selected hooks (`ap_rest_api_init`) | [hooks.md](hooks.md) |
 | ACP has no REST screen | [admin.md](admin.md) |
 | Landing-page REST blurb | [../README.md](../README.md#rest-api) |
+| Tables behind `ap/v1` resources | [schema.md](schema.md) |
+| Fresh install leaves `rest_api_enabled` on | [install.md](install.md) |

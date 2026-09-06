@@ -54,7 +54,7 @@ php ap-cli db check
 | 9 | `0009_forum_online_unread.php` | `topic_track`, `forum_track` |
 | 10 | `0010_analytics_tables.php` | `analytics_hits`, `analytics_daily` |
 | 11 | `0011_forum_likes_stats.php` | `forum_post_likes`; `forum_posts.like_count` |
-| 12 | `0012_topic_type_enum.php` | **No new table.** Canonical `topics.topic_type` values `standard` \| `sticky` \| `announcement` \| `rules`. Backfills `normal`→`standard`, `announce`/`global`→`announcement`, empty/unknown→`standard`. `sticky` is unchanged. `rules` is new (no legacy source). Column default becomes `standard` where the driver supports it (MySQL/MariaDB `MODIFY`; PostgreSQL `SET DEFAULT`; SQLite leaves DEFAULT to the application). |
+| 12 | `0012_topic_type_enum.php` | **No new table.** Enum backfill only. Canonical `topics.topic_type` values `standard` \| `sticky` \| `announcement` \| `rules`. Backfills `normal`→`standard`, `announce`/`global`→`announcement`, empty/unknown→`standard`. `sticky` is unchanged. `rules` is new (no legacy source). Column default becomes `standard` where the driver supports it (MySQL/MariaDB `MODIFY`; PostgreSQL `SET DEFAULT`; SQLite leaves DEFAULT to the application). Extra types are **not in core**. |
 
 Also created by the migrator infrastructure: **`{prefix}schema_migrations`**.
 
@@ -385,3 +385,6 @@ See also [hooks.md](hooks.md) for lifecycle actions fired around inserts/updates
 | `analytics_enabled` (default **off**) | [admin.md](admin.md) |
 | Roles vs forum ACL | [roles.md](roles.md) |
 | Plugin custom tables | [plugins.md](plugins.md) |
+| Prepared statements only | [security.md](security.md) |
+| REST resources map to these tables | [rest.md](rest.md) |
+| Pending-migration / “old schema” symptoms | [troubleshooting.md](troubleshooting.md) |

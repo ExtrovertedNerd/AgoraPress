@@ -2,14 +2,15 @@
 
 This is the **operator map of `/ap-admin/`** for AgoraPress **`0.3.6-beta`**
 (schema `AP_DB_VERSION` **12**). It describes the Control Panel **as built**:
-screens grouped by task, the capability that gates each area, the plugin zip
-installer, the voluntary Hall of Fame handshake, and the unobtrusive donation
-link. It does **not** invent screens, menus, or options.
+screens grouped by task, the capability that gates each area, the voluntary
+Hall of Fame handshake, and the unobtrusive donation link. It does **not**
+invent screens, menus, or options.
 
 The compact landing-page bullets are in
 [`../README.md`](../README.md). This file is the operator depth guide. Plugin
-authors who need `ap_register_admin_page()` should also read
-[plugins.md](plugins.md). Roles and meta-caps are in [roles.md](roles.md).
+zip installer and ACP `ap_register_admin_page()` stay in
+[plugins.md](plugins.md) — this file only points at those sections. Roles and
+meta-caps are in [roles.md](roles.md).
 
 **Source (as built):** `ap-admin/` entry scripts, `ap-admin/admin-bootstrap.php`,
 `ap-admin/includes/class-ap-admin.php` (`AP_Admin`),
@@ -152,9 +153,10 @@ Activate / deactivate links are nonce-protected. Must-use plugins in
 An active plugin that registered an ACP page with a `plugin` basename gets a
 **Settings** link → `admin.php?page={id}`.
 
-Zip upload, overwrite, and delete are documented in
-[Plugin zip installer](#plugin-zip-installer) below. Integrator API
-(`ap_register_admin_page`, headers, MU-plugins): [plugins.md](plugins.md).
+Zip upload, overwrite, and delete: [Plugin zip installer](#plugin-zip-installer)
+below, which points at [plugins.md](plugins.md#plugin-installer). Integrator
+API (`ap_register_admin_page`, headers, MU-plugins):
+[plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp).
 
 There is **no** plugin directory, paid marketplace, or plugin file editor
 (`plugin-editor.php`) in core.
@@ -214,8 +216,9 @@ with `manage_options` accepted as a fallback).
 
 ## Plugin zip installer
 
-This is the **admin** path. The same installer class is what
-[plugins.md](plugins.md) documents for plugin authors.
+Canonical contract (package shape, helpers, max size, nonce, overwrite, hooks)
+stays in [plugins.md](plugins.md#plugin-installer). This section is the
+**operator pointer** for the ACP screen.
 
 **Screen:** Plugins → Upload plugin (`plugins.php` POST `ap_plugin_action=upload`).
 
@@ -225,37 +228,13 @@ This is the **admin** path. The same installer class is what
 | Upload cap | `install_plugins` |
 | Delete cap | `delete_plugins`, or `install_plugins` as a fallback |
 | Class | `AP_Plugin_Installer` (`ap-includes/class-ap-plugin-installer.php`) |
-| Helpers | `ap_install_plugin_from_zip()`, `ap_upload_plugin()`, `ap_delete_plugin()` |
 | PHP | `ZipArchive` is required |
-| Max size | `AP_Plugin_Installer::DEFAULT_MAX_BYTES` = **40 MiB** (also bounded by PHP upload limits) |
-| Nonce | `plugin-upload` |
 
-### Package shape
-
-The zip must contain a PHP file with a **Plugin Name** header:
-
-- **Single-file:** `hello.php` at the zip root → `ap-content/plugins/hello.php`
-- **Folder:** `my-plugin/my-plugin.php` (header one level down) →
-  `ap-content/plugins/my-plugin/`
-
-Path traversal, disallowed script types, empty archives, and oversized zips
-are rejected. The file must look like a zip (`PK` magic).
-
-### After upload
-
-Installed plugins stay **inactive** until you activate them (Plugins screen or
-`php ap-cli plugin activate …`). Check **Overwrite if a plugin with the same
-folder or file name already exists** to replace an existing slug. Active
-plugins **cannot** be deleted — deactivate first.
-
-Drop-in without zip still works: copy a PHP file or folder into
-`ap-content/plugins/` yourself, then activate here.
-
-Theme zip upload is a **separate** flow on Appearance → Themes
-(`AP_Theme_Installer`, cap `install_themes`). It is not this installer.
-
-There is **no** CLI `plugin install` from a remote URL. `ap-cli plugin`
-supports `list` / `activate` / `deactivate` only — [cli.md](cli.md).
+The zip must contain a PHP file with a **Plugin Name** header. Installed
+plugins stay **inactive** until you activate them. Active plugins cannot be
+deleted. There is **no** CLI `plugin install` — [cli.md](cli.md). Theme zip
+upload is a **separate** flow on Appearance → Themes (`AP_Theme_Installer`,
+cap `install_themes`).
 
 ---
 
@@ -325,30 +304,16 @@ as a button; that screen is still voluntary membership, not a store.
 
 ## Plugin-registered ACP pages
 
+Canonical registration (`ap_register_admin_page()`, field list, WP shims,
+`ap_admin_menu` / `admin_menu`, security notes) stays in
+[plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp). This section
+is the **operator pointer**.
+
 Plugins must **not** expose raw PHP under `ap-content/plugins/**` as admin
 endpoints. Register a page so it loads through the admin shell:
-
-```php
-ap_register_admin_page([
-    'id'         => 'myplugin',
-    'parent'     => 'settings',   // settings | plugins | tools | ''
-    'title'      => 'My Plugin',
-    'menu'       => 'My Plugin',
-    'capability' => 'manage_options',
-    'callback'   => 'myplugin_render_settings',
-    'plugin'     => ap_plugin_basename(__FILE__),
-    'position'   => 50,
-]);
-```
-
-**Router:** `/ap-admin/admin.php?page={id}` — allowlist only
-(`AP_Admin_Menu`). Unknown / empty / path-like `?page=` → safe 404. Capability
-is checked on every render (default `manage_options`).
-
-WordPress-compatible shims (`add_options_page`, `add_plugins_page`,
-`add_menu_page`, `add_submenu_page`) write the same registry. Full field list,
-hooks (`ap_admin_menu` / `admin_menu`), and security notes:
-[plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp).
+`/ap-admin/admin.php?page={id}` — allowlist only (`AP_Admin_Menu`). Unknown /
+empty / path-like `?page=` → safe 404. Capability is checked on every render
+(default `manage_options`).
 
 ---
 
@@ -415,9 +380,12 @@ that page is **that plugin**, not core.
 | Roles and caps | [roles.md](roles.md) |
 | REST (`/ap-json/`, `rest_api_enabled`) | [rest.md](rest.md) |
 | Nonces, deny rules, no telemetry | [security.md](security.md) |
-| Plugin headers, Settings API, ACP registration | [plugins.md](plugins.md) |
+| Plugin headers, Settings API | [plugins.md](plugins.md) |
+| Plugin zip installer / `ap_register_admin_page` | [plugins.md](plugins.md#plugin-installer) · [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp) |
 | Site Icon pack | [site-icon.md](site-icon.md) |
 | Visual editor contract | [editor.md](editor.md) |
 | Theme Options / Agora schemes | [themes.md](themes.md) |
+| Tables / `AP_DB_VERSION` | [schema.md](schema.md) |
+| Selected hooks (`ap_admin_menu`) | [hooks.md](hooks.md) |
 | Trusted-agent rules | [bot_handbook.md](bot_handbook.md) |
 | “Does this screen exist?” | [features_and_functions.md](features_and_functions.md) |

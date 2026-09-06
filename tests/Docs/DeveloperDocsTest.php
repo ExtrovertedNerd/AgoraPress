@@ -296,6 +296,7 @@ final class DeveloperDocsTest extends TestCase
                 'ap_add_filter',
                 'ap_apply_filters',
                 'ap_plugins_loaded',
+                'ap_mu_plugins_loaded',
                 'ap_loaded',
                 'ap_after_setup_theme',
                 'ap_enqueue_scripts',
@@ -304,8 +305,14 @@ final class DeveloperDocsTest extends TestCase
                 'ap_analytics_prune',
                 'grep',
                 'encyclopedia',
+                'grep for the rest',
                 'ap_admin_menu',
                 'ap_theme_options_register',
+                'ap_rest_enabled',
+                'ap_plugin_installed',
+                'ap_moderation_topic_soft_deleted',
+                'map target',
+                'user_has_cap',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -314,6 +321,130 @@ final class DeveloperDocsTest extends TestCase
                 "hooks.md should mention: {$needle}"
             );
         }
+        $this->assertTrue(
+            str_contains(strtolower($text), 'native core does **not** fire')
+            || str_contains(strtolower($text), 'native core does not fire'),
+            'hooks.md should say native core does not fire ap_init / ap_template_redirect'
+        );
+        $this->assertTrue(
+            str_contains(strtolower($text), '**no** `user_has_cap`')
+            || str_contains(strtolower($text), 'no `user_has_cap`'),
+            'hooks.md must not invent user_has_cap as a core hook'
+        );
+    }
+
+    public function testHooksDocSelectedNamesExistInCode(): void
+    {
+        $doc = $this->readDoc('hooks.md');
+        preg_match_all('/`(ap_[a-z0-9_]+)`/', $doc, $matches);
+        $mentioned = array_unique($matches[1] ?? []);
+
+        $literals = $this->literalHookNamesFromProduct();
+        $compat = $this->compatHookMapValues();
+        $api = [
+            'ap_add_action', 'ap_do_action', 'ap_do_action_ref_array',
+            'ap_remove_action', 'ap_remove_all_actions', 'ap_has_action',
+            'ap_did_action', 'ap_current_action', 'ap_doing_action',
+            'ap_add_filter', 'ap_apply_filters', 'ap_apply_filters_ref_array',
+            'ap_remove_filter', 'ap_remove_all_filters', 'ap_has_filter',
+            'ap_current_filter', 'ap_doing_filter', 'ap_reset_hooks',
+            'ap_register_admin_page', 'ap_add_cap', 'ap_get_the_excerpt',
+            'ap_nav_menu', 'ap_print_styles', 'ap_print_scripts',
+        ];
+        $allowed = array_fill_keys(array_merge($literals, $compat, $api), true);
+
+        $invented = [];
+        foreach ($mentioned as $name) {
+            if (isset($allowed[$name])) {
+                continue;
+            }
+            if (str_ends_with($name, '_')) {
+                $prefixOk = false;
+                foreach ($literals as $existing) {
+                    if (str_starts_with($existing, $name)) {
+                        $prefixOk = true;
+                        break;
+                    }
+                }
+                if ($prefixOk) {
+                    continue;
+                }
+            }
+            $invented[] = $name;
+        }
+        $this->assertSame(
+            [],
+            $invented,
+            'docs/hooks.md must not invent hook names; grep ap_do_action / ap_apply_filters for the rest'
+        );
+
+        $selected = explode('## Grep for the rest', $doc, 2)[0];
+        foreach (['ap_excerpt_length', 'ap_excerpt_more'] as $bogus) {
+            foreach (preg_split('/\R/', $selected) as $line) {
+                if (!str_contains($line, $bogus) || !str_starts_with(ltrim($line), '|')) {
+                    continue;
+                }
+                $lower = strtolower($line);
+                $this->assertTrue(
+                    str_contains($lower, 'map') || str_contains($lower, 'compat') || str_contains($lower, 'not'),
+                    "hooks.md must not list {$bogus} as a native selected hook: {$line}"
+                );
+            }
+        }
+
+        $this->assertGreaterThan(
+            count(array_diff(array_intersect($mentioned, $literals), $api)) + 20,
+            count($literals),
+            'hooks.md should stay selected + grep for the rest, not dump every core hook'
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function literalHookNamesFromProduct(): array
+    {
+        $names = [];
+        $call = '/ap_(?:do_action(?:_ref_array)?|apply_filters(?:_ref_array)?)\s*\(\s*'
+            . '(?:self::[A-Z0-9_]+,\s*)?[\'"]([a-zA-Z0-9_]+)[\'"]/';
+        $const = '/(?:ADMIN_MENU_HOOK|CRON_HOOK)\s*=\s*[\'"]([a-zA-Z0-9_]+)[\'"]/';
+        $root = dirname(__DIR__, 2);
+        foreach (['ap-includes', 'ap-admin'] as $folder) {
+            $dir = $root . '/' . $folder;
+            $it = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($it as $file) {
+                if (!$file->isFile() || strtolower($file->getExtension()) !== 'php') {
+                    continue;
+                }
+                $text = (string) file_get_contents($file->getPathname());
+                if (preg_match_all($call, $text, $m) > 0) {
+                    foreach ($m[1] as $name) {
+                        $names[$name] = true;
+                    }
+                }
+                if (preg_match_all($const, $text, $m) > 0) {
+                    foreach ($m[1] as $name) {
+                        $names[$name] = true;
+                    }
+                }
+            }
+        }
+
+        return array_keys($names);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function compatHookMapValues(): array
+    {
+        $path = dirname(__DIR__, 2) . '/ap-includes/compatibility/class-ap-theme-compat.php';
+        $text = (string) file_get_contents($path);
+        preg_match_all("/'[a-z0-9_]+'\\s*=>\\s*'(ap_[a-z0-9_]+)'/", $text, $m);
+
+        return $m[1] ?? [];
     }
 
     public function testDocsIndexReflects031BetaAndAnalytics(): void
@@ -379,6 +510,9 @@ final class DeveloperDocsTest extends TestCase
                 'AP_DB_VERSION',
                 'ap_register_admin_page',
                 'php ap-cli plugin install',
+                'ap_plugin_installed',
+                'rest_api_enabled',
+                'GET-only',
                 'rest.md',
                 'admin.md',
             ] as $needle
@@ -407,6 +541,9 @@ final class DeveloperDocsTest extends TestCase
                 'cli-convert',
                 'block',
                 'troubleshooting.md',
+                'try_files $uri $uri/ /index.php?$args',
+                'rewrites.md',
+                'ap_init',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -440,6 +577,7 @@ final class DeveloperDocsTest extends TestCase
                 'ap_',
                 '0012_topic_type_enum.php',
                 'No new table',
+                'enum backfill',
                 'standard',
                 'announcement',
                 'rules',
@@ -452,6 +590,78 @@ final class DeveloperDocsTest extends TestCase
                 "schema.md should mention: {$needle}"
             );
         }
+    }
+
+    public function testIntegratorDocsFillListedGaps(): void
+    {
+        $schema = $this->readDoc('schema.md');
+        $this->assertStringContainsString('0012_topic_type_enum.php', $schema);
+        $this->assertStringContainsString('No new table', $schema);
+        $this->assertStringContainsStringIgnoringCase('enum backfill', $schema);
+
+        $plugins = $this->readDoc('plugins.md');
+        $this->assertStringContainsString('rest_api_enabled', $plugins);
+        $this->assertStringContainsString('GET-only', $plugins);
+        $this->assertStringContainsString('ap_register_admin_page', $plugins);
+        $this->assertStringContainsString('admin.md', $plugins);
+
+        $hooks = $this->readDoc('hooks.md');
+        $this->assertStringContainsStringIgnoringCase('grep', $hooks);
+        $this->assertStringContainsStringIgnoringCase('encyclopedia', $hooks);
+        $this->assertStringContainsStringIgnoringCase('grep for the rest', $hooks);
+        $this->assertStringContainsString('ap_moderation_topic_soft_deleted', $hooks);
+        $this->assertStringContainsString('ap_mu_plugins_loaded', $hooks);
+        $this->assertTrue(
+            str_contains($hooks, '**no** `user_has_cap`')
+            || str_contains($hooks, 'no `user_has_cap`'),
+            'hooks.md must not invent user_has_cap as a core hook'
+        );
+
+        $rest = $this->readDoc('rest.md');
+        $this->assertStringContainsString('ACP Settings screen', $rest);
+        $this->assertStringContainsString('rest_api_enabled', $rest);
+
+        $compat = $this->readDoc('compatibility.md');
+        $this->assertStringContainsString('try_files $uri $uri/ /index.php?$args', $compat);
+    }
+
+    public function testPluginZipInstallerAndAdminPageStayInPluginsDoc(): void
+    {
+        $plugins = $this->readDoc('plugins.md');
+        $admin = $this->readDoc('admin.md');
+
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Plugin installer\s*$/', $plugins);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Admin pages/', $plugins);
+        foreach (
+            [
+                'ap_register_admin_page',
+                'AP_Plugin_Installer',
+                'ap_install_plugin_from_zip',
+                'DEFAULT_MAX_BYTES',
+                'plugin-upload',
+                'install_plugins',
+                'ZipArchive',
+                'add_options_page',
+                'ap_admin_menu',
+                '40 MiB',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $plugins,
+                "plugins.md is the canonical home, missing: {$needle}"
+            );
+        }
+
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Plugin zip installer\s*$/', $admin);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Plugin-registered ACP pages\s*$/', $admin);
+        $this->assertStringContainsString('plugins.md#plugin-installer', $admin);
+        $this->assertStringContainsString(
+            'plugins.md#admin-pages-settings-screens-in-the-acp',
+            $admin
+        );
+        $this->assertStringContainsString('ap_register_admin_page', $admin);
+        $this->assertStringContainsString('AP_Plugin_Installer', $admin);
     }
 
     public function testInstallDocCoversInstallerSurfaces(): void

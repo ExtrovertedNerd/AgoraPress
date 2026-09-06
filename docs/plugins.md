@@ -343,31 +343,60 @@ String function-name callbacks are accepted (wrapped for late binding), matching
 
 - **Plugins** screen: `ap-admin/plugins.php` (cap `activate_plugins`)  
 - Nonce-protected activate / deactivate links  
-- Zip upload (`AP_Plugin_Installer`, cap `install_plugins`): `.zip` with a **Plugin Name** PHP file at the archive root or one folder deep (`plugin-name/plugin.php`). Overwrite replaces an existing slug. Active plugins cannot be deleted (deactivate first; cap `delete_plugins`).  
+- Zip upload lives in [Plugin installer](#plugin-installer) below (`AP_Plugin_Installer`, cap `install_plugins`)
 
 ## Plugin installer
 
-Zip packages can be uploaded under Plugins (`AP_Plugin_Installer`), the same flow as Appearance → Themes. This is the **integrator** description; the operator path (caps, overwrite, delete) is [admin.md](admin.md#plugin-zip-installer).
+This is the **canonical** zip-installer contract (package shape, caps, helpers, hooks). The ACP screen map points here from [admin.md](admin.md#plugin-zip-installer). Theme zip upload is a **separate** class (`AP_Theme_Installer`) on Appearance → Themes.
 
-- Requires a PHP file with a `Plugin Name` header  
-- Single-file packages (`hello.php` at the zip root) install as `ap-content/plugins/hello.php`  
-- Folder packages (`my-plugin/my-plugin.php`) install as `ap-content/plugins/my-plugin/`  
-- Path traversal, disallowed script types, and oversized archives are rejected  
-- Installed plugins stay inactive until you activate them  
-- `ZipArchive` is required  
+**Source:** `ap-includes/class-ap-plugin-installer.php` (`AP_Plugin_Installer`)  
+**Helpers:** `ap_install_plugin_from_zip()`, `ap_upload_plugin()`, `ap_delete_plugin()`  
+**ACP screen:** Plugins → Upload plugin (`plugins.php` POST `ap_plugin_action=upload`)
+
+| Piece | As built |
+|-------|----------|
+| Screen cap | `activate_plugins` (to see Plugins) |
+| Upload cap | `install_plugins` |
+| Delete cap | `delete_plugins`, or `install_plugins` as a fallback |
+| PHP | `ZipArchive` is required |
+| Max size | `AP_Plugin_Installer::DEFAULT_MAX_BYTES` = **40 MiB** (also bounded by PHP upload limits) |
+| Nonce | `plugin-upload` |
+
+### Package shape
+
+The zip must contain a PHP file with a **Plugin Name** header:
+
+- **Single-file:** `hello.php` at the zip root → `ap-content/plugins/hello.php`
+- **Folder:** `my-plugin/my-plugin.php` (header one level down) → `ap-content/plugins/my-plugin/`
+
+Path traversal, disallowed script types, empty archives, and oversized zips are rejected. The file must look like a zip (`PK` magic).
+
+### After upload
+
+Installed plugins stay **inactive** until you activate them (Plugins screen or `php ap-cli plugin activate …`). Check **Overwrite if a plugin with the same folder or file name already exists** to replace an existing slug. Active plugins **cannot** be deleted — deactivate first.
+
+Drop-in without zip still works: copy a PHP file or folder into `ap-content/plugins/` yourself, then activate.
+
+Actions `ap_plugin_installed` / `ap_plugin_deleted` fire after a successful zip install or delete ([hooks.md](hooks.md)).
 
 There is **no** `php ap-cli plugin install`. After upload, activate with `php ap-cli plugin activate my-plugin/my-plugin.php` ([cli.md](cli.md)).
 
-## Related APIs
+## Related docs
 
-| Concern | Entry points |
-|---------|----------------|
+| Need | Doc |
+|------|-----|
 | Hooks | [hooks.md](hooks.md) |
-| ACP screens (zip installer, Hall of Fame) | [admin.md](admin.md) |
+| ACP screen map / Hall of Fame | [admin.md](admin.md) |
+| Zip installer (this file; pointer from admin) | [Plugin installer](#plugin-installer) · [admin.md](admin.md#plugin-zip-installer) |
+| Plugin-registered ACP pages | [Admin pages](#admin-pages-settings-screens-in-the-acp) (`ap_register_admin_page`) |
 | Built-in CLI verbs | [cli.md](cli.md) |
 | REST `/ap-json/` `ap/v1` | [rest.md](rest.md) |
 | Themes | [themes.md](themes.md) |
 | Schema / custom tables | Prefer options/postmeta first; migrations are core-owned ([schema.md](schema.md)) |
 | Roles / caps | [roles.md](roles.md) (`ap_user_can`, `AP_Roles`) |
 | Nonces, prepared statements | [security.md](security.md) |
-| Admin pages | `ap_register_admin_page`, `AP_Admin_Menu`, `ap-admin/admin.php` |
+| Drop-in path under `ap-content/plugins/` | [install.md](install.md) |
+| Custom plugins are not overwritten on update | [updates.md](updates.md) |
+| Pretty `/ap-json/` vs `?rest_route=` | [rewrites.md](rewrites.md) |
+| Forum module hooks / module-off | [forums.md](forums.md) |
+| Symptom → check | [troubleshooting.md](troubleshooting.md) |

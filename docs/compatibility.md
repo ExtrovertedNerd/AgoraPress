@@ -20,7 +20,7 @@ Block / FSE themes (`theme.json`, HTML files under `templates/`) are **out of sc
 - Classic PHP themes with `style.css` + `index.php` (or child + parent)  
 - Common template tags (`the_title`, `get_header`, `have_posts`, …)  
 - Common functions (`add_action`, `wp_enqueue_style`, `bloginfo`, …)  
-- Hook name mapping (`wp_enqueue_scripts` → `ap_enqueue_scripts`, …)  
+- Hook name mapping (`wp_enqueue_scripts` → `ap_enqueue_scripts`, …). Mapped names such as `ap_init` / `ap_template_redirect` fire **only** when the classic theme (or shim) calls the WP source name. Native core does **not** fire them — [hooks.md](hooks.md).  
 - Safe loading of theme `functions.php` when compat is active  
 - Screenshots and `style.css` headers  
 - Per-theme mode: **auto** | **on** | **off**  
@@ -167,7 +167,11 @@ echo ap_theme_compat_report('/path/to/theme');
 | Native hierarchy and Agora defaults | [themes.md](themes.md) |
 | Appearance → Themes zip upload | [admin.md](admin.md) |
 | Compat theme looks broken | [troubleshooting.md](troubleshooting.md) |
-| Action/filter API | [hooks.md](hooks.md) |
+| Pretty permalinks still need `try_files $uri $uri/ /index.php?$args` | [rewrites.md](rewrites.md) |
+| Action/filter API (`ap_init` is a compat map, not a native fire) | [hooks.md](hooks.md) |
 | Plugins always use `ap_*` (no bare WP plugin runtime) | [plugins.md](plugins.md) |
-| Why the layer is a first-class differentiator | [vision-compliance.md](vision-compliance.md) |  
+| Why the layer is a first-class differentiator | [vision-compliance.md](vision-compliance.md) |
+| Conversion helper (`cli-convert.php`, not an `ap-cli` group) | [cli.md](cli.md) |
+| Custom themes are not overwritten on update | [updates.md](updates.md) |
+| `ap-content/themes/` drop-in path | [install.md](install.md) |  
 

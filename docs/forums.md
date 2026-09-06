@@ -594,3 +594,5 @@ Do not tell operators these exist in AgoraPress core:
 | Module-off 404s | [troubleshooting.md](troubleshooting.md) |
 | Visual editor on reply | [editor.md](editor.md) |
 | phpBB / WXR import | [admin.md](admin.md) |
+| Enable the Forum module after install | [install.md](install.md) |
+| There is **no** `php ap-cli forum` verb | [cli.md](cli.md) |

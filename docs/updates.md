@@ -392,5 +392,7 @@ Say **not in core** rather than inventing these:
 | [troubleshooting.md](troubleshooting.md) | Symptom → check |
 | [hooks.md](hooks.md) | `ap_core_updated`, `ap_version_check_url`, `ap_version_check_enabled` |
 | [vision-compliance.md](vision-compliance.md) | Privacy / no-telemetry checklist |
+| [rewrites.md](rewrites.md) | Front controller still required after a zip apply |
+| [plugins.md](plugins.md) · [themes.md](themes.md) | Custom plugins/themes are not overwritten |
 
 *AgoraPress — free forever. Publish. Discuss. Own your stack.*

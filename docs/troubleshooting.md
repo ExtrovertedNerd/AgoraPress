@@ -350,6 +350,9 @@ is **not in core**.
 | [security.md](security.md) | Sessions, nonces, deny rules |
 | [site-icon.md](site-icon.md) | Favicon pack, GD/Imagick |
 | [compatibility.md](compatibility.md) | Classic PHP themes; block/FSE out of scope |
+| [schema.md](schema.md) | Pending migrations / “old schema” after update |
+| [plugins.md](plugins.md) · [themes.md](themes.md) | Zip installers, drop-in paths |
+| [hooks.md](hooks.md) | Selected actions/filters (grep for the rest) |
 | [bot_handbook.md](bot_handbook.md) | Trusted-agent operating model |
 
 *AgoraPress — free forever. Publish. Discuss. Own your stack.*

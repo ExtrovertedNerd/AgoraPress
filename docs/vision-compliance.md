@@ -218,9 +218,14 @@ pytest tests/test_vision_compliance.py -v
 | Audience index | [README.md](README.md) |
 | Install / updates / rewrites / CLI / admin | [install.md](install.md) · [updates.md](updates.md) · [rewrites.md](rewrites.md) · [cli.md](cli.md) · [admin.md](admin.md) |
 | Forums / roles / REST / security | [forums.md](forums.md) · [roles.md](roles.md) · [rest.md](rest.md) · [security.md](security.md) |
+| Symptom → check | [troubleshooting.md](troubleshooting.md) |
 | Editor contract (no blocks) | [editor.md](editor.md) |
 | Classic WP theme shim | [compatibility.md](compatibility.md) |
 | Schema 12 | [schema.md](schema.md) |
+| Plugin headers, ACP pages, zip installer | [plugins.md](plugins.md) |
+| Template hierarchy, Agora, Theme Options | [themes.md](themes.md) |
+| Selected hooks (grep for the rest) | [hooks.md](hooks.md) |
+| Site Icon / favicon pack | [site-icon.md](site-icon.md) |
 
 ---
 
