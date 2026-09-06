@@ -99,9 +99,25 @@ def test_docs_index_states_public_safe_rule(docs_root: Path) -> None:
     assert "never write" in index
     assert "do not invent" in index
     assert "not in core" in index
+    assert "bot_handbook.md" in index
     # Public docs must not name private hosts / mailboxes / process internals.
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in index, f"docs/README.md must not contain private marker: {banned}"
+
+
+def test_bot_handbook_states_public_safe_rule(docs_root: Path) -> None:
+    path = docs_root / "bot_handbook.md"
+    assert path.is_file(), "Missing docs/bot_handbook.md"
+    text = path.read_text(encoding="utf-8")
+    assert len(text) >= 800, f"docs/bot_handbook.md too short ({len(text)} chars)"
+    lower = text.lower()
+    assert "public-safe" in lower or "this repository is **public**" in lower or "this repository is public" in lower
+    assert "never write" in lower
+    assert "do not invent" in lower
+    assert "not in core" in lower
+    assert "do not invent surfaces" in lower or "do **not invent**" in lower
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/bot_handbook.md must not contain private marker: {banned}"
 
 
 def test_no_parallel_docs_index(docs_root: Path) -> None:

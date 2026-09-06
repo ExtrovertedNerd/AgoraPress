@@ -133,11 +133,44 @@ final class DeveloperDocsTest extends TestCase
         $this->assertStringContainsStringIgnoringCase('never write', $index);
         $this->assertStringContainsStringIgnoringCase('do not invent', $index);
         $this->assertStringContainsStringIgnoringCase('not in core', $index);
+        $this->assertStringContainsString('bot_handbook.md', $index);
         foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $index,
                 "docs/README.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testBotHandbookStatesPublicSafeRule(): void
+    {
+        $text = $this->readDoc('bot_handbook.md');
+        $this->assertGreaterThan(
+            800,
+            strlen($text),
+            'docs/bot_handbook.md should state the public-safe rule, not be a stub'
+        );
+        $lower = strtolower($text);
+        $this->assertTrue(
+            str_contains($lower, 'public-safe')
+            || str_contains($lower, 'this repository is **public**')
+            || str_contains($lower, 'this repository is public'),
+            'docs/bot_handbook.md should state the public-safe / public-repository rule'
+        );
+        $this->assertStringContainsStringIgnoringCase('never write', $text);
+        $this->assertStringContainsStringIgnoringCase('do not invent', $text);
+        $this->assertStringContainsStringIgnoringCase('not in core', $text);
+        $this->assertTrue(
+            str_contains($lower, 'do not invent surfaces')
+            || str_contains($lower, 'do **not invent**'),
+            'docs/bot_handbook.md should say do not invent surfaces'
+        );
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/bot_handbook.md must not contain private marker: {$banned}"
             );
         }
     }

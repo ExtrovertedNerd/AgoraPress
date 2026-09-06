@@ -63,6 +63,9 @@ This repository is **public**. Everything under `docs/` and the root
 If a fact is only true of one private install, document the **mechanism**, not
 the install.
 
+Trusted agents: the same public-safe rule is restated in
+[bot_handbook.md](bot_handbook.md).
+
 ---
 
 ## By audience
