@@ -50,6 +50,8 @@ final class DeveloperDocsTest extends TestCase
             'rest' => ['rest.md'],
             'security' => ['security.md'],
             'troubleshooting' => ['troubleshooting.md'],
+            'bot handbook' => ['bot_handbook.md'],
+            'features and functions' => ['features_and_functions.md'],
         ];
     }
 
@@ -191,6 +193,140 @@ final class DeveloperDocsTest extends TestCase
             $this->docsRoot . '/index.md',
             'One public index only: docs/README.md (do not also create docs/index.md)'
         );
+    }
+
+    public function testFeaturesAndFunctionsCatalogIsTablesLookup(): void
+    {
+        $text = $this->readDoc('features_and_functions.md');
+        $this->assertGreaterThan(
+            800,
+            strlen($text),
+            'docs/features_and_functions.md should be a lookup catalog, not a stub'
+        );
+
+        foreach (
+            [
+                '/(?im)^##\s+Modules\s*$/',
+                '/(?im)^##\s+Operator-facing options\s*$/',
+                '/(?im)^##\s+Roles and capabilities\s*$/',
+                '/(?im)^##\s+`ap-cli` verbs\s*$/',
+                '/(?im)^##\s+REST resources/',
+                '/(?im)^##\s+Admin screens/',
+                '/(?im)^##\s+Default Agora schemes\s*$/',
+                '/(?im)^##\s+Hooks\s*$/',
+            ] as $pattern
+        ) {
+            $this->assertMatchesRegularExpression(
+                $pattern,
+                $text,
+                "features_and_functions.md missing required table heading: {$pattern}"
+            );
+        }
+
+        foreach (
+            [
+                'AP_DB_VERSION',
+                '/ap-admin/',
+                '/ap-json/',
+                'rest_api_enabled',
+                'analytics_enabled',
+                'ap_register_admin_page',
+                'ap_module_static_pages',
+                'ap_module_blog',
+                'ap_module_forum',
+                'administrator',
+                'editor',
+                'author',
+                'contributor',
+                'subscriber',
+                'edit_own_comments',
+                'delete_own_comments',
+                'cli info',
+                'core check-update',
+                'db migrate',
+                '/ap/v1/posts',
+                'marble',
+                'parchment',
+                'cloud',
+                'obsidian',
+                'midnight',
+                'charcoal',
+                'agora_color_scheme',
+                'not in core',
+                'hooks.md',
+                'roles.md',
+                'cli.md',
+                'rest.md',
+                'admin.md',
+                'themes.md',
+                'plugins.md',
+                'forums.md',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "features_and_functions.md should mention: {$needle}"
+            );
+        }
+
+        foreach (
+            [
+                'help', 'version', 'cli', 'core', 'db', 'option', 'plugin',
+                'theme', 'user', 'post', 'cache', 'cron', 'rewrite', 'site',
+            ] as $group
+        ) {
+            $this->assertMatchesRegularExpression(
+                '/`?' . preg_quote($group, '/') . '`?/',
+                $text,
+                "features_and_functions.md should name ap-cli group: {$group}"
+            );
+        }
+
+        foreach (
+            [
+                'login.php', 'index.php', 'edit.php', 'post.php', 'post-new.php',
+                'revision.php', 'edit-comments.php', 'comment.php', 'edit-tags.php',
+                'media.php', 'media-new.php', 'upload.php', 'nav-menus.php',
+                'widgets.php', 'themes.php', 'theme-options.php', 'plugins.php',
+                'users.php', 'user-new.php', 'user-edit.php', 'profile.php',
+                'forums.php', 'forum-edit.php', 'forum-groups.php',
+                'forum-moderation.php', 'forum-topics.php', 'options-general.php',
+                'options-writing.php', 'options-reading.php', 'options-discussion.php',
+                'options-media.php', 'options-permalink.php', 'options-privacy.php',
+                'options-modules.php', 'options-forums.php', 'options-hall-of-fame.php',
+                'analytics.php', 'site-health.php', 'update-core.php', 'import.php',
+                'export-personal-data.php', 'erase-personal-data.php', 'admin.php',
+            ] as $screen
+        ) {
+            $this->assertStringContainsString(
+                $screen,
+                $text,
+                "features_and_functions.md should name ACP screen: {$screen}"
+            );
+        }
+
+        $this->assertStringContainsString('GET only', $text);
+        $this->assertStringContainsString('No install/zip', $text);
+        $this->assertStringContainsString('encyclopedia', $text);
+
+        foreach (preg_split('/\R/', $text) as $line) {
+            $stripped = ltrim($line);
+            if ($stripped === '' || str_starts_with($stripped, '#') || str_starts_with($stripped, '|')) {
+                continue;
+            }
+            $this->fail(
+                'docs/features_and_functions.md must be tables only; leftover prose: ' . $line
+            );
+        }
+
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/features_and_functions.md must not contain private marker: {$banned}"
+            );
+        }
     }
 
     public function testSiteIconDocCoversFaviconPack(): void

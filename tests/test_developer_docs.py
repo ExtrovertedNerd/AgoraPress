@@ -36,6 +36,8 @@ REQUIRED_DOCS = (
     "rest.md",
     "security.md",
     "troubleshooting.md",
+    "bot_handbook.md",
+    "features_and_functions.md",
 )
 
 
@@ -134,6 +136,148 @@ def test_no_parallel_docs_index(docs_root: Path) -> None:
     assert not (docs_root / "index.md").exists(), (
         "One public index only: docs/README.md (do not also create docs/index.md)"
     )
+
+
+def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> None:
+    """Lookup catalog: Phase 0 inventory tables pointing at topic guides."""
+    path = docs_root / "features_and_functions.md"
+    assert path.is_file(), "Missing docs/features_and_functions.md"
+    text = path.read_text(encoding="utf-8")
+    assert len(text) >= 800, f"docs/features_and_functions.md too short ({len(text)} chars)"
+
+    for heading in (
+        r"(?im)^##\s+Modules\s*$",
+        r"(?im)^##\s+Operator-facing options\s*$",
+        r"(?im)^##\s+Roles and capabilities\s*$",
+        r"(?im)^##\s+`ap-cli` verbs\s*$",
+        r"(?im)^##\s+REST resources",
+        r"(?im)^##\s+Admin screens",
+        r"(?im)^##\s+Default Agora schemes\s*$",
+        r"(?im)^##\s+Hooks\s*$",
+    ):
+        assert re.search(heading, text), f"features_and_functions.md missing heading: {heading}"
+
+    for phrase in (
+        "AP_DB_VERSION",
+        "/ap-admin/",
+        "/ap-json/",
+        "rest_api_enabled",
+        "analytics_enabled",
+        "ap_register_admin_page",
+        "ap_module_static_pages",
+        "ap_module_blog",
+        "ap_module_forum",
+        "administrator",
+        "editor",
+        "author",
+        "contributor",
+        "subscriber",
+        "edit_own_comments",
+        "delete_own_comments",
+        "cli info",
+        "core check-update",
+        "db migrate",
+        "/ap/v1/posts",
+        "marble",
+        "parchment",
+        "cloud",
+        "obsidian",
+        "midnight",
+        "charcoal",
+        "agora_color_scheme",
+        "not in core",
+        "hooks.md",
+        "roles.md",
+        "cli.md",
+        "rest.md",
+        "admin.md",
+        "themes.md",
+        "plugins.md",
+        "forums.md",
+        "GET only",
+        "No install/zip",
+        "encyclopedia",
+    ):
+        assert phrase in text, f"features_and_functions.md missing: {phrase}"
+
+    for group in (
+        "help",
+        "version",
+        "cli",
+        "core",
+        "db",
+        "option",
+        "plugin",
+        "theme",
+        "user",
+        "post",
+        "cache",
+        "cron",
+        "rewrite",
+        "site",
+    ):
+        assert group in text, f"features_and_functions.md should name ap-cli group: {group}"
+
+    for screen in (
+        "login.php",
+        "index.php",
+        "edit.php",
+        "post.php",
+        "post-new.php",
+        "revision.php",
+        "edit-comments.php",
+        "comment.php",
+        "edit-tags.php",
+        "media.php",
+        "media-new.php",
+        "upload.php",
+        "nav-menus.php",
+        "widgets.php",
+        "themes.php",
+        "theme-options.php",
+        "plugins.php",
+        "users.php",
+        "user-new.php",
+        "user-edit.php",
+        "profile.php",
+        "forums.php",
+        "forum-edit.php",
+        "forum-groups.php",
+        "forum-moderation.php",
+        "forum-topics.php",
+        "options-general.php",
+        "options-writing.php",
+        "options-reading.php",
+        "options-discussion.php",
+        "options-media.php",
+        "options-permalink.php",
+        "options-privacy.php",
+        "options-modules.php",
+        "options-forums.php",
+        "options-hall-of-fame.php",
+        "analytics.php",
+        "site-health.php",
+        "update-core.php",
+        "import.php",
+        "export-personal-data.php",
+        "erase-personal-data.php",
+        "admin.php",
+    ):
+        assert screen in text, f"features_and_functions.md should name ACP screen: {screen}"
+
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped == "" or stripped.startswith("#") or stripped.startswith("|"):
+            continue
+        raise AssertionError(
+            f"docs/features_and_functions.md must be tables only; leftover prose: {line}"
+        )
+
+    lower = text.lower()
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, (
+            f"docs/features_and_functions.md must not contain private marker: {banned}"
+        )
 
 
 def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
@@ -1445,11 +1589,8 @@ def test_topic_guides_cross_link_operator_guides(
     assert not missing, (
         f"docs/{name} Related section should markdown-link {missing}"
     )
-    # bot_handbook.md and features_and_functions.md land in Phase 5; Related
-    # rows may point at them before those files exist.
-    pending = {"bot_handbook.md", "features_and_functions.md"}
     for target in targets:
-        if not target.endswith(".md") or target in pending:
+        if not target.endswith(".md"):
             continue
         if target.startswith("../"):
             dest = ROOT / target[3:]
