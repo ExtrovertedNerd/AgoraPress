@@ -1,6 +1,8 @@
 # Theme hierarchy & theme API
 
-AgoraPress themes are **pure PHP templates** with a classic WordPress-inspired hierarchy. Block / Full Site Editing themes (`theme.json`, HTML block templates) are **out of scope** for the native loader (see [compatibility](compatibility.md)).
+This is the **theme integrator guide** for AgoraPress **`0.3.6-beta`** (schema `AP_DB_VERSION` **12**). It describes the native template hierarchy, default **Agora** theme, assets, Theme Options, and the ACP zip installer **as built**.
+
+AgoraPress themes are **pure PHP templates** with a classic WordPress-inspired hierarchy. Block / Full Site Editing themes (`theme.json`, HTML block templates) are **out of scope** for the native loader (see [compatibility](compatibility.md)) — they are **not in core**. Operator screens: [admin.md](admin.md). Activate from the shell: [cli.md](cli.md). Forum templates: [forums.md](forums.md).
 
 **Source:** `ap-includes/class-ap-theme.php`, `template-tags.php`, `class-ap-assets.php`  
 **Default theme:** `ap-content/themes/agora/`
@@ -211,7 +213,7 @@ ap_register_sidebar([
 ```
 
 Render: `ap_nav_menu(['theme_location' => 'primary'])`, `ap_dynamic_sidebar('sidebar-1')`.  
-Admin: Appearance → Menus, Appearance → Widgets.
+Admin: Appearance → Menus, Appearance → Widgets ([admin.md](admin.md)).
 
 ## Default theme: Agora
 
@@ -232,7 +234,7 @@ Current stylesheet version: **0.3.6** (`AGORA_THEME_VERSION` / `style.css` heade
 
 ## Theme Options (ACP)
 
-Appearance → **Theme Options** is the shared screen for theme settings. Core always provides **Additional CSS**. Themes declare more options with the Settings API (WordPress-compatible names when the Classic WP compatibility layer is loaded).
+Appearance → **Theme Options** (`theme-options.php`, cap `edit_theme_options`) is the shared screen for theme settings. Core always provides **Additional CSS**. Themes declare more options with the Settings API (WordPress-compatible names when the Classic WP compatibility layer is loaded). Operator map: [admin.md](admin.md).
 
 ### Registration (in `functions.php`)
 
@@ -302,12 +304,14 @@ Bare names `get_theme_mod` / `set_theme_mod` / `remove_theme_mod` are available 
 
 ## Theme installer
 
-Zip packages can be uploaded under Appearance → Themes (`AP_Theme_Installer`):
+Zip packages can be uploaded under Appearance → Themes (`AP_Theme_Installer`, cap `install_themes`):
 
 - Requires `style.css` with Theme Name  
 - Parent themes need `index.php`  
 - Block/FSE packages rejected by default  
 - Active theme and protected default `agora` cannot be deleted  
+
+There is **no** `php ap-cli theme install` verb. Built-in CLI is `theme list` / `theme activate` only ([cli.md](cli.md)). Drop-in without zip still works: copy the folder into `ap-content/themes/` yourself, then activate.
 
 CLI conversion report for classic WP themes: see [compatibility](compatibility.md).
 
@@ -321,10 +325,16 @@ CLI conversion report for classic WP themes: see [compatibility](compatibility.m
 6. Activate via admin or `php ap-cli theme activate my-theme`  
 7. If supporting dark schemes, define field/surface tokens so form controls stay readable  
 
-## Related
+## Related docs
 
-- [Hooks](hooks.md) — `ap_enqueue_scripts`, `ap_head`, template filters  
-- [Compatibility](compatibility.md) — classic WP themes  
-- [Editor](editor.md) — front-end comment/forum editor styling  
-- [README](../README.md) — install and default-theme notes  
+| Need | Doc |
+|------|-----|
+| ACP Appearance screens | [admin.md](admin.md) |
+| `php ap-cli theme list\|activate` | [cli.md](cli.md) |
+| Forum templates / two-pane CSS | [forums.md](forums.md) |
+| Classic WP shim; block/FSE out of scope | [compatibility.md](compatibility.md) |
+| `ap_enqueue_scripts`, `ap_head`, template filters | [hooks.md](hooks.md) |
+| Front-end comment/forum editor styling | [editor.md](editor.md) |
+| Pretty permalinks / front controller | [rewrites.md](rewrites.md) |
+| Site Icon in `ap_head` | [site-icon.md](site-icon.md) |  
 

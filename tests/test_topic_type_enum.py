@@ -112,6 +112,12 @@ def test_schema_doc_documents_topic_type() -> None:
     assert "standard" in text
     assert "announcement" in text
     assert "rules" in text
+    assert "0012_topic_type_enum.php" in text
+    assert "no new table" in text
+    assert "backfill" in text
+    assert "normal" in text
+    assert "announce" in text
+    assert "global" in text
 
 
 def test_migration_applies_and_backfills_in_sqlite() -> None:

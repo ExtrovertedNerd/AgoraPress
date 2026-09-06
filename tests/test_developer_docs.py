@@ -153,15 +153,29 @@ def test_vision_compliance_doc_content(docs_root: Path) -> None:
         "ap_telemetry",
         "three independent modules",
         "0.2.0-beta",
+        "0.3.6-beta",
+        "ap_db_version",
         "local analytics",
         "analytics_enabled",
+        "standard",
+        "announcement",
+        "rules",
+        "ap_register_admin_page",
+        "plugin install",
+        "schema.md",
+        "cli.md",
+        "editor.md",
     ):
         assert phrase in text, f"vision-compliance.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in text, f"docs/vision-compliance.md must not contain private marker: {banned}"
 
 
 def test_editor_doc_content(docs_root: Path) -> None:
     text = (docs_root / "editor.md").read_text(encoding="utf-8").lower()
     for phrase in (
+        "0.3.6-beta",
+        "ap_db_version",
         "ap_editor",
         "classic",
         "visual",
@@ -172,13 +186,21 @@ def test_editor_doc_content(docs_root: Path) -> None:
         "lightweight",
         "no jquery",
         "ap_content_format",
+        "not in core",
+        "admin.md",
+        "forums.md",
+        "class-ap-admin-post-edit.php",
     ):
         assert phrase in text, f"editor.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in text, f"docs/editor.md must not contain private marker: {banned}"
 
 
 def test_site_icon_doc_content(docs_root: Path) -> None:
     text = (docs_root / "site-icon.md").read_text(encoding="utf-8").lower()
     for phrase in (
+        "0.3.6-beta",
+        "ap_db_version",
         "site_icon",
         "settings → general",
         "ap_media",
@@ -195,13 +217,20 @@ def test_site_icon_doc_content(docs_root: Path) -> None:
         "manage_options",
         "gd",
         "imagick",
+        "admin.md",
+        "rewrites.md",
+        "install.md",
     ):
         assert phrase in text, f"site-icon.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in text, f"docs/site-icon.md must not contain private marker: {banned}"
 
 
 def test_hooks_doc_content(docs_root: Path) -> None:
     text = (docs_root / "hooks.md").read_text(encoding="utf-8").lower()
     for phrase in (
+        "0.3.6-beta",
+        "ap_db_version",
         "ap_add_action",
         "ap_do_action",
         "ap_add_filter",
@@ -213,13 +242,28 @@ def test_hooks_doc_content(docs_root: Path) -> None:
         "priority",
         "ap_analytics_should_record",
         "ap_analytics_prune",
+        "grep",
+        "encyclopedia",
+        "not in core",
+        "ap_admin_menu",
+        "ap_theme_options_register",
+        "ap_site_icon_meta_tags",
+        "ap_cli_init",
+        "ap_rest_api_init",
+        "plugins.md",
+        "cli.md",
+        "rest.md",
     ):
         assert phrase in text, f"hooks.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in text, f"docs/hooks.md must not contain private marker: {banned}"
 
 
 def test_themes_doc_content(docs_root: Path) -> None:
     text = (docs_root / "themes.md").read_text(encoding="utf-8").lower()
     for phrase in (
+        "0.3.6-beta",
+        "ap_db_version",
         "style.css",
         "index.php",
         "template",
@@ -229,13 +273,25 @@ def test_themes_doc_content(docs_root: Path) -> None:
         "single.php",
         "ap_enqueue_scripts",
         "agora",
+        "edit_theme_options",
+        "install_themes",
+        "php ap-cli theme install",
+        "not in core",
+        "admin.md",
+        "cli.md",
+        "forums.md",
+        "compatibility.md",
     ):
         assert phrase in text, f"themes.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in text, f"docs/themes.md must not contain private marker: {banned}"
 
 
 def test_plugins_doc_content(docs_root: Path) -> None:
     text = (docs_root / "plugins.md").read_text(encoding="utf-8").lower()
     for phrase in (
+        "0.3.6-beta",
+        "ap_db_version",
         "plugin name",
         "active_plugins",
         "ap_activate_plugin",
@@ -251,13 +307,27 @@ def test_plugins_doc_content(docs_root: Path) -> None:
         "add_options_page",
         "manage_options",
         "ap_admin::pageurl",
+        "ap_plugin_installer",
+        "php ap-cli plugin install",
+        "ziparchive",
+        "rest.md",
+        "admin.md",
+        "cli.md",
+        "roles.md",
+        "security.md",
+        "theme_options",
+        "forums",
     ):
         assert phrase in text, f"plugins.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in text, f"docs/plugins.md must not contain private marker: {banned}"
 
 
 def test_compatibility_doc_content(docs_root: Path) -> None:
     text = (docs_root / "compatibility.md").read_text(encoding="utf-8").lower()
     for phrase in (
+        "0.3.6-beta",
+        "ap_db_version",
         "classic wordpress",
         "functions-shim",
         "wp_enqueue_scripts",
@@ -265,8 +335,14 @@ def test_compatibility_doc_content(docs_root: Path) -> None:
         "theme.json",
         "cli-convert",
         "block",
+        "not in core",
+        "troubleshooting.md",
+        "admin.md",
+        "themes.md",
     ):
         assert phrase in text, f"compatibility.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in text, f"docs/compatibility.md must not contain private marker: {banned}"
 
 
 def test_install_doc_content(docs_root: Path) -> None:
@@ -805,6 +881,7 @@ def test_troubleshooting_doc_content(docs_root: Path) -> None:
 def test_schema_doc_content(docs_root: Path) -> None:
     text = (docs_root / "schema.md").read_text(encoding="utf-8").lower()
     for phrase in (
+        "0.3.6-beta",
         "ap_db_version",
         "schema_migrations",
         "options",
@@ -822,8 +899,24 @@ def test_schema_doc_content(docs_root: Path) -> None:
         "analytics_daily",
         "utf8mb4",
         "ap_",
+        "0012_topic_type_enum.php",
+        "no new table",
+        "standard",
+        "sticky",
+        "announcement",
+        "rules",
+        "backfill",
+        "normal",
+        "announce",
+        "global",
+        "php ap-cli db migrate",
+        "forums.md",
+        "cli.md",
+        "not in core",
     ):
         assert phrase in text, f"schema.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in text, f"docs/schema.md must not contain private marker: {banned}"
 
 # Root README Documentation table: existing integrator guides plus the
 # operator/agent guides (rows may land before the topic files exist).

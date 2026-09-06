@@ -1,6 +1,10 @@
 # Plugin API
 
-Plugins extend AgoraPress via headers, activation hooks, and the [hook system](hooks.md). Layout and headers are deliberately familiar to classic WordPress plugin authors.
+This is the **plugin integrator guide** for AgoraPress **`0.3.6-beta`** (schema `AP_DB_VERSION` **12**). It describes headers, must-use plugins, shortcodes, the Settings API, ACP pages (`ap_register_admin_page`), and the zip installer **as built**.
+
+Plugins extend AgoraPress via headers, activation hooks, and the [hook system](hooks.md). Layout and headers are deliberately familiar to classic WordPress plugin authors. Operator screens: [admin.md](admin.md). Shell verbs: [cli.md](cli.md). REST registration: [rest.md](rest.md).
+
+There is **no** `php ap-cli plugin install` verb, **no** plugin directory, and **no** paid marketplace in core.
 
 **Source:** `ap-includes/class-ap-plugin.php`  
 **Procedural API:** `ap-includes/functions.php`  
@@ -119,7 +123,7 @@ ap_add_action('ap_footer', static function (): void {
 }, 50);
 ```
 
-Activate: Admin → Plugins, or:
+Activate: Admin → Plugins ([admin.md](admin.md)), or:
 
 ```bash
 php ap-cli plugin list
@@ -128,6 +132,8 @@ php ap-cli plugin activate site-notice/site-notice.php
 php ap-cli plugin activate hello.php
 php ap-cli plugin deactivate hello.php
 ```
+
+Built-in CLI is `list` / `activate` / `deactivate` only — [cli.md](cli.md).
 
 Content automation (core CLI, not a plugin API) uses local files only:
 
@@ -172,7 +178,7 @@ ap_add_action('ap_loaded', static function (): void {
 });
 ```
 
-Core option groups: general, modules, writing, reading, discussion, media, permalink (and others as features land). Use nonces and capability checks on any custom admin form.
+Core option groups as built: `general`, `modules`, `writing`, `reading`, `discussion`, `media`, `permalink`, `forums`. Themes use group `theme_options` ([themes.md](themes.md)). Options such as `rest_api_enabled` and `version_check_enabled` have **no** dedicated Settings screen — toggle them with `php ap-cli option` ([cli.md](cli.md), [rest.md](rest.md)). Use nonces and capability checks on any custom admin form. Operator map of those screens: [admin.md](admin.md).
 
 ## Options, transients, cron
 
@@ -198,7 +204,7 @@ ap_add_action('ap_rest_api_init', static function (): void {
 });
 ```
 
-Base: `/ap-json/` or `?rest_route=/…`. See README for core `ap/v1` routes.
+Base: `/ap-json/` or `?rest_route=/…`. Core `ap/v1` resources, cookie + `X-AP-Nonce` or HTTP Basic, and `rest_api_enabled`: [rest.md](rest.md). Writes exist **only** on posts; other core resources are GET-only.
 
 ## CLI commands
 
@@ -210,6 +216,8 @@ ap_add_action('ap_cli_init', static function (): void {
     });
 });
 ```
+
+Plugin-registered verbs are not core. Built-in groups: [cli.md](cli.md).
 
 ## Widgets
 
@@ -230,7 +238,7 @@ Built-ins: Text, Recent Posts, Categories, Search, Pages, Navigation Menu.
 
 ## Admin pages (settings screens in the ACP)
 
-Plugins should **not** expose raw PHP under `ap-content/plugins/**` as admin endpoints. Register a settings (or tools) screen in the Control Panel so it loads through the admin shell: login, capability check, header/footer, and sidebar.
+Plugins should **not** expose raw PHP under `ap-content/plugins/**` as admin endpoints. Register a settings (or tools) screen in the Control Panel so it loads through the admin shell: login, capability check, header/footer, and sidebar. Operator screen map: [admin.md](admin.md).
 
 **Source:** `ap-includes/class-ap-admin-menu.php`  
 **Router:** `ap-admin/admin.php?page={id}`  
@@ -339,22 +347,27 @@ String function-name callbacks are accepted (wrapped for late binding), matching
 
 ## Plugin installer
 
-Zip packages can be uploaded under Plugins (`AP_Plugin_Installer`), the same flow as Appearance → Themes:
+Zip packages can be uploaded under Plugins (`AP_Plugin_Installer`), the same flow as Appearance → Themes. This is the **integrator** description; the operator path (caps, overwrite, delete) is [admin.md](admin.md#plugin-zip-installer).
 
 - Requires a PHP file with a `Plugin Name` header  
 - Single-file packages (`hello.php` at the zip root) install as `ap-content/plugins/hello.php`  
 - Folder packages (`my-plugin/my-plugin.php`) install as `ap-content/plugins/my-plugin/`  
 - Path traversal, disallowed script types, and oversized archives are rejected  
 - Installed plugins stay inactive until you activate them  
+- `ZipArchive` is required  
 
-CLI: `php ap-cli plugin activate my-plugin/my-plugin.php` after upload.
+There is **no** `php ap-cli plugin install`. After upload, activate with `php ap-cli plugin activate my-plugin/my-plugin.php` ([cli.md](cli.md)).
 
 ## Related APIs
 
 | Concern | Entry points |
 |---------|----------------|
 | Hooks | [hooks.md](hooks.md) |
+| ACP screens (zip installer, Hall of Fame) | [admin.md](admin.md) |
+| Built-in CLI verbs | [cli.md](cli.md) |
+| REST `/ap-json/` `ap/v1` | [rest.md](rest.md) |
 | Themes | [themes.md](themes.md) |
 | Schema / custom tables | Prefer options/postmeta first; migrations are core-owned ([schema.md](schema.md)) |
-| Roles | `ap_user_can`, `AP_Roles` |
+| Roles / caps | [roles.md](roles.md) (`ap_user_can`, `AP_Roles`) |
+| Nonces, prepared statements | [security.md](security.md) |
 | Admin pages | `ap_register_admin_page`, `AP_Admin_Menu`, `ap-admin/admin.php` |

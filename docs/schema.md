@@ -1,9 +1,13 @@
 # Database schema
 
-AgoraPress uses a **versioned migration system** and a configurable table prefix (default **`ap_`**). Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**.
+This is the **schema guide** for AgoraPress **`0.3.6-beta`** (schema `AP_DB_VERSION` **12**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
+
+AgoraPress uses a **versioned migration system**. Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**. Operator apply path: [install.md](install.md) (fresh) and [updates.md](updates.md) / `php ap-cli db migrate` ([cli.md](cli.md)). Forum column semantics: [forums.md](forums.md). Local analytics options: [admin.md](admin.md).
 
 **Source:** `ap-includes/schema/migrations/`, `class-ap-migrator.php`, `class-ap-migration.php`, `class-ap-db.php`  
 **Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **12**, AgoraPress `0.3.6-beta`)
+
+Do not invent tables. If a base name is not in this file and not in `ap_all_base_tables()`, it is **not in core**.
 
 ## Conventions
 
@@ -50,6 +54,7 @@ php ap-cli db check
 | 9 | `0009_forum_online_unread.php` | `topic_track`, `forum_track` |
 | 10 | `0010_analytics_tables.php` | `analytics_hits`, `analytics_daily` |
 | 11 | `0011_forum_likes_stats.php` | `forum_post_likes`; `forum_posts.like_count` |
+| 12 | `0012_topic_type_enum.php` | **No new table.** Canonical `topics.topic_type` values `standard` \| `sticky` \| `announcement` \| `rules`. Backfills `normal`→`standard`, `announce`/`global`→`announcement`, empty/unknown→`standard`. `sticky` is unchanged. `rules` is new (no legacy source). Column default becomes `standard` where the driver supports it (MySQL/MariaDB `MODIFY`; PostgreSQL `SET DEFAULT`; SQLite leaves DEFAULT to the application). |
 
 Also created by the migrator infrastructure: **`{prefix}schema_migrations`**.
 
@@ -180,7 +185,7 @@ Hierarchical categories & forums.
 | `forum_id` | |
 | `topic_title` / `topic_slug` | |
 | `topic_poster` | User ID |
-| `topic_type` | standard / sticky / announcement / rules (v12; legacy normal/announce/global backfilled) |
+| `topic_type` | Canonical (v12): `standard` \| `sticky` \| `announcement` \| `rules`. Migration **12** backfills `normal`→`standard`, `announce`/`global`→`announcement`; empty/unknown→`standard`. Extra types are **not in core**. |
 | `topic_status` | open / locked / moved / deleted, … |
 | `topic_approved` | Approval queue |
 | `topic_views` / reply counts | |
@@ -368,3 +373,15 @@ Always:
 | analytics_hits / analytics_daily | `AP_Analytics` (config, recorder, prune, aggregation); ACP `AP_Admin_Analytics` |
 
 See also [hooks.md](hooks.md) for lifecycle actions fired around inserts/updates that plugins can listen to instead of writing SQL.
+
+## Related docs
+
+| Need | Doc |
+|------|-----|
+| Fresh install runs migrations | [install.md](install.md) |
+| `php ap-cli db check` / `db migrate` | [cli.md](cli.md) |
+| One-click core update does not skip `db migrate` | [updates.md](updates.md) |
+| Topic types, likes, ACL, PMs | [forums.md](forums.md) |
+| `analytics_enabled` (default **off**) | [admin.md](admin.md) |
+| Roles vs forum ACL | [roles.md](roles.md) |
+| Plugin custom tables | [plugins.md](plugins.md) |

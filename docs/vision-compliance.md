@@ -1,10 +1,10 @@
 # Vision & Features Compliance
 
-**Date:** 2026-08-09  
+**Date:** 2026-09-06  
 **Scope:** Full codebase reevaluation against the project constitution (`VISION.md`, `FEATURES.md`, `SPEC.md` under the operator’s private process tree).  
-**Version under review:** `AP_VERSION` `0.3.6-beta`
+**Version under review:** `AP_VERSION` **`0.3.6-beta`** · schema `AP_DB_VERSION` **12**
 
-This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves.
+This document is the **public product record** of that review. It locks the north-star principles into something contributors and automated tests can verify. It does not replace the constitution files themselves. Operator and integrator guides live under [README.md](README.md).
 
 ---
 
@@ -27,6 +27,9 @@ AgoraPress still matches the mission: a **free, lightweight, privacy-respecting*
 | Theme Options / theme_mods API | Pass (shipped in 0.2.1-beta) |
 | Forum UI phpBB-parity (board index + topic view) | Pass (shipped in 0.3.0-beta) |
 | Plugin admin pages (ACP registry + router) | Pass (shipped in 0.3.1-beta) |
+| Plugin zip installer (ACP) | Pass (`AP_Plugin_Installer`; **no** `php ap-cli plugin install`) |
+| Site Icon / favicon pack | Pass ([site-icon.md](site-icon.md)) |
+| Topic type enum (schema 12) | Pass (`standard` \| `sticky` \| `announcement` \| `rules`; no extra types) |
 
 No bloat or phone-home paths were found in core product code. Network egress from core is limited to:
 
@@ -55,10 +58,10 @@ No bloat or phone-home paths were found in core product code. Network egress fro
 ### 3. Easy self-host & maintain
 
 - Web installer (`install/`), CLI install (`install/cli.php`), Docker Compose.
-- Versioned migrations (`AP_DB_VERSION` = 12), Site Health, Update Core screen, **Tools → Analytics**, forum likes (v11), topic type enum (v12).
+- Versioned migrations (`AP_DB_VERSION` = 12), Site Health, Update Core screen, **Tools → Analytics**, forum likes (v11), topic type enum (v12 — [schema.md](schema.md), [forums.md](forums.md)).
 - Familiar `ap-admin` / `ap-includes` / `ap-content` layout for classic WP operators.
-- Zero-dependency `ap-cli` for options, plugins, themes, users, **posts/pages**, DB, cache, cron, rewrites, health.
-- Production hardening examples (Apache `.htaccess`, Nginx) deny secrets, SQLite downloads, and direct `ap-includes/` PHP.
+- Zero-dependency `ap-cli` for options, plugins, themes, users, **posts/pages**, DB, cache, cron, rewrites, health ([cli.md](cli.md)). There is **no** `plugin install` / `theme install` / `core update` apply verb.
+- Production hardening examples (Apache `.htaccess`, Nginx) deny secrets, SQLite downloads, and direct `ap-includes/` PHP ([security.md](security.md)). Pretty permalinks need a front controller (`try_files` on nginx) — [rewrites.md](rewrites.md).
 
 ### 4. Easy to theme + Classic WP Compatibility Layer
 
@@ -85,7 +88,7 @@ Documented limitations: [compatibility.md](compatibility.md).
 
 ### 5. Powerful & extensible
 
-Hooks, plugins, Settings API, shortcodes, CPT/taxonomies, REST (`AP_Rest`), CLI (`ap-cli` including content management).
+Hooks, plugins, Settings API, shortcodes, CPT/taxonomies, REST (`AP_Rest`, `/ap-json/` namespace `ap/v1` — [rest.md](rest.md)), CLI (`ap-cli` including content management — [cli.md](cli.md)), plugin ACP pages (`ap_register_admin_page` — [plugins.md](plugins.md)), ACP zip installers for plugins and themes.
 
 ### 6. Integrated community
 
@@ -205,6 +208,19 @@ Re-run after large features land:
 ./vendor/bin/phpunit --filter VisionCompliance
 pytest tests/test_vision_compliance.py -v
 ```
+
+---
+
+## Related docs
+
+| Need | Doc |
+|------|-----|
+| Audience index | [README.md](README.md) |
+| Install / updates / rewrites / CLI / admin | [install.md](install.md) · [updates.md](updates.md) · [rewrites.md](rewrites.md) · [cli.md](cli.md) · [admin.md](admin.md) |
+| Forums / roles / REST / security | [forums.md](forums.md) · [roles.md](roles.md) · [rest.md](rest.md) · [security.md](security.md) |
+| Editor contract (no blocks) | [editor.md](editor.md) |
+| Classic WP theme shim | [compatibility.md](compatibility.md) |
+| Schema 12 | [schema.md](schema.md) |
 
 ---
 

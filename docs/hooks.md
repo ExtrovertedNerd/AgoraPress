@@ -1,6 +1,10 @@
 # Hooks (Actions & Filters)
 
-AgoraPress uses a WordPress-inspired hook system so plugins and themes can extend core without forking it.
+This is the **integrator hook guide** for AgoraPress **`0.3.6-beta`** (schema `AP_DB_VERSION` **12**). It describes the public action/filter API, request lifecycle, and a **selected** set of core hook names that exist in shipped code.
+
+AgoraPress uses a WordPress-inspired hook system so plugins and themes can extend core without forking it. This file is **not** an encyclopedia. Grep `ap_do_action` / `ap_apply_filters` in `ap-includes/` (and `ap-admin/` for ACP-only names) for the rest. Do **not invent** hook names. If a name is not in this file and not in core, it is **not in core**.
+
+Audience index: [README.md](README.md). Plugin registration: [plugins.md](plugins.md). Theme load: [themes.md](themes.md).
 
 **Source:** `ap-includes/hooks.php`, `class-ap-hook.php`, `class-ap-hooks.php`
 
@@ -125,9 +129,10 @@ This is not an exhaustive dump of every string. Prefer grepping `ap_do_action` /
 | `ap_after_setup_theme` | action | After theme `functions.php` files load |
 | `ap_init` | action | Mapped from WP `init` in compat; use for late setup |
 | `ap_template_redirect` | action | Compat map for pre-template work |
-| `ap_cli_init` | action | When `ap-cli` is ready for custom commands (`AP_Cli::addCommand`) |
-| `ap_rest_api_init` | action | Register REST routes |
-| `ap_core_updated` | action | After a successful one-click core update |
+| `ap_cli_init` | action | When `ap-cli` is ready for custom commands (`AP_Cli::addCommand`) — [cli.md](cli.md) |
+| `ap_rest_api_init` | action | Register REST routes — [rest.md](rest.md) |
+| `ap_admin_menu` | action | After ACP login, before the sidebar; plugins call `ap_register_admin_page()` here. WP alias `admin_menu` fires next — [plugins.md](plugins.md), [admin.md](admin.md) |
+| `ap_core_updated` | action | After a successful one-click core update — [updates.md](updates.md) |
 
 ### Theme / front output
 
@@ -143,6 +148,8 @@ This is not an exhaustive dump of every string. Prefer grepping `ap_do_action` /
 | `ap_body_class` / `ap_post_class` | filter | CSS class lists |
 | `ap_excerpt_length` / `ap_excerpt_more` | filter | Excerpt shaping |
 | `ap_switch_theme` | action | After active theme options change |
+| `ap_theme_options_register` | action | Appearance → Theme Options: register settings/sections/fields — [themes.md](themes.md) |
+| `ap_site_icon_meta_tags` | filter | `<link rel="icon">` tag list when `site_icon` > 0 — [site-icon.md](site-icon.md) |
 
 ### Content & comments
 
@@ -214,3 +221,16 @@ There is **no** block-editor hook surface in core.
 ## Compatibility note
 
 When the [Classic WP Theme Compatibility Layer](compatibility.md) is active, bare names like `add_action` / `apply_filters` map common WP hook names to AgoraPress names (for example `wp_enqueue_scripts` → `ap_enqueue_scripts`). Native plugins and themes should call the `ap_*` API directly.
+
+## Related docs
+
+| Need | Doc |
+|------|-----|
+| Plugin headers, ACP pages, zip installer | [plugins.md](plugins.md) |
+| Template hierarchy, Theme Options | [themes.md](themes.md) |
+| REST `ap_rest_api_init` | [rest.md](rest.md) |
+| `ap_cli_init` built-ins vs plugin verbs | [cli.md](cli.md) |
+| Forum filters (`ap_pre_forum_post_status`, …) | [forums.md](forums.md) |
+| Visual editor filters | [editor.md](editor.md) |
+| Roles / `user_has_cap` | [roles.md](roles.md) |
+| Site Icon filter | [site-icon.md](site-icon.md) |

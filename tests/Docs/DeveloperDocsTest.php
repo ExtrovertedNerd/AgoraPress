@@ -215,6 +215,9 @@ final class DeveloperDocsTest extends TestCase
                 'manage_options',
                 'GD',
                 'Imagick',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                'rewrites.md',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -240,6 +243,10 @@ final class DeveloperDocsTest extends TestCase
                 'ap_editor',
                 'no jQuery',
                 'AP_Content_Format',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                'admin.md',
+                'forums.md',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -261,8 +268,12 @@ final class DeveloperDocsTest extends TestCase
                 'Intentional deviations',
                 'Three independent modules',
                 '0.2.1-beta',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
                 'Local analytics',
                 'analytics_enabled',
+                'ap_register_admin_page',
+                'schema.md',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -278,6 +289,8 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('hooks.md');
         foreach (
             [
+                '0.3.6-beta',
+                'AP_DB_VERSION',
                 'ap_add_action',
                 'ap_do_action',
                 'ap_add_filter',
@@ -289,6 +302,10 @@ final class DeveloperDocsTest extends TestCase
                 'priority',
                 'ap_analytics_should_record',
                 'ap_analytics_prune',
+                'grep',
+                'encyclopedia',
+                'ap_admin_menu',
+                'ap_theme_options_register',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -313,6 +330,8 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('themes.md');
         foreach (
             [
+                '0.3.6-beta',
+                'AP_DB_VERSION',
                 'style.css',
                 'index.php',
                 'Template',
@@ -322,6 +341,9 @@ final class DeveloperDocsTest extends TestCase
                 'single.php',
                 'ap_enqueue_scripts',
                 'agora',
+                'php ap-cli theme install',
+                'admin.md',
+                'cli.md',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -353,6 +375,12 @@ final class DeveloperDocsTest extends TestCase
                 'manage_options',
                 'AP_Admin_Menu',
                 'AP_Admin::pageUrl',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                'ap_register_admin_page',
+                'php ap-cli plugin install',
+                'rest.md',
+                'admin.md',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -368,6 +396,8 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('compatibility.md');
         foreach (
             [
+                '0.3.6-beta',
+                'AP_DB_VERSION',
                 'Classic WordPress',
                 'functions-shim',
                 'wp_enqueue_scripts',
@@ -376,6 +406,7 @@ final class DeveloperDocsTest extends TestCase
                 'auto',
                 'cli-convert',
                 'block',
+                'troubleshooting.md',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -391,6 +422,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('schema.md');
         foreach (
             [
+                '0.3.6-beta',
                 'AP_DB_VERSION',
                 'schema_migrations',
                 'options',
@@ -406,6 +438,12 @@ final class DeveloperDocsTest extends TestCase
                 'topic_track',
                 'utf8mb4',
                 'ap_',
+                '0012_topic_type_enum.php',
+                'No new table',
+                'standard',
+                'announcement',
+                'rules',
+                'backfill',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(

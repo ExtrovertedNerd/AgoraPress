@@ -1,8 +1,12 @@
 # AgoraPress Visual Editor
 
-The core content editor is a **lightweight classic visual WYSIWYG**. Full block /
-Gutenberg editors remain a **non-goal for core** (product vision / FEATURES;
-see [vision-compliance.md](vision-compliance.md)).
+This is the **visual editor contract** for AgoraPress **`0.3.6-beta`** (schema
+`AP_DB_VERSION` **12**). The core content editor is a **lightweight classic
+visual WYSIWYG**. Full block / Gutenberg / FSE editors remain a **non-goal for
+core** (see [vision-compliance.md](vision-compliance.md)) — they are **not in core**.
+
+ACP compose screens: [admin.md](admin.md). Forum reply surface: [forums.md](forums.md).
+Theme field tokens: [themes.md](themes.md).
 
 ## What ships
 
@@ -27,6 +31,15 @@ see [vision-compliance.md](vision-compliance.md)).
 - **Emoji picker:** Unicode characters only (no image sprites, no remote CDN).
 - **No jQuery.** Soft budgets: JS ≤ 48 KiB, CSS ≤ 24 KiB.
 - **No block tree** and no third-party editor runtimes (TinyMCE, Quill, …).
+
+Where core actually renders it:
+
+| Surface | Path |
+|---------|------|
+| ACP post / page compose | `ap-admin/includes/class-ap-admin-post-edit.php` (`AP_Editor::render`) |
+| ACP comment edit | `ap-admin/comment.php` (`ap_editor()`, context `comment`) |
+| Agora blog comments | `ap-content/themes/agora/single.php` |
+| Agora forum new topic / reply | `forum-view.php`, `topic.php` (context `forum`) |
 
 ## Usage
 
@@ -98,8 +111,13 @@ for the Agora topic template.
 Plugins may ship alternative editors, but must not rebrand `AP_Editor` as a
 block editor. Prefer a separate package and opt-in UI.
 
-## Related
+## Related docs
 
-- [Hooks](hooks.md) — `ap_format_content` and editor filters  
-- [Vision compliance](vision-compliance.md) — Gutenberg non-goal  
-- [Compatibility](compatibility.md) — block/FSE themes out of scope  
+| Need | Doc |
+|------|-----|
+| ACP post / page / comment screens | [admin.md](admin.md) |
+| Forum reply / topic compose | [forums.md](forums.md) |
+| Agora scheme tokens for fields | [themes.md](themes.md) |
+| `ap_format_content` and editor filters | [hooks.md](hooks.md) |
+| Gutenberg non-goal | [vision-compliance.md](vision-compliance.md) |
+| Block/FSE themes out of scope | [compatibility.md](compatibility.md) |  

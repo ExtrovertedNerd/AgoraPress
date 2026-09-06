@@ -1,6 +1,8 @@
 # Classic WordPress Theme Compatibility Layer
 
-High-priority differentiator: many **pre-block classic PHP themes** can be uploaded and run on AgoraPress with minimal changes.
+This is the **classic WordPress theme shim** guide for AgoraPress **`0.3.6-beta`** (schema `AP_DB_VERSION` **12**). High-priority differentiator: many **pre-block classic PHP themes** can be uploaded and run on AgoraPress with minimal changes.
+
+Block / FSE themes (`theme.json`, HTML files under `templates/`) are **out of scope** and **not in core**. A broken-looking compat theme is usually this limit — [troubleshooting.md](troubleshooting.md). Zip upload: [admin.md](admin.md) / [themes.md](themes.md).
 
 **Location:** `ap-includes/compatibility/`
 
@@ -158,10 +160,14 @@ echo ap_theme_compat_report('/path/to/theme');
 5. Test with the default **Agora** theme first, then activate the classic theme and check the conversion report.  
 6. Child themes of classic parents work when `Template:` points at an installed parent.
 
-## Related
+## Related docs
 
-- [Theme hierarchy](themes.md) — native loader behaviour and Agora defaults  
-- [Hooks](hooks.md) — full action/filter API  
-- [Plugin API](plugins.md) — plugins always use `ap_*` (no bare WP plugin runtime)  
-- [Vision compliance](vision-compliance.md) — why the layer is a first-class differentiator  
+| Need | Doc |
+|------|-----|
+| Native hierarchy and Agora defaults | [themes.md](themes.md) |
+| Appearance → Themes zip upload | [admin.md](admin.md) |
+| Compat theme looks broken | [troubleshooting.md](troubleshooting.md) |
+| Action/filter API | [hooks.md](hooks.md) |
+| Plugins always use `ap_*` (no bare WP plugin runtime) | [plugins.md](plugins.md) |
+| Why the layer is a first-class differentiator | [vision-compliance.md](vision-compliance.md) |  
 

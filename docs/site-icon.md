@@ -1,9 +1,15 @@
 # Site Icon (favicon pack)
 
-Admins set one **site icon** under **Settings → General**. Core stores an attachment
-ID, generates a standard favicon pack (pixel sizes + optional ICO), and prints
-`<link rel="icon">` / `apple-touch-icon` tags on the front end via `ap_head`.
-Browsers pick the best asset; core does **not** sniff user agents.
+This is the **favicon pack guide** for AgoraPress **`0.3.6-beta`** (schema
+`AP_DB_VERSION` **12**). Admins set one **site icon** under **Settings → General**.
+Core stores an attachment ID, generates a standard favicon pack (pixel sizes +
+optional ICO), and prints `<link rel="icon">` / `apple-touch-icon` tags on the
+front end via `ap_head`. Browsers pick the best asset; core does **not** sniff
+user agents.
+
+Operator screen: [admin.md](admin.md). Upload permissions: [install.md](install.md).
+Static root `favicon.ico` is left alone by the front controller:
+[rewrites.md](rewrites.md).
 
 ## Admin (how operators add an icon)
 
@@ -120,8 +126,12 @@ removing the action.
 | Head registration | `ap-includes/bootstrap.php` → `AP_Media::registerSiteIconTags()` |
 | Default option | Installer seeds `site_icon` = `0` |
 
-## Related
+## Related docs
 
-- Media library overview: [README.md](../README.md) / `AP_Media`  
-- Settings API patterns: [plugins.md](plugins.md)  
-- Template head lifecycle: [themes.md](themes.md), [hooks.md](hooks.md)  
+| Need | Doc |
+|------|-----|
+| Settings → General | [admin.md](admin.md) |
+| `ap-content/uploads/` permissions | [install.md](install.md) · [troubleshooting.md](troubleshooting.md) |
+| Rewrites leave root `favicon.ico` alone | [rewrites.md](rewrites.md) |
+| Settings API patterns | [plugins.md](plugins.md) |
+| `ap_head` / `ap_site_icon_meta_tags` | [themes.md](themes.md), [hooks.md](hooks.md) |  
