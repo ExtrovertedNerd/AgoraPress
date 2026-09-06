@@ -26,6 +26,11 @@ REQUIRED_DOCS = (
     "compatibility.md",
     "schema.md",
     "vision-compliance.md",
+    "install.md",
+    "rewrites.md",
+    "updates.md",
+    "security.md",
+    "troubleshooting.md",
 )
 
 
@@ -257,6 +262,208 @@ def test_compatibility_doc_content(docs_root: Path) -> None:
         "block",
     ):
         assert phrase in text, f"compatibility.md missing: {phrase}"
+
+
+def test_install_doc_content(docs_root: Path) -> None:
+    path = docs_root / "install.md"
+    assert path.is_file(), "Missing docs/install.md"
+    text = path.read_text(encoding="utf-8")
+    lower = text.lower()
+    for phrase in (
+        "/install/",
+        "php install/cli.php",
+        "--db-driver",
+        "--site-title",
+        "--site-url",
+        "--admin-user",
+        "--admin-email",
+        "--admin-password",
+        "--table-prefix",
+        "--config-path",
+        "--skip-requirements",
+        "--sample-content",
+        "--no-sample-content",
+        "ap_admin_password",
+        "ap_db_password",
+        "docker compose",
+        "ap-config-sample.php",
+        "ap-config.php",
+        "ap-content/",
+        "uploads",
+        "settings → modules",
+        "permalinks",
+        "site health",
+        "analytics_enabled",
+        "ap_db_version",
+        "session.save_path",
+        "/ap-admin/",
+        "0.3.6-beta",
+        "exit codes",
+    ):
+        assert phrase in lower, f"install.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/install.md must not contain private marker: {banned}"
+
+
+def test_rewrites_doc_content(docs_root: Path) -> None:
+    path = docs_root / "rewrites.md"
+    assert path.is_file(), "Missing docs/rewrites.md"
+    text = path.read_text(encoding="utf-8")
+    lower = text.lower()
+    assert "try_files $uri $uri/ /index.php" in text
+    for phrase in (
+        "try_files $uri $uri/ /index.php?$args",
+        ".htaccess",
+        "docker/nginx.conf.example",
+        "index.php",
+        "front controller",
+        "?p=",
+        "?page_id=",
+        "day and name",
+        "/yyyy/mm/dd/",
+        "/slug/",
+        "php ap-cli rewrite flush",
+        "permalink_structure",
+        "settings → permalinks",
+        "favicon.ico",
+        "allowoverride all",
+        "mod_rewrite",
+        "ap_rewrite",
+        "rewrite_rules",
+        "0.3.6-beta",
+        "ap_db_version",
+    ):
+        assert phrase in lower, f"rewrites.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/rewrites.md must not contain private marker: {banned}"
+
+
+def test_updates_doc_content(docs_root: Path) -> None:
+    path = docs_root / "updates.md"
+    assert path.is_file(), "Missing docs/updates.md"
+    text = path.read_text(encoding="utf-8")
+    lower = text.lower()
+    for phrase in (
+        "version.json",
+        "https://agorapress.extrovertednerd.com/version.json",
+        "tools → update core",
+        "php bin/package-release.php",
+        "php ap-cli core check-update",
+        "php ap-cli db migrate",
+        "ap-config.php",
+        "ap-config-sample.php",
+        "install/",
+        "ap-content/uploads/",
+        "ap-content/plugins/",
+        "custom themes",
+        "no site identity",
+        "sha256",
+        "agoraPress-{version}.zip".lower(),
+        "version_check_enabled",
+        "update_core",
+        "ap_core_updater",
+        "ap_version_check",
+        "--force",
+        "not in core",
+        "0.3.6-beta",
+        "ap_db_version",
+        "ziparchive",
+        ".maintenance",
+    ):
+        assert phrase in lower, f"updates.md missing: {phrase}"
+    assert "php ap-cli core update" in lower or "core update" in lower
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/updates.md must not contain private marker: {banned}"
+
+
+def test_security_doc_content(docs_root: Path) -> None:
+    path = docs_root / "security.md"
+    assert path.is_file(), "Missing docs/security.md"
+    text = path.read_text(encoding="utf-8")
+    lower = text.lower()
+    for phrase in (
+        "prepared statements",
+        "ap_db",
+        "pdo",
+        "ap_nonce",
+        "_ap_nonce",
+        "x-ap-nonce",
+        "argon2id",
+        "password_argon2id",
+        "rate_limit",
+        "session.save_path",
+        "php-fpm",
+        "770",
+        "ap_telemetry",
+        "no-site-id",
+        "version.json",
+        "hall of fame",
+        "export-personal-data",
+        "erase-personal-data",
+        "wp_page_for_privacy_policy",
+        "analytics_enabled",
+        "rest_api_enabled",
+        "ap-config.php",
+        ".env",
+        "sqlite",
+        "ap-includes",
+        ".htaccess",
+        "docker/nginx.conf.example",
+        "try_files $uri $uri/ /index.php?$args",
+        "ap_logged_in_key",
+        "ap_nonce_salt",
+        "not in core",
+        "2fa",
+        "0.3.6-beta",
+        "ap_db_version",
+    ):
+        assert phrase in lower, f"security.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/security.md must not contain private marker: {banned}"
+
+
+def test_troubleshooting_doc_content(docs_root: Path) -> None:
+    path = docs_root / "troubleshooting.md"
+    assert path.is_file(), "Missing docs/troubleshooting.md"
+    text = path.read_text(encoding="utf-8")
+    lower = text.lower()
+    for phrase in (
+        "try_files $uri $uri/ /index.php",
+        "try_files $uri $uri/ /index.php?$args",
+        "?p=",
+        "mod_rewrite",
+        "php ap-cli rewrite flush",
+        "session.save_path",
+        "php-fpm",
+        "security token",
+        "ap-content/uploads/",
+        "site icon",
+        "settings → modules",
+        "ap_module_static_pages",
+        "ap_module_blog",
+        "ap_module_forum",
+        "compatibility.md",
+        "block",
+        "fse",
+        "rest_api_enabled",
+        "/ap-json/",
+        "?rest_route=",
+        "rest_disabled",
+        "0.3.2",
+        "0.3.6",
+        "edit user",
+        "getbyid",
+        "comment_ok",
+        "site health",
+        "not in core",
+        "0.3.6-beta",
+        "ap_db_version",
+    ):
+        assert phrase in lower, f"troubleshooting.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/troubleshooting.md must not contain private marker: {banned}"
+    # Public-safe: do not name private accounts even without '@'.
+    assert "stallboy" not in lower, "docs/troubleshooting.md must not name private accounts"
 
 
 def test_schema_doc_content(docs_root: Path) -> None:

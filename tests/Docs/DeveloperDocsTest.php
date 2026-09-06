@@ -40,6 +40,11 @@ final class DeveloperDocsTest extends TestCase
             'compatibility' => ['compatibility.md'],
             'schema' => ['schema.md'],
             'vision compliance' => ['vision-compliance.md'],
+            'install' => ['install.md'],
+            'rewrites' => ['rewrites.md'],
+            'updates' => ['updates.md'],
+            'security' => ['security.md'],
+            'troubleshooting' => ['troubleshooting.md'],
         ];
     }
 
@@ -406,7 +411,272 @@ final class DeveloperDocsTest extends TestCase
         }
     }
 
+    public function testInstallDocCoversInstallerSurfaces(): void
+    {
+        $text = $this->readDoc('install.md');
+        foreach (
+            [
+                '/install/',
+                'php install/cli.php',
+                '--db-driver',
+                '--site-title',
+                '--site-url',
+                '--admin-user',
+                '--admin-email',
+                '--admin-password',
+                '--table-prefix',
+                '--config-path',
+                '--skip-requirements',
+                '--sample-content',
+                '--no-sample-content',
+                'AP_ADMIN_PASSWORD',
+                'AP_DB_PASSWORD',
+                'docker compose',
+                'ap-config-sample.php',
+                'ap-config.php',
+                'ap-content/',
+                'uploads',
+                'Settings → Modules',
+                'Permalinks',
+                'Site Health',
+                'analytics_enabled',
+                'AP_DB_VERSION',
+                'session.save_path',
+                '/ap-admin/',
+                '0.3.6-beta',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "install.md should mention: {$needle}"
+            );
+        }
+        $this->assertStringContainsString('EXIT_OK', $text);
+        $this->assertTrue(
+            str_contains($text, 'exit `0`')
+            || str_contains($text, 'Exit codes')
+            || str_contains($text, 'exit 0'),
+            'install.md should document CLI installer exit codes'
+        );
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/install.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testRewritesDocCoversFrontController(): void
+    {
+        $text = $this->readDoc('rewrites.md');
+        foreach (
+            [
+                'try_files $uri $uri/ /index.php',
+                'try_files $uri $uri/ /index.php?$args',
+                '.htaccess',
+                'docker/nginx.conf.example',
+                'index.php',
+                'front controller',
+                '?p=',
+                '?page_id=',
+                'Day and name',
+                '/YYYY/MM/DD/',
+                '/slug/',
+                'php ap-cli rewrite flush',
+                'permalink_structure',
+                'Settings → Permalinks',
+                'favicon.ico',
+                'AllowOverride All',
+                'mod_rewrite',
+                'AP_Rewrite',
+                'rewrite_rules',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "rewrites.md should mention: {$needle}"
+            );
+        }
+        $this->assertStringContainsString(
+            'try_files $uri $uri/ /index.php',
+            $text,
+            'docs/rewrites.md must contain the shipped nginx try_files pattern'
+        );
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/rewrites.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testUpdatesDocCoversUpdaterSurfaces(): void
+    {
+        $text = $this->readDoc('updates.md');
+        foreach (
+            [
+                'version.json',
+                'https://agorapress.extrovertednerd.com/version.json',
+                'Tools → Update Core',
+                'php bin/package-release.php',
+                'php ap-cli core check-update',
+                'php ap-cli db migrate',
+                'ap-config.php',
+                'ap-config-sample.php',
+                'install/',
+                'ap-content/uploads/',
+                'ap-content/plugins/',
+                'custom themes',
+                'no site identity',
+                'sha256',
+                'AgoraPress-{version}.zip',
+                'version_check_enabled',
+                'update_core',
+                'AP_Core_Updater',
+                'AP_Version_Check',
+                '--force',
+                'not in core',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                'ZipArchive',
+                '.maintenance',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "updates.md should mention: {$needle}"
+            );
+        }
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/updates.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testSecurityDocCoversHardeningSurfaces(): void
+    {
+        $text = $this->readDoc('security.md');
+        foreach (
+            [
+                'prepared statements',
+                'AP_DB',
+                'PDO',
+                'AP_Nonce',
+                '_ap_nonce',
+                'X-AP-Nonce',
+                'Argon2id',
+                'PASSWORD_ARGON2ID',
+                'rate_limit',
+                'session.save_path',
+                'php-fpm',
+                '770',
+                'AP_TELEMETRY',
+                'no-site-id',
+                'version.json',
+                'Hall of Fame',
+                'export-personal-data',
+                'erase-personal-data',
+                'wp_page_for_privacy_policy',
+                'analytics_enabled',
+                'rest_api_enabled',
+                'ap-config.php',
+                '.env',
+                'sqlite',
+                'ap-includes',
+                '.htaccess',
+                'docker/nginx.conf.example',
+                'try_files $uri $uri/ /index.php?$args',
+                'AP_LOGGED_IN_KEY',
+                'AP_NONCE_SALT',
+                'not in core',
+                '2FA',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "security.md should mention: {$needle}"
+            );
+        }
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/security.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testTroubleshootingDocCoversSymptomList(): void
+    {
+        $text = $this->readDoc('troubleshooting.md');
+        foreach (
+            [
+                'try_files $uri $uri/ /index.php',
+                'try_files $uri $uri/ /index.php?$args',
+                '?p=',
+                'mod_rewrite',
+                'php ap-cli rewrite flush',
+                'session.save_path',
+                'php-fpm',
+                'security token',
+                'ap-content/uploads/',
+                'Site Icon',
+                'Settings → Modules',
+                'ap_module_static_pages',
+                'ap_module_blog',
+                'ap_module_forum',
+                'compatibility.md',
+                'Block / FSE',
+                'rest_api_enabled',
+                '/ap-json/',
+                '?rest_route=',
+                'rest_disabled',
+                '0.3.2',
+                '0.3.6',
+                'Edit User',
+                'getById',
+                'comment_ok',
+                'Site Health',
+                'not in core',
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "troubleshooting.md should mention: {$needle}"
+            );
+        }
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/troubleshooting.md must not contain private marker: {$banned}"
+            );
+        }
+        $this->assertStringNotContainsStringIgnoringCase(
+            'stallboy',
+            $text,
+            'docs/troubleshooting.md must not name private accounts'
+        );
+    }
+
     public function testReadmeLinksDeveloperDocs(): void
+
     {
         $readmePath = dirname(__DIR__, 2) . '/README.md';
         $this->assertFileIsReadable($readmePath);
