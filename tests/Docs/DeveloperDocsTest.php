@@ -70,6 +70,18 @@ final class DeveloperDocsTest extends TestCase
                 'compatibility.md',
                 'schema.md',
                 'vision-compliance.md',
+                'install.md',
+                'updates.md',
+                'rewrites.md',
+                'cli.md',
+                'admin.md',
+                'forums.md',
+                'roles.md',
+                'rest.md',
+                'security.md',
+                'troubleshooting.md',
+                'bot_handbook.md',
+                'features_and_functions.md',
             ] as $link
         ) {
             $this->assertStringContainsString(
@@ -78,6 +90,64 @@ final class DeveloperDocsTest extends TestCase
                 "docs/README.md should link to {$link}"
             );
         }
+    }
+
+    public function testIndexIsAudienceIndex(): void
+    {
+        $index = $this->readDoc('README.md');
+        $this->assertMatchesRegularExpression(
+            '/(?im)^#\s+AgoraPress documentation index\s*$/',
+            $index
+        );
+        $this->assertMatchesRegularExpression('/(?im)^##\s+By audience\s*$/', $index);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Quick mental model\s*$/', $index);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Feature map/', $index);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Source map\s*$/', $index);
+        foreach (
+            [
+                '/(?im)^###\s+New operators\s*$/',
+                '/(?im)^###\s+Day-to-day operators\s*$/',
+                '/(?im)^###\s+Theme & plugin authors\s*$/',
+                '/(?im)^###\s+Trusted agent/',
+                '/(?im)^###\s+Developers\s*$/',
+            ] as $pattern
+        ) {
+            $this->assertMatchesRegularExpression(
+                $pattern,
+                $index,
+                "Expected audience heading matching: {$pattern}"
+            );
+        }
+    }
+
+    public function testIndexStatesPublicSafeRule(): void
+    {
+        $index = $this->readDoc('README.md');
+        $lower = strtolower($index);
+        $this->assertTrue(
+            str_contains($lower, 'public-safe')
+            || str_contains($lower, 'this repository is **public**')
+            || str_contains($lower, 'this repository is public'),
+            'docs/README.md should state the public-safe / public-repository rule'
+        );
+        $this->assertStringContainsStringIgnoringCase('never write', $index);
+        $this->assertStringContainsStringIgnoringCase('do not invent', $index);
+        $this->assertStringContainsStringIgnoringCase('not in core', $index);
+        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $index,
+                "docs/README.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testNoParallelDocsIndex(): void
+    {
+        $this->assertFileDoesNotExist(
+            $this->docsRoot . '/index.md',
+            'One public index only: docs/README.md (do not also create docs/index.md)'
+        );
     }
 
     public function testSiteIconDocCoversFaviconPack(): void
@@ -311,10 +381,25 @@ final class DeveloperDocsTest extends TestCase
         $this->assertStringContainsString('docs/README.md', $readme);
         $this->assertStringContainsString('docs/hooks.md', $readme);
         $this->assertMatchesRegularExpression(
-            '/(?im)^##\s+Developer documentation\s*$/',
+            '/(?im)^##\s+Documentation\s*$/',
             $readme,
-            'README should have a Developer documentation section'
+            'README should have a Documentation section'
         );
+        foreach (
+            [
+                'docs/install.md',
+                'docs/cli.md',
+                'docs/admin.md',
+                'docs/bot_handbook.md',
+                'docs/features_and_functions.md',
+            ] as $link
+        ) {
+            $this->assertStringContainsString(
+                $link,
+                $readme,
+                "README Documentation table should list {$link}"
+            );
+        }
     }
 
     private function readDoc(string $relative): string

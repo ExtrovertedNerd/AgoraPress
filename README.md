@@ -301,7 +301,7 @@ Excludes tests, vendor, secrets, and runtime uploads. `dist/` is gitignored. Fre
 │   └── uploads/              # Runtime media (not in git)
 ├── bin/package-release.php
 ├── docker/ + docker-compose.yml
-├── docs/                     # Developer guides
+├── docs/                     # Operator, integrator, and agent guides
 ├── tests/
 ├── CHANGELOG.md
 ├── LICENSE                   # GPLv2-or-later
@@ -326,16 +326,30 @@ See [`CODING_STANDARDS.md`](CODING_STANDARDS.md) for style rules.
 
 ---
 
-## Developer documentation
+## Documentation
 
-Full extension guides live under [`docs/`](docs/README.md):
+This README is the **human landing page** (vision, requirements, four install
+paths). The **docs index** — one file, for humans and a trusted agent — is
+[`docs/README.md`](docs/README.md). There is no `docs/index.md`.
 
 | Guide | Topic |
 |-------|--------|
-| [docs/README.md](docs/README.md) | Index, conventions, source map |
+| [docs/README.md](docs/README.md) | Audience index, mental model, feature map, source map |
+| [docs/install.md](docs/install.md) | Web / CLI / Docker / manual install, permissions, post-install |
+| [docs/rewrites.md](docs/rewrites.md) | Front controller, permalinks, Apache / nginx `try_files` |
+| [docs/updates.md](docs/updates.md) | `version.json`, one-click updater, what is not overwritten |
+| [docs/cli.md](docs/cli.md) | Built-in `ap-cli` commands, flags, exit codes |
+| [docs/admin.md](docs/admin.md) | `/ap-admin/` screens by task, zip installer, Hall of Fame |
+| [docs/forums.md](docs/forums.md) | Hierarchy, topic types, likes, moderation, ACL, PMs |
+| [docs/roles.md](docs/roles.md) | Roles, capabilities, comment ownership, forum ACL |
+| [docs/rest.md](docs/rest.md) | `/ap-json/`, `ap/v1`, auth, `rest_api_enabled` |
+| [docs/security.md](docs/security.md) | Prepared statements, nonces, deny rules, no telemetry |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Symptom → check → related path |
+| [docs/bot_handbook.md](docs/bot_handbook.md) | Trusted-agent operating model for this product |
+| [docs/features_and_functions.md](docs/features_and_functions.md) | Lookup catalog of tables pointing at the guides |
 | [docs/hooks.md](docs/hooks.md) | Actions, filters, lifecycle |
 | [docs/themes.md](docs/themes.md) | Template hierarchy, Agora theme, assets |
-| [docs/plugins.md](docs/plugins.md) | Plugin headers, shortcodes, settings |
+| [docs/plugins.md](docs/plugins.md) | Plugin headers, shortcodes, settings, ACP pages |
 | [docs/editor.md](docs/editor.md) | Visual editor contract (no blocks in core) |
 | [docs/site-icon.md](docs/site-icon.md) | Site icon / favicon pack (admin, sizes, head tags) |
 | [docs/compatibility.md](docs/compatibility.md) | Classic WordPress Theme Compatibility Layer |

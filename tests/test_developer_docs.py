@@ -43,19 +43,71 @@ def test_doc_file_exists_and_is_substantial(docs_root: Path, name: str) -> None:
     assert len(text) >= 800, f"docs/{name} too short ({len(text)} chars)"
 
 
+# Existing integrator guides plus operator/agent guides the index must point at.
+INDEX_LINKED_GUIDES = (
+    "hooks.md",
+    "themes.md",
+    "plugins.md",
+    "editor.md",
+    "site-icon.md",
+    "compatibility.md",
+    "schema.md",
+    "vision-compliance.md",
+    "install.md",
+    "updates.md",
+    "rewrites.md",
+    "cli.md",
+    "admin.md",
+    "forums.md",
+    "roles.md",
+    "rest.md",
+    "security.md",
+    "troubleshooting.md",
+    "bot_handbook.md",
+    "features_and_functions.md",
+)
+
+AUDIENCE_HEADINGS = (
+    r"(?im)^###\s+New operators\s*$",
+    r"(?im)^###\s+Day-to-day operators\s*$",
+    r"(?im)^###\s+Theme & plugin authors\s*$",
+    r"(?im)^###\s+Trusted agent",
+    r"(?im)^###\s+Developers\s*$",
+)
+
+
 def test_docs_index_links_guides(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
-    for name in (
-        "hooks.md",
-        "themes.md",
-        "plugins.md",
-        "editor.md",
-        "site-icon.md",
-        "compatibility.md",
-        "schema.md",
-        "vision-compliance.md",
-    ):
+    for name in INDEX_LINKED_GUIDES:
         assert name in index, f"docs/README.md should link to {name}"
+
+
+def test_docs_index_is_audience_index(docs_root: Path) -> None:
+    index = (docs_root / "README.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^#\s+AgoraPress documentation index\s*$", index)
+    assert re.search(r"(?im)^##\s+By audience\s*$", index)
+    assert re.search(r"(?im)^##\s+Quick mental model\s*$", index)
+    assert re.search(r"(?im)^##\s+Feature map", index)
+    assert re.search(r"(?im)^##\s+Source map\s*$", index)
+    for pattern in AUDIENCE_HEADINGS:
+        assert re.search(pattern, index), f"Expected audience heading matching: {pattern}"
+
+
+def test_docs_index_states_public_safe_rule(docs_root: Path) -> None:
+    index = (docs_root / "README.md").read_text(encoding="utf-8").lower()
+    assert "public-safe" in index or "this repository is **public**" in index or "this repository is public" in index
+    assert "never write" in index
+    assert "do not invent" in index
+    assert "not in core" in index
+    # Public docs must not name private hosts / mailboxes / process internals.
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in index, f"docs/README.md must not contain private marker: {banned}"
+
+
+def test_no_parallel_docs_index(docs_root: Path) -> None:
+    assert not (docs_root / "index.md").exists(), (
+        "One public index only: docs/README.md (do not also create docs/index.md)"
+    )
 
 
 def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
@@ -219,9 +271,17 @@ def test_readme_links_developer_docs() -> None:
     text = README.read_text(encoding="utf-8")
     assert "docs/README.md" in text
     assert "docs/hooks.md" in text
-    assert re.search(r"(?im)^##\s+Developer documentation\s*$", text), (
-        "README should have a Developer documentation section"
+    assert re.search(r"(?im)^##\s+Documentation\s*$", text), (
+        "README should have a Documentation section"
     )
+    for name in (
+        "docs/install.md",
+        "docs/cli.md",
+        "docs/admin.md",
+        "docs/bot_handbook.md",
+        "docs/features_and_functions.md",
+    ):
+        assert name in text, f"README Documentation table should list {name}"
 
 
 def test_project_layout_mentions_docs() -> None:
