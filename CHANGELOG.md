@@ -3,9 +3,25 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.5-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.6-beta**).
 
 ## [Unreleased]
+
+## [0.3.6-beta] - 2026-09-06
+
+ACP Edit User loads the selected account, not the logged-in admin. No schema change (`AP_DB_VERSION` **12**); privacy posture unchanged (no telemetry by default).
+
+### Package
+
+- Beta package `0.3.6-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
+### Fixed
+
+- **ACP Edit User form:** `admin-header.php` assigned `$user` to the current admin, overwriting the target loaded in `user-edit.php`. Header now uses `$ap_admin_user`; Edit User keeps `$editUser` so fields show the selected user (e.g. stallboy), not Admin.
+
+### Tests
+
+- Edit-user form renders target login/email/id, not the actor; header include no longer clobbers a screen-local `$user`
 
 ## [0.3.5-beta] - 2026-08-14
 
