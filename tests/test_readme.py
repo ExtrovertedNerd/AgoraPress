@@ -23,6 +23,7 @@ REQUIRED_HEADINGS = (
     r"(?im)^##\s+Quick start\s*$",
     r"(?im)^##\s+Project layout\s*$",
     r"(?im)^##\s+Development\s*$",
+    r"(?im)^##\s+Documentation\s*$",
     r"(?im)^##\s+License\s*$",
 )
 

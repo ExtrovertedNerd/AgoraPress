@@ -282,22 +282,54 @@ def test_schema_doc_content(docs_root: Path) -> None:
     ):
         assert phrase in text, f"schema.md missing: {phrase}"
 
+# Root README Documentation table: existing integrator guides plus the
+# operator/agent guides (rows may land before the topic files exist).
+README_DOCUMENTATION_TABLE_GUIDES = (
+    "docs/README.md",
+    "docs/install.md",
+    "docs/rewrites.md",
+    "docs/updates.md",
+    "docs/cli.md",
+    "docs/admin.md",
+    "docs/forums.md",
+    "docs/roles.md",
+    "docs/rest.md",
+    "docs/security.md",
+    "docs/troubleshooting.md",
+    "docs/bot_handbook.md",
+    "docs/features_and_functions.md",
+    "docs/hooks.md",
+    "docs/themes.md",
+    "docs/plugins.md",
+    "docs/editor.md",
+    "docs/site-icon.md",
+    "docs/compatibility.md",
+    "docs/schema.md",
+    "docs/vision-compliance.md",
+)
+
+
 def test_readme_links_developer_docs() -> None:
     assert README.is_file()
     text = README.read_text(encoding="utf-8")
-    assert "docs/README.md" in text
-    assert "docs/hooks.md" in text
     assert re.search(r"(?im)^##\s+Documentation\s*$", text), (
         "README should have a Documentation section"
     )
-    for name in (
-        "docs/install.md",
-        "docs/cli.md",
-        "docs/admin.md",
-        "docs/bot_handbook.md",
-        "docs/features_and_functions.md",
-    ):
-        assert name in text, f"README Documentation table should list {name}"
+    assert "human landing page" in text.lower()
+    assert "second handbook" in text.lower()
+    assert "docs/index.md" in text.lower()
+    for name in README_DOCUMENTATION_TABLE_GUIDES:
+        assert f"]({name})" in text, (
+            f"README Documentation table should link to {name}"
+        )
+
+
+def test_readme_is_not_a_second_handbook() -> None:
+    """Audience index lives in docs/README.md, not the root landing page."""
+    text = README.read_text(encoding="utf-8")
+    assert not re.search(r"(?im)^##\s+By audience\s*$", text)
+    assert not re.search(r"(?im)^###\s+New operators\s*$", text)
+    assert not re.search(r"(?im)^###\s+Trusted agent", text)
 
 
 def test_project_layout_mentions_docs() -> None:

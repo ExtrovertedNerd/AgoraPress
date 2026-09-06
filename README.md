@@ -329,8 +329,10 @@ See [`CODING_STANDARDS.md`](CODING_STANDARDS.md) for style rules.
 ## Documentation
 
 This README is the **human landing page** (vision, requirements, four install
-paths). The **docs index** — one file, for humans and a trusted agent — is
-[`docs/README.md`](docs/README.md). There is no `docs/index.md`.
+paths, after-install CLI / REST / updates). It is not a second handbook.
+
+The **docs index** — one file, for humans and a trusted agent — is
+[`docs/README.md`](docs/README.md). There is no `docs/index.md`. Topic guides:
 
 | Guide | Topic |
 |-------|--------|

@@ -418,21 +418,58 @@ final class DeveloperDocsTest extends TestCase
             $readme,
             'README should have a Documentation section'
         );
+        $this->assertStringContainsStringIgnoringCase('human landing page', $readme);
+        $this->assertStringContainsStringIgnoringCase('second handbook', $readme);
         foreach (
             [
+                'docs/README.md',
                 'docs/install.md',
+                'docs/rewrites.md',
+                'docs/updates.md',
                 'docs/cli.md',
                 'docs/admin.md',
+                'docs/forums.md',
+                'docs/roles.md',
+                'docs/rest.md',
+                'docs/security.md',
+                'docs/troubleshooting.md',
                 'docs/bot_handbook.md',
                 'docs/features_and_functions.md',
+                'docs/hooks.md',
+                'docs/themes.md',
+                'docs/plugins.md',
+                'docs/editor.md',
+                'docs/site-icon.md',
+                'docs/compatibility.md',
+                'docs/schema.md',
+                'docs/vision-compliance.md',
             ] as $link
         ) {
             $this->assertStringContainsString(
-                $link,
+                '](' . $link . ')',
                 $readme,
-                "README Documentation table should list {$link}"
+                "README Documentation table should link to {$link}"
             );
         }
+    }
+
+    public function testReadmeIsNotASecondHandbook(): void
+    {
+        $readmePath = dirname(__DIR__, 2) . '/README.md';
+        $readme = (string) file_get_contents($readmePath);
+        $this->assertDoesNotMatchRegularExpression(
+            '/(?im)^##\s+By audience\s*$/',
+            $readme,
+            'Audience index belongs in docs/README.md, not the root landing page'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/(?im)^###\s+New operators\s*$/',
+            $readme
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/(?im)^###\s+Trusted agent/',
+            $readme
+        );
     }
 
     private function readDoc(string $relative): string

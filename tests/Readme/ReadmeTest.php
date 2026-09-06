@@ -54,6 +54,7 @@ final class ReadmeTest extends TestCase
             'quick start' => ['/(?im)^##\s+Quick start\s*$/'],
             'layout' => ['/(?im)^##\s+Project layout\s*$/'],
             'development' => ['/(?im)^##\s+Development\s*$/'],
+            'documentation' => ['/(?im)^##\s+Documentation\s*$/'],
             'license' => ['/(?im)^##\s+License\s*$/'],
         ];
     }
