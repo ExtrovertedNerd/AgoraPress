@@ -9,12 +9,21 @@ mechanics live in Heph’s own docs (short pointer below). Product facts live
 in this tree: [README.md](README.md) (the only docs index) plus the topic
 guides.
 
-There is **one** documentation tree. Do not look for a private Bot-only
-tree inside this public repo.
+There is **one documentation tree**. Do not look for a private Bot-only
+tree inside this public repo. Do not create `docs/index.md`.
+
+**Sources (as built):** this public repository only — the audience index,
+the topic guides, [features_and_functions.md](features_and_functions.md),
+and shipped PHP (`ap-includes/`, `ap-admin/`, `install/`, `ap-cli`,
+`bin/`, [`.htaccess`](../.htaccess),
+[`docker/nginx.conf.example`](../docker/nginx.conf.example)). Heph’s
+Agent API is **not** documented here.
 
 ---
 
 ## How to use these docs
+
+Do this every time. Do not skip the index.
 
 1. Read **[README.md](README.md)** first. That file is the only audience
    index. There is no `docs/index.md`.
@@ -22,17 +31,27 @@ tree inside this public repo.
    Theme & plugin authors / Trusted agent / Developers).
 3. Use the topic guides for depth. Use
    [features_and_functions.md](features_and_functions.md) as the “does this
-   exist?” lookup catalog of tables — not a second prose essay.
-4. Describe the system **as built**. Do **not invent** hooks, routes, CLI
-   commands, options, capabilities, tables, or admin screens.
-5. If a surface is not in these guides and not in the shipped code, say it
+   exist?” lookup catalog of tables — not a second prose essay. If a row
+   is not in that catalog and not in the linked guide, treat it as
+   **not in core** until you grep shipped code.
+4. Confirm behaviour against shipped PHP in **this** repository. Reading
+   code is allowed and expected. Inventing hook names, routes, CLI verbs,
+   options, capabilities, tables, or admin screens is not.
+5. Describe the system **as built** at 0.3.6-beta / schema 12. Do **not
+   invent** product surfaces so an answer looks complete.
+6. If a surface is not in these guides and not in the shipped code, say it
    is **not in core**.
-6. Stay inside the [public-safe rule](#public-safe-rule).
+7. Stay inside the [public-safe rule](#public-safe-rule). Apply it to
+   answers and Heph bug payloads, not only to files you write.
+8. Diagnose from generic symptoms using
+   [troubleshooting.md](troubleshooting.md). File a Heph bug only when
+   shipped core is defective. [Close the customer loop](#close-the-customer-loop).
 
 Live CLI help on an installed site (`php ap-cli --help`,
 `php ap-cli COMMAND --help`) matches [cli.md](cli.md). Fresh install is a
 **different** tool: `php install/cli.php` or the browser at `/install/`
-([install.md](install.md)).
+([install.md](install.md)). Plugin-registered verbs on `ap_cli_init` are
+not core.
 
 ---
 
@@ -50,8 +69,9 @@ payload:
 - Live site inventory (which domains run AgoraPress vs other apps)
 - Persona display names or mailboxes as if they were product facts
 - Credentials, app passwords, API keys, or salts
-- Private add-on theme/plugin internals
+- Private add-on theme/plugin internals (including trees outside this repo)
 - Internal forge, mail-server, or other-product runbook material
+- Another product treated as an AgoraPress site
 
 **May write:**
 
@@ -66,7 +86,8 @@ payload:
   need a front controller
 
 If a fact is only true of one private install, document the **mechanism**,
-not the install.
+not the install. Historical `CHANGELOG.md` notes are not a license to leak
+private hosts, mailboxes, or add-on internals.
 
 ---
 
@@ -86,8 +107,9 @@ Do **not invent** product surfaces so an answer looks complete.
 
 Do not invent: Gutenberg blocks, a paid marketplace, telemetry flags,
 `php ap-cli core update` (apply), `php ap-cli module …`, `php ap-cli forum`,
-`php ap-cli plugin install`, two-factor authentication, multisite, or a
-host-control-panel “repair” button.
+`php ap-cli plugin install`, `php ap-cli theme install`, two-factor
+authentication, multisite, REST writes except posts, an ACP Settings
+screen for `rest_api_enabled`, or a host-control-panel “repair” button.
 
 ---
 
@@ -122,7 +144,8 @@ Order of work:
 
 1. Confirm the site is **0.3.6-beta** / schema **12** when the question is
    about current behaviour (`php ap-cli version`, Tools → Site Health).
-2. Run **Tools → Site Health** (`/ap-admin/site-health.php`) or
+2. Run **Tools → Site Health** (`/ap-admin/site-health.php`, cap
+   `view_site_health`; `manage_options` is accepted as a fallback) or
    `php ap-cli site health` before guessing. It does **not** probe
    `mod_rewrite` or nginx `try_files` — those are host configuration.
 3. Match the human’s symptom to the table in
@@ -135,17 +158,32 @@ Order of work:
 
 | Common ask | First public doc |
 |------------|------------------|
-| How do I turn forums on? | [forums.md](forums.md) — Settings → Modules, option `ap_module_forum`. There is **no** `php ap-cli module` verb. |
+| How do I turn forums on? | [forums.md](forums.md) — Settings → Modules, option `ap_module_forum`. CLI: `php ap-cli option get\|set ap_module_forum`. There is **no** `php ap-cli module` verb and **no** `php ap-cli forum` group. |
 | Why is `/2026/09/03/hello-world/` a 404 while `?p=` works? | [troubleshooting.md](troubleshooting.md#pretty-permalink-404-p-still-works) · [rewrites.md](rewrites.md). Missing front-controller `try_files $uri $uri/ /index.php?$args` (nginx) or `mod_rewrite` + shipped `.htaccess` (Apache). Flush only after the web server reaches `index.php`. |
-| Does core send telemetry? | [security.md](security.md#no-telemetry) — **no**. |
+| Does core send telemetry? | [security.md](security.md#no-telemetry) — **no**. No `AP_TELEMETRY`. Version check never sends site identity. |
 | Is Gutenberg coming? | [editor.md](editor.md) — **not in core**; non-goal. |
 | Installer CSRF / session will not persist | [troubleshooting.md](troubleshooting.md) · [security.md](security.md) — `session.save_path` must be writable by the **php-fpm** user. |
 | Uploads / Site Icon fail | [install.md](install.md#permissions) · [site-icon.md](site-icon.md) |
-| REST 404 on `/ap-json/` | [rest.md](rest.md) — permalinks **and** `rest_api_enabled` |
+| REST 404 on `/ap-json/` | [rest.md](rest.md) · [troubleshooting.md](troubleshooting.md). Pretty `/ap-json/` needs the front controller; `?rest_route=` still works when `/` runs `index.php`. Distinguish a web-server HTML 404 from JSON `rest_disabled` / `rest_no_route` / `rest_module_disabled`. Master switch: `rest_api_enabled` (`php ap-cli option get\|set rest_api_enabled`). There is **no** Settings → REST screen. |
 | Logged-in comments / Edit User surprises | [troubleshooting.md](troubleshooting.md) — current 0.3.2 / 0.3.6 behaviour, not a war story |
 
 Use generic examples only (`example.com`, `localhost`,
 `admin@example.com`, `/var/www/agorapress`).
+
+---
+
+## Decide: answer, not in core, or file
+
+| Situation | Do |
+|-----------|----|
+| The topic guide, the lookup catalog, and shipped code agree | Answer, [cite the public section](#close-the-customer-loop), **stop** |
+| Surface missing from the catalog, the guides, **and** shipped code | Say **not in core**. Do not file a bug for a documented non-goal |
+| Host configuration (`try_files`, `mod_rewrite`, writable `session.save_path`, upload permissions) | Cite [troubleshooting.md](troubleshooting.md) / [rewrites.md](rewrites.md) / [security.md](security.md) / [install.md](install.md). Do **not** file a Heph bug |
+| Shipped core contradicts these docs, or a real defect in what *does* ship | [File a Heph bug](#file-a-heph-bug) against registry name **AgoraPress** |
+| The human asks for a private host path, mailbox, credential, or another product’s runbook | Refuse the private detail. Offer the generic **mechanism** if one exists here |
+
+Do not file a bug to look busy. Do not invent a GitHub-issue-only path as
+if it were Heph. Do not treat a forum post as a filed job.
 
 ---
 
@@ -218,7 +256,10 @@ Heph job: <job id, or “none filed”>
 | [roles.md](roles.md) | Roles, caps, comment ownership |
 | [rest.md](rest.md) | `/ap-json/`, `ap/v1`, `rest_api_enabled` |
 | [security.md](security.md) | No telemetry, sessions, deny rules |
+| [plugins.md](plugins.md) | Headers, zip installer, `ap_register_admin_page` |
+| [themes.md](themes.md) | Template hierarchy, Agora, Theme Options |
 | [editor.md](editor.md) | Visual editor; Gutenberg not in core |
+| [site-icon.md](site-icon.md) | Favicon pack |
 | [compatibility.md](compatibility.md) | Classic PHP themes; block/FSE out of scope |
 | [hooks.md](hooks.md) | Selected hooks; grep for the rest |
 | [schema.md](schema.md) | Tables, `AP_DB_VERSION` 12 |
