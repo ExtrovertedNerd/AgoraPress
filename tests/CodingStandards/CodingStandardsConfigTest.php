@@ -66,6 +66,11 @@ final class CodingStandardsConfigTest extends TestCase
             $ruleRefs,
             'Ruleset must require declare(strict_types=1) where practical (SPEC §6)'
         );
+        $this->assertStringContainsString(
+            'ignore_warnings_on_exit',
+            $raw,
+            'Line-length warnings must not fail composer cs:check'
+        );
     }
 
     public function testPhpcsRulesetExcludesWpHybridConflicts(): void
@@ -79,6 +84,7 @@ final class CodingStandardsConfigTest extends TestCase
             'PSR1.Classes.ClassDeclaration.MissingNamespace',
             'Squiz.Classes.ValidClassName',
             'PSR1.Files.SideEffects',
+            'PSR1.Classes.ClassDeclaration.MultipleClasses',
         ];
 
         foreach ($requiredExcludes as $sniff) {
@@ -124,6 +130,8 @@ final class CodingStandardsConfigTest extends TestCase
         $this->assertStringContainsString('AP_', $raw);
         $this->assertStringContainsString('ap_', $raw);
         $this->assertStringContainsString('composer cs', $raw);
+        $this->assertStringContainsString('Companion classes', $raw);
+        $this->assertStringContainsString('do not fail', $raw);
     }
 
     public function testPhpcsRunsCleanOnScaffoldWhenAvailable(): void
@@ -134,11 +142,12 @@ final class CodingStandardsConfigTest extends TestCase
         }
 
         $config = $this->root . '/phpcs.xml.dist';
-        // -n: report errors only. Line-length is soft guidance (warnings) in phpcs.xml.dist.
+        // Match composer cs:check. Line-length warnings are advisory
+        // (ignore_warnings_on_exit in phpcs.xml.dist).
         $cmd = escapeshellarg(PHP_BINARY !== '' ? PHP_BINARY : 'php')
             . ' ' . escapeshellarg($phpcs)
             . ' --standard=' . escapeshellarg($config)
-            . ' -n -q'
+            . ' -q'
             . ' 2>&1';
 
         $output = [];

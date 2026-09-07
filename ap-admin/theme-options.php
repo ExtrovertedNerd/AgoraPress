@@ -40,11 +40,13 @@ $settingsPage = class_exists('AP_Theme', false)
     : 'theme_options';
 
 // --- Save ---
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && (
+if (
+    ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && (
     isset($_POST['ap_settings_submit'])
     || isset($_POST['agora_save_theme_options'])
     || (string) ($_POST['option_page'] ?? '') === $settingsGroup
-)) {
+    )
+) {
     $nonceOk = false;
     if (class_exists('AP_Settings', false) && AP_Settings::verifyNonce($settingsGroup, $userId > 0 ? $userId : null)) {
         $nonceOk = true;

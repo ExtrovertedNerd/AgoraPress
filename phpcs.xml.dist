@@ -28,6 +28,12 @@
     <arg value="sp"/>
 
     <!--
+        Line-length (120) is advisory. Errors still fail the run; warnings do
+        not (matches CODING_STANDARDS.md and the PHPUnit -n contract).
+    -->
+    <config name="ignore_warnings_on_exit" value="1"/>
+
+    <!--
         Base standard: PSR-12 (includes PSR-1 / PSR-2 style rules).
 
         Adaptations (see CODING_STANDARDS.md):
@@ -38,11 +44,13 @@
           too strict for this hybrid model.
         - File naming remains class-ap-*.php (SPEC directory layout), not
           PSR-4 path-to-class mapping for core includes.
+        - Companion / test-double classes may share a file (MultipleClasses).
     -->
     <rule ref="PSR12">
         <exclude name="PSR1.Classes.ClassDeclaration.MissingNamespace"/>
         <exclude name="Squiz.Classes.ValidClassName"/>
         <exclude name="PSR1.Files.SideEffects"/>
+        <exclude name="PSR1.Classes.ClassDeclaration.MultipleClasses"/>
     </rule>
 
     <!-- SPEC §6: strict types where practical. -->

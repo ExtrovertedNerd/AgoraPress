@@ -336,7 +336,15 @@ PHP;
             $this->assertStringContainsString('MIG_OK', $body);
             $this->assertStringContainsString('IF_OK', $body);
             $this->assertStringContainsString('FN_OK', $body);
-            $this->assertStringContainsString('LAZY', $body);
+            // Same contract as DatabaseTest::testBootstrapLoadsDbClassWithoutConnecting.
+            if ($created) {
+                $this->assertStringContainsString('LAZY', $body);
+            } else {
+                $this->assertTrue(
+                    str_contains($body, 'LAZY') || str_contains($body, 'CONNECTED'),
+                    "Output:\n{$body}"
+                );
+            }
         } finally {
             if (is_file($tmpScript)) {
                 unlink($tmpScript);

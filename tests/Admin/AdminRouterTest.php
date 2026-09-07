@@ -37,6 +37,9 @@ final class AdminRouterTest extends TestCase
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';
         AP_Admin_Menu::reset();
         AP_Admin::clearNotices();
+        if (class_exists('AP_Session', false)) {
+            \AP_Session::resetCurrentUser();
+        }
     }
 
     protected function tearDown(): void
@@ -1070,6 +1073,9 @@ final class AdminRouterTest extends TestCase
     public function testPluginSettingsActionLinksRequireActivePlugin(): void
     {
         $this->bootPluginSubsystem();
+        // Roles may already be loaded by an earlier suite file; registry lookup
+        // must still work with no authenticated viewer (structural unit path).
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
 
         AP_Admin_Menu::register([
             'id' => 'branding-settings',

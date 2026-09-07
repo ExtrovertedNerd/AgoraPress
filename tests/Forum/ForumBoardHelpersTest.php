@@ -25,6 +25,7 @@ use AP_Forum_Read;
 use AP_Forum_Stats;
 use AP_Migrator;
 use AP_Options;
+use AP_Rewrite;
 use AP_Roles;
 use AP_User;
 use PDO;
@@ -66,6 +67,10 @@ final class ForumBoardHelpersTest extends TestCase
             ap_reset_hooks();
         }
         AP_Forum_Stats::registerHooks();
+        if (class_exists('AP_Rewrite', false)) {
+            AP_Rewrite::resetCache();
+        }
+        AP_Options::flushCache();
 
         $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,

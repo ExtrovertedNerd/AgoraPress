@@ -64,7 +64,10 @@ require __DIR__ . '/admin-header.php';
 </div>
 
 <p>
-    AgoraPress is free and open source. It never phones home by default. The Hall of Fame is the only optional way to count installs: you may voluntarily register your domain so it can appear in a public counter and random rotation on the project site. You can withdraw at any time. Nothing is sent during install or ordinary browsing.
+    AgoraPress is free and open source. It never phones home by default. The Hall of Fame is
+    the only optional way to count installs: you may voluntarily register your domain so it can
+    appear in a public counter and random rotation on the project site. You can withdraw at any
+    time. Nothing is sent during install or ordinary browsing.
 </p>
 
 <section class="ap-metabox ap-hof-status" aria-labelledby="ap-hof-status-title">

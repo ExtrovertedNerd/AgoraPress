@@ -185,5 +185,4 @@ PHP;
         // No hard-coded ExtrovertedNerd project save path.
         $this->assertStringNotContainsString('en_set_hub_projects', $src);
     }
-
 }

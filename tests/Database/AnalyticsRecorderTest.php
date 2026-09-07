@@ -58,6 +58,8 @@ final class AnalyticsRecorderTest extends TestCase
 
         // PHPUnit runs under CLI; treat tests as web unless a case says otherwise.
         ap_add_filter('ap_analytics_cli_context', static fn (): bool => false);
+        // Earlier suite files may define AP_ADMIN; public recorder tests are front-end.
+        ap_add_filter('ap_analytics_admin_context', static fn (): bool => false);
         // No current user / caps layer in this fixture — not an admin.
         ap_add_filter('ap_analytics_exclude_admins', static fn (): bool => false);
 

@@ -80,6 +80,39 @@ final class RewriteTest extends TestCase
         unset($GLOBALS['ap_query'], $GLOBALS['ap_post']);
     }
 
+    public function testOptionLookupsAreCachedWithinARequest(): void
+    {
+        $this->db->resetQueryLog();
+        $this->assertFalse(AP_Rewrite::usingPermalinks($this->db));
+        $first = $this->db->getNumQueries();
+        $this->assertGreaterThan(0, $first, 'First structure read should query options');
+
+        $this->db->resetQueryLog();
+        $this->assertFalse(AP_Rewrite::usingPermalinks($this->db));
+        $this->assertSame(
+            0,
+            $this->db->getNumQueries(),
+            'Repeated usingPermalinks() must not re-query permalink_structure'
+        );
+
+        $this->db->resetQueryLog();
+        AP_Rewrite::homeUrl('/', $this->db);
+        $homeFirst = $this->db->getNumQueries();
+        $this->assertGreaterThan(0, $homeFirst);
+        $this->db->resetQueryLog();
+        AP_Rewrite::homeUrl('/', $this->db);
+        $this->assertSame(
+            0,
+            $this->db->getNumQueries(),
+            'Repeated homeUrl() must not re-query home/siteurl'
+        );
+
+        AP_Rewrite::resetCache();
+        $this->db->resetQueryLog();
+        $this->assertFalse(AP_Rewrite::usingPermalinks($this->db));
+        $this->assertGreaterThan(0, $this->db->getNumQueries());
+    }
+
     public function testPlainPermalinkForPostAndPage(): void
     {
         $this->assertFalse(AP_Rewrite::usingPermalinks($this->db));

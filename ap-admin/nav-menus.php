@@ -43,7 +43,8 @@ $assignments = AP_Nav_Menu::getLocationAssignments($db);
 // Screen tab: edit menus (default) or manage theme locations.
 $screenTab = isset($_GET['tab']) ? strtolower((string) $_GET['tab']) : 'edit';
 if (!in_array($screenTab, ['edit', 'locations'], true)) {
-    $screenTab = 'edit';}
+    $screenTab = 'edit';
+}
 
 // Which menu is being edited?
 $editSlug = isset($_GET['menu']) ? preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $_GET['menu'])) ?? '' : '';
@@ -307,7 +308,6 @@ require __DIR__ . '/admin-header.php';
         <?php endif; ?>
     </section>
 <?php else : ?>
-
 <div class="ap-menus-layout">
     <aside class="ap-menus-sidebar">
         <h2>Your Menus</h2>

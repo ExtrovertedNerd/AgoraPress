@@ -115,3 +115,56 @@ def test_020_beta_documents_local_analytics(changelog_text: str) -> None:
     assert "local" in lower and "analytics" in lower
     assert "analytics_enabled" in lower
     assert "analytics_hits" in lower or "analytics_daily" in lower
+
+
+UNRELEASED_DOC_PATHS = (
+    "docs/install.md",
+    "docs/updates.md",
+    "docs/rewrites.md",
+    "docs/cli.md",
+    "docs/admin.md",
+    "docs/forums.md",
+    "docs/roles.md",
+    "docs/rest.md",
+    "docs/security.md",
+    "docs/troubleshooting.md",
+    "docs/bot_handbook.md",
+    "docs/features_and_functions.md",
+)
+
+
+def _unreleased_body(changelog_text: str) -> str:
+    match = re.search(
+        r"(?ims)^##\s+\[Unreleased\]\s*\n(.*?)(?=^##\s+\[|\Z)",
+        changelog_text,
+    )
+    assert match, "Missing ## [Unreleased] body"
+    return match.group(1)
+
+
+def test_unreleased_notes_documentation_pass(changelog_text: str) -> None:
+    body = _unreleased_body(changelog_text)
+    assert re.search(r"(?im)^###\s+Added\s*$", body)
+    assert re.search(r"(?im)^###\s+Changed\s*$", body)
+    lower = body.lower()
+    assert "documentation pass" in lower
+    assert "no version bump" in lower
+    assert "0.3.6-beta" in body
+    assert "docs/readme.md" in lower
+    assert "audience index" in lower
+    assert "docs/index.md" in lower
+    for path in UNRELEASED_DOC_PATHS:
+        assert path.lower() in lower, f"[Unreleased] should mention {path}"
+
+
+def test_docs_pass_does_not_bump_ap_version() -> None:
+    version_php = VERSION_PHP.read_text(encoding="utf-8")
+    match = re.search(
+        r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
+        version_php,
+    )
+    assert match, "ap-includes/version.php should define AP_VERSION"
+    assert match.group(1) == "0.3.6-beta", (
+        "Documentation pass must not bump AP_VERSION unless Ken asks "
+        f"(found {match.group(1)})"
+    )

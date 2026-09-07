@@ -197,7 +197,9 @@ function ap_install_render(string $title, string $body, array $errors = [], stri
         .notice.error { background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
         .notice.error ul { margin: 0; padding-left: 1.2rem; }
         .notice.success { background: color-mix(in srgb, var(--ok) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); }
-        code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; padding: 0.1em 0.35em; border-radius: 4px; background: color-mix(in srgb, var(--border) 60%, transparent); color: var(--fg); }
+        code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em;
+            padding: 0.1em 0.35em; border-radius: 4px;
+            background: color-mix(in srgb, var(--border) 60%, transparent); color: var(--fg); }
         .field-group { margin-bottom: 0.25rem; }
     </style>
 </head>

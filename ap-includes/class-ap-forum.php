@@ -2303,13 +2303,15 @@ class AP_Forum
         }
         $forumId = (int) ($post->forum_id ?? 0);
         if (function_exists('ap_user_can')) {
-            if (ap_user_can($userId, 'manage_forums', null, $db)
+            if (
+                ap_user_can($userId, 'manage_forums', null, $db)
                 || ap_user_can($userId, 'moderate_forums', null, $db)
             ) {
                 return true;
             }
         }
-        if (class_exists('AP_Forum_Permissions', false)
+        if (
+            class_exists('AP_Forum_Permissions', false)
             && AP_Forum_Permissions::userCanModerate($userId, $forumId, $db)
         ) {
             return true;
@@ -2342,13 +2344,15 @@ class AP_Forum
         }
         $forumId = (int) ($post->forum_id ?? 0);
         if (function_exists('ap_user_can')) {
-            if (ap_user_can($userId, 'manage_forums', null, $db)
+            if (
+                ap_user_can($userId, 'manage_forums', null, $db)
                 || ap_user_can($userId, 'moderate_forums', null, $db)
             ) {
                 return true;
             }
         }
-        if (class_exists('AP_Forum_Permissions', false)
+        if (
+            class_exists('AP_Forum_Permissions', false)
             && AP_Forum_Permissions::userCanModerate($userId, $forumId, $db)
         ) {
             return true;
@@ -3534,7 +3538,8 @@ class AP_Forum
             $authorStats = AP_Forum_Stats::getAuthorPanelStats($posterId, $db);
         }
         // Location: prefer batch preload; otherwise single meta read (omit empty).
-        if ($location === '' && $posterId > 0 && class_exists('AP_User', false)
+        if (
+            $location === '' && $posterId > 0 && class_exists('AP_User', false)
             && ($authorStatsPreload === null || !array_key_exists('location', $authorStatsPreload))
         ) {
             try {
@@ -3547,7 +3552,8 @@ class AP_Forum
         $sigsEnabled = self::signaturesEnabled($db);
         if (!$sigsEnabled) {
             $signature = '';
-        } elseif ($signature === '' && $posterId > 0 && class_exists('AP_User', false)
+        } elseif (
+            $signature === '' && $posterId > 0 && class_exists('AP_User', false)
             && ($authorStatsPreload === null || !array_key_exists('signature', $authorStatsPreload))
         ) {
             try {

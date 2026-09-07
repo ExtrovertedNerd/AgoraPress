@@ -332,7 +332,9 @@ This README is the **human landing page** (vision, requirements, four install
 paths, after-install CLI / REST / updates). It is not a second handbook.
 
 The **docs index** — one file, for humans and a trusted agent — is
-[`docs/README.md`](docs/README.md). There is no `docs/index.md`. Topic guides:
+[`docs/README.md`](docs/README.md). There is no `docs/index.md`. There is one
+trusted-agent handbook: [`docs/bot_handbook.md`](docs/bot_handbook.md). Topic
+guides:
 
 | Guide | Topic |
 |-------|--------|

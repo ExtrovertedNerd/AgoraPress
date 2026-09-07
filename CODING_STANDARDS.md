@@ -40,6 +40,8 @@ We follow PSR-12 for **formatting and structure** (braces, indentation, visibili
 4. **Procedural files** — `functions.php`, `hooks.php`, and bootstrap may declare symbols and later register hooks at load time.
 5. **Functions** — Global helpers use `ap_` snake_case (`ap_add_action`, `ap_apply_filters`).
 6. **Methods** — Prefer camelCase on class methods (PSR-12). Keep procedural APIs as `ap_*` functions.
+7. **Companion classes** — A file may declare a closely related helper or test double in the same file (`AP_Admin_String_Callback` next to `AP_Admin_Menu`). PSR-1 one-class-per-file is excluded.
+8. **Line length** — 120 characters is a warning; over 200 is an error. Warnings do not fail `composer cs` / `composer cs:check`.
 
 ### Out of scope for core sniffs
 

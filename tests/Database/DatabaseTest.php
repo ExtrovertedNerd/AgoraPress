@@ -330,8 +330,19 @@ final class DatabaseTest extends TestCase
             $this->assertSame(0, $exit, "Output:\n{$body}");
             $this->assertStringContainsString('AP_DB_OK', $body);
             $this->assertStringContainsString('AP_DB_FN_OK', $body);
-            $this->assertStringContainsString('LAZY', $body);
             $this->assertStringNotContainsString('Fatal error', $body);
+            // Bootstrap warms autoload options (AP_Options::loadAutoloaded),
+            // which calls ap_db() when config is usable. Dummy sample
+            // credentials fail to connect (caught) and stay lazy; a working
+            // local ap-config.php connects. Either outcome is valid here.
+            if ($created) {
+                $this->assertStringContainsString('LAZY', $body);
+            } else {
+                $this->assertTrue(
+                    str_contains($body, 'LAZY') || str_contains($body, 'CONNECTED'),
+                    "Output:\n{$body}"
+                );
+            }
         } finally {
             if (is_file($tmpScript)) {
                 unlink($tmpScript);

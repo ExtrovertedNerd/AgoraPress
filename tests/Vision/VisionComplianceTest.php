@@ -169,16 +169,19 @@ final class VisionComplianceTest extends TestCase
                     continue;
                 }
                 // Coding standards / comments forbidding jQuery are fine.
-                if (preg_match('/no\s+jquery|without\s+jquery|not\s+use\s+jquery/i', $contents) === 1
+                if (
+                    preg_match('/no\s+jquery|without\s+jquery|not\s+use\s+jquery/i', $contents) === 1
                     && preg_match_all('/\bjquery\b/i', $contents) === 1
                 ) {
                     continue;
                 }
                 // Only fail on actual library references.
-                if (preg_match(
-                    '/jquery[\.-]?[0-9]|\/jquery|jquery\.min|jquery\.js|cdn\.jquery|code\.jquery/i',
-                    $contents
-                ) === 1) {
+                if (
+                    preg_match(
+                        '/jquery[\.-]?[0-9]|\/jquery|jquery\.min|jquery\.js|cdn\.jquery|code\.jquery/i',
+                        $contents
+                    ) === 1
+                ) {
                     $hits[] = substr($path, strlen($this->root) + 1);
                 }
             }

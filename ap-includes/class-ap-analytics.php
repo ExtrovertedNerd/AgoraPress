@@ -540,7 +540,7 @@ class AP_Analytics
             $should = false;
         }
 
-        if (defined('AP_ADMIN') && AP_ADMIN) {
+        if (self::isAdminContext()) {
             $should = false;
         }
 
@@ -1323,6 +1323,22 @@ class AP_Analytics
         return $cli;
     }
 
+    /**
+     * Whether this request is an ACP hit (AP_ADMIN).
+     *
+     * Filter `ap_analytics_admin_context` lets tests undo a process-wide
+     * AP_ADMIN constant set by an earlier PHPUnit case.
+     */
+    private static function isAdminContext(): bool
+    {
+        $admin = defined('AP_ADMIN') && AP_ADMIN;
+        if (function_exists('ap_apply_filters')) {
+            return (bool) ap_apply_filters('ap_analytics_admin_context', $admin);
+        }
+
+        return $admin;
+    }
+
     private static function isDoNotTrack(): bool
     {
         $dnt = $_SERVER['HTTP_DNT'] ?? null;
@@ -1521,7 +1537,8 @@ class AP_Analytics
      */
     private static function normalizeReportArgs(array $args): array
     {
-        if (isset($args['day']) && is_string($args['day']) && $args['day'] !== ''
+        if (
+            isset($args['day']) && is_string($args['day']) && $args['day'] !== ''
             && (!isset($args['since']) || $args['since'] === '')
         ) {
             $bounds = self::dayBounds($args['day']);

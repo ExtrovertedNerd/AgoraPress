@@ -7,6 +7,7 @@ Runnable via:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -69,9 +70,11 @@ HOF_DESCRIPTION = (
 
 def test_admin_screen_and_menu() -> None:
     screen = HOF_SCREEN.read_text(encoding="utf-8")
-    assert HOF_DESCRIPTION in screen, "Hall of Fame description must match operator-supplied paragraph"
+    # Collapse whitespace so PHPCS line-wrap of the HTML paragraph is allowed.
+    normalized = re.sub(r"\s+", " ", screen)
+    assert HOF_DESCRIPTION in normalized, "Hall of Fame description must match operator-supplied paragraph"
     # Final check: description appears as the screen intro (not only in a comment).
-    assert screen.count(HOF_DESCRIPTION) >= 1
+    assert normalized.count(HOF_DESCRIPTION) >= 1
     for needle in (
         "Join the Hall of Fame",
         "Leave Hall of Fame",

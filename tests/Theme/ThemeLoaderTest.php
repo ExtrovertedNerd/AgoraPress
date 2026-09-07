@@ -104,6 +104,7 @@ final class ThemeLoaderTest extends TestCase
 
         $this->tempThemes = sys_get_temp_dir() . '/ap-themes-' . uniqid('', true);
         $this->assertTrue(mkdir($this->tempThemes, 0700, true));
+        $GLOBALS['apdb'] = $this->db;
     }
 
     protected function tearDown(): void

@@ -1448,7 +1448,6 @@ final class DeveloperDocsTest extends TestCase
     }
 
     public function testReadmeLinksDeveloperDocs(): void
-
     {
         $readmePath = dirname(__DIR__, 2) . '/README.md';
         $this->assertFileIsReadable($readmePath);
@@ -1462,6 +1461,8 @@ final class DeveloperDocsTest extends TestCase
         );
         $this->assertStringContainsStringIgnoringCase('human landing page', $readme);
         $this->assertStringContainsStringIgnoringCase('second handbook', $readme);
+
+        $table = $this->rootReadmeDocumentationTable($readme);
         foreach (
             [
                 'docs/README.md',
@@ -1489,8 +1490,19 @@ final class DeveloperDocsTest extends TestCase
         ) {
             $this->assertStringContainsString(
                 '](' . $link . ')',
-                $readme,
+                $table,
                 "README Documentation table should link to {$link}"
+            );
+        }
+
+        $files = glob($this->docsRoot . '/*.md') ?: [];
+        sort($files, SORT_STRING);
+        foreach ($files as $path) {
+            $target = 'docs/' . basename($path);
+            $this->assertStringContainsString(
+                '](' . $target . ')',
+                $table,
+                "README Documentation table should list every docs/*.md guide: {$target}"
             );
         }
     }
@@ -1512,6 +1524,46 @@ final class DeveloperDocsTest extends TestCase
             '/(?im)^###\s+Trusted agent/',
             $readme
         );
+        $handbooks = glob($this->docsRoot . '/*handbook*') ?: [];
+        $names = array_map('basename', $handbooks);
+        sort($names, SORT_STRING);
+        $this->assertSame(
+            ['bot_handbook.md'],
+            $names,
+            'One trusted-agent handbook only: docs/bot_handbook.md'
+        );
+    }
+
+    private function rootReadmeDocumentationTable(string $readme): string
+    {
+        $matched = preg_match(
+            '/(?im)^##\s+Documentation\s*$/m',
+            $readme,
+            $heading,
+            PREG_OFFSET_CAPTURE
+        );
+        $this->assertSame(1, $matched, 'README should have a Documentation section');
+        $start = $heading[0][1] + strlen($heading[0][0]);
+        $rest = substr($readme, $start);
+        if (preg_match('/(?im)^##\s+/m', $rest, $next, PREG_OFFSET_CAPTURE) === 1) {
+            $section = substr($rest, 0, $next[0][1]);
+        } else {
+            $section = $rest;
+        }
+
+        $lines = [];
+        foreach (preg_split('/\R/', $section) as $line) {
+            if (str_starts_with($line, '|')) {
+                $lines[] = $line;
+            }
+        }
+        $this->assertNotSame(
+            [],
+            $lines,
+            'README Documentation section must contain a markdown table'
+        );
+
+        return implode("\n", $lines);
     }
 
     private function readDoc(string $relative): string

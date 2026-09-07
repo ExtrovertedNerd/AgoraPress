@@ -598,10 +598,7 @@ final class AP_Admin_String_Callback
             return null;
         }
 
-        /** @var callable $fn */
-        $fn = $this->target;
-
-        return $fn;
+        return $this->target;
     }
 
     /**

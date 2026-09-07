@@ -518,7 +518,8 @@ class AP_Admin_Media
             && (string) ($file['tmp_name'] ?? '') !== '';
 
         if ($hasUpload) {
-            if ($userId > 0 && class_exists('AP_Admin', false)
+            if (
+                $userId > 0 && class_exists('AP_Admin', false)
                 && !AP_Admin::userCan($userId, 'upload_files', null, $db)
             ) {
                 return [

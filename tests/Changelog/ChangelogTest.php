@@ -214,4 +214,65 @@ final class ChangelogTest extends TestCase
             'CHANGELOG 0.2.1-beta should mention Theme Options / theme_mods'
         );
     }
+
+    public function testUnreleasedNotesDocumentationPass(): void
+    {
+        $matched = preg_match(
+            '/(?ims)^##\s+\[Unreleased\]\s*\n(.*?)(?=^##\s+\[|\z)/',
+            $this->changelog,
+            $m
+        );
+        $this->assertSame(1, $matched, 'Missing ## [Unreleased] body');
+        $body = $m[1];
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Added\s*$/', $body);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Changed\s*$/', $body);
+        $lower = strtolower($body);
+        $this->assertStringContainsString('documentation pass', $lower);
+        $this->assertStringContainsString('no version bump', $lower);
+        $this->assertStringContainsString('0.3.6-beta', $body);
+        $this->assertStringContainsString('docs/readme.md', $lower);
+        $this->assertStringContainsString('audience index', $lower);
+        $this->assertStringContainsString('docs/index.md', $lower);
+        foreach (
+            [
+                'docs/install.md',
+                'docs/updates.md',
+                'docs/rewrites.md',
+                'docs/cli.md',
+                'docs/admin.md',
+                'docs/forums.md',
+                'docs/roles.md',
+                'docs/rest.md',
+                'docs/security.md',
+                'docs/troubleshooting.md',
+                'docs/bot_handbook.md',
+                'docs/features_and_functions.md',
+            ] as $path
+        ) {
+            $this->assertStringContainsString(
+                strtolower($path),
+                $lower,
+                "[Unreleased] should mention {$path}"
+            );
+        }
+    }
+
+    public function testDocsPassDoesNotBumpApVersion(): void
+    {
+        $versionPath = $this->root . '/ap-includes/version.php';
+        $this->assertFileIsReadable($versionPath);
+        $versionPhp = file_get_contents($versionPath);
+        $this->assertNotFalse($versionPhp);
+        $matched = preg_match(
+            "/define\\s*\\(\\s*['\"]AP_VERSION['\"]\\s*,\\s*['\"]([^'\"]+)['\"]\\s*\\)/",
+            $versionPhp,
+            $m
+        );
+        $this->assertSame(1, $matched, 'ap-includes/version.php should define AP_VERSION');
+        $this->assertSame(
+            '0.3.6-beta',
+            $m[1],
+            'Documentation pass must not bump AP_VERSION unless Ken asks'
+        );
+    }
 }

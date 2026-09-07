@@ -43,9 +43,11 @@ def test_phpcs_ruleset_excludes_wp_hybrid_conflicts() -> None:
         "PSR1.Classes.ClassDeclaration.MissingNamespace",
         "Squiz.Classes.ValidClassName",
         "PSR1.Files.SideEffects",
+        "PSR1.Classes.ClassDeclaration.MultipleClasses",
     )
     for sniff in required:
         assert sniff in text, f"Expected exclude of {sniff}"
+    assert "ignore_warnings_on_exit" in text
 
 
 def test_phpcs_ruleset_scans_core_paths() -> None:

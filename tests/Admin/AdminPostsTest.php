@@ -481,10 +481,10 @@ final class AdminPostsTest extends TestCase
         $this->assertStringContainsString('name="visibility"', $html);
         $this->assertStringContainsString('name="sticky"', $html);
         $this->assertStringContainsString('_ap_nonce', $html);
-        // Classic editor toolbar (Markdown formatting buttons).
+        // Classic visual editor toolbar (Visual | Text; never blocks).
         $this->assertStringContainsString('ap-editor__toolbar', $html);
         $this->assertStringContainsString('data-ap-editor-cmd', $html);
-        $this->assertStringContainsString('data-ap-editor-mode="markdown"', $html);
+        $this->assertStringContainsString('data-ap-editor-mode="visual"', $html);
         $this->assertStringContainsString('ap-editor.css', $html);
         $this->assertStringContainsString('ap-editor.js', $html);
 

@@ -451,9 +451,15 @@ final class ForumFrontTest extends TestCase
         $html = (string) ob_get_clean();
         unset($_GET['quote']);
 
-        $this->assertStringContainsString('[quote=', $html);
+        // Core builds BBCode via AP_Forum::getQuoteMarkupForPost(); the visual
+        // editor (when loaded) converts it to HTML for the reply surface.
+        $hasBbcode = str_contains($html, '[quote=') && str_contains($html, '[/quote]');
+        $hasHtmlQuote = str_contains($html, 'ap-quote') || str_contains($html, '<blockquote');
+        $this->assertTrue(
+            $hasBbcode || $hasHtmlQuote,
+            'Reply form should prefill a citation (BBCode or HTML quote)'
+        );
         $this->assertStringContainsString('Original body to quote.', $html);
-        $this->assertStringContainsString('[/quote]', $html);
         $this->assertStringContainsString('id="reply"', $html);
         $this->assertStringContainsString('ap-forum-quote', $html);
     }

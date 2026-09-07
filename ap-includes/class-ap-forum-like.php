@@ -90,7 +90,8 @@ class AP_Forum_Like
         }
 
         $forumId = (int) $post->forum_id;
-        if (class_exists('AP_Forum_Permissions', false)
+        if (
+            class_exists('AP_Forum_Permissions', false)
             && !AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db)
         ) {
             return ['ok' => false, 'liked' => false, 'count' => 0, 'error' => 'forbidden'];

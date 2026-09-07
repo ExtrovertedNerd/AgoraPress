@@ -1633,7 +1633,7 @@ HTACCESS;
      * @return array{
      *   ok: bool,
      *   error: string,
-     *   sizes: array<string, array{file: string, width: int, height: int, mime-type: string}>,
+     *   sizes: array<int|string, array{file: string, width: int, height: int, mime-type: string}>,
      *   meta: array<string, mixed>
      * }
      */

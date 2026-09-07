@@ -1601,6 +1601,18 @@ def test_topic_guides_cross_link_operator_guides(
         )
 
 
+def _readme_documentation_table() -> str:
+    text = README.read_text(encoding="utf-8")
+    match = re.search(r"(?im)^##\s+Documentation\s*$", text)
+    assert match, "README should have a Documentation section"
+    rest = text[match.end() :]
+    nxt = re.search(r"(?im)^##\s+", rest)
+    section = rest[: nxt.start()] if nxt else rest
+    lines = [ln for ln in section.splitlines() if ln.startswith("|")]
+    assert lines, "README Documentation section must contain a markdown table"
+    return "\n".join(lines)
+
+
 def test_readme_links_developer_docs() -> None:
     assert README.is_file()
     text = README.read_text(encoding="utf-8")
@@ -1610,9 +1622,15 @@ def test_readme_links_developer_docs() -> None:
     assert "human landing page" in text.lower()
     assert "second handbook" in text.lower()
     assert "docs/index.md" in text.lower()
+    table = _readme_documentation_table()
     for name in README_DOCUMENTATION_TABLE_GUIDES:
-        assert f"]({name})" in text, (
+        assert f"]({name})" in table, (
             f"README Documentation table should link to {name}"
+        )
+    for path in sorted(DOCS.glob("*.md")):
+        target = f"docs/{path.name}"
+        assert f"]({target})" in table, (
+            f"README Documentation table should list every docs/*.md guide: {target}"
         )
 
 
@@ -1622,6 +1640,11 @@ def test_readme_is_not_a_second_handbook() -> None:
     assert not re.search(r"(?im)^##\s+By audience\s*$", text)
     assert not re.search(r"(?im)^###\s+New operators\s*$", text)
     assert not re.search(r"(?im)^###\s+Trusted agent", text)
+    handbooks = sorted(path.name for path in DOCS.glob("*handbook*"))
+    assert handbooks == ["bot_handbook.md"], (
+        "One trusted-agent handbook only: docs/bot_handbook.md "
+        f"(found {handbooks})"
+    )
 
 
 def test_project_layout_mentions_docs() -> None:

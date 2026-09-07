@@ -85,6 +85,16 @@ class AP_Rewrite
     /** Whether the last parse used pretty permalink matching. */
     private static bool $didMatch = false;
 
+    /**
+     * Request-local option values (permalink_structure, home, siteurl, …).
+     *
+     * URL builders call {@see usingPermalinks()} / {@see homeUrl()} per link;
+     * without this cache each call hits the options table (N+1 on board index).
+     *
+     * @var array<string, string>
+     */
+    private static array $optionCache = [];
+
     // -------------------------------------------------------------------------
     // Structure / options
     // -------------------------------------------------------------------------
@@ -377,6 +387,7 @@ class AP_Rewrite
         self::$queryVars = [];
         self::$requestPath = '';
         self::$didMatch = false;
+        self::$optionCache = [];
     }
 
     // -------------------------------------------------------------------------
@@ -1350,6 +1361,10 @@ NGINX;
 
     private static function readOption(string $name, string $default = '', ?AP_DB $db = null): string
     {
+        if (array_key_exists($name, self::$optionCache)) {
+            return self::$optionCache[$name];
+        }
+
         $db = self::resolveDbOptional($db);
         if ($db === null) {
             return $default;
@@ -1364,7 +1379,10 @@ NGINX;
             return $default;
         }
 
-        return $val !== null ? (string) $val : $default;
+        $value = $val !== null ? (string) $val : $default;
+        self::$optionCache[$name] = $value;
+
+        return $value;
     }
 
     private static function writeOption(string $name, string $value, ?AP_DB $db = null): bool
@@ -1380,18 +1398,23 @@ NGINX;
                 [$name]
             );
             if ($existing !== null) {
-                return $db->update(
+                $ok = $db->update(
                     'options',
                     ['option_value' => $value],
                     ['option_name' => $name]
                 ) !== false;
+            } else {
+                $ok = $db->insert('options', [
+                    'option_name' => $name,
+                    'option_value' => $value,
+                    'autoload' => 'yes',
+                ]) !== false;
+            }
+            if ($ok) {
+                self::$optionCache[$name] = $value;
             }
 
-            return $db->insert('options', [
-                'option_name' => $name,
-                'option_value' => $value,
-                'autoload' => 'yes',
-            ]) !== false;
+            return $ok;
         } catch (Throwable) {
             return false;
         }

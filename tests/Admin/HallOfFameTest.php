@@ -387,12 +387,15 @@ final class HallOfFameTest extends TestCase
 
         $screen = (string) file_get_contents($this->root . '/ap-admin/options-hall-of-fame.php');
         // Operator-supplied Hall of Fame description (SPEC / TODO 8.2).
+        // Compare on collapsed whitespace so PHPCS line-wrap of the HTML
+        // paragraph does not break the contract.
         $hofDescription = 'AgoraPress is free and open source. It never phones home by default. '
             . 'The Hall of Fame is the only optional way to count installs: you may '
             . 'voluntarily register your domain so it can appear in a public counter '
             . 'and random rotation on the project site. You can withdraw at any time. '
             . 'Nothing is sent during install or ordinary browsing.';
-        $this->assertStringContainsString($hofDescription, $screen);
+        $normalized = preg_replace('/\s+/', ' ', $screen) ?? $screen;
+        $this->assertStringContainsString($hofDescription, $normalized);
         $this->assertStringContainsString('Join the Hall of Fame', $screen);
         $this->assertStringContainsString('Leave Hall of Fame', $screen);
         $this->assertStringContainsString('No telemetry', $screen);

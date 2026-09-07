@@ -818,15 +818,17 @@ class AP_Forum_Read
                     $tid = (int) ($topic->topic_id ?? 0);
                     $tLast = (string) ($topic->topic_last_post_time ?? '');
                     $status = (string) ($topic->topic_status ?? '');
-                    if (self::isTopicUnreadWithMarks(
-                        $tid,
-                        $fid,
-                        $tLast,
-                        $status,
-                        $globalMark,
-                        $topicMarks[$tid] ?? null,
-                        $forumMark
-                    )) {
+                    if (
+                        self::isTopicUnreadWithMarks(
+                            $tid,
+                            $fid,
+                            $tLast,
+                            $status,
+                            $globalMark,
+                            $topicMarks[$tid] ?? null,
+                            $forumMark
+                        )
+                    ) {
                         $isUnread = true;
                         break;
                     }

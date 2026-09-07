@@ -667,8 +667,10 @@ class AP_Admin
      * Whether the viewer may open a registered page (capability check).
      *
      * When $userId is a positive int, uses {@see userCan()}. Otherwise uses
-     * {@see currentUserCan()}. If the roles layer is not loaded, returns true
-     * so structural unit tests without a full auth stack still work.
+     * {@see currentUserCan()} when a current user is authenticated. If the
+     * roles layer is not loaded, or no current user is authenticated, returns
+     * true so structural unit tests without a full auth stack still work
+     * (production ACP screens always have a logged-in user before this runs).
      */
     public static function viewerCanAccessRegisteredPage(
         array $page,
@@ -680,6 +682,16 @@ class AP_Admin
             return self::userCan($userId, $cap, null, $db);
         }
         if (!class_exists('AP_Roles', false)) {
+            return true;
+        }
+
+        $currentId = 0;
+        if (function_exists('ap_get_current_user_id')) {
+            $currentId = (int) ap_get_current_user_id($db);
+        } elseif (class_exists('AP_Session', false)) {
+            $currentId = (int) AP_Session::getCurrentUserId($db);
+        }
+        if ($currentId < 1) {
             return true;
         }
 

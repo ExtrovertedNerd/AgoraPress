@@ -670,7 +670,8 @@ class AP_Forum_Stats
                 },
             ];
         }
-        if (function_exists('ap_has_action')
+        if (
+            function_exists('ap_has_action')
             && ap_has_action('ap_forum_post_inserted', self::$hookCallbacks['inserted'])
         ) {
             return;
