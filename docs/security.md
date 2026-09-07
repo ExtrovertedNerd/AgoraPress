@@ -32,7 +32,7 @@ core Content-Security-Policy — those are **not in core**.
 | In core | Not in core |
 |---------|-------------|
 | PDO prepared statements only (`AP_DB`) | Query builders that interpolate untrusted SQL |
-| HMAC nonces on state-changing forms and REST cookie writes | PHP `$_SESSION` CSRF for `/ap-admin/` (ACP uses HMAC) |
+| HMAC nonces on state-changing ACP forms and REST cookie writes | PHP `$_SESSION` CSRF after install (only the web installer uses `$_SESSION`) |
 | Argon2id password hashes (`PASSWORD_ARGON2ID` when PHP has it) | Optional 2FA / TOTP |
 | Transient-backed rate limits (login, register, password reset, upload) | Fail2ban, IP firewalls, or a bundled WAF |
 | Capability checks on admin screens and privileged APIs | A second permission system besides [roles.md](roles.md) / forum ACL |
@@ -51,30 +51,31 @@ example comments TLS lines; it does not issue certificates.
 
 ## Prepared statements
 
-`AP_DB` is a PDO layer. Every value-bearing query goes through
-`PDOStatement::prepare()` + bound parameters (`?` or named placeholders).
-Native prepares are on (`PDO::ATTR_EMULATE_PREPARES` = `false`).
-
-Helpers `insert()`, `update()`, and `delete()` bind **values**. Table and
-column names are **identifiers**: they must match
+`AP_DB` is a PDO layer. Native prepares are on
+(`PDO::ATTR_EMULATE_PREPARES` = `false`). `$apdb->query( $sql, $params )`
+always `prepare()`s, then binds `$params` (`?` or named placeholders).
+Helpers `insert()`, `update()`, and `delete()` bind **values** the same way.
+Table and column names are **identifiers**: they must match
 `/^[A-Za-z_][A-Za-z0-9_]*$/` (`AP_DB::isSafeIdentifier()`) before they are
 quoted for the driver (backticks on MySQL, double quotes on SQLite /
-PostgreSQL). Do not concatenate request data into SQL.
+PostgreSQL).
+
+There is no helper that interpolates untrusted values into SQL. Plugins must
+put every value in `$params` and never concatenate request data into `$sql`.
 
 Drivers: MySQL 8+ / MariaDB 10.6+ (production), SQLite (demos), PostgreSQL.
 See [schema.md](schema.md).
-
-There is **no** `$apdb->query()` path that runs interpolated user SQL. Plugins
-that talk to the database must use the same bound-parameter contract.
 
 ---
 
 ## Nonces (CSRF)
 
 `AP_Nonce` issues HMAC-SHA256 tokens of `tick|action|user_id` using
-`AP_NONCE_KEY` + `AP_NONCE_SALT` from `ap-config.php`. One tick is **12 hours**
-(`AP_Nonce::TICK_SECONDS`). A token is valid for the **current or previous**
-tick so a form submitted near a boundary still verifies (`hash_equals`).
+`AP_NONCE_KEY` + `AP_NONCE_SALT` from `ap-config.php`. The value placed in
+forms and URLs is the **last 12 hex characters** of that HMAC (short enough
+for query strings). One tick is **12 hours** (`AP_Nonce::TICK_SECONDS`). A
+token is valid for the **current or previous** tick so a form submitted near
+a boundary still verifies (`hash_equals`).
 
 | Helper | Use |
 |--------|-----|
@@ -89,9 +90,10 @@ Admin POSTs check a **named action** (examples as built: `admin-login`,
 `erase-personal-data`). Logout is nonce-protected so a third-party page cannot
 force a sign-out.
 
-**REST** cookie-authenticated writes need header `X-AP-Nonce` (or body
-`_ap_nonce` / `_wpnonce`) for action `ap_rest`. HTTP Basic skips the nonce
-because the credentials are the proof. Details: [rest.md](rest.md).
+**REST** cookie-authenticated writes need a nonce for action `ap_rest`. Send
+header `X-AP-Nonce` (WP-compat `X-WP-Nonce`) or field `_ap_nonce` /
+`_wpnonce`. HTTP Basic skips the nonce because the credentials are the
+proof. Details: [rest.md](rest.md).
 
 Changing `AP_NONCE_KEY` / `AP_NONCE_SALT` after install invalidates outstanding
 nonces (and, with the logged-in pair, cookies). Site Health flags missing or
@@ -143,7 +145,7 @@ Logged-in state is a signed cookie plus a server-side session token — not PHP
 |-------|----------|
 | Cookie name | `ap_logged_in_` + 12 hex chars of a hash of `AP_LOGGED_IN_KEY` + `AP_LOGGED_IN_SALT` |
 | Cookie value | `user_id\|expiration\|token\|hmac` (HMAC-SHA256; payload also binds login + a password-hash fragment) |
-| Flags | `HttpOnly`, `SameSite=Lax`, `Secure` when the request is HTTPS (or `X-Forwarded-Proto: https`) |
+| Flags | `HttpOnly`, `SameSite=Lax`, `Secure` when PHP sees HTTPS, port 443, or `X-Forwarded-Proto: https` (this header is **not** gated on `AP_TRUST_PROXY`) |
 | Lifetime | 2 days default; **14 days** with “remember me” |
 | Server token | Random 32-byte hex, **hashed** in usermeta key `session_tokens` (cap 50 sessions / user) |
 
@@ -168,8 +170,11 @@ Default windows (`AP_Rate_Limit`; override with options
 Client IP is `REMOTE_ADDR` by default (not spoofable without a proxy). Only if
 you **define `AP_TRUST_PROXY` true** in `ap-config.php` (not in the sample
 file — add it yourself behind a trusted reverse proxy) does the limiter also
-read `X-Forwarded-For` / `X-Real-IP`. Do not set that flag on a host that
-accepts those headers from the public internet.
+read `X-Forwarded-For` / `X-Real-IP` / `Client-IP` (`HTTP_CLIENT_IP`). Do not
+set that flag on a host that accepts those headers from the public internet.
+The cookie `Secure` flag still honours `X-Forwarded-Proto` without this
+constant — that only affects whether the cookie is marked Secure, not the
+rate-limit IP.
 
 Registration is off by default (`users_can_register` = `0`). Optional math
 CAPTCHA (`registration_captcha`) and email verification are additional
@@ -191,7 +196,8 @@ built:
 | Tools → Export Personal Data | `export_others_personal_data` (`manage_options`, `export`) |
 | Tools → Erase Personal Data | `erase_others_personal_data` (`manage_options`, `delete_users`) |
 | Tools → Update Core | `update_core` |
-| Tools → Site Health / Analytics | `manage_options` |
+| Tools → Site Health | `view_site_health` (`manage_options`) |
+| Tools → Analytics | `manage_options` |
 
 Roles, comment ownership caps, and forum ACL: [roles.md](roles.md). Do not
 invent extra roles.
@@ -335,10 +341,12 @@ turns it on (Tools → Analytics), `AP_Analytics` records **public GET/HEAD**
 pageviews in the site database (`analytics_hits` / `analytics_daily`). No
 front-end JS, no third-party scripts, no external endpoints.
 
-Skipped by default: CLI, `/ap-admin/`, feeds, REST (`/ap-json/`), sitemaps,
-robots.txt, coarse bot UAs, logged-in `manage_options` users, `DNT: 1`.
-Retention prune (`analytics_retention_days`, default 90) still runs after you
-turn collection off.
+Skipped by default: CLI (`AP_CLI`), `/ap-admin/` (and `AP_ADMIN`),
+non-GET/HEAD, feeds, REST (`/ap-json/`), sitemaps, robots.txt, coarse bot
+UAs, logged-in `manage_options` users, `DNT: 1`. Public **404s are recorded**
+by default (`status_code=404`). Retention prune
+(`analytics_retention_days`, default 90) still runs after you turn collection
+off.
 
 This is **not** Hall of Fame and **not** version-check traffic.
 
@@ -402,8 +410,8 @@ Media lives under `ap-content/uploads/` (optionally `YYYY/MM/`). `AP_Media`:
 - `ap-content/uploads/index.php` returns **403** (not a script entry point).
 - `AP_Media::ensureProtectionFiles()` writes an uploads `.htaccess` that
   allows static media, disables indexes, turns the PHP engine off when
-  `mod_php` is in use, and denies `php` / `phtml` / `phar` / common script
-  extensions.
+  `mod_php` is in use, and denies `php` / `phtml` / `phar` / `cgi` / `pl` /
+  `py` / `asp` / `aspx` / `jsp` / `shtml` / `.htaccess` / `.htpasswd`.
 
 Nginx should not `fastcgi_pass` PHP under `uploads/` (restrict PHP to known
 entry points when you can — the example file comments that). Site Icon uses
@@ -413,9 +421,9 @@ the same library ([site-icon.md](site-icon.md)).
 
 ## Site Health and debug
 
-**Tools → Site Health** (`ap-admin/site-health.php`) never transmits check
-results off-site. Version-check info appears only if already cached (no forced
-network). Security-relevant checks as built:
+**Tools → Site Health** (`ap-admin/site-health.php`, cap `view_site_health`)
+never transmits check results off-site. Version-check info appears only if
+already cached (no forced network). Security-relevant checks as built:
 
 | Check | Good looks like |
 |-------|-----------------|
