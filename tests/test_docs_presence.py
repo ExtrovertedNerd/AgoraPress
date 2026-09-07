@@ -106,6 +106,21 @@ def test_docs_index_links_every_new_guide(docs_root: Path) -> None:
         assert re.search(pattern, index), (
             f"docs/README.md should markdown-link {name}"
         )
+    for path in sorted(docs_root.glob("*.md")):
+        if path.name == "README.md":
+            continue
+        pattern = rf"\]\({re.escape(path.name)}(?:#[^)]*)?\)"
+        assert re.search(pattern, index), (
+            f"docs/README.md should markdown-link {path.name}"
+        )
+    assert re.search(r"(?im)^##\s+By audience\s*$", index)
+    assert re.search(r"(?im)^##\s+Not in core\s*$", index)
+    assert re.search(r"(?im)^##\s+Quick command map\s*$", index)
+    groups = _builtin_cli_groups()
+    for group in groups:
+        assert f"php ap-cli {group}" in index, (
+            f"docs/README.md should name builtin ap-cli group {group}"
+        )
 
 
 def test_bot_handbook_states_public_safe_rule_and_do_not_invent_surfaces(

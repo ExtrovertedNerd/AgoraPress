@@ -1,14 +1,14 @@
 # AgoraPress documentation index
 
 This directory is the **operator, integrator, and trusted-agent documentation**
-for AgoraPress. Start here if you need exhaustive instructions, then follow the
-topic guides for depth.
+for AgoraPress **`0.3.6-beta`** (schema `AP_DB_VERSION` **12**). Start here if
+you need exhaustive instructions, then follow the topic guides for depth.
 
 The human landing page (vision, requirements, four install paths) remains
-[`../README.md`](../README.md). **This file is the only docs index.** Do not
-look for `docs/index.md` — it is not part of the tree.
+[`../README.md`](../README.md). **This file is the only docs index.** There is
+**one documentation tree**. Do not create or look for `docs/index.md` — it is
+not part of the tree.
 
-**Current core:** `AP_VERSION` **0.3.6-beta** · schema `AP_DB_VERSION` **12**.
 Product status: MVP feature-complete (Site Icon, plugin ACP pages, forum UI
 phpBB-parity, forum likes/moderation, Theme Options, local opt-in analytics);
 ready for live-site install.
@@ -31,6 +31,11 @@ repository should start at this index, then [bot_handbook.md](bot_handbook.md).
 Do not invent hooks, routes, CLI commands, options, capabilities, tables, or
 admin screens. If a surface is not in these guides and not in the shipped
 code, say it is **not in core**.
+
+**Sources (as built):** topic guides in this directory, shipped PHP under
+`ap-includes/` / `ap-admin/` / `install/`, [`ap-cli`](cli.md),
+[`.htaccess`](../.htaccess),
+[`docker/nginx.conf.example`](../docker/nginx.conf.example).
 
 ---
 
@@ -75,7 +80,7 @@ Trusted agents: the same public-safe rule is restated in
 1. [README — vision and requirements](../README.md#vision-summary)
 2. [README — quick start](../README.md#quick-start) (Docker, web installer, CLI installer, manual `ap-config-sample.php`)
 3. [install.md](install.md) — permissions, post-install checklist (modules, permalinks, Site Health, analytics opt-in)
-4. [rewrites.md](rewrites.md) — front controller, Apache `.htaccess`, nginx `try_files`, pretty permalinks
+4. [rewrites.md](rewrites.md) — front controller, Apache `.htaccess`, nginx `try_files $uri $uri/ /index.php?$args`, pretty permalinks
 5. [security.md](security.md) — prepared statements, nonces, deny rules, no telemetry
 6. Log in at `/ap-admin/` and run **Tools → Site Health**
 
@@ -91,9 +96,13 @@ Trusted agents: the same public-safe rule is restated in
 | Forums (hierarchy, likes, moderation, ACL, PMs) | [forums.md](forums.md) |
 | Roles and capabilities | [roles.md](roles.md) |
 | REST (`/ap-json/`, `ap/v1`, `rest_api_enabled`) | [rest.md](rest.md) |
+| Toggle REST (`rest_api_enabled` — **no** ACP screen) | [cli.md](cli.md) · [rest.md](rest.md) |
+| Plugin / theme zip installers | [admin.md](admin.md) · [plugins.md](plugins.md) · [themes.md](themes.md) |
+| Hall of Fame (voluntary) | [admin.md](admin.md) |
+| Privacy export / erase | [admin.md](admin.md) · [security.md](security.md) |
 | Harden the host | [security.md](security.md) |
 | Symptom → check | [troubleshooting.md](troubleshooting.md) |
-| Local analytics (opt-in, default **off**) | [admin.md](admin.md) · [schema.md](schema.md) |
+| Local analytics (opt-in, default **off**, `analytics_enabled`) | [admin.md](admin.md) · [schema.md](schema.md) |
 | Lookup “does this exist?” | [features_and_functions.md](features_and_functions.md) |
 
 ### Theme & plugin authors
@@ -108,6 +117,7 @@ Trusted agents: the same public-safe rule is restated in
 | Site icon / favicon pack | [site-icon.md](site-icon.md) |
 | Classic WordPress theme shim (block/FSE out of scope) | [compatibility.md](compatibility.md) |
 | REST registration (`ap_rest_api_init`) | [rest.md](rest.md) · [plugins.md](plugins.md) |
+| CLI registration (`ap_cli_init`) | [cli.md](cli.md) · [plugins.md](plugins.md) |
 
 ### Trusted agent (Grok Bot)
 
@@ -123,9 +133,8 @@ guides and the lookup catalog. Do **not** invent product surfaces.
 | File a Heph bug against registry name **AgoraPress** | [bot_handbook.md](bot_handbook.md) (short pointer to Heph Agent API — do not duplicate that contract here) |
 
 Describe the system **as built** at 0.3.6-beta / schema 12. Missing from these
-guides and from core means **not in core** (examples: Gutenberg / FSE, official
-SaaS, paid marketplace, telemetry, PHP older than 8.2, block themes on the
-compat layer). Stay inside the public-safe rule above.
+guides and from core means **not in core**. Stay inside the public-safe rule
+above.
 
 ### Developers
 
@@ -146,7 +155,7 @@ compat layer). Stay inside the public-safe rule above.
 |----------|--------|
 | [install.md](install.md) | Web installer (`/install/`), `php install/cli.php`, Docker, manual config, permissions, post-install |
 | [updates.md](updates.md) | `version.json`, Tools → Update Core, `package-release.php`, what an update does **not** overwrite |
-| [rewrites.md](rewrites.md) | Front controller, `.htaccess`, nginx `try_files`, pretty vs `?p=`, `ap-cli rewrite flush` |
+| [rewrites.md](rewrites.md) | Front controller, `.htaccess`, nginx `try_files $uri $uri/ /index.php?$args`, pretty vs `?p=`, `ap-cli rewrite flush` |
 | [cli.md](cli.md) | Every built-in `ap-cli` command group, global flags, exit codes |
 | [admin.md](admin.md) | `/ap-admin/` as built (screens by task, zip installer, Hall of Fame) |
 | [forums.md](forums.md) | Hierarchy, topic types, likes, moderation, ACL, PMs, search, flood, module-off |
@@ -171,6 +180,7 @@ compat layer). Stay inside the public-safe rule above.
 
 ```
 Request
+  → web server (static file, or front controller index.php)
   → bootstrap (config, DB, roles, options, …)
   → MU plugins → active plugins
   → ap_plugins_loaded → ap_loaded
@@ -179,6 +189,10 @@ Request
   → template hierarchy → locate → render
      (themes call ap_enqueue_scripts, ap_head, ap_footer)
 ```
+
+Pretty permalinks need that front controller (`try_files` on nginx, shipped
+`.htaccess` on Apache). Missing `try_files` 404s `/slug/` while `?p=` still
+works — [rewrites.md](rewrites.md).
 
 CLI (`php ap-cli …`) boots the same core for installed sites, then dispatches
 built-in or plugin-registered commands (`ap_cli_init`). Fresh install is a
@@ -198,19 +212,26 @@ built-in or plugin-registered commands (`ap_cli_init`). Fresh install is a
 | Forums | `AP_Forum*`, `AP_Forum_Like`, `AP_Forum_Stats`, dedicated tables (see [schema](schema.md)) |
 | Themes | `AP_Theme` (hierarchy, theme_mods, Theme Options), default `ap-content/themes/agora/` |
 | Plugins | `AP_Plugin`, `ap-content/plugins/`, `mu-plugins/`, ACP pages via `ap_register_admin_page` |
-| REST | `AP_Rest` → `/ap-json/` namespace `ap/v1` |
-| CLI | `ap-cli` → option, plugin, theme, user, **post**, db, cache, cron, rewrite, site, core, cli |
-| Analytics | `AP_Analytics` → Tools → Analytics (`ap-admin/analytics.php`); opt-in, local DB only |
+| REST | `AP_Rest` → `/ap-json/` namespace `ap/v1`. Writes exist **only** on posts; other builtins are GET. `rest_api_enabled` has **no** ACP screen (CLI / option). |
+| CLI | `ap-cli` → help, version, cli, core, db, option, plugin, theme, user, post, cache, cron, rewrite, site |
+| Analytics | `AP_Analytics` → Tools → Analytics (`ap-admin/analytics.php`); opt-in (`analytics_enabled`), local DB only |
 | Compat | `ap-includes/compatibility/` |
 | Updates | `AP_Version_Check`, `AP_Core_Updater` (no site identity) |
+| Roles | `AP_Roles` — five builtins: administrator, editor, author, contributor, subscriber |
 
 ---
 
 ## Quick command map
 
+Global flags (every group): `--path`, `--url`, `--skip-plugins`, `--skip-themes`,
+`-h` / `--help`, `-V` / `--version`. Exit codes and defaults: **[cli.md](cli.md)**.
+
 ```text
 php install/cli.php …          # fresh install (not ap-cli)
-php ap-cli help | version | cli info
+
+php ap-cli help [<command>]    # no install
+php ap-cli version             # no install; also -V / --version
+php ap-cli cli info            # no install
 php ap-cli core {version|check-update}
 php ap-cli db {check|migrate}
 php ap-cli option {get|set|delete|list}
@@ -224,8 +245,29 @@ php ap-cli rewrite flush
 php ap-cli site health
 ```
 
-Full flag lists, defaults, and exit codes: **[cli.md](cli.md)**. Plugins may
-add commands on `ap_cli_init` — those are not core verbs.
+`post --file` is **local filesystem only** (rejects URLs). Create defaults:
+posts → **draft**, pages → **publish**.
+
+Plugins may add commands on `ap_cli_init` — those are not core verbs.
+
+---
+
+## Not in core
+
+If a surface is missing from the catalog and from shipped PHP, it is **not in
+core**. Do not invent it in answers or in new docs.
+
+| Surface | See |
+|---------|-----|
+| Gutenberg / FSE / block themes on the compat layer | [editor.md](editor.md) · [compatibility.md](compatibility.md) |
+| Official SaaS, paid marketplace, telemetry, PHP older than 8.2, multisite, e-commerce | [vision-compliance.md](vision-compliance.md) |
+| REST writes for pages, comments, users, categories, tags, forums, topics | [rest.md](rest.md) |
+| ACP screens for `rest_api_enabled`, `blog_public`, `sitemap_enabled`, `open_graph_enabled`, `version_check_enabled` | [cli.md](cli.md) · [rest.md](rest.md) |
+| `plugin install` / `theme install` / `user update` / `user delete` / `post delete` / `core update` / `db rollback` / `rewrite list` | [cli.md](cli.md) |
+| Extra core roles beyond administrator / editor / author / contributor / subscriber | [roles.md](roles.md) |
+| Extra topic types beyond `standard` \| `sticky` \| `announcement` \| `rules` | [forums.md](forums.md) |
+| `php ap-cli module` / `php ap-cli forum` | Modules and forums toggle via **Settings → Modules** or `php ap-cli option` |
+| A second docs index (`docs/index.md`) or a Bot-only tree | This file |
 
 ---
 
@@ -260,11 +302,13 @@ add commands on `ap_cli_init` — those are not core verbs.
 | Posts / CLI content | `class-ap-post.php`, `class-ap-cli.php` (`cmdPost`) |
 | Visual editor | `ap-includes/class-ap-editor.php`, `css/ap-editor.css`, `js/ap-editor.js` |
 | Compatibility | `ap-includes/compatibility/` |
-| Schema | `ap-includes/schema/migrations/`, `class-ap-migrator.php` |
+| Schema | `ap-includes/schema/migrations/` (through `0012_topic_type_enum.php`), `class-ap-migrator.php` |
 | Default theme | `ap-content/themes/agora/` |
 | Forums | `class-ap-forum*.php`, `class-ap-forum-front.php`, `class-ap-forum-like.php`, `class-ap-forum-stats.php`, migration `0011_forum_likes_stats.php` |
 | REST | `class-ap-rest.php` |
-| Install / update | `install/`, `class-ap-installer.php`, `class-ap-core-updater.php` |
+| Roles | `class-ap-roles.php` |
+| Rewrites | `class-ap-rewrite.php`, root `.htaccess`, `docker/nginx.conf.example` |
+| Install / update | `install/`, `class-ap-installer.php`, `class-ap-cli-install.php`, `class-ap-core-updater.php` |
 | Analytics | `class-ap-analytics.php`, `ap-admin/analytics.php`, `ap-admin/includes/class-ap-admin-analytics.php`, migration `0010_analytics_tables.php` |
 | Site icon / favicon | `class-ap-media.php` (pack + head tags), `class-ap-options.php` (`site_icon`), `ap-admin/options-general.php` |
 

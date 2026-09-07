@@ -117,6 +117,120 @@ def test_docs_index_states_public_safe_rule(docs_root: Path) -> None:
         assert banned not in index, f"docs/README.md must not contain private marker: {banned}"
 
 
+def _index_command_map_block(index: str) -> str:
+    match = re.search(
+        r"(?im)^##\s+Quick command map\s*$\n+(?:.*?\n)*?```(?:text)?\n(.*?)```",
+        index,
+        re.DOTALL,
+    )
+    assert match, "docs/README.md should have a Quick command map fenced block"
+    return match.group(1)
+
+
+def _index_builtin_cli_groups() -> list[str]:
+    src = (ROOT / "ap-includes" / "class-ap-cli.php").read_text(encoding="utf-8")
+    start = src.find("public static function ensureBuiltins()")
+    assert start != -1, "AP_Cli::ensureBuiltins() not found"
+    names = re.findall(r"self::addCommand\(\s*'([a-z0-9-]+)'", src[start:])
+    assert names, "No addCommand() names found in ensureBuiltins()"
+    return sorted(set(names))
+
+
+def test_docs_index_markdown_links_every_guide(docs_root: Path) -> None:
+    """Audience index must markdown-link every topic guide (not README.md itself)."""
+    index = (docs_root / "README.md").read_text(encoding="utf-8")
+    for path in sorted(docs_root.glob("*.md")):
+        if path.name == "README.md":
+            continue
+        pattern = rf"\]\({re.escape(path.name)}(?:#[^)]*)?\)"
+        assert re.search(pattern, index), (
+            f"docs/README.md should markdown-link {path.name}"
+        )
+
+
+def test_docs_index_command_map_names_every_builtin_group(docs_root: Path) -> None:
+    index = (docs_root / "README.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^##\s+Quick command map\s*$", index)
+    assert re.search(r"(?im)^##\s+Not in core\s*$", index)
+    block = _index_command_map_block(index)
+    for group in _index_builtin_cli_groups():
+        assert f"php ap-cli {group}" in block, (
+            f"docs/README.md command map should name builtin group {group}"
+        )
+    for flag in ("--path", "--url", "--skip-plugins", "--skip-themes"):
+        assert flag in index, f"docs/README.md should name global flag {flag}"
+    assert "php install/cli.php" in block
+    assert "php ap-cli plugin install" not in block
+    assert "php ap-cli theme install" not in block
+    assert "php ap-cli core update" not in block
+    assert "php ap-cli user update" not in block
+    assert "php ap-cli user delete" not in block
+    assert "php ap-cli post delete" not in block
+    assert "php ap-cli module" not in block
+    assert "php ap-cli forum" not in block
+
+
+def test_docs_index_as_built_surfaces(docs_root: Path) -> None:
+    index = (docs_root / "README.md").read_text(encoding="utf-8")
+    lower = index.lower()
+    for phrase in (
+        "0.3.6-beta",
+        "AP_DB_VERSION",
+        "one documentation tree",
+        "docs/index.md",
+        "public-safe",
+        "do not invent",
+        "not in core",
+        "/ap-admin/",
+        "/ap-json/",
+        "rest_api_enabled",
+        "analytics_enabled",
+        "ap_register_admin_page",
+        "try_files $uri $uri/ /index.php?$args",
+        "class-ap-analytics.php",
+        "class-ap-roles.php",
+        "class-ap-rewrite.php",
+        "class-ap-cli-install.php",
+        "0012_topic_type_enum.php",
+        "plugin install",
+        "theme install",
+        "core update",
+        "user update",
+        "post delete",
+        "php ap-cli module",
+        "php ap-cli forum",
+        "GET",
+        "no site identity",
+        "administrator",
+        "subscriber",
+        "standard",
+        "announcement",
+        "rules",
+        "agorapress.extrovertednerd.com",
+        "/var/www/agorapress",
+        "session.save_path",
+        "example.com",
+        "admin@example.com",
+    ):
+        assert phrase.lower() in lower, f"docs/README.md missing as-built phrase: {phrase}"
+    not_core = index[index.lower().find("## not in core") :]
+    assert not_core, "docs/README.md must have a Not in core section"
+    for invented in (
+        "plugin install",
+        "theme install",
+        "core update",
+        "user update",
+        "post delete",
+        "php ap-cli module",
+        "php ap-cli forum",
+        "docs/index.md",
+        "Gutenberg",
+    ):
+        assert invented.lower() in not_core.lower(), (
+            f"docs/README.md Not in core should name {invented}"
+        )
+
+
 def test_bot_handbook_states_public_safe_rule(docs_root: Path) -> None:
     path = docs_root / "bot_handbook.md"
     assert path.is_file(), "Missing docs/bot_handbook.md"

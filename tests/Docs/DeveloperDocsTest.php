@@ -155,6 +155,153 @@ final class DeveloperDocsTest extends TestCase
         }
     }
 
+    public function testIndexMarkdownLinksEveryGuide(): void
+    {
+        $index = $this->readDoc('README.md');
+        $files = glob($this->docsRoot . '/*.md') ?: [];
+        $this->assertNotSame([], $files, 'docs/ should contain markdown guides');
+        foreach ($files as $path) {
+            $name = basename($path);
+            if ($name === 'README.md') {
+                continue;
+            }
+            $this->assertMatchesRegularExpression(
+                '/\]\(' . preg_quote($name, '/') . '(?:#[^)]*)?\)/',
+                $index,
+                "docs/README.md should markdown-link {$name}"
+            );
+        }
+    }
+
+    public function testIndexCommandMapNamesEveryBuiltinGroup(): void
+    {
+        $index = $this->readDoc('README.md');
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Quick command map\s*$/', $index);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Not in core\s*$/', $index);
+
+        $matched = preg_match(
+            '/(?im)^##\s+Quick command map\s*$.*?```(?:text)?\n(.*?)```/s',
+            $index,
+            $parts
+        );
+        $this->assertSame(1, $matched, 'docs/README.md should have a Quick command map fenced block');
+        $block = $parts[1];
+
+        $src = (string) file_get_contents(dirname(__DIR__, 2) . '/ap-includes/class-ap-cli.php');
+        $start = strpos($src, 'public static function ensureBuiltins()');
+        $this->assertNotFalse($start, 'AP_Cli::ensureBuiltins() not found');
+        preg_match_all("/self::addCommand\(\s*'([a-z0-9-]+)'/", substr($src, $start), $found);
+        $this->assertNotSame([], $found[1], 'No addCommand() names found in ensureBuiltins()');
+        foreach (array_unique($found[1]) as $group) {
+            $this->assertStringContainsString(
+                'php ap-cli ' . $group,
+                $block,
+                "docs/README.md command map should name builtin group {$group}"
+            );
+        }
+
+        foreach (['--path', '--url', '--skip-plugins', '--skip-themes'] as $flag) {
+            $this->assertStringContainsString(
+                $flag,
+                $index,
+                "docs/README.md should name global flag {$flag}"
+            );
+        }
+        $this->assertStringContainsString('php install/cli.php', $block);
+        foreach (
+            [
+                'php ap-cli plugin install',
+                'php ap-cli theme install',
+                'php ap-cli core update',
+                'php ap-cli user update',
+                'php ap-cli user delete',
+                'php ap-cli post delete',
+                'php ap-cli module',
+                'php ap-cli forum',
+            ] as $invented
+        ) {
+            $this->assertStringNotContainsString(
+                $invented,
+                $block,
+                "command map must not list invented verb: {$invented}"
+            );
+        }
+    }
+
+    public function testIndexAsBuiltSurfaces(): void
+    {
+        $index = $this->readDoc('README.md');
+        foreach (
+            [
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                'one documentation tree',
+                'docs/index.md',
+                'public-safe',
+                'do not invent',
+                'not in core',
+                '/ap-admin/',
+                '/ap-json/',
+                'rest_api_enabled',
+                'analytics_enabled',
+                'ap_register_admin_page',
+                'try_files $uri $uri/ /index.php?$args',
+                'class-ap-analytics.php',
+                'class-ap-roles.php',
+                'class-ap-rewrite.php',
+                'class-ap-cli-install.php',
+                '0012_topic_type_enum.php',
+                'plugin install',
+                'theme install',
+                'core update',
+                'user update',
+                'post delete',
+                'php ap-cli module',
+                'php ap-cli forum',
+                'no site identity',
+                'administrator',
+                'subscriber',
+                'standard',
+                'announcement',
+                'rules',
+                'agorapress.extrovertednerd.com',
+                '/var/www/agorapress',
+                'session.save_path',
+                'example.com',
+                'admin@example.com',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $index,
+                "docs/README.md should mention: {$needle}"
+            );
+        }
+
+        $offset = stripos($index, '## Not in core');
+        $this->assertNotFalse($offset, 'docs/README.md must have a Not in core section');
+        $notCore = substr($index, $offset);
+        foreach (
+            [
+                'plugin install',
+                'theme install',
+                'core update',
+                'user update',
+                'post delete',
+                'php ap-cli module',
+                'php ap-cli forum',
+                'docs/index.md',
+                'Gutenberg',
+            ] as $invented
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $invented,
+                $notCore,
+                "docs/README.md Not in core should name {$invented}"
+            );
+        }
+    }
+
     public function testBotHandbookStatesPublicSafeRule(): void
     {
         $text = $this->readDoc('bot_handbook.md');

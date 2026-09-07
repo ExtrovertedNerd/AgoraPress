@@ -124,6 +124,32 @@ final class DocsPresenceTest extends TestCase
                 "docs/README.md should markdown-link {$name}"
             );
         }
+
+        $files = glob($this->docsRoot . '/*.md') ?: [];
+        foreach ($files as $path) {
+            $name = basename($path);
+            if ($name === 'README.md') {
+                continue;
+            }
+            $this->assertMatchesRegularExpression(
+                '/\]\(' . preg_quote($name, '/') . '(?:#[^)]*)?\)/',
+                $index,
+                "docs/README.md should markdown-link {$name}"
+            );
+        }
+
+        $this->assertMatchesRegularExpression('/(?im)^##\s+By audience\s*$/', $index);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Not in core\s*$/', $index);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Quick command map\s*$/', $index);
+
+        AP_Cli::ensureBuiltins();
+        foreach (AP_Cli::listCommands() as $group) {
+            $this->assertStringContainsString(
+                'php ap-cli ' . $group,
+                $index,
+                "docs/README.md should name builtin ap-cli group {$group}"
+            );
+        }
     }
 
     public function testBotHandbookStatesPublicSafeRuleAndDoNotInventSurfaces(): void
