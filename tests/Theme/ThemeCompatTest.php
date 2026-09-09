@@ -384,6 +384,14 @@ final class ThemeCompatTest extends TestCase
         $this->assertStringContainsString('lang=', $attrs);
     }
 
+    public function testCategoryTemplateTagsAreShimmed(): void
+    {
+        AP_Theme_Compat::ensureLoaded(true, $this->db);
+        $this->assertTrue(function_exists('get_the_category'));
+        $this->assertTrue(function_exists('get_the_category_list'));
+        $this->assertTrue(function_exists('the_category'));
+    }
+
     /**
      * Seed a minimal classic theme under the temp themes root.
      */

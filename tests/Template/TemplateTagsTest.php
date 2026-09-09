@@ -15,6 +15,7 @@ use AP_Migrator;
 use AP_Options;
 use AP_Post;
 use AP_Query;
+use AP_Taxonomy;
 use AP_User;
 use PDO;
 use PHPUnit\Framework\TestCase;
@@ -34,11 +35,13 @@ final class TemplateTagsTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
+        require_once $this->root . '/ap-includes/class-ap-taxonomy.php';
         require_once $this->root . '/ap-includes/class-ap-query.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-includes/template-tags.php';
 
         AP_Post::resetRegistry();
+        AP_Taxonomy::resetRegistry();
         AP_Options::flushCache();
         unset($GLOBALS['ap_query'], $GLOBALS['ap_post']);
 
@@ -52,6 +55,7 @@ final class TemplateTagsTest extends TestCase
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $migrator->migrate();
         AP_Post::ensureBuiltins();
+        AP_Taxonomy::ensureBuiltins();
 
         $this->db->insert('options', [
             'option_name' => 'blogname',
@@ -85,6 +89,7 @@ final class TemplateTagsTest extends TestCase
     protected function tearDown(): void
     {
         AP_Post::resetRegistry();
+        AP_Taxonomy::resetRegistry();
         AP_Options::flushCache();
         unset($GLOBALS['ap_query'], $GLOBALS['ap_post'], $GLOBALS['apdb']);
     }
@@ -218,5 +223,51 @@ final class TemplateTagsTest extends TestCase
         $this->assertContains('page', $classes);
         $this->assertContains('page-id-' . $pageId, $classes);
         $this->assertContains('singular', $classes);
+    }
+
+    public function testCategoryListIsLinkedAndEscaped(): void
+    {
+        $cat = AP_Taxonomy::insertTerm('News <Desk>', 'category', ['slug' => 'news-desk'], $this->db);
+        $this->assertIsArray($cat);
+        $catId = (int) $cat['term_id'];
+
+        $id = AP_Post::insert([
+            'post_title' => 'Categorized',
+            'post_content' => 'Body',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $this->assertGreaterThan(0, $id);
+        AP_Taxonomy::setObjectTerms($id, [$catId], 'category', false, $this->db);
+
+        $post = AP_Post::get($id, $this->db);
+        $GLOBALS['ap_post'] = $post;
+
+        $terms = ap_get_the_category(null, $this->db);
+        $this->assertCount(1, $terms);
+        $this->assertSame('News <Desk>', (string) ($terms[0]->name ?? ''));
+
+        $html = ap_get_the_category_list(', ', null, $this->db);
+        $this->assertStringContainsString('News &lt;Desk&gt;', $html);
+        $this->assertStringNotContainsString('News <Desk>', $html);
+        $this->assertStringContainsString('rel="tag"', $html);
+        $this->assertTrue(
+            str_contains($html, '?cat=' . $catId) || str_contains($html, 'news-desk'),
+            'Category list should link to the term archive'
+        );
+
+        ob_start();
+        ap_the_category(', ', null, $this->db);
+        $echoed = (string) ob_get_clean();
+        $this->assertSame($html, $echoed);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'No Cats',
+            'post_content' => 'Page',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+        ], $this->db);
+        $this->assertSame([], ap_get_the_category($pageId, $this->db));
+        $this->assertSame('', ap_get_the_category_list(', ', $pageId, $this->db));
     }
 }

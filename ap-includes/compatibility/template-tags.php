@@ -242,6 +242,48 @@ if (!function_exists('the_author')) {
     }
 }
 
+if (!function_exists('get_the_category')) {
+    /**
+     * @param int|false $post_id
+     *
+     * @return list<object>
+     */
+    function get_the_category(int|false $post_id = false): array
+    {
+        $post = $post_id === false ? null : $post_id;
+
+        return function_exists('ap_get_the_category')
+            ? ap_get_the_category($post)
+            : [];
+    }
+}
+
+if (!function_exists('get_the_category_list')) {
+    /**
+     * @param int|false $post_id
+     */
+    function get_the_category_list(string $separator = '', string $parents = '', int|false $post_id = false): string
+    {
+        unset($parents);
+        $post = $post_id === false ? null : $post_id;
+        if (function_exists('ap_get_the_category_list')) {
+            return ap_get_the_category_list($separator, $post);
+        }
+
+        return '';
+    }
+}
+
+if (!function_exists('the_category')) {
+    /**
+     * @param int|false $post_id
+     */
+    function the_category(string $separator = '', string $parents = '', int|false $post_id = false): void
+    {
+        echo get_the_category_list($separator, $parents, $post_id);
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Body / post class
 // -----------------------------------------------------------------------------

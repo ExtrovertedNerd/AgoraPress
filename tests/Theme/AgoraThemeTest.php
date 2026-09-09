@@ -18,6 +18,7 @@ use AP_Post;
 use AP_Query;
 use AP_Rewrite;
 use AP_Session;
+use AP_Taxonomy;
 use AP_Theme;
 use AP_User;
 use PDO;
@@ -40,6 +41,7 @@ final class AgoraThemeTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-session.php';
         require_once $this->root . '/ap-includes/class-ap-registration.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
+        require_once $this->root . '/ap-includes/class-ap-taxonomy.php';
         require_once $this->root . '/ap-includes/class-ap-query.php';
         require_once $this->root . '/ap-includes/class-ap-rewrite.php';
         require_once $this->root . '/ap-includes/class-ap-nav-menu.php';
@@ -60,6 +62,7 @@ final class AgoraThemeTest extends TestCase
             ap_reset_hooks();
         }
         AP_Post::resetRegistry();
+        AP_Taxonomy::resetRegistry();
         AP_Theme::reset();
         if (class_exists('AP_Assets', false)) {
             \AP_Assets::reset();
@@ -81,6 +84,7 @@ final class AgoraThemeTest extends TestCase
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $migrator->migrate();
         AP_Post::ensureBuiltins();
+        AP_Taxonomy::ensureBuiltins();
 
         foreach (
             [
@@ -109,6 +113,7 @@ final class AgoraThemeTest extends TestCase
         AP_Session::disableTestMode();
         AP_Session::resetCurrentUser();
         AP_Post::resetRegistry();
+        AP_Taxonomy::resetRegistry();
         AP_Theme::reset();
         AP_Nav_Menu::reset();
         AP_Options::flushCache();
@@ -577,9 +582,9 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('skip-link', $css);
         $this->assertMatchesRegularExpression('/@media\s*\(\s*max-width:/', $css);
         // Theme stylesheet version must stay in lockstep with AGORA_THEME_VERSION.
-        $this->assertStringContainsString('Version: 0.3.8', $css);
+        $this->assertStringContainsString('Version: 0.3.9', $css);
         $functions = (string) file_get_contents($this->root . '/ap-content/themes/agora/functions.php');
-        $this->assertStringContainsString("AGORA_THEME_VERSION = '0.3.8'", $functions);
+        $this->assertStringContainsString("AGORA_THEME_VERSION = '0.3.9'", $functions);
         // Desktop shell: blog, wide, and forum pages share one max width.
         $this->assertStringContainsString('--ap-max-wide: var(--ap-max)', $css);
         $this->assertStringContainsString('--ap-max-forum: var(--ap-max)', $css);
@@ -626,6 +631,9 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('.site-account__login', $css);
         $this->assertStringContainsString('.site-account__register', $css);
         $this->assertStringContainsString('.site-account--guest', $css);
+        $this->assertStringContainsString('.ap-meta-categories', $css);
+        $this->assertStringContainsString('.ap-entry__footer', $css);
+        $this->assertStringContainsString('.ap-entry__footer-label', $css);
     }
 
     public function testGuestAuthLinksLoginOnlyWhenRegistrationClosed(): void
@@ -1101,5 +1109,89 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('Short blurb for the card.', $html);
         $this->assertStringContainsString('ap-entry__excerpt', $html);
         $this->assertStringContainsString('agora-scheme-cloud', $html);
+    }
+
+    public function testBlogListAndSinglePostShowLinkedCategories(): void
+    {
+        $cat = AP_Taxonomy::insertTerm('News Desk', 'category', ['slug' => 'news-desk'], $this->db);
+        $this->assertIsArray($cat);
+        $catId = (int) $cat['term_id'];
+        $this->assertGreaterThan(0, $catId);
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Categorized Story',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Story body for the single view.',
+            'post_name' => 'categorized-story',
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+        AP_Taxonomy::setObjectTerms($postId, [$catId], 'category', false, $this->db);
+
+        $list = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($list);
+
+        ob_start();
+        AP_Theme::render($list, $this->db);
+        $listHtml = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Categorized Story', $listHtml);
+        $this->assertStringContainsString('News Desk', $listHtml);
+        $this->assertStringContainsString('ap-meta-categories', $listHtml);
+        $this->assertStringContainsString('rel="tag"', $listHtml);
+        $this->assertTrue(
+            str_contains($listHtml, 'news-desk') || str_contains($listHtml, '?cat=' . $catId),
+            'List category link should point at the term archive'
+        );
+        $this->assertStringNotContainsString('ap-entry__footer', $listHtml);
+
+        $single = new AP_Query(['p' => $postId], $this->db);
+        $this->assertTrue($single->is_single);
+        ap_set_query($single);
+
+        ob_start();
+        AP_Theme::render($single, $this->db);
+        $singleHtml = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Categorized Story', $singleHtml);
+        $this->assertStringContainsString('News Desk', $singleHtml);
+        $this->assertStringContainsString('ap-meta-categories', $singleHtml);
+        $this->assertStringContainsString('ap-entry__footer', $singleHtml);
+        $this->assertStringContainsString('Posted in', $singleHtml);
+        $this->assertTrue(
+            str_contains($singleHtml, 'news-desk') || str_contains($singleHtml, '?cat=' . $catId),
+            'Single category link should point at the term archive'
+        );
+    }
+
+    public function testPageTemplateDoesNotListPostCategories(): void
+    {
+        $cat = AP_Taxonomy::insertTerm('Should Not Appear', 'category', ['slug' => 'should-not-appear'], $this->db);
+        $this->assertIsArray($cat);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'About Categories Page',
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'post_content' => 'Page body',
+            'post_name' => 'about-categories-page',
+        ], $this->db);
+        $this->assertGreaterThan(0, $pageId);
+
+        $query = new AP_Query(['page_id' => $pageId], $this->db);
+        $this->assertTrue($query->is_page);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('About Categories Page', $html);
+        $this->assertStringNotContainsString('Should Not Appear', $html);
+        $this->assertStringNotContainsString('ap-meta-categories', $html);
+        $this->assertStringNotContainsString('ap-entry__footer', $html);
     }
 }

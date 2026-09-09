@@ -137,6 +137,10 @@ def test_style_css_polish_responsive_accessible_forum() -> None:
     assert ".site-account__login" in css
     assert ".site-account__register" in css
     assert ".site-account--guest" in css
+    # Post categories in blog list / single-post meta and single-post footer.
+    assert ".ap-meta-categories" in css
+    assert ".ap-entry__footer" in css
+    assert ".ap-entry__footer-label" in css
     for slug in SCHEMES:
         assert f"agora-scheme-{slug}" in css
 
@@ -156,6 +160,10 @@ def test_functions_define_scheme_and_forum_api() -> None:
         "function agora_get_topic_posts_data",
         "function agora_the_posts_pagination",
         "function agora_the_entry_meta",
+        "function agora_get_the_category_list",
+        "function agora_the_entry_footer",
+        "ap-meta-categories",
+        "Posted in",
         "function agora_get_account_indicator",
         "function agora_the_account_indicator",
         "function agora_get_guest_auth_links",
@@ -173,6 +181,18 @@ def test_functions_define_scheme_and_forum_api() -> None:
         "charcoal",
     ):
         assert needle in src, f"Expected {needle!r} in functions.php"
+
+
+def test_blog_templates_show_post_categories() -> None:
+    """Blog lists and single posts print category meta; pages do not."""
+    for name in ("index.php", "archive.php", "search.php", "single.php"):
+        src = (AGORA / name).read_text(encoding="utf-8")
+        assert "agora_the_entry_meta" in src, f"{name} should print entry meta"
+    single = (AGORA / "single.php").read_text(encoding="utf-8")
+    assert "agora_the_entry_footer" in single
+    page = (AGORA / "page.php").read_text(encoding="utf-8")
+    assert "agora_the_entry_meta" not in page
+    assert "agora_the_entry_footer" not in page
 
 
 def test_header_applies_body_class_and_a11y() -> None:

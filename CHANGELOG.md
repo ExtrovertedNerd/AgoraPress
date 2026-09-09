@@ -13,6 +13,7 @@ Documentation pass for humans and Grok Bot. Core remains `AP_VERSION` **0.3.6-be
 
 - Operator guides: `docs/install.md`, `docs/updates.md`, `docs/rewrites.md`, `docs/cli.md`, `docs/admin.md`, `docs/forums.md`, `docs/roles.md`, `docs/rest.md`, `docs/security.md`, `docs/troubleshooting.md`
 - Trusted-agent handbook `docs/bot_handbook.md` and lookup catalog `docs/features_and_functions.md`. `docs/README.md` is the only audience index (no `docs/index.md`)
+- Agora blog lists and single posts show linked categories (`ap_the_category`)
 
 ### Changed
 

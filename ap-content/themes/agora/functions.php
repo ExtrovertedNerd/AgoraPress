@@ -19,7 +19,7 @@ const AGORA_COLOR_SCHEME_OPTION = 'agora_color_scheme';
 const AGORA_DEFAULT_COLOR_SCHEME = 'marble';
 
 /** Stylesheet version (fallback when style.css header is unavailable). */
-const AGORA_THEME_VERSION = '0.3.8';
+const AGORA_THEME_VERSION = '0.3.9';
 
 /**
  * Register theme chrome: nav locations + modular sidebars (idempotent).
@@ -700,13 +700,26 @@ function agora_the_posts_pagination(?AP_Query $query = null): void
 }
 
 /**
- * Print entry meta (date + optional author) for the current post.
+ * Linked category names for the current post, or empty when none are assigned.
+ */
+function agora_get_the_category_list(): string
+{
+    if (!function_exists('ap_get_the_category_list')) {
+        return '';
+    }
+
+    return ap_get_the_category_list(', ');
+}
+
+/**
+ * Print entry meta (author, date, and categories) for the current post.
  */
 function agora_the_entry_meta(): void
 {
     $date = function_exists('agora_the_date') ? agora_the_date() : '';
     $author = function_exists('ap_get_the_author') ? ap_get_the_author() : '';
-    if ($date === '' && $author === '') {
+    $categories = agora_get_the_category_list();
+    if ($date === '' && $author === '' && $categories === '') {
         return;
     }
 
@@ -719,7 +732,30 @@ function agora_the_entry_meta(): void
         echo '<time' . $cls . ' datetime="' . agora_esc_attr($date) . '">'
             . agora_esc($date) . '</time>';
     }
+    if ($categories !== '') {
+        $cls = ($author !== '' || $date !== '') ? ' ap-meta-sep' : '';
+        echo '<span class="ap-meta-categories' . $cls . '">'
+            . '<span class="screen-reader-text">Posted in </span>'
+            . $categories
+            . '</span>';
+    }
     echo '</p>';
+}
+
+/**
+ * Print a post-footer "Posted in" category list (single posts).
+ */
+function agora_the_entry_footer(): void
+{
+    $categories = agora_get_the_category_list();
+    if ($categories === '') {
+        return;
+    }
+
+    echo '<footer class="ap-entry__footer">';
+    echo '<span class="ap-entry__footer-label">Posted in</span> ';
+    echo $categories;
+    echo '</footer>';
 }
 
 /**

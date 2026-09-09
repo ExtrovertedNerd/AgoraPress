@@ -25,6 +25,11 @@ if (function_exists('ap_have_posts') && ap_have_posts()) {
             <div class="ap-entry__content">
                 <?php agora_the_content(); ?>
             </div>
+            <?php
+            if (function_exists('agora_the_entry_footer')) {
+                agora_the_entry_footer();
+            }
+            ?>
         </article>
         <?php
         // Comments scaffold (approved comments when the comment API is available).

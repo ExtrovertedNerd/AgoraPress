@@ -316,6 +316,124 @@ function ap_the_author_avatar(
 }
 
 // -----------------------------------------------------------------------------
+// Categories
+// -----------------------------------------------------------------------------
+
+/**
+ * Category terms assigned to a post (or the current loop post).
+ *
+ * @return list<object>
+ */
+function ap_get_the_category(AP_Post|int|null $post = null, ?AP_DB $db = null): array
+{
+    $obj = ap_resolve_template_post($post);
+    if (!$obj instanceof AP_Post || (int) $obj->ID < 1) {
+        return [];
+    }
+    if (!class_exists('AP_Taxonomy', false)) {
+        return [];
+    }
+
+    $id = (int) $obj->ID;
+    $terms = function_exists('ap_get_post_categories')
+        ? ap_get_post_categories($id, ['fields' => 'all'], $db)
+        : AP_Taxonomy::getObjectTerms($id, 'category', ['fields' => 'all'], $db);
+
+    $out = [];
+    foreach ($terms as $term) {
+        if (!is_object($term)) {
+            continue;
+        }
+        $name = isset($term->name) ? trim((string) $term->name) : '';
+        if ($name === '') {
+            continue;
+        }
+        $out[] = $term;
+    }
+
+    return $out;
+}
+
+/**
+ * Archive URL for a category term (empty when the term has no locator).
+ */
+function ap_get_the_category_link(object $term, ?AP_DB $db = null): string
+{
+    if (function_exists('ap_get_term_link') && class_exists('AP_Rewrite', false)) {
+        try {
+            $url = (string) ap_get_term_link($term, 'category', $db);
+            if ($url !== '') {
+                return $url;
+            }
+        } catch (Throwable) {
+            // Fall through to query-string locators.
+        }
+    }
+
+    $id = isset($term->term_id) ? (int) $term->term_id : 0;
+    if ($id > 0) {
+        return '?cat=' . $id;
+    }
+    $slug = isset($term->slug) ? (string) $term->slug : '';
+    if ($slug !== '') {
+        return '?category_name=' . rawurlencode($slug);
+    }
+
+    return '';
+}
+
+/**
+ * HTML list of linked category names for a post (or the current loop post).
+ *
+ * Names are escaped. When $separator is empty, returns a `<ul>` list; otherwise
+ * the links are joined with $separator.
+ */
+function ap_get_the_category_list(
+    string $separator = ', ',
+    AP_Post|int|null $post = null,
+    ?AP_DB $db = null
+): string {
+    $cats = ap_get_the_category($post, $db);
+    if ($cats === []) {
+        return '';
+    }
+
+    $items = [];
+    foreach ($cats as $term) {
+        $name = ap_esc_html((string) ($term->name ?? ''));
+        if ($name === '') {
+            continue;
+        }
+        $url = ap_get_the_category_link($term, $db);
+        if ($url !== '') {
+            $items[] = '<a href="' . ap_esc_url($url) . '" rel="tag">' . $name . '</a>';
+        } else {
+            $items[] = '<span>' . $name . '</span>';
+        }
+    }
+    if ($items === []) {
+        return '';
+    }
+
+    if ($separator === '') {
+        return '<ul class="ap-post-categories"><li>' . implode('</li><li>', $items) . '</li></ul>';
+    }
+
+    return implode($separator, $items);
+}
+
+/**
+ * Echo linked category names for a post (or the current loop post).
+ */
+function ap_the_category(
+    string $separator = ', ',
+    AP_Post|int|null $post = null,
+    ?AP_DB $db = null
+): void {
+    echo ap_get_the_category_list($separator, $post, $db);
+}
+
+// -----------------------------------------------------------------------------
 // Site identity
 // -----------------------------------------------------------------------------
 
