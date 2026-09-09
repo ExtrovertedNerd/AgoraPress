@@ -27,7 +27,7 @@ Documentation pass for humans and Grok Bot. Core remains `AP_VERSION` **0.3.6-be
 
 ### Fixed
 
-- Installer creates `ap-content/uploads/` when missing if `ap-content/` is writable
+- Installer creates `ap-content/uploads/` when missing
 
 ### Removed
 
@@ -84,9 +84,9 @@ Site Icon (favicon pack) for Settings → General. No schema change (`AP_DB_VERS
 
 ### Added
 
-- **Site Icon (favicon pack):** Settings → General → Site Icon — upload, Media Library pick, preview, remove (`manage_options` + nonce); option `site_icon` = attachment ID (`0` = none)
-- **Derivatives on set/change:** PNG sizes **32 / 180 / 192 / 512** plus multi-size `.ico` when possible (GD or Imagick); cleanup of previous pack on replace/remove; meta under `_ap_attachment_metadata` key `site_icon` (not intermediate `sizes`)
-- **Front-end head tags:** `AP_Media::printSiteIconTags()` on `ap_head` when `site_icon` &gt; 0 (`rel="icon"` + `apple-touch-icon`); filter `ap_site_icon_meta_tags`; no synthetic root `favicon.ico` link when unset (manual web-root `favicon.ico` remains a passive browser fallback)
+- **Site Icon (favicon pack):** Settings → General; option `site_icon` = attachment ID (`0` = none)
+- **Derivatives on set/change:** PNG **32 / 180 / 192 / 512** plus multi-size `.ico` (GD or Imagick); previous pack cleaned on replace/remove
+- **Front-end head tags:** `AP_Media::printSiteIconTags()` on `ap_head` when set (`rel="icon"` + `apple-touch-icon`); filter `ap_site_icon_meta_tags`
 - **Developer docs:** `docs/site-icon.md` (admin flow, sizes, head output, hooks)
 
 ### Tests
