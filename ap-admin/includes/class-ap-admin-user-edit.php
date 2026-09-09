@@ -107,6 +107,10 @@ class AP_Admin_User_Edit
             }
         }
 
+        if (!$isNew && !empty($input['ap_resend_verification'])) {
+            return self::handleResendVerification($id, $db);
+        }
+
         $data = self::collectFields($input, $isNew, $mode, $actorId, $db);
 
         $passErrors = self::passwordErrors($data, $isNew);
@@ -439,7 +443,84 @@ class AP_Admin_User_Edit
 
         $html .= '</div></form>';
 
+        if (
+            !$isNew
+            && $user !== null
+            && $mode === 'update'
+            && class_exists('AP_Registration', false)
+            && AP_Registration::userAwaitsVerification($user)
+        ) {
+            $html .= self::renderResendVerificationForm($user, $actorId);
+        }
+
         return $html;
+    }
+
+    /**
+     * Separate form so Resend verification does not save other field changes.
+     */
+    public static function renderResendVerificationForm(AP_User $user, int $actorId): string
+    {
+        $actionUrl = AP_Admin::url('user-edit.php', ['user_id' => $user->ID]);
+        $html = '<form method="post" action="' . ap_esc_url($actionUrl)
+            . '" class="ap-user-form ap-user-resend-form">';
+        $html .= ap_nonce_field('update-user-' . $user->ID, '_ap_nonce', false, $actorId > 0 ? $actorId : null);
+        $html .= '<input type="hidden" name="user_ID" value="' . (int) $user->ID . '" />';
+        $html .= '<input type="hidden" name="ap_user_mode" value="update" />';
+        $html .= '<fieldset class="ap-fieldset">';
+        $html .= '<legend>Email verification</legend>';
+        $html .= '<p class="description">This account is waiting for email verification.</p>';
+        $html .= '<p class="submit">';
+        $html .= '<button type="submit" name="ap_resend_verification" value="1" class="button">'
+            . 'Resend verification</button>';
+        $html .= '</p>';
+        $html .= '</fieldset>';
+        $html .= '</form>';
+
+        return $html;
+    }
+
+    /**
+     * @return array{
+     *   ok: bool,
+     *   id: int,
+     *   message_key: string,
+     *   errors: list<string>,
+     *   user: ?AP_User
+     * }
+     */
+    private static function handleResendVerification(int $id, AP_DB $db): array
+    {
+        $user = AP_User::getById($id, $db);
+        $base = [
+            'ok' => false,
+            'id' => $id,
+            'message_key' => 'error',
+            'errors' => [],
+            'user' => $user,
+        ];
+        if ($user === null || !class_exists('AP_Registration', false)) {
+            $base['errors'][] = 'Could not resend the verification email.';
+
+            return $base;
+        }
+
+        $result = AP_Registration::resendVerificationForUser($user, $db, false);
+        if ($result['sent']) {
+            return [
+                'ok' => true,
+                'id' => $id,
+                'message_key' => 'verification_resent',
+                'errors' => [],
+                'user' => $user,
+            ];
+        }
+
+        $base['errors'] = $result['errors'] !== []
+            ? $result['errors']
+            : ['The verification email could not be sent.'];
+
+        return $base;
     }
 
     /**

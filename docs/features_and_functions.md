@@ -36,6 +36,16 @@
 | `siteurl` | (installer `--site-url`) | Settings → General | [admin.md](admin.md#settings) |
 | `home` | (installer `--site-url`) | Settings → General | [admin.md](admin.md#settings) |
 | `admin_email` | (installer) | Settings → General | [admin.md](admin.md#settings) |
+| `mail_from_name` | `''` (falls back to `blogname`) | Settings → Mail | [admin.md](admin.md#settings) |
+| `mail_from_email` | `''` (falls back to `admin_email`; not the same option) | Settings → Mail | [admin.md](admin.md#settings) |
+| `mail_reply_to` | `''` (falls back to `admin_email`) | Settings → Mail | [admin.md](admin.md#settings) |
+| `mail_transport` | `php` (`php` \| `smtp`) | Settings → Mail | [admin.md](admin.md#settings) |
+| `smtp_host` | `''` | Settings → Mail | [admin.md](admin.md#settings) |
+| `smtp_port` | `587` | Settings → Mail | [admin.md](admin.md#settings) |
+| `smtp_encryption` | `tls` (`none` \| `tls` \| `ssl`) | Settings → Mail | [admin.md](admin.md#settings) |
+| `smtp_user` | `''` | Settings → Mail | [admin.md](admin.md#settings) |
+| `smtp_pass` | `''` (write-only in ACP) | Settings → Mail | [admin.md](admin.md#settings) |
+| `mail_last_error` | `''` (autoload `no`; last send failure) | Settings → Mail and Tools → Site Health | [admin.md](admin.md#tools) · [troubleshooting.md](troubleshooting.md#mail-not-arriving) |
 | `users_can_register` | `0` | Settings → General | [admin.md](admin.md#sign-in) |
 | `require_email_verification` | `1` | Settings → General | [admin.md](admin.md#settings) |
 | `registration_captcha` | `off` (`off` \| `math`) | Settings → General | [admin.md](admin.md#settings) |
@@ -136,6 +146,9 @@
 | `rate_limit_upload_max` | `40` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_upload_window` | `600` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_upload_lockout` | `300` | **no ACP screen** | [security.md](security.md) |
+| `rate_limit_mail_max` | `20` | **no ACP screen** | [security.md](security.md) |
+| `rate_limit_mail_window` | `3600` | **no ACP screen** | [security.md](security.md) |
+| `rate_limit_mail_lockout` | `3600` | **no ACP screen** | [security.md](security.md) |
 
 | CLI-only options | Command | Guide |
 |------------------|---------|-------|
@@ -343,6 +356,7 @@
 | `forum-groups.php` | Groups + ACL | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
 | `forum-topics.php` `forum-moderation.php` | Topics / mod queue | `moderate_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
 | `options-general.php` | General + **Site Icon** | `manage_options` | [admin.md](admin.md#settings) · [site-icon.md](site-icon.md) |
+| `options-mail.php` | Mail (from identity, php/smtp, test to `admin_email`) | `manage_options` | [admin.md](admin.md#settings) |
 | `options-writing.php` | Writing | `manage_options` | [admin.md](admin.md#settings) |
 | `options-reading.php` | Reading / front page / feeds | `manage_options` | [admin.md](admin.md#settings) |
 | `options-discussion.php` | Discussion / avatars | `manage_options` | [admin.md](admin.md#settings) |

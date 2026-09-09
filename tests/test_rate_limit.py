@@ -50,6 +50,7 @@ def test_rate_limit_api_surface() -> None:
         "ACTION_REGISTER",
         "ACTION_PASSWORD_RESET",
         "ACTION_UPLOAD",
+        "ACTION_MAIL",
         "function isLimited",
         "function check",
         "function hit",
@@ -58,6 +59,8 @@ def test_rate_limit_api_surface() -> None:
         "function checkLogin",
         "function recordFailedLogin",
         "function clearLogin",
+        "function checkMail",
+        "function recordMail",
         "function lockoutMessage",
         "function identityBucket",
         "function ipBucket",
@@ -83,6 +86,7 @@ def test_functions_and_bootstrap_wire_rate_limit() -> None:
     installer = INSTALLER.read_text(encoding="utf-8")
     assert "rate_limit_login_max" in installer
     assert "rate_limit_upload_max" in installer
+    assert "rate_limit_mail_max" in installer
 
 
 def test_session_and_login_ui_use_protection() -> None:
@@ -106,6 +110,11 @@ def test_registration_and_media_wire_limits() -> None:
     assert "scanSvgSafety" in media
     assert "isRasterImageExt" in media
     assert "skip_rate_limit" in media
+
+    mail = (ROOT / "ap-includes" / "class-ap-mail.php").read_text(encoding="utf-8")
+    assert "consumeOutboundQuota" in mail
+    assert "ACTION_MAIL" in mail
+    assert "checkMail" in mail
 
 
 def test_phpunit_rate_limit_suite() -> None:

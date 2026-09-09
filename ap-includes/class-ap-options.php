@@ -757,6 +757,45 @@ class AP_Options
     }
 
     /**
+     * Persist Mail settings (from identity, transport, SMTP). Password is write-only:
+     * an empty `smtp_pass` keeps the stored secret. Keys omitted from `$settings`
+     * keep their stored values (the Settings API otherwise writes every registered
+     * option in the group).
+     *
+     * @param array<string, mixed> $settings
+     */
+    public static function updateMailSettings(array $settings, ?AP_DB $db = null): bool
+    {
+        if (class_exists('AP_Settings', false)) {
+            $defaults = [
+                'mail_from_name' => '',
+                'mail_from_email' => '',
+                'mail_reply_to' => '',
+                'mail_transport' => 'php',
+                'smtp_host' => '',
+                'smtp_port' => '587',
+                'smtp_encryption' => 'tls',
+                'smtp_user' => '',
+            ];
+            $input = [];
+            foreach ($defaults as $key => $default) {
+                if (array_key_exists($key, $settings)) {
+                    $input[$key] = $settings[$key];
+                } else {
+                    $input[$key] = self::get($key, $default, $db);
+                }
+            }
+            if (array_key_exists('smtp_pass', $settings) && (string) $settings['smtp_pass'] !== '') {
+                $input['smtp_pass'] = $settings['smtp_pass'];
+            }
+
+            return AP_Settings::save('mail', $input, $db);
+        }
+
+        return false;
+    }
+
+    /**
      * Persist Forum settings (display, guests, features, attachments, moderation).
      *
      * @param array<string, mixed> $settings

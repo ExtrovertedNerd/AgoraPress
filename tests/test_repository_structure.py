@@ -60,6 +60,7 @@ REQUIRED_PATHS: list[str] = [
     "ap-includes/class-ap-user.php",
     "ap-includes/class-ap-session.php",
     "ap-includes/class-ap-mail.php",
+    "ap-includes/class-ap-smtp.php",
     "ap-includes/class-ap-registration.php",
     "ap-includes/class-ap-roles.php",
     "ap-includes/class-ap-theme.php",

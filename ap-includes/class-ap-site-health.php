@@ -83,6 +83,7 @@ class AP_Site_Health
         $checks[] = self::checkTelemetry();
         $checks[] = self::checkHttps($db);
         $checks[] = self::checkAdminEmail($db);
+        $checks[] = self::checkMail($db);
         $checks[] = self::checkPrivacyPolicy($db);
         $checks[] = self::checkModules($db);
         $checks[] = self::checkCoreUpdate($db);
@@ -189,6 +190,10 @@ class AP_Site_Health
             'modules' => [
                 'label' => 'Modules & features',
                 'fields' => self::infoModules($db),
+            ],
+            'mail' => [
+                'label' => 'Mail',
+                'fields' => self::infoMail($db),
             ],
         ];
 
@@ -650,6 +655,113 @@ class AP_Site_Health
             'label' => 'Administration email',
             'status' => self::STATUS_RECOMMENDED,
             'message' => 'Set a valid administration email under Settings → General.',
+        ];
+    }
+
+    /**
+     * Outbound mail configuration and last stored send error.
+     *
+     * Does not send a message (Site Health never transmits data off-site).
+     *
+     * @return array{id: string, label: string, status: string, message: string}
+     */
+    private static function checkMail(?AP_DB $db): array
+    {
+        $id = 'mail';
+        $label = 'Outbound mail';
+
+        if (!class_exists('AP_Mail', false)) {
+            $path = dirname(__FILE__) . '/class-ap-mail.php';
+            if (is_file($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('AP_Mail', false)) {
+            return [
+                'id' => $id,
+                'label' => $label,
+                'status' => self::STATUS_RECOMMENDED,
+                'message' => 'Mail helper is not available.',
+            ];
+        }
+
+        $snap = AP_Mail::healthSnapshot($db);
+        $from = $snap['from_email'] !== '' ? $snap['from_email'] : '(not set)';
+        $last = $snap['last_error'];
+
+        if ($snap['transport'] === AP_Mail::TRANSPORT_SMTP) {
+            $host = $snap['smtp_host'];
+            if ($host === '') {
+                $message = 'Transport is SMTP but no host is set. Configure Settings → Mail'
+                    . ' or AP_SMTP_HOST. Site Health does not send mail.';
+                if ($last !== '') {
+                    $message .= ' Last error: ' . $last;
+                }
+
+                return [
+                    'id' => $id,
+                    'label' => $label,
+                    'status' => self::STATUS_RECOMMENDED,
+                    'message' => $message,
+                ];
+            }
+
+            $detail = sprintf(
+                'SMTP %s:%d (%s). From: %s.',
+                $host,
+                $snap['smtp_port'],
+                $snap['smtp_encryption'],
+                $from
+            );
+            if ($last !== '') {
+                return [
+                    'id' => $id,
+                    'label' => $label,
+                    'status' => self::STATUS_RECOMMENDED,
+                    'message' => $detail . ' Last error: ' . $last
+                        . ' Send a test from Settings → Mail. Site Health does not send mail.',
+                ];
+            }
+
+            return [
+                'id' => $id,
+                'label' => $label,
+                'status' => self::STATUS_GOOD,
+                'message' => $detail . ' No stored last error. Send a test from Settings → Mail'
+                    . ' to confirm delivery. Site Health does not send mail.',
+            ];
+        }
+
+        $detail = 'Using PHP mail(). From: ' . $from . '.';
+        if (!$snap['php_mail_available']) {
+            $message = $detail . ' PHP mail() is not available. Switch to SMTP under Settings → Mail.';
+            if ($last !== '') {
+                $message .= ' Last error: ' . $last;
+            }
+
+            return [
+                'id' => $id,
+                'label' => $label,
+                'status' => self::STATUS_RECOMMENDED,
+                'message' => $message,
+            ];
+        }
+        if ($last !== '') {
+            return [
+                'id' => $id,
+                'label' => $label,
+                'status' => self::STATUS_RECOMMENDED,
+                'message' => $detail . ' Last error: ' . $last
+                    . ' Send a test from Settings → Mail. Site Health does not send mail.',
+            ];
+        }
+
+        return [
+            'id' => $id,
+            'label' => $label,
+            'status' => self::STATUS_GOOD,
+            'message' => $detail . ' No stored last error. Delivery depends on the host MTA.'
+                . ' Send a test from Settings → Mail to confirm. Site Health does not send mail.',
         ];
     }
 
@@ -1317,6 +1429,53 @@ class AP_Site_Health
         ];
 
         return $fields;
+    }
+
+    /**
+     * Mail transport and last error (no SMTP secrets).
+     *
+     * @return list<array{label: string, value: string}>
+     */
+    private static function infoMail(?AP_DB $db): array
+    {
+        if (!class_exists('AP_Mail', false)) {
+            $path = dirname(__FILE__) . '/class-ap-mail.php';
+            if (is_file($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('AP_Mail', false)) {
+            return [
+                ['label' => 'Transport', 'value' => 'unavailable'],
+            ];
+        }
+
+        $snap = AP_Mail::healthSnapshot($db);
+        $constants = $snap['override_constants'];
+
+        return [
+            ['label' => 'Transport', 'value' => $snap['transport']],
+            ['label' => 'From email', 'value' => $snap['from_email'] !== '' ? $snap['from_email'] : '(not set)'],
+            ['label' => 'From name', 'value' => $snap['from_name'] !== '' ? $snap['from_name'] : '(not set)'],
+            ['label' => 'Reply-To', 'value' => $snap['reply_to'] !== '' ? $snap['reply_to'] : '(not set)'],
+            [
+                'label' => 'SMTP host',
+                'value' => $snap['smtp_host'] !== '' ? $snap['smtp_host'] : '(not set)',
+            ],
+            ['label' => 'SMTP port', 'value' => (string) $snap['smtp_port']],
+            ['label' => 'SMTP encryption', 'value' => $snap['smtp_encryption']],
+            ['label' => 'SMTP username', 'value' => $snap['smtp_user_set'] ? 'set' : 'not set'],
+            ['label' => 'SMTP password', 'value' => $snap['smtp_pass_set'] ? 'set' : 'not set'],
+            [
+                'label' => 'Last error',
+                'value' => $snap['last_error'] !== '' ? $snap['last_error'] : '(none)',
+            ],
+            ['label' => 'PHP mail()', 'value' => $snap['php_mail_available'] ? 'available' : 'unavailable'],
+            [
+                'label' => 'Override constants',
+                'value' => $constants !== [] ? implode(', ', $constants) : '(none defined)',
+            ],
+        ];
     }
 
     // -------------------------------------------------------------------------

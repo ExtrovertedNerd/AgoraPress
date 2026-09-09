@@ -58,6 +58,7 @@ def test_suite_health_lists_critical_areas() -> None:
         "WxrImporterTest",
         "AssetsTest",
         "MailTest",
+        "SmtpTest",
         "ContentCoexistenceTest",
         "RolesCapsContentTest",
     ):

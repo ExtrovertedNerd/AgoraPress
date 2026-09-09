@@ -108,6 +108,8 @@ The converter reports against a known list. Common shims include:
 
 **Escaping / sanitize (extended):** `esc_html`, `esc_attr`, `esc_url`, `esc_js`, `esc_xml`, `sanitize_text_field`, `sanitize_email`, `absint`, …
 
+**Mail:** `wp_mail( $to, $subject, $message, $headers = '', $attachments = [] )` → `AP_Mail::send()`. Defined **only** when this layer is loaded. Native plugins should call `ap_mail()` / `AP_Mail::send()` instead. Attachments are ignored this pass (no MIME parts). Caller `Content-Type` is dropped so outbound mail stays `text/plain`. Transport and From identity follow Settings → Mail. The `mail` rate limit on `AP_Mail::send()` applies to this shim too — [security.md](security.md).
+
 Native AgoraPress themes and plugins should prefer **`ap_*`** names so they work whether or not shims are loaded.
 
 ## Safe functions.php loading

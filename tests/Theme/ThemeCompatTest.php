@@ -11,7 +11,9 @@ declare(strict_types=1);
 namespace AgoraPress\Tests\Theme;
 
 use AP_DB;
+use AP_Mail;
 use AP_Migrator;
+use AP_Options;
 use AP_Post;
 use AP_Query;
 use AP_Theme;
@@ -44,6 +46,7 @@ final class ThemeCompatTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-theme.php';
         require_once $this->root . '/ap-includes/class-ap-assets.php';
         require_once $this->root . '/ap-includes/functions.php';
+        require_once $this->root . '/ap-includes/class-ap-mail.php';
         require_once $this->root . '/ap-includes/template-tags.php';
         require_once $this->root . '/ap-includes/compatibility/load.php';
 
@@ -53,6 +56,8 @@ final class ThemeCompatTest extends TestCase
         AP_Post::resetRegistry();
         AP_Theme::reset();
         AP_Theme_Compat::reset();
+        AP_Mail::resetForTests();
+        AP_Options::flushCache();
         unset($GLOBALS['ap_query'], $GLOBALS['ap_post'], $GLOBALS['ap_theme_support']);
 
         $pdo = new PDO('sqlite::memory:', null, null, [
@@ -94,6 +99,8 @@ final class ThemeCompatTest extends TestCase
         AP_Post::resetRegistry();
         AP_Theme::reset();
         AP_Theme_Compat::reset();
+        AP_Mail::resetForTests();
+        AP_Options::flushCache();
         unset($GLOBALS['ap_query'], $GLOBALS['ap_post'], $GLOBALS['apdb'], $GLOBALS['ap_theme_support']);
         $this->removeDir($this->tempThemes);
     }
@@ -174,6 +181,7 @@ final class ThemeCompatTest extends TestCase
         $this->assertTrue(function_exists('is_home'));
         $this->assertTrue(function_exists('body_class'));
         $this->assertTrue(function_exists('get_stylesheet_uri'));
+        $this->assertTrue(function_exists('wp_mail'));
         $this->assertTrue(AP_Theme_Compat::shimsLoaded());
     }
 
@@ -390,6 +398,98 @@ final class ThemeCompatTest extends TestCase
         $this->assertTrue(function_exists('get_the_category'));
         $this->assertTrue(function_exists('get_the_category_list'));
         $this->assertTrue(function_exists('the_category'));
+    }
+
+    public function testWpMailRoutesThroughApMail(): void
+    {
+        AP_Theme_Compat::ensureLoaded(true, $this->db);
+        AP_Mail::resetForTests();
+        AP_Mail::enableTestMode();
+
+        $ok = wp_mail('user@example.test', 'Hello', 'Body text');
+        $this->assertTrue($ok);
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('user@example.test', $outbox[0]['to']);
+        $this->assertSame('Hello', $outbox[0]['subject']);
+        $this->assertStringContainsString('Body text', $outbox[0]['message']);
+        $this->assertStringContainsString('Content-Type: text/plain; charset=UTF-8', $outbox[0]['headers']);
+    }
+
+    public function testWpMailNormalizesRecipientsAndHeaders(): void
+    {
+        AP_Theme_Compat::ensureLoaded(true, $this->db);
+        AP_Mail::resetForTests();
+        AP_Mail::enableTestMode();
+
+        $ok = wp_mail(
+            'Jane Doe <jane@example.test>, other@example.test',
+            'Subj',
+            'Hi',
+            "Reply-To: reply@example.test\nX-Custom: one"
+        );
+        $this->assertTrue($ok);
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('jane@example.test, other@example.test', $outbox[0]['to']);
+        $this->assertStringContainsString('Reply-To: reply@example.test', $outbox[0]['headers']);
+        $this->assertStringContainsString('X-Custom: one', $outbox[0]['headers']);
+    }
+
+    public function testWpMailAcceptsArrayAndAssocHeadersAndDropsHtmlContentType(): void
+    {
+        AP_Theme_Compat::ensureLoaded(true, $this->db);
+        AP_Mail::resetForTests();
+        AP_Mail::enableTestMode();
+
+        $ok = wp_mail(
+            ['a@example.test'],
+            'H',
+            'B',
+            [
+                'From: Sender <sender@example.test>',
+                'Content-Type' => 'text/html; charset=UTF-8',
+                'Cc' => 'copy@example.test',
+            ]
+        );
+        $this->assertTrue($ok);
+        $headers = AP_Mail::getTestOutbox()[0]['headers'];
+        $this->assertStringContainsString('From: Sender <sender@example.test>', $headers);
+        $this->assertStringContainsString('Cc: copy@example.test', $headers);
+        $this->assertStringContainsString('Content-Type: text/plain; charset=UTF-8', $headers);
+        $this->assertStringNotContainsString('text/html', $headers);
+    }
+
+    public function testWpMailIgnoresAttachmentsAndRejectsInvalidRecipients(): void
+    {
+        AP_Theme_Compat::ensureLoaded(true, $this->db);
+        AP_Mail::resetForTests();
+        AP_Mail::enableTestMode();
+
+        $ok = wp_mail('ok@example.test', 'With file', 'Body', '', ['/tmp/not-sent.txt']);
+        $this->assertTrue($ok);
+        $this->assertCount(1, AP_Mail::getTestOutbox());
+
+        AP_Mail::clearTestOutbox();
+        $this->assertFalse(wp_mail('not-an-email', 'Nope', 'Body'));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertSame('No valid recipients.', AP_Mail::lastError());
+    }
+
+    public function testConverterTreatsWpMailAsShimmed(): void
+    {
+        $dir = $this->tempThemes . '/mail-shim-theme';
+        $this->assertTrue(mkdir($dir, 0700, true));
+        file_put_contents($dir . '/style.css', "/*\nTheme Name: Mail Shim\n*/\n");
+        file_put_contents($dir . '/index.php', "<?php\n");
+        file_put_contents(
+            $dir . '/functions.php',
+            "<?php\nwp_mail('a@example.com', 'S', 'B');\n"
+        );
+
+        $report = AP_Theme_Converter::analyzePath($dir);
+        $this->assertContains('wp_mail', $report['shimmed_used']);
+        $this->assertNotContains('wp_mail', $report['unshimmed_used']);
     }
 
     /**

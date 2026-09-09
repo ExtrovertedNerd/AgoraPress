@@ -384,6 +384,14 @@ engine). The sample also documents `AP_SAVEQUERIES` / `AP_DEBUG_QUERIES`
 the **generated** installer config omits those extra knobs (runtime defaults
 stay off / unset).
 
+Optional outbound-mail constants are comments in the sample, not live
+defines: `AP_MAIL_FROM_NAME`, `AP_MAIL_FROM_EMAIL`, `AP_MAIL_TRANSPORT`,
+`AP_SMTP_HOST`, `AP_SMTP_PORT`, `AP_SMTP_ENCRYPTION`, `AP_SMTP_USER`,
+`AP_SMTP_PASS`. When defined they override Settings → Mail options so an
+SMTP password can live next to the database password. Leave them commented
+to use the admin screen. Generic examples only (`smtp.example.com`,
+`noreply@example.com`) — never a real password.
+
 Copying the sample is **not** a full install. Schema migrations still need to
 run. Because a readable `ap-config.php` is the “installed” signal, the web and
 CLI **installers will refuse** once that file exists. Apply schema with:
@@ -483,7 +491,8 @@ Do these after **any** install path. Admin is `/ap-admin/`.
      chosen structure. Details: [rewrites.md](rewrites.md).
 4. **Tools → Site Health** (`site-health.php`) — PHP/extensions, writable
    paths, database, schema vs `AP_DB_VERSION`, unique salts, debug off, HTTPS,
-   admin email, privacy policy, modules, pending core update (from cached
+   admin email, outbound mail (transport + last error; it does **not** send a
+   test message), privacy policy, modules, pending core update (from cached
    `version.json` only). CLI equivalent: `php ap-cli site health`.
 5. **Site URL** — production should be `https://…`. Terminate TLS on the web
    server. Site Health warns when the stored URL is not HTTPS.

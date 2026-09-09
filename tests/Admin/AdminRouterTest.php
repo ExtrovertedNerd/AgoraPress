@@ -578,6 +578,25 @@ final class AdminRouterTest extends TestCase
         $this->assertTrue($found, 'options-general menu item present');
     }
 
+    public function testMailSettingsMenuItem(): void
+    {
+        $menu = AP_Admin::menuItems('options-mail');
+        $found = false;
+        foreach ($menu as $item) {
+            if ($item['id'] === 'options-mail') {
+                $this->assertTrue($item['active']);
+                $this->assertSame('Mail', $item['label']);
+                $this->assertSame('settings', $item['section']);
+                $this->assertSame('manage_options', $item['cap']);
+                $this->assertStringContainsString('options-mail.php', $item['url']);
+                $found = true;
+            } else {
+                $this->assertFalse($item['active'], $item['id']);
+            }
+        }
+        $this->assertTrue($found, 'options-mail menu item present');
+    }
+
     public function testMenuActiveStateWiresRegisteredPageScreenId(): void
     {
         AP_Admin_Menu::register([

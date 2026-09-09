@@ -42,8 +42,12 @@ def test_registration_class_defines_api() -> None:
         "function requestPasswordReset",
         "function checkPasswordResetKey",
         "function resetPassword",
+        "function resendVerification",
+        "function resendVerificationForUser",
+        "function userAwaitsVerification",
         "function issueKey",
         "function validateKey",
+        "mail_sent",
         "function usersCanRegister",
         "function requireEmailVerification",
         "function captchaMode",
@@ -56,6 +60,10 @@ def test_registration_class_defines_api() -> None:
         "PURPOSE_ACTIVATE",
         "PURPOSE_RESET",
         "hash_hmac",
+        "This link expires in 24 hours.",
+        "spam folder",
+        "sending server may be new",
+        "function mailLinkNotice",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-registration.php"
 
@@ -67,6 +75,7 @@ def test_mail_class_defines_api() -> None:
         "function send",
         "function enableTestMode",
         "function getTestOutbox",
+        "function failNextForTests",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-mail.php"
 
@@ -85,6 +94,7 @@ def test_functions_expose_registration_helpers() -> None:
         "function ap_request_password_reset",
         "function ap_check_password_reset_key",
         "function ap_reset_password",
+        "function ap_resend_user_verification",
         "function ap_mail",
     ):
         assert needle in src, f"Expected {needle!r} in functions.php"
@@ -106,12 +116,28 @@ def test_login_handles_register_and_reset_actions() -> None:
         "ap_request_password_reset",
         "ap_reset_password",
         "ap_verify_user_email",
+        "ap_resend_user_verification",
+        "resend",
+        "mail_sent",
+        "Resend verification",
+        "confirm_reset",
+        "use Resend verification",
         "captcha_answer",
         "captcha_token",
         "ap_hp",
         "ap_registration_captcha_enabled",
+        "empty($result['mail_sent'])",
+        "Please check your email to verify your account",
     ):
         assert needle in src, f"Expected {needle!r} in login.php"
+    confirm_if = src.find("if ($checkEmail === 'confirm')")
+    flash = src.find("Please check your email to verify your account")
+    mail_sent = src.find("empty($result['mail_sent'])")
+    confirm_redirect = src.find("'checkemail' => 'confirm'")
+    assert confirm_if != -1 and flash != -1
+    assert confirm_if < flash
+    assert mail_sent != -1 and confirm_redirect != -1
+    assert mail_sent < confirm_redirect
 
 
 def test_general_settings_exposes_registration_captcha() -> None:
@@ -188,6 +214,38 @@ def test_register_verify_reset_via_php() -> None:
         "if (!$rp['ok']) { fwrite(STDERR, \"reset failed\\n\"); exit(7); }\n"
         "if (AP_User::authenticate('pytestuser', 'pytest-secret-2', $db) === null) {\n"
         "  fwrite(STDERR, \"new password auth failed\\n\"); exit(8);\n"
+        "}\n"
+        "AP_Mail::failNextForTests('SMTP down');\n"
+        "$fail = AP_Registration::register([\n"
+        "  'user_login' => 'mailfail',\n"
+        "  'user_email' => 'mailfail@example.test',\n"
+        "  'user_pass' => 'pytest-secret-1',\n"
+        "], $db);\n"
+        "if (!$fail['ok']) { fwrite(STDERR, 'failreg: ' . implode(',', $fail['errors']) . \"\\n\"); exit(9); }\n"
+        "if (!empty($fail['mail_sent'])) { fwrite(STDERR, \"mail_sent should be false\\n\"); exit(10); }\n"
+        "$failBlob = strtolower(implode(' ', $fail['errors']));\n"
+        "if (str_contains($failBlob, 'check your email')) {\n"
+        "  fwrite(STDERR, \"failed send claimed check your email\\n\"); exit(14);\n"
+        "}\n"
+        "$kept = AP_User::getByLogin('mailfail', $db);\n"
+        "if ($kept === null || (int) $kept->user_status !== AP_Registration::STATUS_PENDING) {\n"
+        "  fwrite(STDERR, \"pending user not kept\\n\"); exit(11);\n"
+        "}\n"
+        "AP_User::create([\n"
+        "  'user_login' => 'resetfail',\n"
+        "  'user_email' => 'resetfail@example.test',\n"
+        "  'user_pass' => 'pytest-secret-1',\n"
+        "  'user_status' => 0,\n"
+        "  'role' => 'subscriber',\n"
+        "], $db);\n"
+        "AP_Mail::failNextForTests('SMTP down');\n"
+        "$resetFail = AP_Registration::requestPasswordReset('resetfail', $db);\n"
+        "if ($resetFail['ok'] || !empty($resetFail['sent'])) {\n"
+        "  fwrite(STDERR, \"reset claimed success on send failure\\n\"); exit(12);\n"
+        "}\n"
+        "$resend = AP_Registration::resendVerification('mailfail@example.test', $db);\n"
+        "if (!$resend['ok'] || empty($resend['sent'])) {\n"
+        "  fwrite(STDERR, 'resend: ' . implode(',', $resend['errors']) . \"\\n\"); exit(13);\n"
         "}\n"
         "echo \"OK\\n\";\n"
     )

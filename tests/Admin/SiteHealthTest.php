@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace AgoraPress\Tests\Admin;
 
 use AP_DB;
+use AP_Mail;
 use AP_Migrator;
 use AP_Options;
 use AP_Roles;
@@ -45,8 +46,11 @@ final class SiteHealthTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-requirements.php';
         require_once $this->root . '/ap-includes/class-ap-version-check.php';
         require_once $this->root . '/ap-includes/class-ap-privacy.php';
+        require_once $this->root . '/ap-includes/class-ap-mail.php';
         require_once $this->root . '/ap-includes/class-ap-site-health.php';
         require_once $this->root . '/ap-includes/functions.php';
+
+        AP_Mail::resetForTests();
 
         if (!defined('AP_AUTH_KEY')) {
             define('AP_AUTH_KEY', 'test-auth-key-' . str_repeat('a', 32));
@@ -103,6 +107,7 @@ final class SiteHealthTest extends TestCase
 
     protected function tearDown(): void
     {
+        AP_Mail::resetForTests();
         AP_Roles::flushCache();
         AP_Options::flushCache();
     }
@@ -132,6 +137,7 @@ final class SiteHealthTest extends TestCase
         $this->assertContains('telemetry', $ids);
         $this->assertContains('https', $ids);
         $this->assertContains('modules', $ids);
+        $this->assertContains('mail', $ids);
         $this->assertContains('privacy_policy', $ids);
         $this->assertContains('autoload_options', $ids);
         $this->assertContains('php_memory', $ids);
@@ -153,6 +159,9 @@ final class SiteHealthTest extends TestCase
         $this->assertSame(AP_Site_Health::STATUS_GOOD, $byId['telemetry']['status']);
         $this->assertSame(AP_Site_Health::STATUS_GOOD, $byId['https']['status']);
         $this->assertSame(AP_Site_Health::STATUS_GOOD, $byId['modules']['status']);
+        $this->assertSame(AP_Site_Health::STATUS_GOOD, $byId['mail']['status']);
+        $this->assertStringContainsString('PHP mail()', $byId['mail']['message']);
+        $this->assertStringContainsString('does not send mail', $byId['mail']['message']);
         // Privacy policy intentionally unset → recommended.
         $this->assertSame(AP_Site_Health::STATUS_RECOMMENDED, $byId['privacy_policy']['status']);
     }
@@ -191,12 +200,14 @@ final class SiteHealthTest extends TestCase
         $this->assertArrayHasKey('performance', $info);
         $this->assertArrayHasKey('database', $info);
         $this->assertArrayHasKey('constants', $info);
+        $this->assertArrayHasKey('mail', $info);
 
         $text = AP_Site_Health::getInfoText($this->db, $this->root . '/');
         $this->assertStringContainsString('AgoraPress Site Health', $text);
         $this->assertStringContainsString('PHP version', $text);
         $this->assertStringContainsString('Performance', $text);
         $this->assertStringContainsString('Health Test Site', $text);
+        $this->assertStringContainsString('Last error', $text);
         // Must not leak salt values.
         $this->assertStringNotContainsString(str_repeat('a', 32), $text);
         $this->assertStringContainsString('redacted', $text);
@@ -345,5 +356,79 @@ final class SiteHealthTest extends TestCase
         $this->assertSame('good', AP_Site_Health::normalizeStatus('GOOD'));
         $this->assertSame('critical', AP_Site_Health::normalizeStatus('critical'));
         $this->assertSame('good', AP_Site_Health::normalizeStatus('bogus'));
+    }
+
+    public function testMailCheckSurfacesLastError(): void
+    {
+        AP_Options::update('mail_last_error', 'SMTP handshake failed.', $this->db, 'no');
+        AP_Mail::resetForTests();
+
+        $mail = $this->checkById(AP_Site_Health::getChecks($this->db, $this->root . '/'), 'mail');
+        $this->assertNotNull($mail);
+        $this->assertSame(AP_Site_Health::STATUS_RECOMMENDED, $mail['status']);
+        $this->assertStringContainsString('SMTP handshake failed.', $mail['message']);
+        $this->assertStringContainsString('Settings → Mail', $mail['message']);
+        $this->assertStringContainsString('does not send mail', $mail['message']);
+    }
+
+    public function testMailCheckSmtpWithoutHostIsRecommended(): void
+    {
+        AP_Options::update('mail_transport', 'smtp', $this->db);
+        AP_Options::update('smtp_host', '', $this->db);
+
+        $mail = $this->checkById(AP_Site_Health::getChecks($this->db, $this->root . '/'), 'mail');
+        $this->assertNotNull($mail);
+        $this->assertSame(AP_Site_Health::STATUS_RECOMMENDED, $mail['status']);
+        $this->assertStringContainsString('SMTP', $mail['message']);
+        $this->assertStringContainsString('no host', $mail['message']);
+        $this->assertStringContainsString('does not send mail', $mail['message']);
+    }
+
+    public function testMailCheckConfiguredSmtpWithoutErrorIsGood(): void
+    {
+        AP_Options::update('mail_transport', 'smtp', $this->db);
+        AP_Options::update('smtp_host', 'smtp.example.com', $this->db);
+        AP_Options::update('smtp_port', '587', $this->db);
+        AP_Options::update('smtp_encryption', 'tls', $this->db);
+        AP_Options::update('mail_last_error', '', $this->db, 'no');
+
+        $mail = $this->checkById(AP_Site_Health::getChecks($this->db, $this->root . '/'), 'mail');
+        $this->assertNotNull($mail);
+        $this->assertSame(AP_Site_Health::STATUS_GOOD, $mail['status']);
+        $this->assertStringContainsString('smtp.example.com:587', $mail['message']);
+        $this->assertStringContainsString('No stored last error', $mail['message']);
+    }
+
+    public function testMailInfoOmitsSmtpSecrets(): void
+    {
+        AP_Options::update('mail_transport', 'smtp', $this->db);
+        AP_Options::update('smtp_host', 'smtp.example.com', $this->db);
+        AP_Options::update('smtp_user', 'mailer@example.com', $this->db);
+        AP_Options::update('smtp_pass', 'super-secret-pass', $this->db, 'no');
+        AP_Options::update('mail_last_error', 'previous fail', $this->db, 'no');
+        AP_Mail::resetForTests();
+
+        $text = AP_Site_Health::getInfoText($this->db, $this->root . '/');
+        $this->assertStringContainsString('smtp.example.com', $text);
+        $this->assertStringContainsString('previous fail', $text);
+        $this->assertStringContainsString('SMTP username: set', $text);
+        $this->assertStringContainsString('SMTP password: set', $text);
+        $this->assertStringNotContainsString('super-secret-pass', $text);
+        $this->assertStringNotContainsString('mailer@example.com', $text);
+    }
+
+    /**
+     * @param list<array{id: string, status: string, message: string}> $checks
+     * @return array{id: string, label: string, status: string, message: string}|null
+     */
+    private function checkById(array $checks, string $id): ?array
+    {
+        foreach ($checks as $check) {
+            if ($check['id'] === $id) {
+                return $check;
+            }
+        }
+
+        return null;
     }
 }

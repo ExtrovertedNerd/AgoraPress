@@ -1398,6 +1398,10 @@ input[type="url"]:focus {
     font-size: 0.9em;
 }
 
+.ap-user-resend-form {
+    margin-top: 0.25rem;
+}
+
 .ap-user-form .required {
     color: var(--ap-danger);
 }

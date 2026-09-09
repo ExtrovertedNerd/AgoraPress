@@ -592,6 +592,17 @@ PHP;
             'siteurl' => $url,
             'home' => $url,
             'admin_email' => $email,
+            // Settings → Mail (from identity is separate from admin_email).
+            'mail_from_name' => '',
+            'mail_from_email' => '',
+            'mail_reply_to' => '',
+            'mail_transport' => 'php',
+            'smtp_host' => '',
+            'smtp_port' => '587',
+            'smtp_encryption' => 'tls',
+            'smtp_user' => '',
+            'smtp_pass' => '',
+            'mail_last_error' => '',
             'users_can_register' => '0',
             'require_email_verification' => '1',
             // Optional registration CAPTCHA: off|math (disableable; off by default).
@@ -721,10 +732,14 @@ PHP;
             'rate_limit_upload_max' => '40',
             'rate_limit_upload_window' => '600',
             'rate_limit_upload_lockout' => '300',
+            'rate_limit_mail_max' => '20',
+            'rate_limit_mail_window' => '3600',
+            'rate_limit_mail_lockout' => '3600',
         ];
 
         foreach ($options as $name => $value) {
-            self::upsertOption($db, $name, (string) $value);
+            $autoload = ($name === 'smtp_pass' || $name === 'mail_last_error') ? 'no' : 'yes';
+            self::upsertOption($db, $name, (string) $value, $autoload);
         }
 
         // Seed the roles map (administrator, editor, author, contributor, subscriber).

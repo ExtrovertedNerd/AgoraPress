@@ -192,6 +192,14 @@ There is **no** block-editor hook surface in core.
 | `ap_plugin_installed` / `ap_plugin_deleted` | action | After ACP zip install / delete (`AP_Plugin_Installer`) — [plugins.md](plugins.md) |
 | `ap_plugin_header_fields` | filter | Extend header field names |
 
+### Mail
+
+Native outbound API is `AP_Mail::send()` (`ap_mail()`). When the classic theme layer is loaded, `wp_mail()` is a signature-compatible shim that calls the same method — [compatibility.md](compatibility.md).
+
+| Hook | Type | Notes |
+|------|------|-------|
+| `ap_mail_send` | filter | `AP_Mail::send()`: return `true`/`false` to replace php/smtp; `null` continues. Second arg is the sanitized payload (`to`, `to_header`, `subject`, `message`, `headers`, `header_string`, `transport`). Use `accepted_args` 2; pass `$handled` through if you do not send. Does not run when the `mail` rate limit blocks the send — [security.md](security.md). |
+
 ### Cache, SEO, privacy, health, analytics
 
 | Hook | Type | Notes |

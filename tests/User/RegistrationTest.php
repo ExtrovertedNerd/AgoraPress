@@ -87,13 +87,21 @@ final class RegistrationTest extends TestCase
 
     protected function tearDown(): void
     {
-        AP_Mail::disableTestMode();
+        AP_Mail::resetForTests();
         AP_Options::flushCache();
     }
 
     private function setOption(string $name, string $value): void
     {
         AP_Options::update($name, $value, $this->db);
+    }
+
+    private function assertMailLinkNotice(mixed $message): void
+    {
+        $body = (string) $message;
+        $this->assertStringContainsString('This link expires in 24 hours.', $body);
+        $this->assertStringContainsString('spam folder', $body);
+        $this->assertStringContainsString('sending server may be new', $body);
     }
 
     public function testUsersCanRegisterAndRequireVerificationFlags(): void
@@ -240,6 +248,7 @@ final class RegistrationTest extends TestCase
 
         $this->assertTrue($result['ok'], implode('; ', $result['errors']));
         $this->assertTrue($result['needs_verification']);
+        $this->assertTrue($result['mail_sent']);
         $this->assertNotSame('', $result['plain_key']);
         $this->assertNotNull($result['user']);
         $this->assertSame(AP_Registration::STATUS_PENDING, $result['user']->user_status);
@@ -258,6 +267,7 @@ final class RegistrationTest extends TestCase
         $this->assertStringContainsString('Confirm your email', $outbox[0]['subject']);
         $this->assertStringContainsString('action=verifyemail', $outbox[0]['message']);
         $this->assertStringContainsString($result['plain_key'], $outbox[0]['message']);
+        $this->assertMailLinkNotice($outbox[0]['message']);
     }
 
     public function testVerifyEmailActivatesAccount(): void
@@ -303,9 +313,141 @@ final class RegistrationTest extends TestCase
 
         $this->assertTrue($result['ok']);
         $this->assertFalse($result['needs_verification']);
+        $this->assertFalse($result['mail_sent']);
         $this->assertSame(0, $result['user']->user_status);
         $this->assertSame([], AP_Mail::getTestOutbox());
         $this->assertNotNull(AP_User::authenticate('carol', 'securepass3', $this->db));
+    }
+
+    public function testRegisterKeepsPendingUserWhenVerificationMailFails(): void
+    {
+        AP_Mail::failNextForTests('SMTP down');
+        $result = AP_Registration::register([
+            'user_login' => 'mailfail',
+            'user_email' => 'mailfail@example.test',
+            'user_pass' => 'securepass8',
+        ], $this->db);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertTrue($result['needs_verification']);
+        $this->assertFalse($result['mail_sent']);
+        $this->assertNotEmpty($result['errors']);
+        $this->assertStringContainsString('could not be sent', strtolower($result['errors'][0] ?? ''));
+        $this->assertStringContainsString('created', strtolower($result['errors'][0] ?? ''));
+        $this->assertStringNotContainsString(
+            'check your email',
+            strtolower(implode(' ', $result['errors']))
+        );
+        $this->assertSame('SMTP down', AP_Mail::lastError());
+        $this->assertSame([], AP_Mail::getTestOutbox());
+
+        $user = AP_User::getByLogin('mailfail', $this->db);
+        $this->assertNotNull($user);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $user->user_status);
+        $this->assertTrue(AP_Registration::userAwaitsVerification($user));
+        $this->assertNull(AP_User::authenticate('mailfail', 'securepass8', $this->db));
+        // Cooldown meta is recorded only after a successful send, so resend is allowed.
+        $this->assertNull(AP_User::getMeta($user->ID, 'ap_verification_sent', $this->db));
+    }
+
+    public function testResendVerificationSendsAfterFailedRegister(): void
+    {
+        AP_Mail::failNextForTests('SMTP down');
+        $result = AP_Registration::register([
+            'user_login' => 'resendme',
+            'user_email' => 'resendme@example.test',
+            'user_pass' => 'securepass8',
+        ], $this->db);
+        $this->assertTrue($result['ok']);
+        $this->assertFalse($result['mail_sent']);
+        AP_Mail::clearTestOutbox();
+
+        $resend = AP_Registration::resendVerification('resendme@example.test', $this->db);
+        $this->assertTrue($resend['ok'], implode('; ', $resend['errors']));
+        $this->assertTrue($resend['sent']);
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('resendme@example.test', $outbox[0]['to']);
+        $this->assertStringContainsString('Confirm your email', $outbox[0]['subject']);
+        $this->assertStringContainsString($resend['plain_key'], $outbox[0]['message']);
+        $this->assertMailLinkNotice($outbox[0]['message']);
+    }
+
+    public function testResendVerificationReportsSendFailure(): void
+    {
+        $result = AP_Registration::register([
+            'user_login' => 'resendfail',
+            'user_email' => 'resendfail@example.test',
+            'user_pass' => 'securepass8',
+        ], $this->db);
+        $this->assertTrue($result['ok']);
+        AP_User::deleteMeta($result['id'], 'ap_verification_sent', $this->db);
+        AP_Mail::clearTestOutbox();
+        AP_Mail::failNextForTests('still down');
+
+        $resend = AP_Registration::resendVerification('resendfail', $this->db);
+        $this->assertFalse($resend['ok']);
+        $this->assertFalse($resend['sent']);
+        $this->assertStringContainsString('could not be sent', strtolower($resend['errors'][0] ?? ''));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $user = AP_User::getByLogin('resendfail', $this->db);
+        $this->assertNotNull($user);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $user->user_status);
+    }
+
+    public function testUserAwaitsVerificationRequiresPendingActivateKey(): void
+    {
+        $pending = AP_Registration::register([
+            'user_login' => 'awaiter',
+            'user_email' => 'awaiter@example.test',
+            'user_pass' => 'securepass8',
+        ], $this->db);
+        $this->assertTrue($pending['ok']);
+        $this->assertTrue(AP_Registration::userAwaitsVerification($pending['user']));
+
+        $this->assertTrue(
+            AP_Registration::verifyEmail('awaiter', $pending['plain_key'], $this->db)['ok']
+        );
+        $active = AP_User::getByLogin('awaiter', $this->db);
+        $this->assertNotNull($active);
+        $this->assertFalse(AP_Registration::userAwaitsVerification($active));
+        $this->assertFalse(AP_Registration::userAwaitsVerification(null));
+
+        $banned = AP_User::create([
+            'user_login' => 'bannedstatus',
+            'user_email' => 'bannedstatus@example.test',
+            'user_pass' => 'securepass8',
+            'user_status' => AP_Registration::STATUS_PENDING,
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($banned['ok']);
+        $this->assertFalse(AP_Registration::userAwaitsVerification($banned['user']));
+    }
+
+    public function testResendVerificationDoesNotLeakUnknownAccounts(): void
+    {
+        AP_Mail::clearTestOutbox();
+        $resend = AP_Registration::resendVerification('nobody@example.test', $this->db);
+        $this->assertTrue($resend['ok']);
+        $this->assertFalse($resend['sent']);
+        $this->assertSame([], AP_Mail::getTestOutbox());
+    }
+
+    public function testResendVerificationSkipsActiveAccounts(): void
+    {
+        AP_User::create([
+            'user_login' => 'alreadyon',
+            'user_email' => 'alreadyon@example.test',
+            'user_pass' => 'securepass8',
+            'user_status' => 0,
+            'role' => 'subscriber',
+        ], $this->db);
+        AP_Mail::clearTestOutbox();
+
+        $resend = AP_Registration::resendVerification('alreadyon', $this->db);
+        $this->assertTrue($resend['ok']);
+        $this->assertFalse($resend['sent']);
+        $this->assertSame([], AP_Mail::getTestOutbox());
     }
 
     public function testPasswordResetFlow(): void
@@ -324,12 +466,14 @@ final class RegistrationTest extends TestCase
         $this->assertTrue($req['ok']);
         $this->assertTrue($req['sent']);
         $this->assertNotSame('', $req['plain_key']);
+        $this->assertSame([], $req['errors']);
 
         $outbox = AP_Mail::getTestOutbox();
         $this->assertCount(1, $outbox);
         $this->assertStringContainsString('Password reset', $outbox[0]['subject']);
         $this->assertStringContainsString('action=rp', $outbox[0]['message']);
         $this->assertStringContainsString($req['plain_key'], $outbox[0]['message']);
+        $this->assertMailLinkNotice($outbox[0]['message']);
 
         $user = AP_Registration::checkPasswordResetKey('dave', $req['plain_key'], $this->db);
         $this->assertNotNull($user);
@@ -347,6 +491,62 @@ final class RegistrationTest extends TestCase
         // Key is single-use.
         $reuse = AP_Registration::resetPassword('dave', $req['plain_key'], 'anotherpass9', $this->db);
         $this->assertFalse($reuse['ok']);
+    }
+
+    public function testVerificationAndResetMailBodiesExplainExpiryAndSpamFolder(): void
+    {
+        $created = AP_User::create([
+            'user_login' => 'mailbody',
+            'user_email' => 'mailbody@example.test',
+            'user_pass' => 'securepass9',
+            'user_status' => 0,
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($created['ok']);
+        $user = $created['user'];
+        $this->assertNotNull($user);
+
+        AP_Mail::clearTestOutbox();
+        $this->assertTrue(AP_Registration::sendVerificationEmail($user, 'verify-plain-key', $this->db));
+        $this->assertTrue(AP_Registration::sendPasswordResetEmail($user, 'reset-plain-key', $this->db));
+
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(2, $outbox);
+        $this->assertMailLinkNotice($outbox[0]['message']);
+        $this->assertMailLinkNotice($outbox[1]['message']);
+        $this->assertStringContainsString('verify-plain-key', $outbox[0]['message']);
+        $this->assertStringContainsString('reset-plain-key', $outbox[1]['message']);
+    }
+
+    public function testPasswordResetDoesNotClaimSuccessWhenMailFails(): void
+    {
+        AP_User::create([
+            'user_login' => 'resetfail',
+            'user_email' => 'resetfail@example.test',
+            'user_pass' => 'oldpassword1',
+            'user_status' => 0,
+            'role' => 'subscriber',
+        ], $this->db);
+
+        AP_Mail::clearTestOutbox();
+        AP_Mail::failNextForTests('SMTP down');
+        $req = AP_Registration::requestPasswordReset('resetfail@example.test', $this->db);
+        $this->assertFalse($req['ok']);
+        $this->assertFalse($req['sent']);
+        $this->assertNotEmpty($req['errors']);
+        $this->assertStringContainsString('could not be sent', strtolower($req['errors'][0] ?? ''));
+        $this->assertStringNotContainsString('check your email', strtolower(implode(' ', $req['errors'])));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertSame('SMTP down', AP_Mail::lastError());
+        $kept = AP_User::getByLogin('resetfail', $this->db);
+        $this->assertNotNull($kept);
+        $this->assertNull(AP_User::getMeta($kept->ID, 'ap_password_reset_sent', $this->db));
+
+        // Immediate retry is allowed (cooldown is recorded only after a successful send).
+        $retry = AP_Registration::requestPasswordReset('resetfail@example.test', $this->db);
+        $this->assertTrue($retry['ok'], implode('; ', $retry['errors']));
+        $this->assertTrue($retry['sent']);
+        $this->assertCount(1, AP_Mail::getTestOutbox());
     }
 
     public function testPasswordResetDoesNotLeakUnknownAccounts(): void
@@ -405,6 +605,7 @@ final class RegistrationTest extends TestCase
         $this->assertTrue(function_exists('ap_registration_create_captcha'));
         $this->assertTrue(function_exists('ap_registration_verify_captcha'));
         $this->assertTrue(function_exists('ap_mail'));
+        $this->assertTrue(function_exists('ap_resend_user_verification'));
 
         $this->assertTrue(ap_mail('x@example.test', 'Subject', 'Body'));
         $outbox = AP_Mail::getTestOutbox();
@@ -466,11 +667,127 @@ final class RegistrationTest extends TestCase
                 'ap_request_password_reset',
                 'ap_reset_password',
                 'ap_verify_user_email',
+                'ap_resend_user_verification',
+                "action === 'resend'",
+                'mail_sent',
                 'captcha_answer',
                 'ap_hp',
+                'Resend verification',
             ] as $needle
         ) {
             $this->assertStringContainsString($needle, $src);
         }
+
+        // Failed send must not redirect to the "check your email" success flash.
+        $confirmPos = strpos($src, "checkemail' => 'confirm'");
+        $this->assertNotFalse($confirmPos);
+        $failedBranch = strpos($src, "mail_sent");
+        $this->assertNotFalse($failedBranch);
+        $this->assertLessThan(
+            $confirmPos,
+            $failedBranch,
+            'mail_sent failure path must run before the checkemail=confirm redirect'
+        );
+        $this->assertStringNotContainsString(
+            "checkemail' => 'confirm'",
+            substr($src, $failedBranch, 200)
+        );
+
+        $lostStart = strpos($src, "action === 'lostpassword'");
+        $this->assertNotFalse($lostStart);
+        $lostEnd = strpos($src, "action === 'resend'");
+        $this->assertNotFalse($lostEnd);
+        $this->assertGreaterThan($lostStart, $lostEnd);
+        $lostBlock = substr($src, $lostStart, $lostEnd - $lostStart);
+        $resetFailPos = strpos($lostBlock, "if (!\$result['ok'])");
+        $resetConfirmPos = strpos($lostBlock, "checkemail' => 'confirm_reset'");
+        $this->assertNotFalse($resetFailPos);
+        $this->assertNotFalse($resetConfirmPos);
+        $this->assertLessThan(
+            $resetConfirmPos,
+            $resetFailPos,
+            'lost-password must not redirect to confirm_reset when send() fails'
+        );
+
+        $this->assertStringContainsString('use Resend verification', $src);
+        $this->assertStringNotContainsString(
+            'Check your inbox for the confirmation link',
+            $src
+        );
+        $this->assertStringContainsString('empty($result[\'mail_sent\'])', $src);
+        $this->assertStringNotContainsString(
+            "mail_sent'] ?? true",
+            $src
+        );
+    }
+
+    public function testFailedSendDoesNotPrintCheckYourEmailAsSuccess(): void
+    {
+        AP_Mail::failNextForTests('SMTP down');
+        $result = AP_Registration::register([
+            'user_login' => 'nosuccessflash',
+            'user_email' => 'nosuccessflash@example.test',
+            'user_pass' => 'securepass8',
+        ], $this->db);
+
+        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['needs_verification']);
+        $this->assertFalse($result['mail_sent']);
+        $this->assertNotEmpty($result['errors']);
+
+        // login.php prints $errors as ap-notice--error on the same request and
+        // does not redirect to checkemail=confirm when mail_sent is empty.
+        $printed = $this->renderLoginNotices([], $result['errors']);
+        $this->assertStringContainsString('ap-notice--error', $printed);
+        $this->assertStringNotContainsString('ap-notice--success', $printed);
+        $lower = strtolower($printed);
+        $this->assertStringContainsString('could not be sent', $lower);
+        $this->assertStringNotContainsString('check your email', $lower);
+        $this->assertStringNotContainsString('registration complete', $lower);
+
+        $src = (string) file_get_contents($this->root . '/ap-admin/login.php');
+        $flash = 'Please check your email to verify your account';
+        $this->assertSame(1, substr_count($src, $flash));
+        $confirmIf = strpos($src, "if (\$checkEmail === 'confirm')");
+        $flashPos = strpos($src, $flash);
+        $this->assertNotFalse($confirmIf);
+        $this->assertNotFalse($flashPos);
+        $this->assertLessThan(
+            $flashPos,
+            $confirmIf,
+            'success flash must be assigned only after checkemail=confirm'
+        );
+
+        $success = AP_Registration::register([
+            'user_login' => 'successflash',
+            'user_email' => 'successflash@example.test',
+            'user_pass' => 'securepass8',
+        ], $this->db);
+        $this->assertTrue($success['ok']);
+        $this->assertTrue($success['mail_sent']);
+        $this->assertSame([], $success['errors']);
+        $this->assertStringContainsString(
+            "checkemail' => 'confirm'",
+            $src
+        );
+    }
+
+    /**
+     * Same notice markup login.php uses for $messages / $errors.
+     *
+     * @param list<string> $messages
+     * @param list<string> $errors
+     */
+    private function renderLoginNotices(array $messages, array $errors): string
+    {
+        $html = '';
+        foreach ($messages as $msg) {
+            $html .= '<div class="ap-notice ap-notice--success">' . $msg . '</div>';
+        }
+        foreach ($errors as $err) {
+            $html .= '<div class="ap-notice ap-notice--error">' . $err . '</div>';
+        }
+
+        return $html;
     }
 }

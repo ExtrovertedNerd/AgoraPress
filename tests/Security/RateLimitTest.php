@@ -11,6 +11,7 @@ declare(strict_types=1);
 namespace AgoraPress\Tests\Security;
 
 use AP_DB;
+use AP_Mail;
 use AP_Media;
 use AP_Migrator;
 use AP_Options;
@@ -62,6 +63,7 @@ final class RateLimitTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-session.php';
         require_once $this->root . '/ap-includes/class-ap-rate-limit.php';
+        require_once $this->root . '/ap-includes/class-ap-mail.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
         require_once $this->root . '/ap-includes/class-ap-media.php';
         require_once $this->root . '/ap-includes/functions.php';
@@ -74,6 +76,7 @@ final class RateLimitTest extends TestCase
         }
 
         AP_Rate_Limit::resetTestState();
+        AP_Mail::resetForTests();
         AP_Options::flushCache();
         AP_Session::clearLastLoginError();
 
@@ -99,6 +102,7 @@ final class RateLimitTest extends TestCase
     protected function tearDown(): void
     {
         AP_Rate_Limit::resetTestState();
+        AP_Mail::resetForTests();
         AP_Options::flushCache();
         AP_Session::disableTestMode();
         AP_Session::clearLastLoginError();
@@ -347,6 +351,84 @@ final class RateLimitTest extends TestCase
         $this->assertTrue($r4['ok'], $r4['error']);
     }
 
+    public function testMailActionDefaults(): void
+    {
+        $limits = AP_Rate_Limit::getLimits(AP_Rate_Limit::ACTION_MAIL, $this->db);
+        $this->assertSame(20, $limits['max']);
+        $this->assertSame(3600, $limits['window']);
+        $this->assertSame(3600, $limits['lockout']);
+    }
+
+    public function testCheckMailBlocksIpAndRecipient(): void
+    {
+        AP_Rate_Limit::setTestLimits('mail', ['max' => 2, 'window' => 600, 'lockout' => 120]);
+
+        $this->assertTrue(AP_Rate_Limit::checkMail('a@example.test', '', $this->db)['allowed']);
+        AP_Rate_Limit::recordMail('a@example.test', '', $this->db);
+        AP_Rate_Limit::recordMail('a@example.test', '', $this->db);
+
+        $blocked = AP_Rate_Limit::checkMail('a@example.test', '', $this->db);
+        $this->assertFalse($blocked['allowed']);
+        $this->assertGreaterThan(0, $blocked['retry_after']);
+        $this->assertStringContainsString('Too many', $blocked['message']);
+
+        // Same IP, different recipient: IP bucket still blocks.
+        $other = AP_Rate_Limit::checkMail('b@example.test', '', $this->db);
+        $this->assertFalse($other['allowed']);
+
+        AP_Rate_Limit::clear('mail', AP_Rate_Limit::ipBucket(), $this->db);
+        AP_Rate_Limit::clear('mail', AP_Rate_Limit::identityBucket('a@example.test'), $this->db);
+
+        $_SERVER['REMOTE_ADDR'] = '198.51.100.20';
+        AP_Rate_Limit::recordMail('a@example.test', '198.51.100.20', $this->db);
+        AP_Rate_Limit::recordMail('a@example.test', '198.51.100.20', $this->db);
+
+        // New IP, same inbox: recipient bucket blocks.
+        $sameInbox = AP_Rate_Limit::checkMail('a@example.test', '203.0.113.99', $this->db);
+        $this->assertFalse($sameInbox['allowed']);
+
+        $freshInbox = AP_Rate_Limit::checkMail('c@example.test', '203.0.113.99', $this->db);
+        $this->assertTrue($freshInbox['allowed']);
+    }
+
+    public function testMailSendHonorsRateLimit(): void
+    {
+        AP_Rate_Limit::setTestLimits('mail', ['max' => 2, 'window' => 600, 'lockout' => 120]);
+        AP_Mail::enableTestMode();
+        AP_Mail::clearTestOutbox();
+
+        $this->assertTrue(AP_Mail::send('one@example.test', 'S', 'B'));
+        $this->assertTrue(AP_Mail::send('two@example.test', 'S', 'B'));
+        $this->assertCount(2, AP_Mail::getTestOutbox());
+
+        $this->assertFalse(AP_Mail::send('three@example.test', 'S', 'B'));
+        $this->assertStringContainsString('Too many', AP_Mail::lastError());
+        $this->assertCount(2, AP_Mail::getTestOutbox());
+
+        // Invalid recipients do not consume quota after a clear.
+        AP_Rate_Limit::clear('mail', AP_Rate_Limit::ipBucket(), $this->db);
+        AP_Rate_Limit::clear('mail', AP_Rate_Limit::identityBucket('one@example.test'), $this->db);
+        AP_Rate_Limit::clear('mail', AP_Rate_Limit::identityBucket('two@example.test'), $this->db);
+
+        $this->assertFalse(AP_Mail::send('not-an-email', 'S', 'B'));
+        $this->assertSame('No valid recipients.', AP_Mail::lastError());
+        $this->assertTrue(AP_Mail::send('fresh@example.test', 'S', 'B'));
+        $this->assertCount(3, AP_Mail::getTestOutbox());
+    }
+
+    public function testMailSendSkipsRateLimitWhenDisabled(): void
+    {
+        AP_Rate_Limit::setTestLimits('mail', ['max' => 1, 'window' => 600, 'lockout' => 120]);
+        AP_Rate_Limit::disable();
+        AP_Mail::enableTestMode();
+        AP_Mail::clearTestOutbox();
+
+        $this->assertTrue(AP_Mail::send('a@example.test', 'S', 'B'));
+        $this->assertTrue(AP_Mail::send('b@example.test', 'S', 'B'));
+        $this->assertCount(2, AP_Mail::getTestOutbox());
+        $this->assertSame('', AP_Mail::lastError());
+    }
+
     public function testBootstrapLoadsRateLimit(): void
     {
         $src = (string) file_get_contents($this->root . '/ap-includes/bootstrap.php');
@@ -358,6 +440,7 @@ final class RateLimitTest extends TestCase
         $src = (string) file_get_contents($this->root . '/ap-includes/class-ap-installer.php');
         $this->assertStringContainsString('rate_limit_login_max', $src);
         $this->assertStringContainsString('rate_limit_upload_max', $src);
+        $this->assertStringContainsString('rate_limit_mail_max', $src);
     }
 
     private function writeMinimalPng(): string

@@ -11,7 +11,9 @@ declare(strict_types=1);
 namespace AgoraPress\Tests\Options;
 
 use AP_DB;
+use AP_Mail;
 use AP_Media;
+use AP_Rate_Limit;
 use AP_Migrator;
 use AP_Options;
 use AP_Rewrite;
@@ -34,6 +36,8 @@ final class SettingsApiTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-session.php';
         require_once $this->root . '/ap-includes/class-ap-options.php';
+        require_once $this->root . '/ap-includes/class-ap-mail.php';
+        require_once $this->root . '/ap-includes/class-ap-smtp.php';
         require_once $this->root . '/ap-includes/class-ap-settings.php';
         require_once $this->root . '/ap-includes/class-ap-rewrite.php';
         require_once $this->root . '/ap-includes/class-ap-nonce.php';
@@ -55,6 +59,10 @@ final class SettingsApiTest extends TestCase
         AP_Options::flushCache();
         AP_Settings::flush();
         AP_Rewrite::resetCache();
+        AP_Mail::resetForTests();
+        if (class_exists('AP_Rate_Limit', false)) {
+            AP_Rate_Limit::disable();
+        }
 
         $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -95,6 +103,12 @@ final class SettingsApiTest extends TestCase
     {
         AP_Options::flushCache();
         AP_Settings::flush();
+        if (class_exists('AP_Mail', false)) {
+            AP_Mail::resetForTests();
+        }
+        if (class_exists('AP_Rate_Limit', false)) {
+            AP_Rate_Limit::enable();
+        }
         unset($GLOBALS['apdb']);
     }
 
@@ -168,7 +182,7 @@ final class SettingsApiTest extends TestCase
 
     public function testCoreGroupsRegistered(): void
     {
-        $groups = ['general', 'modules', 'writing', 'reading', 'discussion', 'media', 'permalink'];
+        $groups = ['general', 'modules', 'writing', 'reading', 'discussion', 'media', 'permalink', 'mail'];
         foreach ($groups as $group) {
             $regs = AP_Settings::getRegisteredSettings($group);
             $this->assertNotEmpty($regs, "Expected registered settings for group {$group}");
@@ -176,6 +190,19 @@ final class SettingsApiTest extends TestCase
         $this->assertArrayHasKey('blogname', AP_Settings::getRegisteredSettings('general'));
         $this->assertArrayHasKey('site_icon', AP_Settings::getRegisteredSettings('general'));
         $this->assertArrayHasKey('ap_module_blog', AP_Settings::getRegisteredSettings('modules'));
+        $mail = AP_Settings::getRegisteredSettings('mail');
+        $this->assertArrayHasKey('mail_from_name', $mail);
+        $this->assertArrayHasKey('mail_from_email', $mail);
+        $this->assertArrayHasKey('mail_reply_to', $mail);
+        $this->assertArrayHasKey('mail_transport', $mail);
+        $this->assertArrayHasKey('smtp_host', $mail);
+        $this->assertArrayHasKey('smtp_port', $mail);
+        $this->assertArrayHasKey('smtp_encryption', $mail);
+        $this->assertArrayHasKey('smtp_user', $mail);
+        $this->assertArrayHasKey('smtp_pass', $mail);
+        $this->assertSame('no', $mail['smtp_pass']['autoload']);
+        $this->assertArrayNotHasKey('admin_email', $mail);
+        $this->assertArrayNotHasKey('mail_from_email', AP_Settings::getRegisteredSettings('general'));
     }
 
     public function testUpdateGeneralSettings(): void
@@ -375,6 +402,7 @@ final class SettingsApiTest extends TestCase
     {
         $screens = [
             'options-general.php',
+            'options-mail.php',
             'options-modules.php',
             'options-writing.php',
             'options-reading.php',
@@ -404,10 +432,18 @@ final class SettingsApiTest extends TestCase
                 'uploads_use_yearmonth_folders',
                 'use_smilies',
                 'site_icon',
+                'mail_transport',
+                'mail_from_email',
+                'mail_reply_to',
+                'smtp_host',
+                'smtp_encryption',
+                'smtp_pass',
+                'mail_last_error',
             ] as $opt
         ) {
             $this->assertStringContainsString("'" . $opt . "'", $src);
         }
+        $this->assertStringContainsString("'smtp_pass' || \$name === 'mail_last_error'", $src);
     }
 
     public function testGeneralScreenHasSiteIconField(): void
@@ -433,5 +469,242 @@ final class SettingsApiTest extends TestCase
         $src = (string) file_get_contents($this->root . '/ap-includes/bootstrap.php');
         $this->assertStringContainsString('class-ap-settings.php', $src);
         $this->assertStringContainsString('registerCore', $src);
+    }
+
+    public function testUpdateMailSettingsAndWriteOnlyPassword(): void
+    {
+        $ok = AP_Options::updateMailSettings([
+            'mail_from_name' => 'Noreply',
+            'mail_from_email' => 'noreply@example.com',
+            'mail_reply_to' => 'desk@example.com',
+            'mail_transport' => 'SMTP',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => '465',
+            'smtp_encryption' => 'ssl',
+            'smtp_user' => 'user@example.com',
+            'smtp_pass' => 's3cret',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame('Noreply', AP_Options::get('mail_from_name', '', $this->db));
+        $this->assertSame('noreply@example.com', AP_Options::get('mail_from_email', '', $this->db));
+        $this->assertSame('desk@example.com', AP_Options::get('mail_reply_to', '', $this->db));
+        $this->assertSame('smtp', AP_Options::get('mail_transport', '', $this->db));
+        $this->assertSame('smtp.example.com', AP_Options::get('smtp_host', '', $this->db));
+        $this->assertSame('465', (string) AP_Options::get('smtp_port', '', $this->db));
+        $this->assertSame('ssl', AP_Options::get('smtp_encryption', '', $this->db));
+        $this->assertSame('user@example.com', AP_Options::get('smtp_user', '', $this->db));
+        $this->assertSame('s3cret', AP_Options::get('smtp_pass', '', $this->db));
+        $this->assertSame('no', $this->optionAutoload('smtp_pass'));
+
+        $ok2 = AP_Options::updateMailSettings([
+            'mail_from_name' => 'Noreply',
+            'mail_from_email' => 'noreply@example.com',
+            'mail_reply_to' => '',
+            'mail_transport' => 'php',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => '587',
+            'smtp_encryption' => 'tls',
+            'smtp_user' => 'user@example.com',
+            'smtp_pass' => '',
+        ], $this->db);
+        $this->assertTrue($ok2);
+        $this->assertSame('php', AP_Options::get('mail_transport', '', $this->db));
+        $this->assertSame('s3cret', AP_Options::get('smtp_pass', '', $this->db));
+        $this->assertSame('', AP_Options::get('mail_reply_to', 'x', $this->db));
+    }
+
+    public function testMailSettingsSanitizeInvalidValues(): void
+    {
+        $ok = AP_Options::updateMailSettings([
+            'mail_from_name' => '<b>Noreply</b>',
+            'mail_from_email' => 'not-an-email',
+            'mail_reply_to' => 'also-bad',
+            'mail_transport' => 'sendmail',
+            'smtp_host' => 'ssl://smtp.example.com',
+            'smtp_port' => '99999',
+            'smtp_encryption' => 'bogus',
+            'smtp_user' => "user\r\nEVIL",
+            'smtp_pass' => "secret\nline",
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame('Noreply', AP_Options::get('mail_from_name', '', $this->db));
+        $this->assertSame('', AP_Options::get('mail_from_email', 'x', $this->db));
+        $this->assertSame('', AP_Options::get('mail_reply_to', 'x', $this->db));
+        $this->assertSame('php', AP_Options::get('mail_transport', '', $this->db));
+        $this->assertSame('', AP_Options::get('smtp_host', 'x', $this->db));
+        $this->assertSame('587', (string) AP_Options::get('smtp_port', '', $this->db));
+        $this->assertSame('tls', AP_Options::get('smtp_encryption', '', $this->db));
+        $this->assertSame('userEVIL', AP_Options::get('smtp_user', '', $this->db));
+        $this->assertSame('secretline', AP_Options::get('smtp_pass', '', $this->db));
+
+        $ok2 = AP_Options::updateMailSettings([
+            'mail_from_email' => 'noreply@example.com',
+            'mail_reply_to' => 'desk@example.com',
+            'mail_transport' => 'smtp',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => '0',
+            'smtp_encryption' => 'none',
+            'smtp_pass' => '',
+        ], $this->db);
+        $this->assertTrue($ok2);
+        $this->assertSame('noreply@example.com', AP_Options::get('mail_from_email', '', $this->db));
+        $this->assertSame('desk@example.com', AP_Options::get('mail_reply_to', '', $this->db));
+        $this->assertSame('smtp', AP_Options::get('mail_transport', '', $this->db));
+        $this->assertSame('smtp.example.com', AP_Options::get('smtp_host', '', $this->db));
+        $this->assertSame('587', (string) AP_Options::get('smtp_port', '', $this->db));
+        $this->assertSame('none', AP_Options::get('smtp_encryption', '', $this->db));
+        $this->assertSame('secretline', AP_Options::get('smtp_pass', '', $this->db));
+    }
+
+    public function testGeneralSettingsSaveDoesNotWriteMailOptions(): void
+    {
+        AP_Options::updateMailSettings([
+            'mail_from_email' => 'noreply@example.com',
+            'mail_transport' => 'smtp',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_pass' => 'keep-me',
+        ], $this->db);
+
+        $ok = AP_Options::updateGeneralSettings([
+            'blogname' => 'General Only',
+            'admin_email' => 'admin@example.com',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame('General Only', AP_Options::get('blogname', '', $this->db));
+        $this->assertSame('admin@example.com', AP_Options::get('admin_email', '', $this->db));
+        $this->assertSame('noreply@example.com', AP_Options::get('mail_from_email', '', $this->db));
+        $this->assertSame('smtp', AP_Options::get('mail_transport', '', $this->db));
+        $this->assertSame('smtp.example.com', AP_Options::get('smtp_host', '', $this->db));
+        $this->assertSame('keep-me', AP_Options::get('smtp_pass', '', $this->db));
+    }
+
+    public function testMailFromEmailIsSeparateFromAdminEmail(): void
+    {
+        AP_Options::update('admin_email', 'admin@example.com', $this->db);
+        AP_Options::update('blogname', 'Example Site', $this->db);
+        AP_Options::updateMailSettings([
+            'mail_from_name' => 'Example Mail',
+            'mail_from_email' => 'noreply@example.com',
+            'mail_transport' => 'php',
+        ], $this->db);
+
+        $this->assertSame('noreply@example.com', AP_Mail::fromAddress());
+        $this->assertSame('Example Mail', AP_Mail::fromName());
+        $this->assertSame('admin@example.com', AP_Mail::adminEmail());
+        $this->assertSame('admin@example.com', AP_Options::get('admin_email', '', $this->db));
+
+        AP_Options::update('mail_from_email', '', $this->db);
+        AP_Options::flushCache();
+        $this->assertSame('admin@example.com', AP_Mail::fromAddress());
+    }
+
+    public function testMailLastErrorPersistsAndClears(): void
+    {
+        AP_Mail::enableTestMode();
+        $this->assertFalse(AP_Mail::send('not-an-email', 'S', 'B'));
+        $this->assertSame('No valid recipients.', AP_Mail::lastError());
+        $this->assertSame('No valid recipients.', AP_Mail::storedLastError());
+        $this->assertSame('No valid recipients.', AP_Options::get('mail_last_error', '', $this->db));
+
+        $this->assertTrue(AP_Mail::send('user@example.test', 'S', 'B'));
+        $this->assertSame('', AP_Mail::lastError());
+        $this->assertSame('', AP_Mail::storedLastError());
+        $this->assertSame('', (string) AP_Options::get('mail_last_error', 'x', $this->db));
+    }
+
+    public function testSendTestToAdminUsesAdminEmail(): void
+    {
+        AP_Options::update('admin_email', 'admin@example.com', $this->db);
+        AP_Options::update('blogname', 'Example Site', $this->db);
+        AP_Mail::enableTestMode();
+
+        $this->assertTrue(AP_Mail::sendTestToAdmin());
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('admin@example.com', $outbox[0]['to']);
+        $this->assertSame('AgoraPress test email', $outbox[0]['subject']);
+        $this->assertStringContainsString('Example Site', $outbox[0]['message']);
+        $this->assertStringContainsString('text/plain', $outbox[0]['headers']);
+    }
+
+    public function testMailScreenIsOwnSettingsGroup(): void
+    {
+        $mail = (string) file_get_contents($this->root . '/ap-admin/options-mail.php');
+        $this->assertStringContainsString("requireCapability('manage_options')", $mail);
+        $this->assertStringContainsString("isSaveRequest('mail')", $mail);
+        $this->assertStringContainsString("settingsFields('mail')", $mail);
+        $this->assertStringContainsString('updateMailSettings', $mail);
+        $this->assertStringContainsString('mail_from_name', $mail);
+        $this->assertStringContainsString('mail_from_email', $mail);
+        $this->assertStringContainsString('mail_reply_to', $mail);
+        $this->assertStringContainsString('mail_transport', $mail);
+        $this->assertStringContainsString('smtp_host', $mail);
+        $this->assertStringContainsString('smtp_port', $mail);
+        $this->assertStringContainsString('smtp_encryption', $mail);
+        $this->assertStringContainsString('smtp_user', $mail);
+        $this->assertStringContainsString('smtp_pass', $mail);
+        $this->assertStringContainsString('value=""', $mail);
+        $this->assertStringContainsString('autocomplete="new-password"', $mail);
+        $this->assertStringContainsString('Send test email to admin_email', $mail);
+        $this->assertStringContainsString('ap_mail_send_test', $mail);
+        $this->assertStringContainsString('storedLastError', $mail);
+        $this->assertStringContainsString("option value=\"none\"", $mail);
+        $this->assertStringContainsString("option value=\"tls\"", $mail);
+        $this->assertStringContainsString("option value=\"ssl\"", $mail);
+        $this->assertStringNotContainsString("isSaveRequest('general')", $mail);
+
+        $general = (string) file_get_contents($this->root . '/ap-admin/options-general.php');
+        $this->assertStringNotContainsString('mail_from_email', $general);
+        $this->assertStringNotContainsString('smtp_host', $general);
+        $this->assertStringNotContainsString('smtp_pass', $general);
+        $this->assertStringNotContainsString('ap_mail_send_test', $general);
+    }
+
+    public function testSanitizeOptionalEmail(): void
+    {
+        $this->assertSame('', AP_Settings::sanitizeOptionalEmail(''));
+        $this->assertSame('', AP_Settings::sanitizeOptionalEmail('not-an-email'));
+        $this->assertSame('user@example.com', AP_Settings::sanitizeOptionalEmail(' user@example.com '));
+    }
+
+    public function testMailSettingsPartialUpdateKeepsOmittedFields(): void
+    {
+        AP_Options::updateMailSettings([
+            'mail_from_name' => 'Keep Me',
+            'mail_from_email' => 'noreply@example.com',
+            'mail_reply_to' => 'desk@example.com',
+            'mail_transport' => 'smtp',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => '465',
+            'smtp_encryption' => 'ssl',
+            'smtp_user' => 'user@example.com',
+            'smtp_pass' => 'keep-secret',
+        ], $this->db);
+
+        $ok = AP_Options::updateMailSettings([
+            'mail_transport' => 'php',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame('php', AP_Options::get('mail_transport', '', $this->db));
+        $this->assertSame('Keep Me', AP_Options::get('mail_from_name', '', $this->db));
+        $this->assertSame('noreply@example.com', AP_Options::get('mail_from_email', '', $this->db));
+        $this->assertSame('desk@example.com', AP_Options::get('mail_reply_to', '', $this->db));
+        $this->assertSame('smtp.example.com', AP_Options::get('smtp_host', '', $this->db));
+        $this->assertSame('465', (string) AP_Options::get('smtp_port', '', $this->db));
+        $this->assertSame('ssl', AP_Options::get('smtp_encryption', '', $this->db));
+        $this->assertSame('user@example.com', AP_Options::get('smtp_user', '', $this->db));
+        $this->assertSame('keep-secret', AP_Options::get('smtp_pass', '', $this->db));
+        $this->assertSame('no', $this->optionAutoload('smtp_pass'));
+    }
+
+    private function optionAutoload(string $name): string
+    {
+        $raw = $this->db->getVar(
+            'SELECT autoload FROM ' . $this->db->quoteIdentifier($this->db->table('options'))
+            . ' WHERE option_name = ? LIMIT 1',
+            [$name]
+        );
+
+        return (string) $raw;
     }
 }

@@ -13,9 +13,11 @@ namespace AgoraPress\Tests\Admin;
 use AP_Admin;
 use AP_Admin_User_Edit;
 use AP_DB;
+use AP_Mail;
 use AP_Migrator;
 use AP_Nonce;
 use AP_Options;
+use AP_Registration;
 use AP_Roles;
 use AP_User;
 use AP_Users_List_Table;
@@ -44,11 +46,19 @@ final class AdminUsersTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-roles.php';
         require_once $this->root . '/ap-includes/class-ap-nonce.php';
         require_once $this->root . '/ap-includes/class-ap-post.php';
+        require_once $this->root . '/ap-includes/class-ap-mail.php';
+        require_once $this->root . '/ap-includes/class-ap-registration.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';
         require_once $this->root . '/ap-admin/includes/class-ap-users-list-table.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin-user-edit.php';
 
+        if (!defined('AP_AUTH_KEY')) {
+            define('AP_AUTH_KEY', 'test-auth-key-' . str_repeat('c', 32));
+        }
+        if (!defined('AP_AUTH_SALT')) {
+            define('AP_AUTH_SALT', 'test-auth-salt-' . str_repeat('d', 32));
+        }
         if (!defined('AP_NONCE_KEY')) {
             define('AP_NONCE_KEY', 'test-nonce-key-' . str_repeat('n', 32));
         }
@@ -65,6 +75,7 @@ final class AdminUsersTest extends TestCase
         AP_Roles::flushCache();
         AP_Options::flushCache();
         AP_Admin::clearNotices();
+        AP_Mail::resetForTests();
 
         $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -83,6 +94,7 @@ final class AdminUsersTest extends TestCase
         AP_Roles::flushCache();
         AP_Options::flushCache();
         AP_Admin::clearNotices();
+        AP_Mail::resetForTests();
     }
 
     public function testCreateUpdateDeleteUserRoundTrip(): void
@@ -618,6 +630,102 @@ final class AdminUsersTest extends TestCase
         $this->assertSame($targetId, $user->ID);
         $this->assertSame($targetLogin, $user->user_login);
         $this->assertSame('headerclobber', $user->user_login);
+    }
+
+    public function testEditFormShowsResendVerificationForPendingUser(): void
+    {
+        AP_Mail::enableTestMode();
+        AP_Options::update('users_can_register', '1', $this->db);
+        AP_Options::update('require_email_verification', '1', $this->db);
+        AP_Options::update('default_role', 'subscriber', $this->db);
+        AP_Options::update('blogname', 'Test Site', $this->db);
+        AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $admin = AP_User::create([
+            'user_login' => 'verifyadmin',
+            'user_email' => 'verifyadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $pending = AP_Registration::register([
+            'user_login' => 'pendinguser',
+            'user_email' => 'pendinguser@example.test',
+            'user_pass' => 'securepass8',
+        ], $this->db);
+        $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
+        $target = AP_User::getById($pending['id'], $this->db);
+        $this->assertNotNull($target);
+
+        $html = AP_Admin_User_Edit::renderForm($target, 'update', $admin['id'], [], $this->db);
+        $this->assertStringContainsString('Resend verification', $html);
+        $this->assertStringContainsString('name="ap_resend_verification"', $html);
+        $this->assertStringContainsString('ap-user-resend-form', $html);
+
+        $active = AP_User::getById($admin['id'], $this->db);
+        $this->assertNotNull($active);
+        $activeHtml = AP_Admin_User_Edit::renderForm($active, 'update', $admin['id'], [], $this->db);
+        $this->assertStringNotContainsString('Resend verification', $activeHtml);
+    }
+
+    public function testResendVerificationFromUserEdit(): void
+    {
+        AP_Mail::enableTestMode();
+        AP_Options::update('users_can_register', '1', $this->db);
+        AP_Options::update('require_email_verification', '1', $this->db);
+        AP_Options::update('default_role', 'subscriber', $this->db);
+        AP_Options::update('blogname', 'Test Site', $this->db);
+        AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $admin = AP_User::create([
+            'user_login' => 'resendadmin',
+            'user_email' => 'resendadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $pending = AP_Registration::register([
+            'user_login' => 'editresend',
+            'user_email' => 'editresend@example.test',
+            'user_pass' => 'securepass8',
+        ], $this->db);
+        $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
+        AP_Mail::clearTestOutbox();
+
+        $nonce = ap_create_nonce('update-user-' . $pending['id'], $admin['id']);
+        $result = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_ID' => $pending['id'],
+            'ap_resend_verification' => '1',
+        ], $admin['id'], 'update', $this->db);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertSame('verification_resent', $result['message_key']);
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('editresend@example.test', $outbox[0]['to']);
+
+        AP_Mail::failNextForTests('SMTP down');
+        $nonce2 = ap_create_nonce('update-user-' . $pending['id'], $admin['id']);
+        $failed = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce2,
+            'user_ID' => $pending['id'],
+            'ap_resend_verification' => '1',
+        ], $admin['id'], 'update', $this->db);
+        $this->assertFalse($failed['ok']);
+        $this->assertStringContainsString('could not be sent', strtolower(implode(' ', $failed['errors'])));
+        $still = AP_User::getById($pending['id'], $this->db);
+        $this->assertNotNull($still);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $still->user_status);
+    }
+
+    public function testConsumeQueryNoticeForVerificationResent(): void
+    {
+        $_GET['message'] = 'verification_resent';
+        AP_Admin::consumeQueryNotice();
+        $notices = AP_Admin::getNotices();
+        $this->assertNotEmpty($notices);
+        $this->assertStringContainsString('Verification email sent', $notices[0]['message']);
+        unset($_GET['message']);
+        AP_Admin::clearNotices();
     }
 
     public function testProceduralUserHelpers(): void

@@ -133,6 +133,22 @@ define('AP_CACHE', false);
  */
 
 // =============================================================================
+// Optional outbound mail (Settings → Mail)
+// =============================================================================
+// Uncomment to override the options table. Constants win over Settings → Mail
+// so SMTP credentials can live next to the database password. Leave these as
+// comments to use the admin screen. Never put a real password in this sample.
+
+// define('AP_MAIL_FROM_NAME', 'AgoraPress');
+// define('AP_MAIL_FROM_EMAIL', 'noreply@example.com');
+// define('AP_MAIL_TRANSPORT', 'smtp'); // 'php' or 'smtp'
+// define('AP_SMTP_HOST', 'smtp.example.com');
+// define('AP_SMTP_PORT', 587);
+// define('AP_SMTP_ENCRYPTION', 'tls'); // 'none', 'tls' (STARTTLS), or 'ssl' (SMTPS)
+// define('AP_SMTP_USER', 'noreply@example.com');
+// define('AP_SMTP_PASS', 'your-smtp-password-here');
+
+// =============================================================================
 // Absolute path — do not edit below this line
 // =============================================================================
 

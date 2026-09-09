@@ -666,7 +666,9 @@ php ap-cli site health --format=json
 ```
 
 Runs `AP_Site_Health::getChecks()` — the same checks as
-**Tools → Site Health** (`/ap-admin/site-health.php`). Default text:
+**Tools → Site Health** (`/ap-admin/site-health.php`), including outbound
+mail (transport + last error; the check does **not** send a message).
+Default text:
 
 ```text
 [GOOD] … — …

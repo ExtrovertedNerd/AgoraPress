@@ -109,6 +109,71 @@ def test_documents_multi_db_drivers(sample_text: str) -> None:
         assert driver in lower, f"Sample should document {driver}"
 
 
+MAIL_CONSTANTS = (
+    "AP_MAIL_FROM_NAME",
+    "AP_MAIL_FROM_EMAIL",
+    "AP_MAIL_TRANSPORT",
+    "AP_SMTP_HOST",
+    "AP_SMTP_PORT",
+    "AP_SMTP_ENCRYPTION",
+    "AP_SMTP_USER",
+    "AP_SMTP_PASS",
+)
+
+
+@pytest.mark.parametrize("name", MAIL_CONSTANTS)
+def test_sample_documents_mail_constant_as_comment(sample_text: str, name: str) -> None:
+    assert name in sample_text, f"Sample must document {name}"
+    assert re.search(
+        rf"^\s*define\s*\(\s*['\"]{re.escape(name)}['\"]",
+        sample_text,
+        re.MULTILINE,
+    ) is None, f"{name} must be a comment, not a live define"
+
+
+def test_sample_mail_constants_use_generic_examples(sample_text: str) -> None:
+    assert "smtp.example.com" in sample_text
+    assert "noreply@example.com" in sample_text
+    assert "your-smtp-password-here" in sample_text
+    assert "mail.0shits.com" not in sample_text
+
+
+def test_sample_load_does_not_define_mail_constants() -> None:
+    php_script = r"""
+declare(strict_types=1);
+require $argv[1];
+$need = [
+    'AP_MAIL_FROM_NAME','AP_MAIL_FROM_EMAIL','AP_MAIL_TRANSPORT',
+    'AP_SMTP_HOST','AP_SMTP_PORT','AP_SMTP_ENCRYPTION',
+    'AP_SMTP_USER','AP_SMTP_PASS',
+];
+foreach ($need as $c) {
+    if (defined($c)) { fwrite(STDERR, "sample must not define $c\n"); exit(2); }
+}
+echo "ok\n";
+"""
+    result = subprocess.run(
+        [
+            _php_bin(),
+            "-d",
+            "display_errors=1",
+            "-d",
+            "error_reporting=E_ALL",
+            "-r",
+            php_script,
+            "--",
+            str(SAMPLE),
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, f"sample unexpectedly defined mail constants:\n{combined}"
+    assert "ok" in (result.stdout or "")
+
+
 def test_sample_loads_cleanly() -> None:
     """Require sample in an isolated PHP process; assert constants and prefix."""
     php_script = r"""

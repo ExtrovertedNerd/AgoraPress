@@ -23,6 +23,7 @@ PHPUNIT = ROOT / "tests" / "Options" / "SettingsApiTest.php"
 
 SCREENS = [
     "options-general.php",
+    "options-mail.php",
     "options-modules.php",
     "options-writing.php",
     "options-reading.php",
@@ -71,6 +72,7 @@ def test_options_module_helpers() -> None:
         "function updateDiscussionSettings",
         "function updateMediaSettings",
         "function updateWritingSettings",
+        "function updateMailSettings",
         "function updatePermalinkSettings",
         "function siteIcon",
         "MODULE_STATIC_PAGES",
@@ -144,6 +146,42 @@ def test_admin_screens_gate() -> None:
         src = (ADMIN / name).read_text(encoding="utf-8")
         assert "requireCapability" in src
         assert "manage_options" in src
+
+
+def test_mail_settings_screen() -> None:
+    mail = (ADMIN / "options-mail.php").read_text(encoding="utf-8")
+    for needle in (
+        "isSaveRequest('mail')",
+        "settingsFields('mail')",
+        "updateMailSettings",
+        "mail_from_name",
+        "mail_from_email",
+        "mail_reply_to",
+        "mail_transport",
+        "smtp_host",
+        "smtp_port",
+        "smtp_encryption",
+        'value="none"',
+        'value="tls"',
+        'value="ssl"',
+        "smtp_user",
+        "smtp_pass",
+        "Send test email to admin_email",
+        "ap_mail_send_test",
+        "storedLastError",
+        "autocomplete=\"new-password\"",
+    ):
+        assert needle in mail, f"options-mail.php missing {needle!r}"
+    assert "isSaveRequest('general')" not in mail
+    general = (ADMIN / "options-general.php").read_text(encoding="utf-8")
+    assert "mail_from_email" not in general
+    assert "smtp_host" not in general
+    settings = SETTINGS.read_text(encoding="utf-8")
+    assert "registerSetting('mail', 'mail_from_email'" in settings
+    assert "registerSetting('general', 'mail_from_email'" not in settings
+    assert "registerSetting('mail', 'smtp_pass'" in settings
+    smtp_block = settings.split("registerSetting('mail', 'smtp_pass'", 1)[1]
+    assert "'autoload' => 'no'" in smtp_block.split("registerSetting(", 1)[0]
 
 
 def test_bootstrap_wires_settings() -> None:

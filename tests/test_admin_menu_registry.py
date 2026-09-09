@@ -95,6 +95,7 @@ def test_wp_admin_menu_page_shims_exist() -> None:
     menu = MENU_CLASS.read_text(encoding="utf-8")
     for needle in (
         "options-general.php",
+        "options-mail.php",
         "plugins.php",
         "tools.php",
         "options-forums.php",

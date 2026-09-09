@@ -928,6 +928,8 @@ def test_compatibility_doc_content(docs_root: Path) -> None:
         "rewrites.md",
         "ap_init",
         "hooks.md",
+        "wp_mail",
+        "ap_mail::send",
     ):
         assert phrase in text, f"compatibility.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1248,6 +1250,7 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "forum-moderation.php",
         "forum-topics.php",
         "options-general.php",
+        "options-mail.php",
         "options-writing.php",
         "options-reading.php",
         "options-discussion.php",
@@ -1290,6 +1293,7 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "site_icon",
         "settings → modules",
         "settings → general",
+        "settings → mail",
         "tools → update core",
         "wxr",
         "phpbb",

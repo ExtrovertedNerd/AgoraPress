@@ -53,7 +53,10 @@ def test_site_health_class_api() -> None:
         "checkAutoloadOptions",
         "checkPhpMemory",
         "checkPageCache",
+        "checkMail",
+        "infoMail",
         "infoPerformance",
+        "does not send mail",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-site-health.php"
 

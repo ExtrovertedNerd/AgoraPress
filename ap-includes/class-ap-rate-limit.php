@@ -5,8 +5,8 @@
  *
  * Transient-backed sliding windows with optional lockout after max attempts.
  * Used for login brute-force protection, registration / password-reset floods,
- * and upload throttling. Keys are hashed so sensitive identifiers are never
- * stored in plain form.
+ * upload throttling, and outbound mail. Keys are hashed so sensitive
+ * identifiers are never stored in plain form.
  *
  * Options (optional overrides; defaults are secure for shared hosting):
  * - rate_limit_{action}_max       max attempts in the window
@@ -14,7 +14,8 @@
  * - rate_limit_{action}_lockout   lockout length after max is exceeded
  *
  * Actions: {@see self::ACTION_LOGIN}, {@see self::ACTION_REGISTER},
- * {@see self::ACTION_PASSWORD_RESET}, {@see self::ACTION_UPLOAD}.
+ * {@see self::ACTION_PASSWORD_RESET}, {@see self::ACTION_UPLOAD},
+ * {@see self::ACTION_MAIL}.
  *
  * @package AgoraPress
  */
@@ -33,6 +34,9 @@ class AP_Rate_Limit
     public const ACTION_PASSWORD_RESET = 'password_reset';
 
     public const ACTION_UPLOAD = 'upload';
+
+    /** Outbound mail (IP + recipient). Applied in {@see AP_Mail::send()}. */
+    public const ACTION_MAIL = 'mail';
 
     /** Transient key prefix (kept short for Options name limits). */
     private const TRANSIENT_PREFIX = 'ap_rl_';
@@ -62,6 +66,11 @@ class AP_Rate_Limit
             'max' => 40,
             'window' => 600,
             'lockout' => 300,
+        ],
+        self::ACTION_MAIL => [
+            'max' => 20,
+            'window' => 3600,
+            'lockout' => 3600,
         ],
     ];
 
@@ -551,6 +560,79 @@ class AP_Rate_Limit
         }
     }
 
+    /**
+     * Whether outbound mail is blocked for this IP and/or recipient.
+     *
+     * Either bucket can block (one client flooding SMTP, or one inbox being
+     * targeted). {@see AP_Mail::send()} is the only core caller.
+     *
+     * @param string|list<string> $recipients
+     *
+     * @return array{allowed: bool, retry_after: int, message: string}
+     */
+    public static function checkMail(
+        string|array $recipients = '',
+        string $ip = '',
+        ?AP_DB $db = null
+    ): array {
+        $ipCheck = self::check(self::ACTION_MAIL, self::ipBucket($ip), $db);
+        $retry = (int) $ipCheck['retry_after'];
+        $allowed = (bool) $ipCheck['allowed'];
+
+        foreach (self::mailRecipientList($recipients) as $email) {
+            $idCheck = self::check(self::ACTION_MAIL, self::identityBucket($email), $db);
+            if (!$idCheck['allowed']) {
+                $allowed = false;
+                $retry = max($retry, (int) $idCheck['retry_after']);
+            }
+        }
+
+        if ($allowed) {
+            return ['allowed' => true, 'retry_after' => 0, 'message' => ''];
+        }
+
+        return [
+            'allowed' => false,
+            'retry_after' => $retry,
+            'message' => self::lockoutMessage($retry, 'try again'),
+        ];
+    }
+
+    /**
+     * Record one outbound-mail attempt against IP + recipient buckets.
+     *
+     * @param string|list<string> $recipients
+     *
+     * @return array{allowed: bool, retry_after: int, message: string}
+     */
+    public static function recordMail(
+        string|array $recipients = '',
+        string $ip = '',
+        ?AP_DB $db = null
+    ): array {
+        $afterIp = self::hit(self::ACTION_MAIL, self::ipBucket($ip), $db);
+        $retry = (int) $afterIp['retry_after'];
+        $allowed = (bool) $afterIp['allowed'];
+
+        foreach (self::mailRecipientList($recipients) as $email) {
+            $afterId = self::hit(self::ACTION_MAIL, self::identityBucket($email), $db);
+            if (!$afterId['allowed']) {
+                $allowed = false;
+                $retry = max($retry, (int) $afterId['retry_after']);
+            }
+        }
+
+        if ($allowed) {
+            return ['allowed' => true, 'retry_after' => 0, 'message' => ''];
+        }
+
+        return [
+            'allowed' => false,
+            'retry_after' => $retry,
+            'message' => self::lockoutMessage($retry, 'try again'),
+        ];
+    }
+
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
@@ -616,6 +698,28 @@ class AP_Rate_Limit
         $hash = hash('sha256', $action . '|' . $bucket);
 
         return self::TRANSIENT_PREFIX . substr($hash, 0, 40);
+    }
+
+    /**
+     * Unique trimmed recipient addresses for mail buckets.
+     *
+     * @param string|list<string> $recipients
+     *
+     * @return list<string>
+     */
+    private static function mailRecipientList(string|array $recipients): array
+    {
+        $raw = is_array($recipients) ? $recipients : [$recipients];
+        $out = [];
+        foreach ($raw as $email) {
+            $email = strtolower(trim((string) $email));
+            if ($email === '' || isset($out[$email])) {
+                continue;
+            }
+            $out[$email] = $email;
+        }
+
+        return array_values($out);
     }
 
     private static function normalizeAction(string $action): string

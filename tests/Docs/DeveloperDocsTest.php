@@ -1036,6 +1036,8 @@ final class DeveloperDocsTest extends TestCase
                 'try_files $uri $uri/ /index.php?$args',
                 'rewrites.md',
                 'ap_init',
+                'wp_mail',
+                'AP_Mail::send',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1493,6 +1495,7 @@ final class DeveloperDocsTest extends TestCase
                 'forum-moderation.php',
                 'forum-topics.php',
                 'options-general.php',
+                'options-mail.php',
                 'options-writing.php',
                 'options-reading.php',
                 'options-discussion.php',
@@ -1535,6 +1538,7 @@ final class DeveloperDocsTest extends TestCase
                 'site_icon',
                 'Settings → Modules',
                 'Settings → General',
+                'Settings → Mail',
                 'Tools → Update Core',
                 'WXR',
                 'phpBB',
@@ -1936,6 +1940,9 @@ final class DeveloperDocsTest extends TestCase
                 'view_site_health',
                 'rate_limited',
                 'require_email_verification',
+                'mail_last_error',
+                'Mail not arriving',
+                'does **not** send',
                 'admin-login',
                 'AP_Session',
                 'Too many failed login attempts',

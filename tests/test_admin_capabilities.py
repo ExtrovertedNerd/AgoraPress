@@ -66,6 +66,7 @@ def test_screens_gate_with_require_capability() -> None:
         "widgets.php": "edit_theme_options",
         "plugins.php": "activate_plugins",
         "options-general.php": "manage_options",
+        "options-mail.php": "manage_options",
         "options-modules.php": "manage_options",
         "options-writing.php": "manage_options",
         "options-reading.php": "manage_options",

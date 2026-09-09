@@ -105,6 +105,7 @@ def test_shim_defines_common_wp_symbols() -> None:
         "function home_url",
         "function register_nav_menus",
         "function add_theme_support",
+        "function wp_mail",
     ):
         assert needle in combined, f"Expected {needle!r} in compatibility shims"
 

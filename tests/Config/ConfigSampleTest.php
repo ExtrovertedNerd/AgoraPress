@@ -217,4 +217,89 @@ PHP;
         );
         $this->assertSame('ap-config-sample.php', basename($this->samplePath));
     }
+
+    /**
+     * @return list<array{0: string}>
+     */
+    public static function mailConstantProvider(): array
+    {
+        return [
+            ['AP_MAIL_FROM_NAME'],
+            ['AP_MAIL_FROM_EMAIL'],
+            ['AP_MAIL_TRANSPORT'],
+            ['AP_SMTP_HOST'],
+            ['AP_SMTP_PORT'],
+            ['AP_SMTP_ENCRYPTION'],
+            ['AP_SMTP_USER'],
+            ['AP_SMTP_PASS'],
+        ];
+    }
+
+    #[DataProvider('mailConstantProvider')]
+    public function testSampleDocumentsMailConstantAsComment(string $name): void
+    {
+        $src = (string) file_get_contents($this->samplePath);
+        $this->assertStringContainsString(
+            $name,
+            $src,
+            "Sample must document {$name}"
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/^\s*define\s*\(\s*[\'"]' . preg_quote($name, '/') . '[\'"]/m',
+            $src,
+            "{$name} must be a comment, not a live define"
+        );
+    }
+
+    public function testSampleMailConstantsUseGenericExamplesOnly(): void
+    {
+        $src = (string) file_get_contents($this->samplePath);
+        $this->assertStringContainsString('smtp.example.com', $src);
+        $this->assertStringContainsString('noreply@example.com', $src);
+        $this->assertStringContainsString('your-smtp-password-here', $src);
+        $this->assertStringNotContainsString('mail.0shits.com', $src);
+        $this->assertDoesNotMatchRegularExpression(
+            '/^\s*define\s*\(\s*[\'"]AP_SMTP_PASS[\'"]/m',
+            $src,
+            'AP_SMTP_PASS must not be a live define'
+        );
+    }
+
+    public function testSampleLoadDoesNotDefineMailConstants(): void
+    {
+        $php = PHP_BINARY !== '' ? PHP_BINARY : 'php';
+        $script = <<<'PHP'
+declare(strict_types=1);
+require $argv[1];
+foreach (
+    [
+        'AP_MAIL_FROM_NAME', 'AP_MAIL_FROM_EMAIL', 'AP_MAIL_TRANSPORT',
+        'AP_SMTP_HOST', 'AP_SMTP_PORT', 'AP_SMTP_ENCRYPTION',
+        'AP_SMTP_USER', 'AP_SMTP_PASS',
+    ] as $c
+) {
+    if (defined($c)) {
+        fwrite(STDERR, "sample must not define {$c}\n");
+        exit(2);
+    }
+}
+echo "ok\n";
+exit(0);
+PHP;
+
+        $cmd = escapeshellarg($php)
+            . ' -d display_errors=1 -d error_reporting=E_ALL -r '
+            . escapeshellarg($script)
+            . ' -- '
+            . escapeshellarg($this->samplePath)
+            . ' 2>&1';
+
+        $output = [];
+        $exit = 0;
+        exec($cmd, $output, $exit);
+        $body = implode("\n", $output);
+
+        $this->assertSame(0, $exit, "Sample load defined mail constants:\n{$body}");
+        $this->assertStringContainsString('ok', $body);
+    }
 }

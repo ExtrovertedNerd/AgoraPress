@@ -17,6 +17,7 @@ core Content-Security-Policy — those are **not in core**.
 `ap-includes/class-ap-formatting.php`, `ap-includes/class-ap-privacy.php`,
 `ap-includes/class-ap-version-check.php`, `ap-includes/class-ap-hall-of-fame.php`,
 `ap-includes/class-ap-analytics.php`, `ap-includes/class-ap-media.php`,
+`ap-includes/class-ap-mail.php`,
 `ap-includes/class-ap-site-health.php`, `ap-includes/class-ap-rest.php`,
 `install/index.php`, `ap-admin/login.php`, `ap-admin/options-privacy.php`,
 `ap-admin/export-personal-data.php`, `ap-admin/erase-personal-data.php`,
@@ -34,7 +35,7 @@ core Content-Security-Policy — those are **not in core**.
 | PDO prepared statements only (`AP_DB`) | Query builders that interpolate untrusted SQL |
 | HMAC nonces on state-changing ACP forms and REST cookie writes | PHP `$_SESSION` CSRF after install (only the web installer uses `$_SESSION`) |
 | Argon2id password hashes (`PASSWORD_ARGON2ID` when PHP has it) | Optional 2FA / TOTP |
-| Transient-backed rate limits (login, register, password reset, upload) | Fail2ban, IP firewalls, or a bundled WAF |
+| Transient-backed rate limits (login, register, password reset, upload, outbound mail) | Fail2ban, IP firewalls, or a bundled WAF |
 | Capability checks on admin screens and privileged APIs | A second permission system besides [roles.md](roles.md) / forum ACL |
 | Escape on output / sanitize on input (`AP_Formatting`) | “Trusted HTML from the database” as a security model |
 | Deny rules in shipped Apache / Nginx examples | IIS `web.config`, Caddy, or PHP built-in-server deny files |
@@ -166,6 +167,16 @@ Default windows (`AP_Rate_Limit`; override with options
 | `register` | 5 | 1 h | 1 h |
 | `password_reset` | 5 | 1 h | 30 min |
 | `upload` | 40 | 10 min | 5 min |
+| `mail` | 20 | 1 h | 1 h |
+
+`AP_Mail::send()` (the only outbound API) applies the `mail` action to the
+client IP **and** each recipient identity before php/smtp or the `ap_mail_send`
+filter. Either bucket can block. That is the backstop so an open register
+form cannot turn the configured SMTP (or PHP `mail()`) into a cannon.
+Invalid recipients do not consume quota. A blocked send stores the lockout
+text in `mail_last_error` (Settings → Mail / Site Health) and returns false.
+Override with `rate_limit_mail_max` / `_window` / `_lockout` (**no ACP
+screen**). Tests may call `AP_Rate_Limit::disable()`.
 
 Client IP is `REMOTE_ADDR` by default (not spoofable without a proxy). Only if
 you **define `AP_TRUST_PROXY` true** in `ap-config.php` (not in the sample
@@ -431,6 +442,7 @@ already cached (no forced network). Security-relevant checks as built:
 | Debug mode | `AP_DEBUG` off |
 | Telemetry | Always good (collectors do not exist) |
 | HTTPS | `siteurl` is `https://` |
+| Outbound mail | Transport `php` or configured SMTP; last error empty. Does **not** send a test message |
 | Privacy policy | A published page is selected |
 
 Leave `AP_DEBUG`, `AP_DEBUG_DISPLAY`, and `AP_SAVEQUERIES` **false** on

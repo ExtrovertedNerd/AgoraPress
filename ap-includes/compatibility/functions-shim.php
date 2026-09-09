@@ -1195,6 +1195,99 @@ if (!function_exists('untrailingslashit')) {
 }
 
 // -----------------------------------------------------------------------------
+// Mail (classic wp_mail → AP_Mail::send)
+// -----------------------------------------------------------------------------
+
+if (!function_exists('wp_mail')) {
+    /**
+     * Send mail through AgoraPress when the classic compatibility layer is loaded.
+     *
+     * Matches the WordPress `wp_mail()` signature. Recipients and WP-style
+     * headers are normalized, then {@see AP_Mail::send()} is the only outbound
+     * path. Attachments are ignored this pass (text/plain; no MIME parts).
+     * Caller `Content-Type` / MIME headers are dropped so the message stays
+     * text/plain. Native plugins should call `ap_mail()` instead — this name
+     * exists only while the classic layer is loaded.
+     *
+     * @param string|list<string> $to          Recipient address(es).
+     * @param string|list<string> $headers     Header string, list of "Name: value"
+     *                                         lines, or name => value map.
+     * @param string|list<string> $attachments Ignored (no file parts this pass).
+     */
+    function wp_mail(
+        string|array $to,
+        string $subject,
+        string $message,
+        string|array $headers = '',
+        string|array $attachments = []
+    ): bool {
+        // Signature matches WordPress; MIME attachments are out of scope this pass.
+        unset($attachments);
+
+        if (!class_exists('AP_Mail', false)) {
+            return false;
+        }
+
+        $recipients = [];
+        $rawTo = is_array($to) ? $to : (preg_split('/,/', $to) ?: []);
+        foreach ($rawTo as $item) {
+            $item = trim((string) $item);
+            if ($item === '') {
+                continue;
+            }
+            if (preg_match('/<([^>]+)>/', $item, $m) === 1) {
+                $item = trim($m[1]);
+            }
+            $recipients[] = $item;
+        }
+
+        $headerMap = [];
+        $rawHeaders = is_string($headers)
+            ? ($headers === '' ? [] : (preg_split('/\r\n|\r|\n/', $headers) ?: []))
+            : $headers;
+        foreach ($rawHeaders as $key => $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $value = trim((string) $value);
+            if ($value === '') {
+                continue;
+            }
+            if (is_string($key) && $key !== '') {
+                $name = $key;
+                $headerValue = $value;
+            } else {
+                $colon = strpos($value, ':');
+                if ($colon === false) {
+                    continue;
+                }
+                $name = substr($value, 0, $colon);
+                $headerValue = trim(substr($value, $colon + 1));
+            }
+            $name = trim($name);
+            if ($name === '' || $headerValue === '') {
+                continue;
+            }
+            $canonical = str_replace(
+                ' ',
+                '-',
+                ucwords(strtolower(str_replace('-', ' ', $name)))
+            );
+            if (
+                $canonical === 'Content-Type'
+                || $canonical === 'Mime-Version'
+                || $canonical === 'Content-Transfer-Encoding'
+            ) {
+                continue;
+            }
+            $headerMap[$canonical] = $headerValue;
+        }
+
+        return AP_Mail::send($recipients, $subject, $message, $headerMap);
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Theme mods (Appearance → Theme Options / Customizer-style storage)
 // -----------------------------------------------------------------------------
 

@@ -57,6 +57,7 @@ final class SuiteHealthTest extends TestCase
             ['tests/Options/PageCacheTest.php'],
             ['tests/Assets/AssetsTest.php'],
             ['tests/Security/MailTest.php'],
+            ['tests/Security/SmtpTest.php'],
             ['tests/Install/SampleContentTest.php'],
             ['tests/Release/PackageReleaseTest.php'],
             ['tests/Changelog/ChangelogTest.php'],
@@ -98,6 +99,7 @@ final class SuiteHealthTest extends TestCase
         $this->assertStringContainsString('SuiteHealthTest', $body);
         $this->assertStringContainsString('PageCacheTest', $body);
         $this->assertStringContainsString('MailTest', $body);
+        $this->assertStringContainsString('SmtpTest', $body);
     }
 
     public function testComposerTestScriptPointsAtPhpunit(): void

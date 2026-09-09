@@ -35,6 +35,9 @@ class AP_Registration
     /** Minimum seconds between password-reset emails for the same account. */
     public const RESET_COOLDOWN = 60;
 
+    /** Minimum seconds between public verification resends for the same account. */
+    public const VERIFY_RESEND_COOLDOWN = 60;
+
     /** Key purpose: email verification after registration. */
     public const PURPOSE_ACTIVATE = 'activate';
 
@@ -267,6 +270,11 @@ class AP_Registration
      * STATUS_PENDING and a verification email is sent. When not required the
      * account is active immediately (no activation email).
      *
+     * If verification is required and {@see AP_Mail::send()} fails, the pending
+     * user is kept (`ok` remains true) and `mail_sent` is false. Callers must
+     * not claim the message went out. `mail_sent` is true only when a
+     * verification message was actually accepted by {@see AP_Mail::send()}.
+     *
      * @param array<string, mixed> $data
      *
      * @return array{
@@ -275,7 +283,8 @@ class AP_Registration
      *     errors: list<string>,
      *     user: ?AP_User,
      *     needs_verification: bool,
-     *     plain_key: string
+     *     plain_key: string,
+     *     mail_sent: bool
      * }
      */
     public static function register(array $data, ?AP_DB $db = null): array
@@ -287,6 +296,7 @@ class AP_Registration
             'user' => null,
             'needs_verification' => false,
             'plain_key' => '',
+            'mail_sent' => false,
         ];
 
         if (!self::usersCanRegister($db)) {
@@ -355,6 +365,7 @@ class AP_Registration
                 'user' => null,
                 'needs_verification' => false,
                 'plain_key' => '',
+                'mail_sent' => false,
             ];
         }
 
@@ -383,10 +394,24 @@ class AP_Registration
                     'user' => null,
                     'needs_verification' => false,
                     'plain_key' => '',
+                    'mail_sent' => false,
                 ];
             }
 
-            self::sendVerificationEmail($user, $plainKey, $db);
+            $mailSent = self::sendVerificationEmail($user, $plainKey, $db);
+            if (!$mailSent) {
+                // Keep the pending user. Do not pretend the message went out.
+                return [
+                    'ok' => true,
+                    'id' => $user->ID,
+                    'errors' => [self::couldNotSendVerificationMessage(true)],
+                    'user' => $user,
+                    'needs_verification' => true,
+                    'plain_key' => $plainKey,
+                    'mail_sent' => false,
+                ];
+            }
+            AP_User::updateMeta($user->ID, 'ap_verification_sent', (string) time(), $db);
         }
 
         return [
@@ -396,6 +421,8 @@ class AP_Registration
             'user' => $user,
             'needs_verification' => $needsVerification,
             'plain_key' => $plainKey,
+            // True only when a verification message was actually handed to send().
+            'mail_sent' => $needsVerification,
         ];
     }
 
@@ -457,7 +484,9 @@ class AP_Registration
      * Start a password reset: issue key and email when the account exists and is active.
      *
      * Always returns ok=true with a generic message path so callers do not leak
-     * whether an email/login is registered. The `sent` flag is for tests only.
+     * whether an email/login is registered — except when a real send() fails,
+     * in which case ok=false so the UI does not claim the mail went out.
+     * The `sent` flag is for tests and honest-failure handling.
      *
      * @return array{
      *     ok: bool,
@@ -530,8 +559,174 @@ class AP_Registration
             return $generic;
         }
 
+        $sent = self::sendPasswordResetEmail($user, $plainKey, $db);
+        if (!$sent) {
+            return [
+                'ok' => false,
+                'errors' => [self::couldNotSendResetMessage()],
+                'sent' => false,
+                'plain_key' => $plainKey,
+                'user' => $user,
+            ];
+        }
+
         AP_User::updateMeta($user->ID, 'ap_password_reset_sent', (string) time(), $db);
-        self::sendPasswordResetEmail($user, $plainKey, $db);
+
+        return [
+            'ok' => true,
+            'errors' => [],
+            'sent' => true,
+            'plain_key' => $plainKey,
+            'user' => $user,
+        ];
+    }
+
+    /**
+     * Whether this account is waiting on registration email verification.
+     *
+     * Requires STATUS_PENDING and an activate-purpose key so a banned account
+     * that reuses user_status=1 is not treated as unverified.
+     */
+    public static function userAwaitsVerification(?AP_User $user): bool
+    {
+        if ($user === null || $user->ID < 1) {
+            return false;
+        }
+        if ($user->user_status !== self::STATUS_PENDING) {
+            return false;
+        }
+
+        return str_starts_with($user->user_activation_key, self::PURPOSE_ACTIVATE . ':');
+    }
+
+    /**
+     * Public resend of a pending verification email (login or email lookup).
+     *
+     * Unknown / already-active accounts return generic ok=true so the form does
+     * not leak whether the address is registered. A real send() failure is
+     * reported honestly (`ok` false) and does not claim the mail went out.
+     *
+     * @return array{
+     *     ok: bool,
+     *     errors: list<string>,
+     *     sent: bool,
+     *     plain_key: string,
+     *     user: ?AP_User
+     * }
+     */
+    public static function resendVerification(string $loginOrEmail, ?AP_DB $db = null): array
+    {
+        $loginOrEmail = trim($loginOrEmail);
+        $generic = [
+            'ok' => true,
+            'errors' => [],
+            'sent' => false,
+            'plain_key' => '',
+            'user' => null,
+        ];
+
+        if ($loginOrEmail === '') {
+            return [
+                'ok' => false,
+                'errors' => ['Please enter your username or email address.'],
+                'sent' => false,
+                'plain_key' => '',
+                'user' => null,
+            ];
+        }
+
+        if (class_exists('AP_Rate_Limit', false)) {
+            // Share the password-reset IP bucket so public resend cannot become
+            // a second flood / enumeration path. Lockout still returns generic ok.
+            $gate = AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_PASSWORD_RESET,
+                AP_Rate_Limit::ipBucket(),
+                $db
+            );
+            if (!$gate['allowed']) {
+                return $generic;
+            }
+            AP_Rate_Limit::hit(
+                AP_Rate_Limit::ACTION_PASSWORD_RESET,
+                AP_Rate_Limit::ipBucket(),
+                $db
+            );
+        }
+
+        $user = AP_User::getByLogin($loginOrEmail, $db);
+        if ($user === null && str_contains($loginOrEmail, '@')) {
+            $user = AP_User::getByEmail($loginOrEmail, $db);
+        }
+
+        if ($user === null || !self::userAwaitsVerification($user)) {
+            return $generic;
+        }
+
+        return self::resendVerificationForUser($user, $db, true);
+    }
+
+    /**
+     * Resend verification for a known pending user (admin Users → Edit).
+     *
+     * @return array{
+     *     ok: bool,
+     *     errors: list<string>,
+     *     sent: bool,
+     *     plain_key: string,
+     *     user: ?AP_User
+     * }
+     */
+    public static function resendVerificationForUser(
+        AP_User $user,
+        ?AP_DB $db = null,
+        bool $respectCooldown = false
+    ): array {
+        $fail = [
+            'ok' => false,
+            'errors' => [],
+            'sent' => false,
+            'plain_key' => '',
+            'user' => $user,
+        ];
+
+        if (!self::userAwaitsVerification($user)) {
+            $fail['errors'][] = 'This account is not waiting for email verification.';
+
+            return $fail;
+        }
+
+        if ($respectCooldown) {
+            $last = AP_User::getMeta($user->ID, 'ap_verification_sent', $db);
+            if (is_string($last) && $last !== '' && ctype_digit($last)) {
+                $elapsed = time() - (int) $last;
+                if ($elapsed >= 0 && $elapsed < self::VERIFY_RESEND_COOLDOWN) {
+                    return [
+                        'ok' => true,
+                        'errors' => [],
+                        'sent' => false,
+                        'plain_key' => '',
+                        'user' => $user,
+                    ];
+                }
+            }
+        }
+
+        $plainKey = self::issueKey($user, self::PURPOSE_ACTIVATE, $db);
+        if ($plainKey === '') {
+            $fail['errors'][] = 'Could not prepare account verification. Please try again.';
+
+            return $fail;
+        }
+
+        $sent = self::sendVerificationEmail($user, $plainKey, $db);
+        if (!$sent) {
+            $fail['errors'][] = self::couldNotSendVerificationMessage(false);
+            $fail['plain_key'] = $plainKey;
+
+            return $fail;
+        }
+
+        AP_User::updateMeta($user->ID, 'ap_verification_sent', (string) time(), $db);
 
         return [
             'ok' => true,
@@ -735,7 +930,7 @@ class AP_Registration
             . "Thank you for registering at {$site}.\r\n\r\n"
             . "Please confirm your email address by visiting this link:\r\n"
             . "{$url}\r\n\r\n"
-            . "This link expires in 24 hours.\r\n\r\n"
+            . self::mailLinkNotice()
             . "If you did not register, you can ignore this email.\r\n";
 
         return AP_Mail::send($user->user_email, $subject, $message);
@@ -756,7 +951,7 @@ class AP_Registration
             . "Someone requested a password reset for your account on {$site}.\r\n\r\n"
             . "To choose a new password, visit:\r\n"
             . "{$url}\r\n\r\n"
-            . "This link expires in 24 hours.\r\n\r\n"
+            . self::mailLinkNotice()
             . "If you did not request this, you can ignore this email."
             . " Your password will not change.\r\n";
 
@@ -883,6 +1078,40 @@ class AP_Registration
         }
 
         return ['a' => $a, 'b' => $b, 'ts' => $ts];
+    }
+
+    /**
+     * Shared expiry and delivery hint for verification and reset mail (text/plain).
+     * Expiry copy matches {@see self::KEY_TTL} (24 hours).
+     */
+    private static function mailLinkNotice(): string
+    {
+        return "This link expires in 24 hours.\r\n\r\n"
+            . "If this message is not in your inbox, check your spam folder. "
+            . "The sending server may be new.\r\n\r\n";
+    }
+
+    /**
+     * Public-facing copy when verification mail cannot be sent.
+     */
+    private static function couldNotSendVerificationMessage(bool $accountJustCreated): string
+    {
+        if ($accountJustCreated) {
+            return 'Your account was created, but the verification email could not be sent.'
+                . ' Please try resending, or contact the site administrator.';
+        }
+
+        return 'The verification email could not be sent.'
+            . ' Please try again later or contact the site administrator.';
+    }
+
+    /**
+     * Public-facing copy when a password-reset mail cannot be sent.
+     */
+    private static function couldNotSendResetMessage(): string
+    {
+        return 'The password reset email could not be sent.'
+            . ' Please try again later or contact the site administrator.';
     }
 
     /**

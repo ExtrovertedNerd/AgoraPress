@@ -10,6 +10,7 @@
  * - lostpassword
  * - rp | resetpass  (set new password with key)
  * - verifyemail
+ * - resend (verification email; offered when send() failed or mail is missing)
  *
  * @package AgoraPress
  */
@@ -24,7 +25,7 @@ $action = (string) ($_REQUEST['action'] ?? 'login');
 if ($action === 'resetpass') {
     $action = 'rp';
 }
-$allowed = ['login', 'logout', 'register', 'lostpassword', 'rp', 'verifyemail'];
+$allowed = ['login', 'logout', 'register', 'lostpassword', 'rp', 'verifyemail', 'resend'];
 if (!in_array($action, $allowed, true)) {
     $action = 'login';
 }
@@ -49,6 +50,7 @@ if ($action !== 'verifyemail' && ap_is_user_logged_in()) {
 
 $errors = [];
 $messages = [];
+$resendPrefill = '';
 $canRegister = ap_users_can_register();
 $captchaEnabled = $canRegister && function_exists('ap_registration_captcha_enabled')
     && ap_registration_captcha_enabled();
@@ -97,7 +99,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                             && AP_User::checkPassword($password, $pending->user_pass)
                         ) {
                             $errors[] = 'Please verify your email address before logging in.'
-                                . ' Check your inbox for the confirmation link.';
+                                . ' If you did not receive the message, use Resend verification.';
                         } else {
                             $errors[] = is_array($loginError) && ($loginError['message'] ?? '') !== ''
                                 ? (string) $loginError['message']
@@ -135,6 +137,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     if ($captchaEnabled && function_exists('ap_registration_create_captcha')) {
                         $captchaChallenge = ap_registration_create_captcha();
                     }
+                } elseif ($result['needs_verification'] && empty($result['mail_sent'])) {
+                    // Account kept pending; do not claim the verification mail went out.
+                    // Missing mail_sent is fail-closed (do not treat as success).
+                    $errors = array_merge(
+                        $errors,
+                        $result['errors'] !== []
+                            ? $result['errors']
+                            : ['Your account was created, but the verification email could not be sent.']
+                    );
+                    $action = 'resend';
+                    if ($result['user'] instanceof AP_User) {
+                        $resendPrefill = $result['user']->user_email;
+                    }
                 } elseif ($result['needs_verification']) {
                     AP_Admin::redirect(AP_Admin::url('login.php', [
                         'checkemail' => 'confirm',
@@ -158,6 +173,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 AP_Admin::redirect(AP_Admin::url('login.php', [
                     'checkemail' => 'confirm_reset',
                 ]));
+            }
+        }
+    } elseif ($action === 'resend') {
+        if (!ap_check_nonce($nonce, 'admin-resend', 0)) {
+            $errors[] = 'Security check failed. Please try again.';
+        } else {
+            $loginOrEmail = trim((string) ($_POST['user_login'] ?? ''));
+            $resendPrefill = $loginOrEmail;
+            $result = ap_resend_user_verification($loginOrEmail);
+            if (!$result['ok']) {
+                $errors = array_merge($errors, $result['errors']);
+            } else {
+                $messages[] = 'If a pending account exists for that username or email,'
+                    . ' you will receive a verification message shortly.';
             }
         }
     } elseif ($action === 'rp') {
@@ -248,6 +277,7 @@ $pageTitle = match ($action) {
     'lostpassword' => 'Lost Password',
     'rp' => 'Reset Password',
     'verifyemail' => 'Verify Email',
+    'resend' => 'Resend Verification',
     default => 'Log In',
 };
 
@@ -346,6 +376,8 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                     <span class="ap-login-sep">|</span>
                     <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'register'])); ?>">Register</a>
                 <?php endif; ?>
+                <span class="ap-login-sep">|</span>
+                <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'resend'])); ?>">Resend verification email</a>
             </p>
 
         <?php elseif ($action === 'register') : ?>
@@ -408,8 +440,30 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                 </form>
                 <p class="ap-login-links">
                     <a href="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">← Back to log in</a>
+                    <span class="ap-login-sep">|</span>
+                    <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'resend'])); ?>">Resend verification email</a>
                 </p>
             <?php endif; ?>
+
+        <?php elseif ($action === 'resend') : ?>
+            <p class="ap-login-hint">Enter your username or email to resend the verification message
+                if your account is still waiting to be confirmed.</p>
+            <form method="post" action="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'resend'])); ?>">
+                <?php echo ap_nonce_field('admin-resend', '_ap_nonce', false, 0); ?>
+                <div class="ap-field">
+                    <label for="resend_user_login">Username or Email</label>
+                    <input type="text" name="user_login" id="resend_user_login" autocomplete="username" required
+                           value="<?php echo ap_esc_attr($resendPrefill !== '' ? $resendPrefill : (string) ($_POST['user_login'] ?? '')); ?>" />
+                </div>
+                <button type="submit" class="button button-primary">Resend verification</button>
+            </form>
+            <p class="ap-login-links">
+                <a href="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">← Back to log in</a>
+                <?php if ($canRegister) : ?>
+                    <span class="ap-login-sep">|</span>
+                    <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'register'])); ?>">Register</a>
+                <?php endif; ?>
+            </p>
 
         <?php elseif ($action === 'lostpassword') : ?>
             <p class="ap-login-hint">Enter your username or email and we will send reset instructions if an account exists.</p>

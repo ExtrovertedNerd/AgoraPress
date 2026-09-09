@@ -327,6 +327,7 @@ class AP_Admin_Menu
         return [
             // Settings (WP options-* + AgoraPress settings screens)
             'options-general.php' => 'settings',
+            'options-mail.php' => 'settings',
             'options.php' => 'settings',
             'settings.php' => 'settings',
             'options-writing.php' => 'settings',

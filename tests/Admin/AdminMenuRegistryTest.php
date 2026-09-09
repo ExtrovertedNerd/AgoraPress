@@ -363,6 +363,7 @@ final class AdminMenuRegistryTest extends TestCase
     {
         // Settings (WP + AgoraPress options screens).
         $this->assertSame('settings', AP_Admin_Menu::mapWpParent('options-general.php'));
+        $this->assertSame('settings', AP_Admin_Menu::mapWpParent('options-mail.php'));
         $this->assertSame('settings', AP_Admin_Menu::mapWpParent('OPTIONS-GENERAL.PHP'));
         $this->assertSame('settings', AP_Admin_Menu::mapWpParent('options.php'));
         $this->assertSame('settings', AP_Admin_Menu::mapWpParent('options-writing.php'));

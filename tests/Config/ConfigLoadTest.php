@@ -134,6 +134,11 @@ final class ConfigLoadTest extends TestCase
         $this->assertSame('utf8mb4_unicode_ci', $defaults['AP_DB_COLLATE']);
         $this->assertFalse($defaults['AP_DEBUG']);
         $this->assertArrayNotHasKey('AP_TELEMETRY', $defaults);
+        // Mail constants must stay undefined unless the operator sets them;
+        // a default would always win over Settings → Mail options.
+        $this->assertArrayNotHasKey('AP_MAIL_TRANSPORT', $defaults);
+        $this->assertArrayNotHasKey('AP_SMTP_HOST', $defaults);
+        $this->assertArrayNotHasKey('AP_SMTP_PASS', $defaults);
     }
 
     public function testInvalidConfigHtmlListsMissingConstants(): void

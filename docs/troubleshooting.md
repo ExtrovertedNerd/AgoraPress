@@ -40,10 +40,11 @@ php ap-cli site health
 That surface already checks PHP/extensions and writable paths (including
 `ap-content/uploads/`), the database, schema vs `AP_DB_VERSION` (pending
 migrations are **critical**), salts, `AP_DEBUG`, telemetry absence, HTTPS,
-admin email, privacy policy, modules, a cached core-update notice, object
-and page cache drop-ins, autoloaded options, PHP memory, and disk space.
-It does **not** probe `mod_rewrite` or nginx `try_files` — those are host
-configuration.
+admin email, outbound mail (transport + stored last error; it does **not**
+send a test message), privacy policy, modules, a cached core-update notice,
+object and page cache drop-ins, autoloaded options, PHP memory, and disk
+space. It does **not** probe `mod_rewrite` or nginx `try_files` — those are
+host configuration.
 
 ---
 
@@ -59,6 +60,7 @@ configuration.
 | REST 404 on `/ap-json/` or `?rest_route=` | Front controller (pretty `/ap-json/…`) **and** option `rest_api_enabled` | Distinguish a web-server HTML 404 from JSON `rest_disabled` / `rest_no_route` / `rest_module_disabled`. [rest.md](rest.md) |
 | Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.6-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
 | Login rejected / “too many attempts” / “verify your email” | Rate limit (`rate_limited`) or `require_email_verification` — not a broken `session.save_path` | [Login fails](#login-fails), [security.md](security.md), [roles.md](roles.md) |
+| Mail not arriving (verification / reset / test) | **Tools → Site Health** outbound-mail check and Settings → Mail last error (`mail_last_error`) | [Mail not arriving](#mail-not-arriving) |
 | Admin screens look “old schema” after a zip/rsync, or Update Core is greyed | `php ap-cli db check` then `php ap-cli db migrate`. Pre-flight: `version_check_enabled`, ZipArchive, writable root | [updates.md](updates.md) |
 
 Each row is expanded below.
@@ -362,6 +364,38 @@ action is `admin-login` (`AP_Nonce`). Success sets a signed auth cookie
 | `Invalid username or password.` | Credentials, or the account does not exist | Caps / roles: [roles.md](roles.md). |
 | `Could not establish a session. Please try again.` | Signed cookie could not be set (`AP_Session::setAuthCookie` failed) | Browser cookies; `AP_LOGGED_IN_KEY` / `AP_LOGGED_IN_SALT` in `ap-config.php`. |
 | `Security check failed. Please try again.` | Login form nonce failed | Reload the form; do not cache `login.php`. |
+
+---
+
+## Mail not arriving
+
+**Symptom:** a verification message, password-reset mail, or Settings → Mail
+test never appears in the inbox.
+
+**Tools → Site Health** reports the configured transport (`php` or `smtp`)
+and the stored last error (`mail_last_error`). That check does **not** send
+a test message (Site Health never transmits data off-site).
+
+1. Open **Settings → Mail** (`options-mail.php`).
+2. Confirm From email (example `noreply@example.com`; this is not
+   `admin_email`) and transport.
+3. For SMTP: host (example `smtp.example.com`), port, encryption
+   (`none` / `tls` / `ssl`), username. The password field is write-only.
+4. Use **Send test email to admin_email**. A failure is stored as
+   `mail_last_error` and shown on that screen and on Site Health.
+5. If last error is `Too many attempts. Please try again in …`, outbound
+   mail hit the `mail` rate limit (IP + recipient, default 20/hour). Wait,
+   or raise `rate_limit_mail_max` via `php ap-cli option set` —
+   [security.md](security.md). There is **no** core unlock CLI.
+6. Check the spam folder. A newly configured sending server is often
+   untrusted.
+7. When defined in `ap-config.php`, `AP_MAIL_TRANSPORT`, `AP_SMTP_HOST`,
+   `AP_SMTP_PORT`, `AP_SMTP_ENCRYPTION`, `AP_SMTP_USER`, and `AP_SMTP_PASS`
+   override the options table. `ap-config-sample.php` documents the names
+   as comments — never a real password.
+
+PHP `mail()` delivery depends on the host MTA. There is **no** PHPMailer
+in core.
 
 ---
 

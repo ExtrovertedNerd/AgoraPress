@@ -311,6 +311,7 @@ core**. Do not invent it in answers or in new docs.
 | Install / update | `install/`, `class-ap-installer.php`, `class-ap-cli-install.php`, `class-ap-core-updater.php` |
 | Analytics | `class-ap-analytics.php`, `ap-admin/analytics.php`, `ap-admin/includes/class-ap-admin-analytics.php`, migration `0010_analytics_tables.php` |
 | Site icon / favicon | `class-ap-media.php` (pack + head tags), `class-ap-options.php` (`site_icon`), `ap-admin/options-general.php` |
+| Mail | `class-ap-mail.php`, `class-ap-smtp.php`, Settings → Mail (`ap-admin/options-mail.php`); classic-compat `wp_mail()` in `compatibility/functions-shim.php` |
 
 ---
 

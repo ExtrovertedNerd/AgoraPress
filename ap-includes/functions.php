@@ -383,7 +383,8 @@ function ap_registration_verify_captcha(array $data, ?AP_DB $db = null): array
  *     errors: list<string>,
  *     user: ?AP_User,
  *     needs_verification: bool,
- *     plain_key: string
+ *     plain_key: string,
+ *     mail_sent: bool
  * }
  *
  * @see AP_Registration::register()
@@ -408,6 +409,8 @@ function ap_verify_user_email(string $login, string $plainKey, ?AP_DB $db = null
 /**
  * Request a password-reset email (generic success; does not leak account existence).
  *
+ * A real send() failure returns ok=false so callers do not claim the mail went out.
+ *
  * @return array{
  *     ok: bool,
  *     errors: list<string>,
@@ -421,6 +424,24 @@ function ap_verify_user_email(string $login, string $plainKey, ?AP_DB $db = null
 function ap_request_password_reset(string $loginOrEmail, ?AP_DB $db = null): array
 {
     return AP_Registration::requestPasswordReset($loginOrEmail, $db);
+}
+
+/**
+ * Resend a pending verification email (public lookup by login or email).
+ *
+ * @return array{
+ *     ok: bool,
+ *     errors: list<string>,
+ *     sent: bool,
+ *     plain_key: string,
+ *     user: ?AP_User
+ * }
+ *
+ * @see AP_Registration::resendVerification()
+ */
+function ap_resend_user_verification(string $loginOrEmail, ?AP_DB $db = null): array
+{
+    return AP_Registration::resendVerification($loginOrEmail, $db);
 }
 
 /**
@@ -454,6 +475,8 @@ function ap_reset_password(
 
 /**
  * Send an email (test-mode capture when AP_Mail::enableTestMode() is active).
+ *
+ * Rate-limited via {@see AP_Rate_Limit::ACTION_MAIL} when that class is loaded.
  *
  * @param string|list<string>   $to
  * @param array<string, string> $headers

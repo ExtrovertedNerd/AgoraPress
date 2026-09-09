@@ -29,7 +29,8 @@ class AP_Settings
      *   type: string,
      *   default: mixed,
      *   sanitize_callback: ?callable,
-     *   description: string
+     *   description: string,
+     *   autoload: string
      * }>>
      */
     private static array $settings = [];
@@ -81,7 +82,8 @@ class AP_Settings
      *   type?: string,
      *   default?: mixed,
      *   sanitize_callback?: callable|null,
-     *   description?: string
+     *   description?: string,
+     *   autoload?: string
      * } $args
      */
     public static function registerSetting(string $optionGroup, string $optionName, array $args = []): void
@@ -102,6 +104,7 @@ class AP_Settings
             'default' => $args['default'] ?? false,
             'sanitize_callback' => $sanitize,
             'description' => (string) ($args['description'] ?? ''),
+            'autoload' => (($args['autoload'] ?? 'yes') === 'no') ? 'no' : 'yes',
         ];
     }
 
@@ -343,7 +346,8 @@ class AP_Settings
                 $value = self::defaultSanitize($raw, $args['type']);
             }
 
-            if (!AP_Options::update($name, $value, $db)) {
+            $autoload = (($args['autoload'] ?? 'yes') === 'no') ? 'no' : 'yes';
+            if (!AP_Options::update($name, $value, $db, $autoload)) {
                 self::addError($name, 'update_failed', 'Could not save setting: ' . $name, 'error');
                 $ok = false;
             }
@@ -969,6 +973,101 @@ class AP_Settings
             'default' => '',
             'sanitize_callback' => static fn (mixed $v): string => str_replace("\0", '', (string) ($v ?? '')),
         ]);
+
+        // --- Mail (Settings → Mail; own group, not General) ---
+        self::registerSetting('mail', 'mail_from_name', [
+            'type' => 'string',
+            'default' => '',
+            'sanitize_callback' => static function (mixed $v): string {
+                $name = (string) ($v ?? '');
+
+                return function_exists('ap_sanitize_text_field')
+                    ? ap_sanitize_text_field($name)
+                    : trim(strip_tags($name));
+            },
+        ]);
+        self::registerSetting('mail', 'mail_from_email', [
+            'type' => 'string',
+            'default' => '',
+            'sanitize_callback' => [self::class, 'sanitizeOptionalEmail'],
+        ]);
+        self::registerSetting('mail', 'mail_reply_to', [
+            'type' => 'string',
+            'default' => '',
+            'sanitize_callback' => [self::class, 'sanitizeOptionalEmail'],
+        ]);
+        self::registerSetting('mail', 'mail_transport', [
+            'type' => 'string',
+            'default' => 'php',
+            'sanitize_callback' => static function (mixed $v): string {
+                $t = strtolower(trim((string) ($v ?? '')));
+
+                return $t === 'smtp' ? 'smtp' : 'php';
+            },
+        ]);
+        self::registerSetting('mail', 'smtp_host', [
+            'type' => 'string',
+            'default' => '',
+            'sanitize_callback' => static function (mixed $v): string {
+                if (!class_exists('AP_SMTP', false)) {
+                    require_once __DIR__ . '/class-ap-smtp.php';
+                }
+                $n = AP_SMTP::normalize(['host' => (string) ($v ?? '')]);
+
+                return $n['host'];
+            },
+        ]);
+        self::registerSetting('mail', 'smtp_port', [
+            'type' => 'integer',
+            'default' => '587',
+            'sanitize_callback' => static function (mixed $v): string {
+                $port = (int) ($v ?? 0);
+                if ($port < 1 || $port > 65535) {
+                    return '587';
+                }
+
+                return (string) $port;
+            },
+        ]);
+        self::registerSetting('mail', 'smtp_encryption', [
+            'type' => 'string',
+            'default' => 'tls',
+            'sanitize_callback' => static function (mixed $v): string {
+                $enc = strtolower(trim((string) ($v ?? '')));
+                if ($enc === 'ssl' || $enc === 'smtps') {
+                    return 'ssl';
+                }
+                if ($enc === 'none' || $enc === 'off') {
+                    return 'none';
+                }
+
+                return 'tls';
+            },
+        ]);
+        self::registerSetting('mail', 'smtp_user', [
+            'type' => 'string',
+            'default' => '',
+            'sanitize_callback' => static function (mixed $v): string {
+                $user = trim(str_replace(["\r", "\n", "\0"], '', (string) ($v ?? '')));
+
+                return function_exists('ap_sanitize_text_field')
+                    ? ap_sanitize_text_field($user)
+                    : strip_tags($user);
+            },
+        ]);
+        self::registerSetting('mail', 'smtp_pass', [
+            'type' => 'string',
+            'default' => '',
+            'autoload' => 'no',
+            'sanitize_callback' => static function (mixed $v): string {
+                // Write-only: empty/absent keeps the stored password.
+                if ($v === null || $v === '') {
+                    return (string) AP_Options::get('smtp_pass', '');
+                }
+                // Do not strip quotes or spaces inside a password.
+                return str_replace(["\r", "\n", "\0"], '', (string) $v);
+            },
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -985,6 +1084,23 @@ class AP_Settings
         }
 
         return '0';
+    }
+
+    /**
+     * Optional email: empty or a valid address; invalid input becomes empty.
+     */
+    public static function sanitizeOptionalEmail(mixed $value): string
+    {
+        $email = trim((string) ($value ?? ''));
+        if ($email === '') {
+            return '';
+        }
+        if (function_exists('ap_sanitize_email')) {
+            return ap_sanitize_email($email);
+        }
+        $email = strtolower($email);
+
+        return filter_var($email, FILTER_VALIDATE_EMAIL) !== false ? $email : '';
     }
 
     /**

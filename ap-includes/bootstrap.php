@@ -283,8 +283,9 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-user.php';
     // Signed auth cookies + session tokens (login / logout / current user).
     require_once AP_ABSPATH . 'ap-includes/class-ap-session.php';
-    // Outbound mail (registration / password reset) with test outbox.
+    // Outbound mail (php mail() / native SMTP) with test outbox.
     require_once AP_ABSPATH . 'ap-includes/class-ap-mail.php';
+    require_once AP_ABSPATH . 'ap-includes/class-ap-smtp.php';
     // Public registration, email verification, password reset.
     require_once AP_ABSPATH . 'ap-includes/class-ap-registration.php';
     // Roles & capabilities (role map + userCan / currentUserCan).

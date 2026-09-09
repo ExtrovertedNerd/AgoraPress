@@ -83,6 +83,9 @@ def test_admin_user_edit_api() -> None:
         "function save",
         "function renderForm",
         "function passwordErrors",
+        "function renderResendVerificationForm",
+        "Resend verification",
+        "ap_resend_verification",
         "create-user",
         "update-user-",
         "update-profile-",
@@ -129,6 +132,7 @@ def test_admin_menu_includes_users() -> None:
     assert "profile.php" in src
     assert "user_created" in src
     assert "profile_updated" in src
+    assert "verification_resent" in src
 
 
 def test_bootstrap_loads_user_admin_classes() -> None:

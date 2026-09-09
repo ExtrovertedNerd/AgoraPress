@@ -84,6 +84,7 @@ class AP_Theme_Converter
         'esc_url',
         'get_option',
         'language_attributes',
+        'wp_mail',
     ];
 
     /**
@@ -122,7 +123,6 @@ class AP_Theme_Converter
         'wp_list_categories',
         'the_tags',
         'get_avatar',
-        'wp_mail',
     ];
 
     /**
