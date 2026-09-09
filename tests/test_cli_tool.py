@@ -40,6 +40,7 @@ def test_cli_class_defines_expected_api() -> None:
     assert "cmdOption" in src
     assert "cmdDb" in src
     assert "cmdUser" in src
+    assert "Reserved public-register logins are allowed" in src
     assert "cmdPost" in src
     assert "cmdCron" in src
     assert "cmdSite" in src

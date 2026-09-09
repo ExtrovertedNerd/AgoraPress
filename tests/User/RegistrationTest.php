@@ -14,8 +14,10 @@ use AP_DB;
 use AP_Mail;
 use AP_Migrator;
 use AP_Options;
+use AP_Rate_Limit;
 use AP_Registration;
 use AP_Roles;
+use AP_Settings;
 use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -40,8 +42,11 @@ final class RegistrationTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-session.php';
         require_once $this->root . '/ap-includes/class-ap-roles.php';
         require_once $this->root . '/ap-includes/class-ap-mail.php';
+        require_once $this->root . '/ap-includes/class-ap-rate-limit.php';
         require_once $this->root . '/ap-includes/class-ap-registration.php';
         require_once $this->root . '/ap-includes/functions.php';
+
+        AP_Rate_Limit::disable();
 
         if (!defined('AP_AUTH_KEY')) {
             define('AP_AUTH_KEY', 'test-auth-key-' . str_repeat('c', 32));
@@ -89,6 +94,10 @@ final class RegistrationTest extends TestCase
     {
         AP_Mail::resetForTests();
         AP_Options::flushCache();
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+        AP_Rate_Limit::enable();
     }
 
     private function setOption(string $name, string $value): void
@@ -177,6 +186,7 @@ final class RegistrationTest extends TestCase
 
         $challenge = AP_Registration::createMathChallenge();
         $this->assertSame('math', $challenge['mode']);
+        $this->assertSame('Human check', $challenge['legend'] ?? '');
         $this->assertNotSame('', $challenge['token']);
         $answer = (string) ($challenge['a'] + $challenge['b']);
 
@@ -243,6 +253,339 @@ final class RegistrationTest extends TestCase
             'ap_hp' => '',
         ], $this->db);
         $this->assertTrue($ok['ok'], implode('; ', $ok['errors']));
+    }
+
+    public function testGuardCaptchaFallbackAndPow(): void
+    {
+        $this->setOption('registration_captcha', 'guard');
+        $this->assertTrue(AP_Registration::isCaptchaEnabled($this->db));
+        $this->assertSame(AP_Registration::CAPTCHA_GUARD, AP_Registration::captchaMode($this->db));
+        $this->assertSame('guard', ap_registration_captcha_mode($this->db));
+
+        $challenge = AP_Registration::createCaptchaChallenge($this->db);
+        $this->assertSame('guard', $challenge['mode'] ?? '');
+        $this->assertSame('Human check', $challenge['legend'] ?? '');
+        $this->assertSame('I am a person', $challenge['prompt'] ?? '');
+        $this->assertNotSame('', $challenge['token'] ?? '');
+        $this->assertSame(AP_Registration::GUARD_POW_DIFFICULTY, $challenge['difficulty'] ?? 0);
+        $this->assertMatchesRegularExpression('/^[A-HJ-NP-Z2-9]{4}$/', (string) ($challenge['fallback_code'] ?? ''));
+        $this->assertSame(AP_Registration::FIELD_GUARD_ACK, $challenge['field_ack'] ?? '');
+
+        $base = [
+            'user_login' => 'guardmiss',
+            'user_email' => 'guardmiss@example.test',
+            'user_pass' => 'securepass1',
+        ];
+
+        $missing = AP_Registration::register($this->withFormGate($base), $this->db);
+        $this->assertFalse($missing['ok']);
+        $this->assertNull(AP_User::getByLogin('guardmiss', $this->db));
+
+        $noAck = AP_Registration::register($this->withFormGate([
+            'user_login' => 'guardnoack',
+            'user_email' => 'guardnoack@example.test',
+            'user_pass' => 'securepass1',
+            'captcha_token' => (string) $challenge['token'],
+            'captcha_answer' => (string) $challenge['fallback_code'],
+            'ap_guard_ack' => '',
+        ]), $this->db);
+        $this->assertFalse($noAck['ok']);
+        $this->assertNull(AP_User::getByLogin('guardnoack', $this->db));
+
+        $wrong = AP_Registration::register($this->withFormGate([
+            'user_login' => 'guardwrong',
+            'user_email' => 'guardwrong@example.test',
+            'user_pass' => 'securepass1',
+            'captcha_token' => (string) $challenge['token'],
+            'captcha_answer' => 'XXXX',
+            'ap_guard_ack' => '1',
+        ]), $this->db);
+        $this->assertFalse($wrong['ok']);
+        $this->assertNull(AP_User::getByLogin('guardwrong', $this->db));
+
+        $viaFallback = AP_Registration::register($this->withFormGate([
+            'user_login' => 'guardok',
+            'user_email' => 'guardok@example.test',
+            'user_pass' => 'securepass1',
+            'captcha_token' => (string) $challenge['token'],
+            'captcha_answer' => strtolower((string) $challenge['fallback_code']),
+            'ap_guard_ack' => '1',
+        ]), $this->db);
+        $this->assertTrue($viaFallback['ok'], implode('; ', $viaFallback['errors']));
+        $this->assertNotNull(AP_User::getByLogin('guardok', $this->db));
+
+        $challenge2 = AP_Registration::createGuardChallenge();
+        $proof = $this->solveGuardPow(
+            (string) $challenge2['token'],
+            (int) $challenge2['difficulty']
+        );
+        $viaPow = AP_Registration::register($this->withFormGate([
+            'user_login' => 'guardpow',
+            'user_email' => 'guardpow@example.test',
+            'user_pass' => 'securepass1',
+            'captcha_token' => (string) $challenge2['token'],
+            'captcha_answer' => AP_Registration::GUARD_POW_PREFIX . $proof,
+            'ap_guard_ack' => '1',
+        ]), $this->db);
+        $this->assertTrue($viaPow['ok'], implode('; ', $viaPow['errors']));
+        $this->assertNotNull(AP_User::getByLogin('guardpow', $this->db));
+
+        $badPow = ap_registration_verify_captcha([
+            'captcha_token' => (string) $challenge2['token'],
+            'captcha_answer' => AP_Registration::GUARD_POW_PREFIX . '999999',
+            'ap_guard_ack' => '1',
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertFalse($badPow['ok']);
+    }
+
+    public function testCaptchaHooksStillWorkForCustomMode(): void
+    {
+        require_once $this->root . '/ap-includes/hooks.php';
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+
+        $this->setOption('registration_captcha', 'custombot');
+        $this->assertSame('custombot', AP_Registration::captchaMode($this->db));
+
+        $fail = AP_Registration::verifyCaptcha([
+            'captcha_answer' => 'ok',
+            'captcha_token' => 'x',
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertFalse($fail['ok']);
+
+        ap_add_filter(
+            'ap_registration_captcha_mode',
+            static function (string $mode): string {
+                return $mode === 'custombot' ? 'custombot' : $mode;
+            }
+        );
+        ap_add_filter(
+            'ap_registration_captcha_challenge',
+            static function (array $challenge, string $mode): array {
+                if ($mode === 'custombot') {
+                    $challenge['prompt'] = 'plugin-challenge';
+                }
+
+                return $challenge;
+            },
+            10,
+            2
+        );
+        ap_add_filter(
+            'ap_registration_verify_captcha',
+            static function (array $result, array $data, string $mode): array {
+                if ($mode === 'custombot' && ($data['captcha_answer'] ?? '') === 'ok') {
+                    return ['ok' => true, 'errors' => []];
+                }
+
+                return $result;
+            },
+            10,
+            3
+        );
+
+        $challenge = AP_Registration::createCaptchaChallenge($this->db);
+        $this->assertSame('custombot', $challenge['mode'] ?? '');
+        $this->assertSame('plugin-challenge', $challenge['prompt'] ?? '');
+
+        $ok = AP_Registration::verifyCaptcha([
+            'captcha_answer' => 'ok',
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($ok['ok'], implode('; ', $ok['errors']));
+
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+    }
+
+    public function testCaptchaHooksStillApplyAfterGuardSettingsSave(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-settings.php';
+        require_once $this->root . '/ap-includes/hooks.php';
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+
+        AP_Settings::flush();
+        AP_Settings::registerCore();
+
+        $ok = AP_Options::updateGeneralSettings([
+            'blogname' => 'Test Site',
+            'admin_email' => 'admin@example.test',
+            'users_can_register' => '1',
+            'require_email_verification' => '1',
+            'registration_captcha' => 'guard',
+            'default_role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame('guard', (string) AP_Options::get('registration_captcha', 'off', $this->db));
+        $this->assertSame(AP_Registration::CAPTCHA_GUARD, AP_Registration::captchaMode($this->db));
+
+        $seenMode = [];
+        ap_add_filter(
+            'ap_registration_captcha_mode',
+            static function (string $mode) use (&$seenMode): string {
+                $seenMode[] = $mode;
+
+                return $mode;
+            }
+        );
+        ap_add_filter(
+            'ap_registration_captcha_challenge',
+            static function (array $challenge, string $mode): array {
+                if ($mode === AP_Registration::CAPTCHA_GUARD) {
+                    $challenge['prompt'] = 'hooked-guard';
+                }
+
+                return $challenge;
+            },
+            10,
+            2
+        );
+        ap_add_filter(
+            'ap_registration_verify_captcha',
+            static function (array $result, array $data, string $mode): array {
+                if ($mode === AP_Registration::CAPTCHA_GUARD && ($data['captcha_answer'] ?? '') === 'hook-ok') {
+                    return ['ok' => true, 'errors' => []];
+                }
+
+                return $result;
+            },
+            10,
+            3
+        );
+
+        $this->assertSame('guard', ap_registration_captcha_mode($this->db));
+        $this->assertSame(['guard'], $seenMode);
+
+        $challenge = AP_Registration::createCaptchaChallenge($this->db);
+        $this->assertSame('guard', $challenge['mode'] ?? '');
+        $this->assertSame('hooked-guard', $challenge['prompt'] ?? '');
+
+        $hooked = AP_Registration::verifyCaptcha([
+            'captcha_answer' => 'hook-ok',
+            'ap_hp' => '',
+            'ap_guard_ack' => '1',
+        ], $this->db);
+        $this->assertTrue($hooked['ok'], implode('; ', $hooked['errors']));
+
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+        AP_Settings::flush();
+    }
+
+    public function testMathCaptchaHooksStillWork(): void
+    {
+        require_once $this->root . '/ap-includes/hooks.php';
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+
+        $this->setOption('registration_captcha', 'math');
+        $this->assertSame(AP_Registration::CAPTCHA_MATH, AP_Registration::captchaMode($this->db));
+
+        $seenMode = [];
+        ap_add_filter(
+            'ap_registration_captcha_mode',
+            static function (string $mode) use (&$seenMode): string {
+                $seenMode[] = $mode;
+
+                return $mode;
+            }
+        );
+        ap_add_filter(
+            'ap_registration_captcha_challenge',
+            static function (array $challenge, string $mode): array {
+                if ($mode === AP_Registration::CAPTCHA_MATH) {
+                    $challenge['legend'] = 'hooked-math';
+                }
+
+                return $challenge;
+            },
+            10,
+            2
+        );
+        ap_add_filter(
+            'ap_registration_verify_captcha',
+            static function (array $result, array $data, string $mode): array {
+                if ($mode === AP_Registration::CAPTCHA_MATH && ($data['captcha_answer'] ?? '') === 'plugin-ok') {
+                    return ['ok' => true, 'errors' => []];
+                }
+
+                return $result;
+            },
+            10,
+            3
+        );
+
+        $this->assertSame('math', ap_registration_captcha_mode($this->db));
+        $this->assertSame(['math'], $seenMode);
+
+        $challenge = AP_Registration::createCaptchaChallenge($this->db);
+        $this->assertSame('math', $challenge['mode'] ?? '');
+        $this->assertSame('hooked-math', $challenge['legend'] ?? '');
+        $this->assertArrayHasKey('a', $challenge);
+        $this->assertArrayHasKey('b', $challenge);
+
+        $hooked = AP_Registration::verifyCaptcha([
+            'captcha_answer' => 'plugin-ok',
+            'captcha_token' => 'unused',
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($hooked['ok'], implode('; ', $hooked['errors']));
+
+        $sum = (int) ($challenge['a'] ?? 0) + (int) ($challenge['b'] ?? 0);
+        $real = AP_Registration::verifyCaptcha([
+            'captcha_answer' => (string) $sum,
+            'captcha_token' => (string) ($challenge['token'] ?? ''),
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($real['ok'], implode('; ', $real['errors']));
+
+        $wrong = AP_Registration::verifyCaptcha([
+            'captcha_answer' => (string) ($sum + 1),
+            'captcha_token' => (string) ($challenge['token'] ?? ''),
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertFalse($wrong['ok']);
+
+        $viaRegister = AP_Registration::register($this->withFormGate([
+            'user_login' => 'mathhook',
+            'user_email' => 'mathhook@example.test',
+            'user_pass' => 'securepass1',
+            'captcha_token' => (string) ($challenge['token'] ?? ''),
+            'captcha_answer' => (string) $sum,
+            'ap_hp' => '',
+        ]), $this->db);
+        $this->assertTrue($viaRegister['ok'], implode('; ', $viaRegister['errors']));
+        $this->assertNotNull(AP_User::getByLogin('mathhook', $this->db));
+
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+    }
+
+    /**
+     * Brute-force the same SHA-256 proof the register-guard.js client submits.
+     */
+    private function solveGuardPow(string $token, int $difficulty): string
+    {
+        $prefix = str_repeat('0', $difficulty);
+        for ($n = 0; $n < 100000; $n++) {
+            $proof = (string) $n;
+            if (str_starts_with(hash('sha256', $token . ':' . $proof), $prefix)) {
+                return $proof;
+            }
+        }
+
+        $this->fail('Could not solve guard proof-of-work for tests.');
+
+        return '';
     }
 
     public function testPublicRegisterFormGateAlwaysOnWhenCaptchaOff(): void
@@ -351,6 +694,46 @@ final class RegistrationTest extends TestCase
         $this->assertSame($fresh['token'], $viaHelper['token'] ?? null);
     }
 
+    public function testPublicRegisterFormGateFailsClosedWhenMathCaptchaOn(): void
+    {
+        $this->setOption('registration_captcha', 'math');
+        $this->assertTrue(AP_Registration::isCaptchaEnabled($this->db));
+
+        $generic = 'Could not complete registration. Please try again.';
+        $challenge = AP_Registration::createMathChallenge();
+        $answer = (string) ((int) $challenge['a'] + (int) $challenge['b']);
+        $base = [
+            'user_login' => 'mathgate',
+            'user_email' => 'mathgate@example.test',
+            'user_pass' => 'securepass0',
+            'captcha_token' => (string) $challenge['token'],
+            'captcha_answer' => $answer,
+        ];
+
+        $naked = AP_Registration::register($base, $this->db);
+        $this->assertFalse($naked['ok']);
+        $this->assertSame([$generic], $naked['errors']);
+        $this->assertNull(AP_User::getByLogin('mathgate', $this->db));
+
+        $hp = AP_Registration::register($this->withFormGate(array_merge($base, [
+            'user_login' => 'mathgatehp',
+            'user_email' => 'mathgatehp@example.test',
+            'ap_hp' => 'http://spam.example',
+        ])), $this->db);
+        $this->assertFalse($hp['ok']);
+        $this->assertSame([$generic], $hp['errors']);
+        $this->assertNull(AP_User::getByLogin('mathgatehp', $this->db));
+
+        $fresh = AP_Registration::createFormTicket(time());
+        $tooFast = AP_Registration::register($base + [
+            'ap_form_ticket' => $fresh['token'],
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertFalse($tooFast['ok']);
+        $this->assertSame([$generic], $tooFast['errors']);
+        $this->assertNull(AP_User::getByLogin('mathgate', $this->db));
+    }
+
     public function testRegisterClosedWhenOptionOff(): void
     {
         $this->setOption('users_can_register', '0');
@@ -396,6 +779,49 @@ final class RegistrationTest extends TestCase
         $this->assertStringContainsString('action=verifyemail', $outbox[0]['message']);
         $this->assertStringContainsString($result['plain_key'], $outbox[0]['message']);
         $this->assertMailLinkNotice($outbox[0]['message']);
+    }
+
+    public function testRegisterFiresUserCreatedForPendingUser(): void
+    {
+        require_once $this->root . '/ap-includes/hooks.php';
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+
+        $seen = [];
+        ap_add_action(
+            'ap_user_created',
+            static function (int $id, string $login, string $email, int $status) use (&$seen): void {
+                $seen[] = [
+                    'id' => $id,
+                    'login' => $login,
+                    'email' => $email,
+                    'status' => $status,
+                ];
+            },
+            10,
+            4
+        );
+
+        $result = AP_Registration::register($this->withFormGate([
+            'user_login' => 'pendinghook',
+            'user_email' => 'pendinghook@example.test',
+            'user_pass' => 'securepass1',
+        ]), $this->db);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertTrue($result['needs_verification']);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $result['user']->user_status ?? -1);
+        $this->assertCount(1, $seen);
+        $this->assertSame($result['id'], $seen[0]['id']);
+        $this->assertSame('pendinghook', $seen[0]['login']);
+        $this->assertSame('pendinghook@example.test', $seen[0]['email']);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $seen[0]['status']);
+        $this->assertSame(1, ap_did_action('ap_user_created'));
+
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
     }
 
     public function testVerifyEmailActivatesAccount(): void
@@ -550,6 +976,96 @@ final class RegistrationTest extends TestCase
         ], $this->db);
         $this->assertTrue($banned['ok']);
         $this->assertFalse(AP_Registration::userAwaitsVerification($banned['user']));
+    }
+
+    public function testActivatePendingUserWithoutEmailKey(): void
+    {
+        $result = AP_Registration::register($this->withFormGate([
+            'user_login' => 'staffact',
+            'user_email' => 'staffact@example.test',
+            'user_pass' => 'securepass8',
+        ]), $this->db);
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertTrue(AP_Registration::userAwaitsVerification($result['user']));
+        $this->assertNull(AP_User::authenticate('staffact', 'securepass8', $this->db));
+
+        $activated = AP_Registration::activatePendingUser($result['user'], $this->db);
+        $this->assertTrue($activated['ok'], implode('; ', $activated['errors']));
+        $this->assertNotNull($activated['user']);
+        $this->assertSame(0, $activated['user']->user_status);
+        $this->assertSame('', $activated['user']->user_activation_key);
+        $this->assertFalse(AP_Registration::userAwaitsVerification($activated['user']));
+
+        $fresh = AP_User::getByLogin('staffact', $this->db);
+        $this->assertNotNull($fresh);
+        $this->assertSame(0, $fresh->user_status);
+        $this->assertSame('', $fresh->user_activation_key);
+        $this->assertNotNull(AP_User::authenticate('staffact', 'securepass8', $this->db));
+
+        $again = ap_activate_pending_user($fresh, $this->db);
+        $this->assertTrue($again['ok'], implode('; ', $again['errors']));
+        $this->assertSame(0, $again['user']->user_status ?? -1);
+    }
+
+    public function testActivatePendingUserWorksAfterEmailKeyExpires(): void
+    {
+        $result = AP_Registration::register($this->withFormGate([
+            'user_login' => 'staleact',
+            'user_email' => 'staleact@example.test',
+            'user_pass' => 'securepass8',
+        ]), $this->db);
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertNotSame('', $result['plain_key']);
+
+        $user = AP_User::getById($result['id'], $this->db);
+        $this->assertNotNull($user);
+        $parts = explode(':', $user->user_activation_key, 3);
+        $this->assertCount(3, $parts);
+        $staleTs = time() - AP_Registration::KEY_TTL - 60;
+        $this->db->update(
+            'users',
+            ['user_activation_key' => $parts[0] . ':' . $staleTs . ':' . $parts[2]],
+            ['ID' => $result['id']]
+        );
+
+        $stale = AP_User::getById($result['id'], $this->db);
+        $this->assertNotNull($stale);
+        $this->assertTrue(AP_Registration::userAwaitsVerification($stale));
+        $this->assertFalse(
+            AP_Registration::verifyEmail('staleact', $result['plain_key'], $this->db)['ok']
+        );
+
+        $activated = AP_Registration::activatePendingUser($stale, $this->db);
+        $this->assertTrue($activated['ok'], implode('; ', $activated['errors']));
+        $fresh = AP_User::getById($result['id'], $this->db);
+        $this->assertNotNull($fresh);
+        $this->assertSame(0, $fresh->user_status);
+        $this->assertSame('', $fresh->user_activation_key);
+        $this->assertNotNull(AP_User::authenticate('staleact', 'securepass8', $this->db));
+    }
+
+    public function testActivatePendingUserDoesNotLiftForumBan(): void
+    {
+        $banned = AP_User::create([
+            'user_login' => 'stillbanned',
+            'user_email' => 'stillbanned@example.test',
+            'user_pass' => 'securepass8',
+            'user_status' => AP_Registration::STATUS_PENDING,
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($banned['ok']);
+        $this->assertFalse(AP_Registration::userAwaitsVerification($banned['user']));
+
+        $result = AP_Registration::activatePendingUser($banned['user'], $this->db);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString(
+            'not waiting for email verification',
+            strtolower(implode(' ', $result['errors']))
+        );
+        $fresh = AP_User::getById($banned['id'], $this->db);
+        $this->assertNotNull($fresh);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $fresh->user_status);
+        $this->assertNull(AP_User::authenticate('stillbanned', 'securepass8', $this->db));
     }
 
     public function testResendVerificationDoesNotLeakUnknownAccounts(): void
@@ -721,6 +1237,489 @@ final class RegistrationTest extends TestCase
         $this->assertSame([], AP_Mail::getTestOutbox());
     }
 
+    public function testReservedLoginsAreLockedCaseInsensitively(): void
+    {
+        $locked = [
+            'root',
+            'admin',
+            'administrator',
+            'administrators',
+            'adm',
+            'mod',
+            'moderator',
+            'moderators',
+            'mods',
+            'webmaster',
+            'postmaster',
+            'hostmaster',
+            'support',
+            'security',
+            'abuse',
+            'staff',
+            'superadmin',
+            'sysadmin',
+            'guest',
+            'nobody',
+            'noreply',
+            'no-reply',
+            'www',
+            'mail',
+            'system',
+            'owner',
+            'ap-admin',
+            'agora',
+            'agorapress',
+        ];
+        $this->assertSame($locked, AP_Registration::RESERVED_LOGINS);
+        $this->assertCount(29, AP_Registration::RESERVED_LOGINS);
+
+        foreach ($locked as $name) {
+            $this->assertTrue(AP_Registration::isReservedLogin($name), $name);
+            $this->assertTrue(AP_Registration::isReservedLogin(strtoupper($name)), $name);
+        }
+
+        $this->assertTrue(AP_Registration::isReservedLogin('Admin'));
+        $this->assertTrue(AP_Registration::isReservedLogin('No-Reply'));
+        $this->assertTrue(AP_Registration::isReservedLogin('  AgoraPress  '));
+        $this->assertTrue(ap_is_reserved_login('ROOT'));
+
+        $this->assertFalse(AP_Registration::isReservedLogin(''));
+        $this->assertFalse(AP_Registration::isReservedLogin('alice'));
+        $this->assertFalse(AP_Registration::isReservedLogin('adminuser'));
+        $this->assertFalse(AP_Registration::isReservedLogin('silas'));
+        $this->assertFalse(ap_is_reserved_login('webmaster1'));
+    }
+
+    public function testPublicRegisterRejectsReservedLogins(): void
+    {
+        $unavailable = AP_Registration::reservedLoginUnavailableMessage();
+        $this->assertSame(
+            AP_Registration::USERNAME_UNAVAILABLE_MESSAGE,
+            $unavailable
+        );
+        $this->assertSame('That username is not available.', $unavailable);
+        $this->assertStringNotContainsStringIgnoringCase('reserved', $unavailable);
+
+        $attempts = [
+            'admin',
+            'Admin',
+            'ADMIN',
+            'no-reply',
+            'agora',
+            'moderator',
+        ];
+        foreach ($attempts as $i => $login) {
+            $result = AP_Registration::register($this->withFormGate([
+                'user_login' => $login,
+                'user_email' => 'reserved' . $i . '@example.test',
+                'user_pass' => 'securepass0',
+            ]), $this->db);
+            $this->assertFalse($result['ok'], $login);
+            $this->assertSame([$unavailable], $result['errors']);
+            $this->assertStringNotContainsStringIgnoringCase(
+                'reserved',
+                implode(' ', $result['errors'])
+            );
+            $this->assertNull(AP_User::getByLogin($login, $this->db), $login);
+        }
+
+        $ok = AP_Registration::register($this->withFormGate([
+            'user_login' => 'adminuser',
+            'user_email' => 'adminuser@example.test',
+            'user_pass' => 'securepass0',
+        ]), $this->db);
+        $this->assertTrue($ok['ok'], implode('; ', $ok['errors']));
+        $this->assertNotNull(AP_User::getByLogin('adminuser', $this->db));
+    }
+
+    public function testPublicUsernameErrorsRewritesReservedCopyAndKeepsOtherErrors(): void
+    {
+        $unavailable = AP_Registration::USERNAME_UNAVAILABLE_MESSAGE;
+        $this->assertSame('That username is not available.', $unavailable);
+        $this->assertSame(
+            $unavailable,
+            AP_Registration::reservedLoginUnavailableMessage()
+        );
+        $this->assertStringNotContainsStringIgnoringCase('reserved', $unavailable);
+
+        $this->assertSame(
+            [$unavailable],
+            AP_Registration::publicUsernameErrors([
+                'That username is already registered.',
+            ])
+        );
+        $this->assertSame(
+            [$unavailable],
+            AP_Registration::publicUsernameErrors([
+                'THAT USERNAME IS ALREADY REGISTERED.',
+            ])
+        );
+        $this->assertSame(
+            [$unavailable],
+            AP_Registration::publicUsernameErrors([
+                'That username is reserved.',
+            ])
+        );
+        $this->assertSame(
+            [$unavailable],
+            AP_Registration::publicUsernameErrors([
+                'This login is reserved for staff.',
+            ])
+        );
+
+        $rewritten = AP_Registration::publicUsernameErrors([
+            'That username is already registered.',
+            'That email address is already registered.',
+            'Password must be at least 8 characters.',
+            'Registration is currently closed.',
+            '',
+            42,
+        ]);
+        $this->assertSame(
+            [
+                $unavailable,
+                'That email address is already registered.',
+                'Password must be at least 8 characters.',
+                'Registration is currently closed.',
+            ],
+            $rewritten
+        );
+        foreach ($rewritten as $error) {
+            $this->assertIsString($error);
+            $this->assertStringNotContainsStringIgnoringCase('reserved', $error);
+        }
+    }
+
+    public function testPublicRegisterTakenLoginUsesUnavailableMessage(): void
+    {
+        $created = AP_User::create([
+            'user_login' => 'alice',
+            'user_email' => 'alice-taken@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+
+        $unavailable = AP_Registration::reservedLoginUnavailableMessage();
+        $result = AP_Registration::register($this->withFormGate([
+            'user_login' => 'alice',
+            'user_email' => 'alice-public@example.test',
+            'user_pass' => 'securepass0',
+        ]), $this->db);
+        $this->assertFalse($result['ok']);
+        $this->assertSame([$unavailable], $result['errors']);
+        $this->assertStringNotContainsStringIgnoringCase(
+            'reserved',
+            implode(' ', $result['errors'])
+        );
+        $this->assertStringNotContainsStringIgnoringCase(
+            'already registered',
+            implode(' ', $result['errors'])
+        );
+    }
+
+    public function testPublicRegisterRejectsCaseVariantLogin(): void
+    {
+        $created = AP_User::create([
+            'user_login' => 'Silas',
+            'user_email' => 'silas-taken@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+        $this->assertSame('Silas', $created['user']->user_login ?? '');
+
+        $unavailable = AP_Registration::reservedLoginUnavailableMessage();
+        $result = AP_Registration::register($this->withFormGate([
+            'user_login' => 'silas',
+            'user_email' => 'silas-public@example.test',
+            'user_pass' => 'securepass0',
+        ]), $this->db);
+        $this->assertFalse($result['ok']);
+        $this->assertSame([$unavailable], $result['errors']);
+        $this->assertStringNotContainsStringIgnoringCase(
+            'reserved',
+            implode(' ', $result['errors'])
+        );
+        $this->assertStringNotContainsStringIgnoringCase(
+            'already registered',
+            implode(' ', $result['errors'])
+        );
+        $this->assertNull(AP_User::getByEmail('silas-public@example.test', $this->db));
+        $this->assertSame('Silas', AP_User::getByLogin('silas', $this->db)?->user_login);
+    }
+
+    public function testAdminCreateTakenLoginStillSaysAlreadyRegistered(): void
+    {
+        $first = AP_User::create([
+            'user_login' => 'bobstaff',
+            'user_email' => 'bobstaff@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($first['ok'], implode('; ', $first['errors']));
+
+        $dup = AP_User::create([
+            'user_login' => 'bobstaff',
+            'user_email' => 'bobstaff-dup@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertFalse($dup['ok']);
+        $this->assertContains('That username is already registered.', $dup['errors']);
+        $this->assertNotContains(
+            AP_Registration::reservedLoginUnavailableMessage(),
+            $dup['errors']
+        );
+    }
+
+    public function testPublicRegisterTakenEmailKeepsEmailCopy(): void
+    {
+        $created = AP_User::create([
+            'user_login' => 'carolmail',
+            'user_email' => 'carolmail@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+
+        $result = AP_Registration::register($this->withFormGate([
+            'user_login' => 'carolmail2',
+            'user_email' => 'carolmail@example.test',
+            'user_pass' => 'securepass0',
+        ]), $this->db);
+        $this->assertFalse($result['ok']);
+        $this->assertContains('That email address is already registered.', $result['errors']);
+        $this->assertNotContains(
+            AP_Registration::reservedLoginUnavailableMessage(),
+            $result['errors']
+        );
+        $this->assertStringNotContainsStringIgnoringCase(
+            'reserved',
+            implode(' ', $result['errors'])
+        );
+    }
+
+    public function testAdminCreateAllowsReservedLogin(): void
+    {
+        $created = AP_User::create([
+            'user_login' => 'admin',
+            'user_email' => 'admin-create@example.test',
+            'user_pass' => 'securepass0',
+            'role' => 'administrator',
+        ], $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+        $this->assertNotNull($created['user']);
+        $this->assertSame('admin', $created['user']->user_login);
+
+        $mod = AP_User::create([
+            'user_login' => 'Moderator',
+            'user_email' => 'mod-create@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($mod['ok'], implode('; ', $mod['errors']));
+        $this->assertSame('Moderator', $mod['user']->user_login ?? '');
+    }
+
+    public function testAdminAndAdminLoginsCollide(): void
+    {
+        $staff = AP_User::create([
+            'user_login' => 'admin',
+            'user_email' => 'admin-staff@example.test',
+            'user_pass' => 'securepass0',
+            'role' => 'administrator',
+        ], $this->db);
+        $this->assertTrue($staff['ok'], implode('; ', $staff['errors']));
+        $this->assertSame('admin', $staff['user']->user_login ?? '');
+        $staffId = (int) $staff['id'];
+
+        $dup = AP_User::create([
+            'user_login' => 'Admin',
+            'user_email' => 'admin-case@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertFalse($dup['ok']);
+        $this->assertContains('That username is already registered.', $dup['errors']);
+        $this->assertNotContains(
+            AP_Registration::reservedLoginUnavailableMessage(),
+            $dup['errors']
+        );
+        $this->assertNull(AP_User::getByEmail('admin-case@example.test', $this->db));
+        $this->assertSame('admin', AP_User::getByLogin('Admin', $this->db)?->user_login);
+        $this->assertSame($staffId, AP_User::getByLogin('ADMIN', $this->db)?->ID);
+        $this->assertSame($staffId, AP_User::getByLogin('admin', $this->db)?->ID);
+
+        $unavailable = AP_Registration::USERNAME_UNAVAILABLE_MESSAGE;
+        $public = AP_Registration::register($this->withFormGate([
+            'user_login' => 'ADMIN',
+            'user_email' => 'admin-public-case@example.test',
+            'user_pass' => 'securepass0',
+        ]), $this->db);
+        $this->assertFalse($public['ok']);
+        $this->assertSame([$unavailable], $public['errors']);
+        $this->assertStringNotContainsStringIgnoringCase(
+            'reserved',
+            implode(' ', $public['errors'])
+        );
+        $this->assertNull(AP_User::getByEmail('admin-public-case@example.test', $this->db));
+        $this->assertSame('admin', AP_User::getById($staffId, $this->db)?->user_login);
+    }
+
+    public function testParseReservedUsernameListOnePerLine(): void
+    {
+        $parsed = AP_Registration::parseReservedUsernameList(
+            " news \n\nBoard\r\nNEWS\n  \n!!!\neditor"
+        );
+        $this->assertSame(['news', 'Board', 'editor'], $parsed);
+        $this->assertSame(
+            ['news', 'Board'],
+            AP_Registration::parseReservedUsernameList("admin\nnews\nADMIN\nBoard\nroot")
+        );
+        $this->assertSame(
+            AP_Registration::OPTION_RESERVED_USERNAMES,
+            'reserved_usernames'
+        );
+    }
+
+    public function testExtraReservedOptionRejectsPublicRegister(): void
+    {
+        $this->setOption(AP_Registration::OPTION_RESERVED_USERNAMES, "admin\nnews\nBoard");
+
+        $this->assertTrue(AP_Registration::isReservedLogin('news', $this->db));
+        $this->assertTrue(AP_Registration::isReservedLogin('NEWS', $this->db));
+        $this->assertTrue(AP_Registration::isReservedLogin('board', $this->db));
+        $this->assertTrue(ap_is_reserved_login('Board', $this->db));
+        $this->assertFalse(AP_Registration::isReservedLogin('alice', $this->db));
+        $this->assertSame(['news', 'Board'], AP_Registration::extraReservedLogins($this->db));
+        $this->assertNotContains('admin', AP_Registration::extraReservedLogins($this->db));
+        $this->assertContains('news', AP_Registration::extraReservedLogins($this->db));
+        $this->assertContains('admin', AP_Registration::reservedLogins($this->db));
+
+        $unavailable = AP_Registration::reservedLoginUnavailableMessage();
+        $result = AP_Registration::register($this->withFormGate([
+            'user_login' => 'News',
+            'user_email' => 'news-extra@example.test',
+            'user_pass' => 'securepass0',
+        ]), $this->db);
+        $this->assertFalse($result['ok']);
+        $this->assertSame([$unavailable], $result['errors']);
+        $this->assertStringNotContainsStringIgnoringCase(
+            'reserved',
+            implode(' ', $result['errors'])
+        );
+        $this->assertNull(AP_User::getByLogin('News', $this->db));
+
+        $ok = AP_User::create([
+            'user_login' => 'news',
+            'user_email' => 'news-admin@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($ok['ok'], implode('; ', $ok['errors']));
+        $this->assertSame('news', $ok['user']->user_login ?? '');
+    }
+
+    public function testReservedUsernamesFilterAddsNamesAndCannotDropLocked(): void
+    {
+        require_once $this->root . '/ap-includes/hooks.php';
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+
+        ap_add_filter(
+            'ap_reserved_usernames',
+            static function (mixed $names): array {
+                $list = is_array($names) ? $names : [];
+                $list[] = 'herald';
+                $list[] = 'HERALD';
+
+                return array_values(array_filter(
+                    $list,
+                    static fn (mixed $n): bool => strtolower((string) $n) !== 'admin'
+                ));
+            }
+        );
+
+        $this->assertTrue(AP_Registration::isReservedLogin('herald', $this->db));
+        $this->assertTrue(AP_Registration::isReservedLogin('Herald', $this->db));
+        $this->assertTrue(
+            AP_Registration::isReservedLogin('admin', $this->db),
+            'Filter must not drop locked core names'
+        );
+        $this->assertContains('herald', AP_Registration::reservedLogins($this->db));
+        $this->assertContains('admin', AP_Registration::reservedLogins($this->db));
+
+        $unavailable = AP_Registration::reservedLoginUnavailableMessage();
+        $result = AP_Registration::register($this->withFormGate([
+            'user_login' => 'herald',
+            'user_email' => 'herald-filter@example.test',
+            'user_pass' => 'securepass0',
+        ]), $this->db);
+        $this->assertFalse($result['ok']);
+        $this->assertSame([$unavailable], $result['errors']);
+        $this->assertStringNotContainsStringIgnoringCase(
+            'reserved',
+            implode(' ', $result['errors'])
+        );
+
+        $created = AP_User::create([
+            'user_login' => 'herald',
+            'user_email' => 'herald-admin@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+    }
+
+    public function testReservedUsernamesFilterSeesOptionExtras(): void
+    {
+        require_once $this->root . '/ap-includes/hooks.php';
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+
+        $this->setOption(AP_Registration::OPTION_RESERVED_USERNAMES, "news\n");
+        $seen = [];
+        ap_add_filter(
+            'ap_reserved_usernames',
+            static function (mixed $names, mixed $db = null) use (&$seen): array {
+                $seen = is_array($names) ? $names : [];
+                $list = $seen;
+                $list[] = 'desk';
+
+                return $list;
+            },
+            10,
+            2
+        );
+
+        $this->assertTrue(AP_Registration::isReservedLogin('news', $this->db));
+        $this->assertTrue(AP_Registration::isReservedLogin('desk', $this->db));
+        $this->assertContains('news', $seen);
+        $this->assertContains('admin', $seen);
+
+        $unavailable = AP_Registration::reservedLoginUnavailableMessage();
+        $blocked = AP_Registration::register($this->withFormGate([
+            'user_login' => 'desk',
+            'user_email' => 'desk-filter@example.test',
+            'user_pass' => 'securepass0',
+        ]), $this->db);
+        $this->assertFalse($blocked['ok']);
+        $this->assertSame([$unavailable], $blocked['errors']);
+        $this->assertStringNotContainsStringIgnoringCase(
+            'reserved',
+            implode(' ', $blocked['errors'])
+        );
+
+        $staff = AP_User::create([
+            'user_login' => 'desk',
+            'user_email' => 'desk-admin@example.test',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($staff['ok'], implode('; ', $staff['errors']));
+
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+    }
+
     public function testProceduralHelpers(): void
     {
         $this->assertTrue(function_exists('ap_register_user'));
@@ -735,8 +1734,10 @@ final class RegistrationTest extends TestCase
         $this->assertTrue(function_exists('ap_registration_create_form_ticket'));
         $this->assertTrue(function_exists('ap_registration_form_ticket_for_display'));
         $this->assertTrue(function_exists('ap_registration_verify_form_gate'));
+        $this->assertTrue(function_exists('ap_is_reserved_login'));
         $this->assertTrue(function_exists('ap_mail'));
         $this->assertTrue(function_exists('ap_resend_user_verification'));
+        $this->assertTrue(function_exists('ap_activate_pending_user'));
 
         $this->assertTrue(ap_mail('x@example.test', 'Subject', 'Body'));
         $outbox = AP_Mail::getTestOutbox();
@@ -807,10 +1808,39 @@ final class RegistrationTest extends TestCase
                 'formTicketForDisplay',
                 'class="ap-hp"',
                 'Resend verification',
+                'ap-human-check',
+                'Human check',
+                "(\$captchaChallenge['mode'] ?? '') === 'guard'",
+                'ap_guard_ack',
+                'ap-guard-fallback',
+                'register-guard.js',
             ] as $needle
         ) {
             $this->assertStringContainsString($needle, $src);
         }
+
+        $this->assertStringNotContainsString('recaptcha', strtolower($src));
+        $this->assertStringNotContainsString('hcaptcha', strtolower($src));
+        $this->assertStringNotContainsString('turnstile', strtolower($src));
+        $this->assertStringNotContainsString('google.com/recaptcha', strtolower($src));
+        $this->assertStringNotContainsStringIgnoringCase('reserved', $src);
+        $this->assertStringContainsString('publicUsernameErrors', $src);
+
+        $jsPath = $this->root . '/ap-admin/js/register-guard.js';
+        $this->assertFileIsReadable($jsPath);
+        $js = (string) file_get_contents($jsPath);
+        $this->assertStringContainsString('crypto.subtle', $js);
+        $this->assertStringContainsString('SHA-256', $js);
+        $this->assertStringContainsString('pow:', $js);
+        $this->assertStringContainsString('ap-register-guard', $js);
+        $this->assertStringNotContainsString('recaptcha', strtolower($js));
+        $this->assertStringNotContainsString('hcaptcha', strtolower($js));
+        $this->assertStringNotContainsString('turnstile', strtolower($js));
+
+        $css = (string) file_get_contents($this->root . '/ap-admin/css/admin.css');
+        $this->assertStringContainsString('.ap-human-check', $css);
+        $this->assertStringContainsString('.ap-guard-card', $css);
+        $this->assertStringContainsString('.ap-guard-fallback', $css);
 
         // Failed send must not redirect to the "check your email" success flash.
         $confirmPos = strpos($src, "checkemail' => 'confirm'");

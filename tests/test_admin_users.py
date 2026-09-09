@@ -53,6 +53,7 @@ def test_user_class_defines_crud_api() -> None:
         "function getProfileMeta",
         "function countByRole",
         "function countPosts",
+        "Does not enforce public-register reserved logins",
     ):
         assert needle in src, f"Expected {needle!r} in AP_User"
 
@@ -70,6 +71,11 @@ def test_users_list_table_api() -> None:
         "function getColumns",
         "function getBulkActions",
         "function getViews",
+        "activate-user-",
+        "Activate</a>",
+        "Pending",
+        "processActivateRow",
+        "ap-user-status pending",
     ):
         assert needle in src, f"Expected {needle!r} in users list table"
 
@@ -86,6 +92,9 @@ def test_admin_user_edit_api() -> None:
         "function renderResendVerificationForm",
         "Resend verification",
         "ap_resend_verification",
+        "Activate account",
+        "ap_activate_account",
+        "user_activated",
         "create-user",
         "update-user-",
         "update-profile-",
@@ -98,10 +107,12 @@ def test_screens_require_caps_and_use_classes() -> None:
     users = (ADMIN / "users.php").read_text(encoding="utf-8")
     assert "list_users" in users
     assert "AP_Users_List_Table" in users
+    assert "activate" in users
 
     user_new = (ADMIN / "user-new.php").read_text(encoding="utf-8")
     assert "create_users" in user_new
     assert "AP_Admin_User_Edit" in user_new
+    assert "reserved logins are allowed" in user_new
 
     user_edit = (ADMIN / "user-edit.php").read_text(encoding="utf-8")
     assert "edit_users" in user_edit
@@ -125,6 +136,12 @@ def test_user_edit_keeps_target_after_header() -> None:
     assert "renderForm($user" not in after
 
 
+def test_pending_status_badge_css() -> None:
+    css = (ADMIN / "css" / "admin.css").read_text(encoding="utf-8")
+    assert ".ap-user-status" in css
+    assert ".ap-user-status.pending" in css
+
+
 def test_admin_menu_includes_users() -> None:
     src = (ADMIN / "includes" / "class-ap-admin.php").read_text(encoding="utf-8")
     assert "'id' => 'users'" in src or '"id" => "users"' in src
@@ -133,6 +150,7 @@ def test_admin_menu_includes_users() -> None:
     assert "user_created" in src
     assert "profile_updated" in src
     assert "verification_resent" in src
+    assert "user_activated" in src
 
 
 def test_bootstrap_loads_user_admin_classes() -> None:

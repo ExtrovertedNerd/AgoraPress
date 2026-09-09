@@ -19,6 +19,7 @@ use AP_Nonce;
 use AP_Options;
 use AP_Registration;
 use AP_Roles;
+use AP_Session;
 use AP_User;
 use AP_Users_List_Table;
 use PDO;
@@ -91,10 +92,17 @@ final class AdminUsersTest extends TestCase
 
     protected function tearDown(): void
     {
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
         AP_Roles::flushCache();
         AP_Options::flushCache();
         AP_Admin::clearNotices();
         AP_Mail::resetForTests();
+        if (class_exists('AP_Session', false)) {
+            AP_Session::resetCurrentUser();
+            AP_Session::disableTestMode();
+        }
     }
 
     public function testCreateUpdateDeleteUserRoundTrip(): void
@@ -287,6 +295,119 @@ final class AdminUsersTest extends TestCase
         $this->assertSame('newbie2@example.test', $updated['user']->user_email);
         $this->assertSame('editor', AP_Roles::getUserRole($result['id'], $this->db));
         $this->assertSame('Hi', AP_User::getMeta($result['id'], 'description', $this->db));
+    }
+
+    public function testAdminCreateAllowsReservedLogin(): void
+    {
+        $actor = AP_User::create([
+            'user_login' => 'super',
+            'user_email' => 'super@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $actorId = $actor['id'];
+
+        $nonce = ap_create_nonce('create-user', $actorId);
+        $result = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_login' => 'admin',
+            'user_email' => 'reserved-admin@example.test',
+            'pass1' => 'secure-pass-1',
+            'pass2' => 'secure-pass-1',
+            'role' => 'administrator',
+        ], $actorId, 'create', $this->db);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertSame('admin', $result['user']->user_login ?? '');
+        $this->assertTrue(AP_Registration::isReservedLogin('admin', $this->db));
+
+        $dupNonce = ap_create_nonce('create-user', $actorId);
+        $dup = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $dupNonce,
+            'user_login' => 'Admin',
+            'user_email' => 'reserved-admin-case@example.test',
+            'pass1' => 'secure-pass-1',
+            'pass2' => 'secure-pass-1',
+            'role' => 'administrator',
+        ], $actorId, 'create', $this->db);
+
+        $this->assertFalse($dup['ok']);
+        $this->assertContains('That username is already registered.', $dup['errors']);
+        $this->assertNull(AP_User::getByEmail('reserved-admin-case@example.test', $this->db));
+        $this->assertSame('admin', AP_User::getByLogin('Admin', $this->db)?->user_login);
+        $this->assertSame($result['id'], AP_User::getByLogin('ADMIN', $this->db)?->ID);
+    }
+
+    public function testAdminCreateAllowsExtraReservedLogin(): void
+    {
+        AP_Options::update('reserved_usernames', "news\nBoard", $this->db);
+
+        $actor = AP_User::create([
+            'user_login' => 'super2',
+            'user_email' => 'super2@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $actorId = $actor['id'];
+
+        $this->assertTrue(AP_Registration::isReservedLogin('Board', $this->db));
+
+        $nonce = ap_create_nonce('create-user', $actorId);
+        $result = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_login' => 'Board',
+            'user_email' => 'reserved-board@example.test',
+            'pass1' => 'secure-pass-1',
+            'pass2' => 'secure-pass-1',
+            'role' => 'author',
+        ], $actorId, 'create', $this->db);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertSame('Board', $result['user']->user_login ?? '');
+    }
+
+    public function testAdminCreateAllowsFilterReservedLogin(): void
+    {
+        require_once $this->root . '/ap-includes/hooks.php';
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
+        ap_add_filter(
+            'ap_reserved_usernames',
+            static function (mixed $names): array {
+                $list = is_array($names) ? $names : [];
+                $list[] = 'herald';
+
+                return $list;
+            }
+        );
+
+        $this->assertTrue(AP_Registration::isReservedLogin('herald', $this->db));
+
+        $actor = AP_User::create([
+            'user_login' => 'super3',
+            'user_email' => 'super3@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $actorId = $actor['id'];
+
+        $nonce = ap_create_nonce('create-user', $actorId);
+        $result = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_login' => 'herald',
+            'user_email' => 'reserved-herald@example.test',
+            'pass1' => 'secure-pass-1',
+            'pass2' => 'secure-pass-1',
+            'role' => 'author',
+        ], $actorId, 'create', $this->db);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertSame('herald', $result['user']->user_login ?? '');
+
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
     }
 
     public function testPasswordMismatchRejected(): void
@@ -664,11 +785,15 @@ final class AdminUsersTest extends TestCase
         $this->assertStringContainsString('Resend verification', $html);
         $this->assertStringContainsString('name="ap_resend_verification"', $html);
         $this->assertStringContainsString('ap-user-resend-form', $html);
+        $this->assertStringContainsString('Activate account', $html);
+        $this->assertStringContainsString('name="ap_activate_account"', $html);
 
         $active = AP_User::getById($admin['id'], $this->db);
         $this->assertNotNull($active);
         $activeHtml = AP_Admin_User_Edit::renderForm($active, 'update', $admin['id'], [], $this->db);
         $this->assertStringNotContainsString('Resend verification', $activeHtml);
+        $this->assertStringNotContainsString('Activate account', $activeHtml);
+        $this->assertStringNotContainsString('name="ap_activate_account"', $activeHtml);
     }
 
     public function testResendVerificationFromUserEdit(): void
@@ -725,6 +850,238 @@ final class AdminUsersTest extends TestCase
         $this->assertSame(AP_Registration::STATUS_PENDING, $still->user_status);
     }
 
+    public function testActivatePendingAccountFromUserEdit(): void
+    {
+        AP_Mail::enableTestMode();
+        AP_Options::update('users_can_register', '1', $this->db);
+        AP_Options::update('require_email_verification', '1', $this->db);
+        AP_Options::update('default_role', 'subscriber', $this->db);
+        AP_Options::update('blogname', 'Test Site', $this->db);
+        AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $admin = AP_User::create([
+            'user_login' => 'activateadmin',
+            'user_email' => 'activateadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $pending = AP_Registration::register([
+            'user_login' => 'editactivate',
+            'user_email' => 'editactivate@example.test',
+            'user_pass' => 'securepass8',
+            'ap_form_ticket' => AP_Registration::createFormTicket(
+                time() - AP_Registration::MIN_FILL_SECONDS
+            )['token'],
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
+        $this->assertSame(AP_Registration::STATUS_PENDING, $pending['user']->user_status ?? -1);
+
+        $nonce = ap_create_nonce('update-user-' . $pending['id'], $admin['id']);
+        $result = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_ID' => $pending['id'],
+            'ap_activate_account' => '1',
+        ], $admin['id'], 'update', $this->db);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertSame('user_activated', $result['message_key']);
+        $this->assertNotNull($result['user']);
+        $this->assertSame(0, $result['user']->user_status);
+        $this->assertSame('', $result['user']->user_activation_key);
+
+        $fresh = AP_User::getById($pending['id'], $this->db);
+        $this->assertNotNull($fresh);
+        $this->assertSame(0, $fresh->user_status);
+        $this->assertNotNull(AP_User::authenticate('editactivate', 'securepass8', $this->db));
+
+        $editor = AP_User::create([
+            'user_login' => 'activateeditor',
+            'user_email' => 'activateeditor@example.test',
+            'password' => 'password123',
+            'role' => 'editor',
+        ], $this->db);
+        $pending2 = AP_Registration::register([
+            'user_login' => 'editactivate2',
+            'user_email' => 'editactivate2@example.test',
+            'user_pass' => 'securepass8',
+            'ap_form_ticket' => AP_Registration::createFormTicket(
+                time() - AP_Registration::MIN_FILL_SECONDS
+            )['token'],
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($pending2['ok'], implode('; ', $pending2['errors']));
+        $nonce2 = ap_create_nonce('update-user-' . $pending2['id'], $editor['id']);
+        $denied = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce2,
+            'user_ID' => $pending2['id'],
+            'ap_activate_account' => '1',
+        ], $editor['id'], 'update', $this->db);
+        $this->assertFalse($denied['ok']);
+        $still = AP_User::getById($pending2['id'], $this->db);
+        $this->assertNotNull($still);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $still->user_status);
+    }
+
+    public function testActivatePendingAccountFromUserEditAfterKeyExpires(): void
+    {
+        AP_Mail::enableTestMode();
+        AP_Options::update('users_can_register', '1', $this->db);
+        AP_Options::update('require_email_verification', '1', $this->db);
+        AP_Options::update('default_role', 'subscriber', $this->db);
+        AP_Options::update('blogname', 'Test Site', $this->db);
+        AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $admin = AP_User::create([
+            'user_login' => 'expireadmin',
+            'user_email' => 'expireadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $pending = AP_Registration::register([
+            'user_login' => 'expireactivate',
+            'user_email' => 'expireactivate@example.test',
+            'user_pass' => 'securepass8',
+            'ap_form_ticket' => AP_Registration::createFormTicket(
+                time() - AP_Registration::MIN_FILL_SECONDS
+            )['token'],
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
+
+        $user = AP_User::getById($pending['id'], $this->db);
+        $this->assertNotNull($user);
+        $parts = explode(':', $user->user_activation_key, 3);
+        $this->assertCount(3, $parts);
+        $staleTs = time() - AP_Registration::KEY_TTL - 60;
+        $this->db->update(
+            'users',
+            ['user_activation_key' => $parts[0] . ':' . $staleTs . ':' . $parts[2]],
+            ['ID' => $pending['id']]
+        );
+
+        $stale = AP_User::getById($pending['id'], $this->db);
+        $this->assertNotNull($stale);
+        $html = AP_Admin_User_Edit::renderForm($stale, 'update', $admin['id'], [], $this->db);
+        $this->assertStringContainsString('Activate account', $html);
+        $this->assertStringContainsString('name="ap_activate_account"', $html);
+
+        $this->assertFalse(
+            AP_Registration::verifyEmail('expireactivate', $pending['plain_key'], $this->db)['ok']
+        );
+
+        $nonce = ap_create_nonce('update-user-' . $pending['id'], $admin['id']);
+        $result = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_ID' => $pending['id'],
+            'ap_activate_account' => '1',
+        ], $admin['id'], 'update', $this->db);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertSame('user_activated', $result['message_key']);
+        $fresh = AP_User::getById($pending['id'], $this->db);
+        $this->assertNotNull($fresh);
+        $this->assertSame(0, $fresh->user_status);
+        $this->assertSame('', $fresh->user_activation_key);
+        $this->assertNotNull(AP_User::authenticate('expireactivate', 'securepass8', $this->db));
+    }
+
+    public function testActivatePendingAccountFromUsersListRow(): void
+    {
+        AP_Mail::enableTestMode();
+        AP_Options::update('users_can_register', '1', $this->db);
+        AP_Options::update('require_email_verification', '1', $this->db);
+        AP_Options::update('default_role', 'subscriber', $this->db);
+        AP_Options::update('blogname', 'Test Site', $this->db);
+        AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $admin = AP_User::create([
+            'user_login' => 'listactadmin',
+            'user_email' => 'listactadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $pending = AP_Registration::register([
+            'user_login' => 'listactivate',
+            'user_email' => 'listactivate@example.test',
+            'user_pass' => 'securepass8',
+            'ap_form_ticket' => AP_Registration::createFormTicket(
+                time() - AP_Registration::MIN_FILL_SECONDS
+            )['token'],
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
+
+        AP_Session::enableTestMode();
+        AP_Session::resetCurrentUser();
+        $this->assertTrue(AP_Session::setAuthCookie($admin['id'], false, $this->db));
+
+        $table = new AP_Users_List_Table($this->db);
+        $table->prepareItems([]);
+        $html = $table->render();
+        $this->assertStringContainsString('listactivate', $html);
+        $this->assertStringContainsString('Pending', $html);
+        $this->assertStringContainsString('action=activate', $html);
+        $this->assertStringContainsString('Activate</a>', $html);
+
+        $badNonce = $table->processRowAction([
+            'action' => 'activate',
+            'user' => $pending['id'],
+            '_ap_nonce' => 'not-a-nonce',
+        ], $admin['id']);
+        $this->assertFalse($badNonce['ok']);
+        $this->assertSame('nonce', $badNonce['message_key']);
+        $stillPending = AP_User::getById($pending['id'], $this->db);
+        $this->assertNotNull($stillPending);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $stillPending->user_status);
+
+        $nonce = ap_create_nonce('activate-user-' . $pending['id'], $admin['id']);
+        $ok = $table->processRowAction([
+            'action' => 'activate',
+            'user' => $pending['id'],
+            '_ap_nonce' => $nonce,
+        ], $admin['id']);
+        $this->assertTrue($ok['ok'], implode('; ', $ok['errors']));
+        $this->assertSame('user_activated', $ok['message_key']);
+
+        $fresh = AP_User::getById($pending['id'], $this->db);
+        $this->assertNotNull($fresh);
+        $this->assertSame(0, $fresh->user_status);
+        $this->assertSame('', $fresh->user_activation_key);
+        $this->assertNotNull(AP_User::authenticate('listactivate', 'securepass8', $this->db));
+
+        $table->prepareItems([]);
+        $after = $table->render();
+        $this->assertStringNotContainsString('action=activate', $after);
+
+        $editor = AP_User::create([
+            'user_login' => 'listacteditor',
+            'user_email' => 'listacteditor@example.test',
+            'password' => 'password123',
+            'role' => 'editor',
+        ], $this->db);
+        $pending2 = AP_Registration::register([
+            'user_login' => 'listactivate2',
+            'user_email' => 'listactivate2@example.test',
+            'user_pass' => 'securepass8',
+            'ap_form_ticket' => AP_Registration::createFormTicket(
+                time() - AP_Registration::MIN_FILL_SECONDS
+            )['token'],
+            'ap_hp' => '',
+        ], $this->db);
+        $this->assertTrue($pending2['ok'], implode('; ', $pending2['errors']));
+        $nonce2 = ap_create_nonce('activate-user-' . $pending2['id'], $editor['id']);
+        $denied = $table->processRowAction([
+            'action' => 'activate',
+            'user' => $pending2['id'],
+            '_ap_nonce' => $nonce2,
+        ], $editor['id']);
+        $this->assertFalse($denied['ok']);
+        $still = AP_User::getById($pending2['id'], $this->db);
+        $this->assertNotNull($still);
+        $this->assertSame(AP_Registration::STATUS_PENDING, $still->user_status);
+    }
+
     public function testConsumeQueryNoticeForVerificationResent(): void
     {
         $_GET['message'] = 'verification_resent';
@@ -732,6 +1089,17 @@ final class AdminUsersTest extends TestCase
         $notices = AP_Admin::getNotices();
         $this->assertNotEmpty($notices);
         $this->assertStringContainsString('Verification email sent', $notices[0]['message']);
+        unset($_GET['message']);
+        AP_Admin::clearNotices();
+    }
+
+    public function testConsumeQueryNoticeForUserActivated(): void
+    {
+        $_GET['message'] = 'user_activated';
+        AP_Admin::consumeQueryNotice();
+        $notices = AP_Admin::getNotices();
+        $this->assertNotEmpty($notices);
+        $this->assertStringContainsString('Account activated', $notices[0]['message']);
         unset($_GET['message']);
         AP_Admin::clearNotices();
     }

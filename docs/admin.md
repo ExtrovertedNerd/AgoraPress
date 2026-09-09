@@ -88,7 +88,7 @@ an alias of `rp`.
 |------------|----------------|
 | `login` (default) | Username or email (`log`) + password (`pwd`). Optional “remember me”. Nonce `admin-login`. Rate-limited (`AP_Rate_Limit`). Pending email verification is a distinct error. |
 | `logout` | CSRF-protected (`log-out` nonce). |
-| `register` | Shown only when option `users_can_register` is on (Settings → General). Nonce `admin-register`. Always-on when open: honeypot `ap_hp` (labeled Website), ~3s minimum fill, short-lived form ticket `ap_form_ticket` issued on GET. Optional math CAPTCHA. |
+| `register` | Shown only when option `users_can_register` is on (Settings → General). Nonce `admin-register`. Always-on when open: honeypot `ap_hp` (labeled Website), ~3s minimum fill, short-lived form ticket `ap_form_ticket` issued on GET. Optional visible anti-spam (`registration_captcha`: `off` / `math` / `guard`). Staff/system logins and extras in `reserved_usernames` cannot be self-registered. Public error: “That username is not available.” (the form does not say the name is reserved). Users → Add and `php ap-cli user create` may still create them. |
 | `lostpassword` | Request a reset mail. Nonce `admin-lostpassword`. |
 | `rp` / `resetpass` | Set a new password with the mailed key. |
 | `verifyemail` | Confirm a new account from the mailed link. |
@@ -211,9 +211,9 @@ without `edit_users` redirects to Profile.
 
 | Task | Menu | Cap | Notes |
 |------|------|-----|-------|
-| All users | Users (`users.php`) | `list_users` | Filter by role; bulk / row delete (not the sole administrator). |
-| Add user | `user-new.php` | `create_users` | Login, email, password, role. Nonce `create-user`. |
-| Edit another user | `user-edit.php?user_id=` | `edit_users` | Profile fields, role, password. Cannot demote the last administrator. Role is **not** editable on Profile. |
+| All users | Users (`users.php`) | `list_users` | Filter by role; bulk / row delete (not the sole administrator). Pending email-verification accounts show a **Pending** label. **Activate** (row action, cap `edit_users`, nonce `activate-user-{id}`) sets `user_status` to 0 and clears the activation key without the emailed link. It does **not** lift a forum ban. There is **no** bulk activate. |
+| Add user | `user-new.php` | `create_users` | Login, email, password, role. Nonce `create-user`. Public-register reserved logins (locked list + `reserved_usernames` extras + filter `ap_reserved_usernames`) **are** allowed here. |
+| Edit another user | `user-edit.php?user_id=` | `edit_users` | Profile fields, role, password. Cannot demote the last administrator. Role is **not** editable on Profile. Pending accounts: separate form (so it does not save other field changes) with **Resend verification** (`ap_resend_verification`) and **Activate account** (`ap_activate_account`). Activate uses `AP_Registration::activatePendingUser()` — same as the list row action. |
 | Own profile | Profile (`profile.php`) | `read` | Any logged-in ACP user. Display name, email, avatar upload, signature, admin color-mode preference (usermeta `ap_admin_color_mode`). Changing password revokes other sessions. |
 
 Default role for self-registration is Settings → General (`default_role`).
@@ -248,7 +248,7 @@ with `manage_options` accepted as a fallback).
 
 | Task | Menu | What it stores |
 |------|------|----------------|
-| General | General (`options-general.php`) | `blogname`, `blogdescription`, **Site Icon** (`site_icon` attachment ID), `siteurl`, `home`, `admin_email`, `users_can_register`, `require_email_verification`, `registration_captcha` (`off` / `math`), `default_role`, `WPLANG`, `timezone_string`, `date_format`, `time_format`, `start_of_week`. |
+| General | General (`options-general.php`) | `blogname`, `blogdescription`, **Site Icon** (`site_icon` attachment ID), `siteurl`, `home`, `admin_email`, `users_can_register`, `require_email_verification`, `registration_captcha` (`off` / `math` / `guard`), extra reserved usernames (`reserved_usernames`, textarea, one login per line; plugins may add more via filter `ap_reserved_usernames`), `default_role`, `WPLANG`, `timezone_string`, `date_format`, `time_format`, `start_of_week`. |
 | Mail | Settings → Mail (`options-mail.php`) | Own group (not General). From name (`mail_from_name`, empty uses `blogname`), From email (`mail_from_email`, separate from `admin_email`; empty uses `admin_email`; example `noreply@example.com`), optional Reply-To (`mail_reply_to`, empty uses `admin_email`), transport `php` \| `smtp` (`mail_transport`, default `php`), SMTP `smtp_host` / `smtp_port` / `smtp_encryption` (`none` \| `tls` \| `ssl`) / `smtp_user` / write-only `smtp_pass` (blank keeps the stored secret), **Send test email to admin_email**, last error (`mail_last_error`, also on **Tools → Site Health**). Nonce `ap_settings_mail`. When defined in `ap-config.php`, `AP_MAIL_FROM_NAME`, `AP_MAIL_FROM_EMAIL`, `AP_MAIL_TRANSPORT`, `AP_SMTP_HOST`, `AP_SMTP_PORT`, `AP_SMTP_ENCRYPTION`, `AP_SMTP_USER`, and `AP_SMTP_PASS` override these options (names documented as comments in `ap-config-sample.php`; never put a real password there). Outbound volume is rate-limited (`AP_Rate_Limit` action `mail`, default 20/hour per IP and per recipient; **no ACP screen**) — [security.md](security.md). |
 | Modules | Modules (`options-modules.php`) | Independent toggles for Static Pages, Blog, and Forum. At least one must remain enabled. Related menus and front-end routes follow these switches. Nonce `ap_settings_modules`. |
 | Writing | Writing (`options-writing.php`) | Blog module (403 when off). Default category, smilies, default comment status on new posts. |

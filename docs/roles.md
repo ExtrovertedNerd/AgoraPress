@@ -377,19 +377,22 @@ built-in AgoraPress role.
 
 | Surface | As built |
 |---------|----------|
-| Users list (`users.php`) | Cap `list_users`. Filter by role; bulk role change needs `promote_users`. Cannot delete the sole administrator. **No** ban / suspend control. |
-| Add user (`user-new.php`) | Cap `create_users`. Role dropdown is the registered slug list. |
-| Edit user (`user-edit.php`) | Cap `edit_users`. Changing role needs `promote_users`. Cannot demote the last administrator. |
+| Users list (`users.php`) | Cap `list_users`. Filter by role; bulk role change needs `promote_users`. Cannot delete the sole administrator. **No** ban / suspend control. Pending email verification: **Pending** label and **Activate** row action (needs `edit_users`; nonce `activate-user-{id}`). Activate does not lift a forum ban. |
+| Add user (`user-new.php`) | Cap `create_users`. Role dropdown is the registered slug list. Reserved public-register logins are allowed. |
+| Edit user (`user-edit.php`) | Cap `edit_users`. Changing role needs `promote_users`. Cannot demote the last administrator. Pending email verification: **Resend verification** and **Activate account** (no emailed key). |
 | Profile (`profile.php`) | Cap `read`. **Never** changes the signed-in user’s role. |
 | Settings → General | `default_role` for self-registration. |
 | `php ap-cli user list --role=` | Filter. |
 | `php ap-cli user get <id\|login\|email>` | Public fields + `roles:`. Password hash is **not** printed. |
-| `php ap-cli user create --role=` | Default `subscriber`. CLI is `user <list\|get\|create>` only. **No** `user update` / `user delete`. |
+| `php ap-cli user create --role=` | Default `subscriber`. CLI is `user <list\|get\|create>` only. **No** `user update` / `user delete`. Reserved public-register logins are allowed. |
 | REST `GET /ap/v1/users` | Public profile fields (no email). Email on `GET /users/{id}` only for self or `list_users`. **No** user writes. |
 
-Registration (`users_can_register`, email verification, math CAPTCHA, and
+Registration (`users_can_register`, email verification, optional
+`registration_captcha`, extra reserved logins `reserved_usernames`, and
 the always-on form gate) is Settings → General, not a membership plugin.
-There is **no** TOTP / 2FA in core.
+There is **no** TOTP / 2FA in core. Plugins may add reserved logins with
+filter `ap_reserved_usernames`. The public register form reports “That username is not available.”
+and does not say a name is reserved.
 
 CLI create (password from the environment so it does not land in history):
 

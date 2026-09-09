@@ -82,10 +82,10 @@ Shared accounts for CMS, forums, and admin.
 | Column | Notes |
 |--------|-------|
 | `ID` | PK |
-| `user_login` | Login name |
+| `user_login` | Login name. Unique case-insensitively (`Silas` and `silas` collide). Stored case is preserved; existing rows that already differ only by case are not merged |
 | `user_pass` | Argon2id (or fallback) hash |
 | `user_nicename` | URL slug |
-| `user_email` | |
+| `user_email` | Unique case-insensitively. Stored case is preserved; existing rows that already differ only by case are not merged |
 | `user_url` | |
 | `user_registered` | |
 | `user_activation_key` | Verify / reset keys |

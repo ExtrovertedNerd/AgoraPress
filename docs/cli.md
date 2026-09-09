@@ -494,7 +494,11 @@ AP_USER_PASSWORD='choose-a-strong-password' php ap-cli user create \
 
 Default `--role` is `subscriber`. Missing login, email, or password →
 exit `1`. `AP_User::create` validation errors → exit `2`. Success stdout:
-`User created: ID {id} ({login})`.
+`User created: ID {id} ({login})`. Public-register reserved logins (locked
+staff/system list, Settings → General `reserved_usernames` extras, and
+filter `ap_reserved_usernames`) are **allowed** here — the reserved-name
+gate is public self-register only, and that form reports “That username is not available.”
+without saying a name is reserved.
 
 Do not commit passwords. Prefer `AP_USER_PASSWORD` in a local shell so the
 secret does not land in process lists or shell history as a `--user_pass=`

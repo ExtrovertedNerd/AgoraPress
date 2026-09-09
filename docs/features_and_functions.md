@@ -48,7 +48,8 @@
 | `mail_last_error` | `''` (autoload `no`; last send failure) | Settings → Mail and Tools → Site Health | [admin.md](admin.md#tools) · [troubleshooting.md](troubleshooting.md#mail-not-arriving) |
 | `users_can_register` | `0` | Settings → General | [admin.md](admin.md#sign-in) |
 | `require_email_verification` | `1` | Settings → General | [admin.md](admin.md#settings) |
-| `registration_captcha` | `off` (`off` \| `math`) | Settings → General | [admin.md](admin.md#settings) |
+| `registration_captcha` | `off` (`off` \| `math` \| `guard`) | Settings → General | [admin.md](admin.md#settings) |
+| `reserved_usernames` | `''` (one extra login per line; filter `ap_reserved_usernames`) | Settings → General | [admin.md](admin.md#settings) · [hooks.md](hooks.md) |
 | `default_role` | `subscriber` | Settings → General | [roles.md](roles.md) |
 | `timezone_string` | `UTC` | Settings → General | [admin.md](admin.md#settings) |
 | `WPLANG` | `''` | Settings → General | [admin.md](admin.md#settings) |
@@ -349,9 +350,9 @@
 | `themes.php` | Themes + **theme zip installer** (`install_themes`) | `switch_themes` | [admin.md](admin.md#appearance) · [themes.md](themes.md) |
 | `theme-options.php` | Theme Options / Additional CSS | `edit_theme_options` | [admin.md](admin.md#appearance) · [themes.md](themes.md) |
 | `plugins.php` | Plugins + **plugin zip installer** (`install_plugins`) | `activate_plugins` | [admin.md](admin.md#plugin-zip-installer) · [plugins.md](plugins.md#plugin-installer) |
-| `users.php` | Users list | `list_users` | [admin.md](admin.md#users) |
+| `users.php` | Users list (pending **Activate** needs `edit_users`) | `list_users` | [admin.md](admin.md#users) |
 | `user-new.php` | Add user | `create_users` | [admin.md](admin.md#users) |
-| `user-edit.php` | Edit selected account | `edit_users` | [admin.md](admin.md#users) |
+| `user-edit.php` | Edit selected account (pending **Activate account**) | `edit_users` | [admin.md](admin.md#users) |
 | `forums.php` `forum-edit.php` | Forum tree / edit | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
 | `forum-groups.php` | Groups + ACL | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
 | `forum-topics.php` `forum-moderation.php` | Topics / mod queue | `moderate_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |

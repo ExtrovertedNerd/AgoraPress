@@ -65,6 +65,7 @@ $requiredPaths = [
     'ap-admin/media.php',
     'ap-admin/media-new.php',
     'ap-admin/css/admin.css',
+    'ap-admin/js/register-guard.js',
     'ap-admin/theme-options.php',
     'ap-admin/nav-menus.php',
     'ap-admin/widgets.php',

@@ -111,6 +111,20 @@ class AP_Admin_User_Edit
             return self::handleResendVerification($id, $db);
         }
 
+        if (!$isNew && !empty($input['ap_activate_account'])) {
+            if ($mode !== 'update' || !self::actorCan($actorId, 'edit_users', $db)) {
+                return [
+                    'ok' => false,
+                    'id' => $id,
+                    'message_key' => 'error',
+                    'errors' => ['You do not have permission to activate this account.'],
+                    'user' => AP_User::getById($id, $db),
+                ];
+            }
+
+            return self::handleActivateAccount($id, $db);
+        }
+
         $data = self::collectFields($input, $isNew, $mode, $actorId, $db);
 
         $passErrors = self::passwordErrors($data, $isNew);
@@ -457,7 +471,7 @@ class AP_Admin_User_Edit
     }
 
     /**
-     * Separate form so Resend verification does not save other field changes.
+     * Separate form so Resend / Activate do not save other field changes.
      */
     public static function renderResendVerificationForm(AP_User $user, int $actorId): string
     {
@@ -469,10 +483,13 @@ class AP_Admin_User_Edit
         $html .= '<input type="hidden" name="ap_user_mode" value="update" />';
         $html .= '<fieldset class="ap-fieldset">';
         $html .= '<legend>Email verification</legend>';
-        $html .= '<p class="description">This account is waiting for email verification.</p>';
+        $html .= '<p class="description">This account is waiting for email verification. '
+            . 'Resend the confirmation message, or activate the account without the email link.</p>';
         $html .= '<p class="submit">';
         $html .= '<button type="submit" name="ap_resend_verification" value="1" class="button">'
-            . 'Resend verification</button>';
+            . 'Resend verification</button> ';
+        $html .= '<button type="submit" name="ap_activate_account" value="1" class="button button-primary">'
+            . 'Activate account</button>';
         $html .= '</p>';
         $html .= '</fieldset>';
         $html .= '</form>';
@@ -519,6 +536,50 @@ class AP_Admin_User_Edit
         $base['errors'] = $result['errors'] !== []
             ? $result['errors']
             : ['The verification email could not be sent.'];
+
+        return $base;
+    }
+
+    /**
+     * @return array{
+     *   ok: bool,
+     *   id: int,
+     *   message_key: string,
+     *   errors: list<string>,
+     *   user: ?AP_User
+     * }
+     */
+    private static function handleActivateAccount(int $id, AP_DB $db): array
+    {
+        $user = AP_User::getById($id, $db);
+        $base = [
+            'ok' => false,
+            'id' => $id,
+            'message_key' => 'error',
+            'errors' => [],
+            'user' => $user,
+        ];
+        if ($user === null || !class_exists('AP_Registration', false)) {
+            $base['errors'][] = 'Could not activate the account.';
+
+            return $base;
+        }
+
+        $result = AP_Registration::activatePendingUser($user, $db);
+        if ($result['ok']) {
+            return [
+                'ok' => true,
+                'id' => $id,
+                'message_key' => 'user_activated',
+                'errors' => [],
+                'user' => $result['user'],
+            ];
+        }
+
+        $base['errors'] = $result['errors'] !== []
+            ? $result['errors']
+            : ['Could not activate the account.'];
+        $base['user'] = $result['user'] ?? $user;
 
         return $base;
     }

@@ -360,7 +360,7 @@ action is `admin-login` (`AP_Nonce`). Success sets a signed auth cookie
 | What you see | Meaning | Check |
 |--------------|---------|--------|
 | `Too many failed login attempts. Please try again later.` (code `rate_limited`) | Transient-backed IP + identity lockout (`AP_Rate_Limit::checkLogin`) | Wait; there is **no** core unlock CLI. [security.md](security.md) |
-| `Please verify your email address before logging in.` | Account `user_status` is pending and `require_email_verification` is on | Settings → General; confirmation mail. Fresh install seeds that option **on**. |
+| `Please verify your email address before logging in.` | Account `user_status` is pending and `require_email_verification` is on | Settings → General; confirmation mail. Fresh install seeds that option **on**. An administrator can **Activate** the account from Users (`users.php` row action or Users → Edit **Activate account**) without the email link. That path does not lift a forum ban. |
 | `Invalid username or password.` | Credentials, or the account does not exist | Caps / roles: [roles.md](roles.md). |
 | `Could not establish a session. Please try again.` | Signed cookie could not be set (`AP_Session::setAuthCookie` failed) | Browser cookies; `AP_LOGGED_IN_KEY` / `AP_LOGGED_IN_SALT` in `ap-config.php`. |
 | `Security check failed. Please try again.` | Login form nonce failed | Reload the form; do not cache `login.php`. |
@@ -393,6 +393,10 @@ a test message (Site Health never transmits data off-site).
    `AP_SMTP_PORT`, `AP_SMTP_ENCRYPTION`, `AP_SMTP_USER`, and `AP_SMTP_PASS`
    override the options table. `ap-config-sample.php` documents the names
    as comments — never a real password.
+8. For a pending account whose confirmation never arrived: **Users → Edit**
+   has **Resend verification** and **Activate account**. The users list
+   shows a **Pending** label and an **Activate** row action. Activate
+   skips the emailed key; it does not lift a forum ban.
 
 PHP `mail()` delivery depends on the host MTA. There is **no** PHPMailer
 in core.

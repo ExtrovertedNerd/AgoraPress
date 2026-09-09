@@ -3,6 +3,8 @@
 /**
  * Add New User (`user-new.php`).
  *
+ * Cap `create_users`. Public-register reserved logins are allowed here.
+ *
  * @package AgoraPress
  */
 

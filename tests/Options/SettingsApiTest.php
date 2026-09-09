@@ -16,6 +16,7 @@ use AP_Media;
 use AP_Rate_Limit;
 use AP_Migrator;
 use AP_Options;
+use AP_Registration;
 use AP_Rewrite;
 use AP_Settings;
 use PDO;
@@ -189,6 +190,11 @@ final class SettingsApiTest extends TestCase
         }
         $this->assertArrayHasKey('blogname', AP_Settings::getRegisteredSettings('general'));
         $this->assertArrayHasKey('site_icon', AP_Settings::getRegisteredSettings('general'));
+        $this->assertArrayHasKey('reserved_usernames', AP_Settings::getRegisteredSettings('general'));
+        $this->assertSame(
+            [AP_Settings::class, 'sanitizeReservedUsernames'],
+            AP_Settings::getRegisteredSettings('general')['reserved_usernames']['sanitize_callback']
+        );
         $this->assertArrayHasKey('ap_module_blog', AP_Settings::getRegisteredSettings('modules'));
         $mail = AP_Settings::getRegisteredSettings('mail');
         $this->assertArrayHasKey('mail_from_name', $mail);
@@ -250,6 +256,65 @@ final class SettingsApiTest extends TestCase
         $this->assertSame('off', (string) AP_Options::get('registration_captcha', 'math', $this->db));
         // site_icon omitted from input → preserved (not wiped to 0).
         $this->assertSame(42, AP_Options::siteIcon($this->db));
+    }
+
+    public function testRegistrationCaptchaSanitizerAcceptsGuard(): void
+    {
+        $this->assertSame(
+            [AP_Settings::class, 'sanitizeRegistrationCaptcha'],
+            AP_Settings::getRegisteredSettings('general')['registration_captcha']['sanitize_callback']
+        );
+
+        $this->assertSame('off', AP_Settings::sanitizeRegistrationCaptcha('off'));
+        $this->assertSame('math', AP_Settings::sanitizeRegistrationCaptcha('math'));
+        $this->assertSame('guard', AP_Settings::sanitizeRegistrationCaptcha('GUARD'));
+        $this->assertSame('math', AP_Settings::sanitizeRegistrationCaptcha('1'));
+        $this->assertSame('math', AP_Settings::sanitizeRegistrationCaptcha('yes'));
+        $this->assertSame('off', AP_Settings::sanitizeRegistrationCaptcha('0'));
+        $this->assertSame('off', AP_Settings::sanitizeRegistrationCaptcha('recaptcha'));
+        $this->assertSame('off', AP_Settings::sanitizeRegistrationCaptcha('hcaptcha'));
+        $this->assertSame('off', AP_Settings::sanitizeRegistrationCaptcha('turnstile'));
+        $this->assertSame('off', AP_Settings::sanitizeRegistrationCaptcha('custombot'));
+
+        $ok = AP_Options::updateGeneralSettings([
+            'blogname' => 'Guard Site',
+            'admin_email' => 'admin@example.test',
+            'users_can_register' => '1',
+            'registration_captcha' => 'guard',
+            'default_role' => 'author',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame('guard', (string) AP_Options::get('registration_captcha', 'off', $this->db));
+
+        $viaSave = AP_Settings::save('general', [
+            'blogname' => 'Guard Site',
+            'blogdescription' => '',
+            'siteurl' => 'https://example.test',
+            'home' => 'https://example.test',
+            'admin_email' => 'admin@example.test',
+            'users_can_register' => '1',
+            'require_email_verification' => '1',
+            'registration_captcha' => 'Guard',
+            'default_role' => 'author',
+            'timezone_string' => 'UTC',
+            'WPLANG' => '',
+            'date_format' => 'Y-m-d',
+            'time_format' => 'H:i',
+            'start_of_week' => '1',
+            'site_icon' => 0,
+        ], $this->db);
+        $this->assertTrue($viaSave);
+        $this->assertSame('guard', (string) AP_Options::get('registration_captcha', 'off', $this->db));
+
+        $unknown = AP_Options::updateGeneralSettings([
+            'blogname' => 'Guard Site',
+            'admin_email' => 'admin@example.test',
+            'users_can_register' => '1',
+            'registration_captcha' => 'recaptcha',
+            'default_role' => 'author',
+        ], $this->db);
+        $this->assertTrue($unknown);
+        $this->assertSame('off', (string) AP_Options::get('registration_captcha', 'guard', $this->db));
     }
 
     public function testSiteIconOptionSaveAndClear(): void
@@ -368,6 +433,8 @@ final class SettingsApiTest extends TestCase
 
     public function testSanitizeCheckboxAndUrl(): void
     {
+        $this->assertSame('guard', AP_Settings::sanitizeRegistrationCaptcha('guard'));
+        $this->assertSame('off', AP_Settings::sanitizeRegistrationCaptcha('turnstile'));
         $this->assertSame('1', AP_Settings::sanitizeCheckbox('on'));
         $this->assertSame('1', AP_Settings::sanitizeCheckbox('1'));
         $this->assertSame('0', AP_Settings::sanitizeCheckbox(null));
@@ -376,6 +443,71 @@ final class SettingsApiTest extends TestCase
         $this->assertSame('https://example.com', AP_Settings::sanitizeUrlOption('https://example.com/'));
         $this->assertSame('', AP_Settings::sanitizeUrlOption('javascript:alert(1)'));
         $this->assertSame('', AP_Settings::sanitizeUrlOption('not-a-url'));
+    }
+
+    public function testReservedUsernamesOptionSaveAndPreserve(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-registration.php';
+
+        $this->assertSame('', AP_Settings::sanitizeReservedUsernames(''));
+        $this->assertSame(
+            "news\nBoard",
+            AP_Settings::sanitizeReservedUsernames(" news \n\nBoard\r\nNEWS\n  ")
+        );
+        $this->assertSame(
+            'news',
+            AP_Settings::sanitizeReservedUsernames([' news ', 'NEWS', '  '])
+        );
+        $this->assertSame(
+            "news\nBoard",
+            AP_Settings::sanitizeReservedUsernames("admin\nnews\nADMIN\nBoard\nroot")
+        );
+
+        $ok = AP_Options::updateGeneralSettings([
+            'blogname' => 'Reserve Site',
+            'admin_email' => 'admin@example.test',
+            'reserved_usernames' => "news\nBoard\n",
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame(
+            "news\nBoard",
+            (string) AP_Options::get('reserved_usernames', '', $this->db)
+        );
+        $this->assertTrue(AP_Registration::isReservedLogin('board', $this->db));
+
+        // Omitted from a later General save → preserved (not wiped).
+        $ok2 = AP_Options::updateGeneralSettings([
+            'blogname' => 'Reserve Site',
+            'admin_email' => 'admin@example.test',
+            'registration_captcha' => 'off',
+        ], $this->db);
+        $this->assertTrue($ok2);
+        $this->assertSame(
+            "news\nBoard",
+            (string) AP_Options::get('reserved_usernames', '', $this->db)
+        );
+
+        $cleared = AP_Options::updateGeneralSettings([
+            'blogname' => 'Reserve Site',
+            'admin_email' => 'admin@example.test',
+            'reserved_usernames' => '',
+        ], $this->db);
+        $this->assertTrue($cleared);
+        $this->assertSame('', (string) AP_Options::get('reserved_usernames', 'x', $this->db));
+        $this->assertFalse(AP_Registration::isReservedLogin('board', $this->db));
+    }
+
+    public function testGeneralScreenHasReservedUsernamesTextarea(): void
+    {
+        $path = $this->root . '/ap-admin/options-general.php';
+        $src = (string) file_get_contents($path);
+        $this->assertStringContainsString('name="reserved_usernames"', $src);
+        $this->assertStringContainsString('<textarea', $src);
+        $this->assertStringContainsString('One username per line', $src);
+        $this->assertStringContainsString('That username is not available.', $src);
+        $this->assertStringContainsString('does not say a name is reserved', $src);
+        $this->assertStringContainsString('Users → Add', $src);
+        $this->assertStringContainsString('ap-cli user create', $src);
     }
 
     public function testProceduralWrappersExist(): void
@@ -439,6 +571,7 @@ final class SettingsApiTest extends TestCase
                 'smtp_encryption',
                 'smtp_pass',
                 'mail_last_error',
+                'reserved_usernames',
             ] as $opt
         ) {
             $this->assertStringContainsString("'" . $opt . "'", $src);

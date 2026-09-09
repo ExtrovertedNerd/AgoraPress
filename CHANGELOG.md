@@ -13,18 +13,21 @@ Documentation pass for humans and Grok Bot. Core remains `AP_VERSION` **0.3.6-be
 
 - Settings → Mail, `wp_mail()` shim, Site Health, mail rate limit
 - Register gate: `ap_hp`, ~3s fill, GET ticket; failed send keeps pending user
+- Users: admin can activate a pending account
+- Public reserved logins; ACP/CLI may still create them
+- Action `ap_user_created` after `AP_User::create()`
 - Operator guides: `docs/install.md`, `docs/updates.md`, `docs/rewrites.md`, `docs/cli.md`, `docs/admin.md`, `docs/forums.md`, `docs/roles.md`, `docs/rest.md`, `docs/security.md`, `docs/troubleshooting.md`
 - Trusted-agent handbook `docs/bot_handbook.md` and lookup catalog `docs/features_and_functions.md`. `docs/README.md` is the only audience index (no `docs/index.md`)
-- Agora blog lists and single posts show linked categories (`ap_the_category`)
+- Agora blog lists and singles show linked categories
 
 ### Changed
 
 - Root `README.md` Documentation table lists every topic guide
-- Integrator docs (`docs/hooks.md`, `themes.md`, `plugins.md`, `editor.md`, `site-icon.md`, `compatibility.md`, `schema.md`, `vision-compliance.md`) tightened against 0.3.6-beta
+- Integrator docs tightened against 0.3.6-beta
 
 ### Removed
 
-- Site-specific plugins and themes other than the default Agora theme. Core ships `ap-content/themes/agora/` only.
+- Site-specific plugins and themes other than default Agora (`ap-content/themes/agora/` only)
 
 ## [0.3.6-beta] - 2026-09-06
 

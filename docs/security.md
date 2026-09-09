@@ -131,7 +131,11 @@ hash so failure cost is similar to a wrong password.
 
 Password changes revoke **all** stored session tokens (`AP_Session`). Inactive
 accounts (`user_status !== 0`, including pending email verification) cannot
-authenticate.
+authenticate. An administrator with `edit_users` can activate a pending
+verification account from Users without the emailed key
+(`AP_Registration::activatePendingUser()`). That path requires an
+activate-purpose key on the row, so it does **not** lift a forum ban that
+reuses `user_status` = `1`.
 
 **Optional 2FA is not in core.**
 
@@ -190,8 +194,14 @@ rate-limit IP.
 Registration is off by default (`users_can_register` = `0`). When it is on,
 the public form always uses a honeypot (`ap_hp`), a ~3 second minimum fill
 time, and a short-lived form ticket issued on GET (naked POSTs fail closed
-with a generic error). Optional math CAPTCHA (`registration_captcha`) and
-email verification are additional anti-spam, not a second password factor.
+with a generic error). Optional visible anti-spam (`registration_captcha`:
+`off` / `math` / `guard`) and email verification are additional anti-spam,
+not a second password factor. Public self-register cannot take staff/system
+logins (`admin`, `root`, `moderator`, …) or extras in option
+`reserved_usernames` (one per line; filter `ap_reserved_usernames`). The
+public error is “That username is not available.” — it does not say the
+name is reserved. Users → Add and `php ap-cli user create` may still create
+those accounts.
 Forum flood / spam guards (`forum_flood_interval` default 30 s) are
 documented with forums ([forums.md](forums.md)).
 

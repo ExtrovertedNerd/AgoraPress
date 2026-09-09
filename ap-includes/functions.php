@@ -327,7 +327,7 @@ function ap_require_email_verification(?AP_DB $db = null): bool
 }
 
 /**
- * Registration CAPTCHA / anti-spam mode (`off` or `math`).
+ * Registration CAPTCHA / anti-spam mode (`off`, `math`, or `guard`).
  *
  * @see AP_Registration::captchaMode()
  */
@@ -411,6 +411,20 @@ function ap_registration_verify_form_gate(array $data, ?AP_DB $db = null): array
 }
 
 /**
+ * Whether a login is reserved for public self-register.
+ *
+ * Match is case-insensitive. Includes the locked list, per-site extras, and
+ * filter `ap_reserved_usernames`. Admin / CLI / Users → Add may still use
+ * these names.
+ *
+ * @see AP_Registration::isReservedLogin()
+ */
+function ap_is_reserved_login(string $login, ?AP_DB $db = null): bool
+{
+    return AP_Registration::isReservedLogin($login, $db);
+}
+
+/**
  * Register a public account (when users_can_register is enabled).
  *
  * @param array<string, mixed> $data
@@ -442,6 +456,18 @@ function ap_register_user(array $data, ?AP_DB $db = null): array
 function ap_verify_user_email(string $login, string $plainKey, ?AP_DB $db = null): array
 {
     return AP_Registration::verifyEmail($login, $plainKey, $db);
+}
+
+/**
+ * Activate a pending verification account without the email key (staff path).
+ *
+ * @return array{ok: bool, errors: list<string>, user: ?AP_User}
+ *
+ * @see AP_Registration::activatePendingUser()
+ */
+function ap_activate_pending_user(AP_User $user, ?AP_DB $db = null): array
+{
+    return AP_Registration::activatePendingUser($user, $db);
 }
 
 /**

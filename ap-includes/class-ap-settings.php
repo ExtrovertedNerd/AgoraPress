@@ -584,21 +584,14 @@ class AP_Settings
         self::registerSetting('general', 'registration_captcha', [
             'type' => 'string',
             'default' => 'off',
-            'sanitize_callback' => static function (mixed $v): string {
-                $mode = strtolower(trim((string) ($v ?? 'off')));
-                if ($mode === '' || $mode === '0' || $mode === 'false' || $mode === 'no' || $mode === 'disabled') {
-                    return 'off';
-                }
-                if ($mode === '1' || $mode === 'true' || $mode === 'yes' || $mode === 'on') {
-                    return 'math';
-                }
-                // Built-in modes only; plugins may still filter at verify time for custom strings.
-                if (in_array($mode, ['off', 'math'], true)) {
-                    return $mode;
-                }
-
-                return 'off';
-            },
+            'sanitize_callback' => [self::class, 'sanitizeRegistrationCaptcha'],
+        ]);
+        self::registerSetting('general', 'reserved_usernames', [
+            'type' => 'string',
+            'default' => '',
+            'description' => 'Extra usernames public registration cannot take (one per line).'
+                . ' ACP / CLI may still create them.',
+            'sanitize_callback' => [self::class, 'sanitizeReservedUsernames'],
         ]);
         self::registerSetting('general', 'default_role', [
             'type' => 'string',
@@ -1073,6 +1066,78 @@ class AP_Settings
     // -------------------------------------------------------------------------
     // Shared sanitizers
     // -------------------------------------------------------------------------
+
+    /**
+     * Registration anti-spam mode stored by Settings → General.
+     *
+     * Built-in values: `off`, `math`, `guard`. Unknown strings (including
+     * third-party widget names) collapse to `off`. Legacy truthy aliases
+     * (`1` / `true` / `yes` / `on`) map to `math`.
+     *
+     * Runtime {@see AP_Registration::captchaMode()} still leaves unknown
+     * option values intact so `ap_registration_captcha_mode` /
+     * `ap_registration_captcha_challenge` / `ap_registration_verify_captcha`
+     * can supply a custom mode when a plugin writes the option itself.
+     */
+    public static function sanitizeRegistrationCaptcha(mixed $value): string
+    {
+        $mode = strtolower(trim((string) ($value ?? 'off')));
+        if ($mode === '' || $mode === '0' || $mode === 'false' || $mode === 'no' || $mode === 'disabled') {
+            return 'off';
+        }
+        if ($mode === '1' || $mode === 'true' || $mode === 'yes' || $mode === 'on') {
+            return 'math';
+        }
+        if (in_array($mode, ['off', 'math', 'guard'], true)) {
+            return $mode;
+        }
+
+        return 'off';
+    }
+
+    /**
+     * Extra reserved usernames for public register (Settings → General textarea).
+     *
+     * One login per line. Null (omitted from a partial save) keeps the stored
+     * value. Empty string clears extras. Locked core names are not stored here.
+     */
+    public static function sanitizeReservedUsernames(mixed $value): string
+    {
+        if ($value === null) {
+            $name = class_exists('AP_Registration', false)
+                ? AP_Registration::OPTION_RESERVED_USERNAMES
+                : 'reserved_usernames';
+
+            return (string) AP_Options::get($name, '');
+        }
+
+        if (is_array($value)) {
+            $parts = [];
+            foreach ($value as $item) {
+                if (is_scalar($item)) {
+                    $parts[] = (string) $item;
+                }
+            }
+            $raw = implode("\n", $parts);
+        } else {
+            $raw = (string) $value;
+        }
+
+        if (class_exists('AP_Registration', false)) {
+            $names = AP_Registration::parseReservedUsernameList($raw);
+        } else {
+            $names = [];
+            $raw = str_replace(["\r\n", "\r"], "\n", $raw);
+            foreach (explode("\n", $raw) as $line) {
+                $line = trim($line);
+                if ($line !== '') {
+                    $names[] = $line;
+                }
+            }
+        }
+
+        return implode("\n", $names);
+    }
 
     /**
      * Checkbox: present and truthy → "1", else "0".

@@ -10,12 +10,18 @@
  * Gated by options:
  * - users_can_register (0/1)
  * - require_email_verification (0/1, default 1)
- * - registration_captcha (off|math, default off) — optional visible anti-spam
+ * - registration_captcha (off|math|guard, default off) — optional visible anti-spam
+ * - reserved_usernames (optional extras, one login per line)
  * - default_role (seeded by installer)
  *
  * When users_can_register is on, public register() always enforces a hidden
  * honeypot (`ap_hp`), a ~3s minimum fill time, and a short-lived form ticket
- * issued on GET of the register form. Naked POSTs fail closed.
+ * issued on GET of the register form. Naked POSTs fail closed. Staff/system
+ * logins on {@see self::RESERVED_LOGINS}, extras from
+ * {@see self::OPTION_RESERVED_USERNAMES}, and names added by filter
+ * `ap_reserved_usernames` are rejected case-insensitively with
+ * {@see self::USERNAME_UNAVAILABLE_MESSAGE} (the form does not say a name
+ * is reserved). ACP / CLI / Users → Add may still create those accounts.
  *
  * @package AgoraPress
  */
@@ -54,6 +60,23 @@ class AP_Registration
     /** CAPTCHA mode: built-in arithmetic challenge. */
     public const CAPTCHA_MATH = 'math';
 
+    /**
+     * CAPTCHA mode: first-party checkbox card + signed token.
+     *
+     * JavaScript proof-of-work is progressive enhancement; a short typed code
+     * still works with no JS. No third-party widget.
+     */
+    public const CAPTCHA_GUARD = 'guard';
+
+    /** Leading hex zeros required for the guard SHA-256 proof-of-work. */
+    public const GUARD_POW_DIFFICULTY = 3;
+
+    /** Prefix on captcha_answer when the client submits a PoW instead of the fallback code. */
+    public const GUARD_POW_PREFIX = 'pow:';
+
+    /** Length of the no-JS fallback code (Crockford-like alphabet, no 0/O/1/I). */
+    public const GUARD_CODE_LENGTH = 4;
+
     /** Minimum seconds a public registration form must stay open before POST. */
     public const MIN_FILL_SECONDS = 3;
 
@@ -65,6 +88,64 @@ class AP_Registration
 
     /** Hidden form-ticket field issued on GET. */
     public const FIELD_FORM_TICKET = 'ap_form_ticket';
+
+    /** Guard checkbox (must be "1" when mode is guard). */
+    public const FIELD_GUARD_ACK = 'ap_guard_ack';
+
+    /**
+     * Staff / system logins public self-register cannot take.
+     *
+     * Match is case-insensitive. ACP Users → Add, CLI, and {@see AP_User::create()}
+     * may still create these accounts.
+     *
+     * @var list<string>
+     */
+    public const RESERVED_LOGINS = [
+        'root',
+        'admin',
+        'administrator',
+        'administrators',
+        'adm',
+        'mod',
+        'moderator',
+        'moderators',
+        'mods',
+        'webmaster',
+        'postmaster',
+        'hostmaster',
+        'support',
+        'security',
+        'abuse',
+        'staff',
+        'superadmin',
+        'sysadmin',
+        'guest',
+        'nobody',
+        'noreply',
+        'no-reply',
+        'www',
+        'mail',
+        'system',
+        'owner',
+        'ap-admin',
+        'agora',
+        'agorapress',
+    ];
+
+    /**
+     * Option: extra reserved logins for public register (one name per line).
+     *
+     * Locked {@see self::RESERVED_LOGINS} are not stored here. ACP / CLI /
+     * Users → Add may still create any reserved name.
+     */
+    public const OPTION_RESERVED_USERNAMES = 'reserved_usernames';
+
+    /**
+     * Public-register copy when a login is reserved or already taken.
+     *
+     * Same wording for both so the form does not advertise that a name is reserved.
+     */
+    public const USERNAME_UNAVAILABLE_MESSAGE = 'That username is not available.';
 
     /**
      * Whether anyone may register (option users_can_register).
@@ -86,8 +167,9 @@ class AP_Registration
     /**
      * Registration CAPTCHA / anti-spam mode.
      *
-     * Values: {@see self::CAPTCHA_OFF} (default), {@see self::CAPTCHA_MATH}.
-     * Plugins may filter via `ap_registration_captcha_mode` when hooks are loaded.
+     * Values: {@see self::CAPTCHA_OFF} (default), {@see self::CAPTCHA_MATH},
+     * {@see self::CAPTCHA_GUARD}. Plugins may filter via
+     * `ap_registration_captcha_mode` when hooks are loaded.
      */
     public static function captchaMode(?AP_DB $db = null): string
     {
@@ -99,11 +181,10 @@ class AP_Registration
             $raw = self::CAPTCHA_MATH;
         }
 
-        $allowed = [self::CAPTCHA_OFF, self::CAPTCHA_MATH];
-        if (!in_array($raw, $allowed, true)) {
-            // Unknown provider string is treated as a custom/plugin mode (still "enabled").
-            // Built-in verification only handles off|math; plugins use the filter.
-        }
+        // Built-in modes: off, math, guard. Unknown strings stay as-is so a
+        // plugin can supply a custom mode via ap_registration_captcha_mode and
+        // ap_registration_verify_captcha. The settings sanitizer still
+        // collapses unknown saved values to off.
 
         if (function_exists('ap_apply_filters')) {
             $filtered = ap_apply_filters('ap_registration_captcha_mode', $raw, $db);
@@ -231,10 +312,200 @@ class AP_Registration
     }
 
     /**
+     * Whether a login is reserved for public self-register.
+     *
+     * Comparison is case-insensitive after {@see AP_User::sanitizeUserLogin()}.
+     * Empty / unsanitizable input is not reserved. Includes the locked list,
+     * per-site extras, and filter `ap_reserved_usernames`.
+     */
+    public static function isReservedLogin(string $login, ?AP_DB $db = null): bool
+    {
+        if (class_exists('AP_User', false)) {
+            $login = AP_User::sanitizeUserLogin($login);
+        } else {
+            $login = trim($login);
+        }
+        if ($login === '') {
+            return false;
+        }
+
+        return isset(self::reservedLoginLookup($db)[strtolower($login)]);
+    }
+
+    /**
+     * Effective reserved logins for public register.
+     *
+     * Locked names always remain. Option extras and filter `ap_reserved_usernames`
+     * may only add names.
+     *
+     * @return list<string>
+     */
+    public static function reservedLogins(?AP_DB $db = null): array
+    {
+        $names = self::RESERVED_LOGINS;
+        foreach (self::extraReservedLogins($db) as $extra) {
+            $names[] = $extra;
+        }
+
+        if (function_exists('ap_apply_filters')) {
+            $filtered = ap_apply_filters('ap_reserved_usernames', $names, $db);
+            if (is_array($filtered)) {
+                $names = $filtered;
+            }
+        }
+
+        return self::normalizeReservedLoginList($names, true);
+    }
+
+    /**
+     * Extra reserved logins from Settings → General (`reserved_usernames`).
+     *
+     * @return list<string>
+     */
+    public static function extraReservedLogins(?AP_DB $db = null): array
+    {
+        $raw = (string) self::readOption(self::OPTION_RESERVED_USERNAMES, '', $db);
+
+        return self::parseReservedUsernameList($raw);
+    }
+
+    /**
+     * Parse a textarea of extra reserved logins (one name per line).
+     *
+     * Locked {@see self::RESERVED_LOGINS} are dropped so the option stores
+     * extras only. Match is case-insensitive.
+     *
+     * @return list<string>
+     */
+    public static function parseReservedUsernameList(string $raw): array
+    {
+        $raw = str_replace(["\r\n", "\r"], "\n", $raw);
+        $names = self::normalizeReservedLoginList(explode("\n", $raw), false);
+        if ($names === []) {
+            return [];
+        }
+
+        $locked = [];
+        foreach (self::RESERVED_LOGINS as $login) {
+            $locked[strtolower($login)] = true;
+        }
+
+        $extras = [];
+        foreach ($names as $name) {
+            if (!isset($locked[strtolower($name)])) {
+                $extras[] = $name;
+            }
+        }
+
+        return $extras;
+    }
+
+    /**
+     * Public-register error for a reserved or taken login.
+     *
+     * Does not say the name is reserved. ACP / CLI uniqueness copy stays
+     * “already registered” via {@see AP_User::create()}.
+     */
+    public static function reservedLoginUnavailableMessage(): string
+    {
+        return self::USERNAME_UNAVAILABLE_MESSAGE;
+    }
+
+    /**
+     * Rewrite staff uniqueness / reserved copy for the public register form.
+     *
+     * Taken logins and reserved logins use the same wording so the form does
+     * not advertise that a name is reserved. Other errors (email, password,
+     * closed registration) pass through.
+     *
+     * @param list<string> $errors
+     *
+     * @return list<string>
+     */
+    public static function publicUsernameErrors(array $errors): array
+    {
+        $unavailable = self::reservedLoginUnavailableMessage();
+        $out = [];
+        foreach ($errors as $error) {
+            if (!is_string($error) || $error === '') {
+                continue;
+            }
+            $trimmed = trim($error);
+            if (
+                strcasecmp($trimmed, 'That username is already registered.') === 0
+                || preg_match('/\breserved\b/i', $trimmed) === 1
+            ) {
+                $out[] = $unavailable;
+                continue;
+            }
+            $out[] = $error;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<mixed> $names
+     *
+     * @return list<string>
+     */
+    private static function normalizeReservedLoginList(array $names, bool $keepLocked): array
+    {
+        $out = [];
+        $seen = [];
+
+        if ($keepLocked) {
+            foreach (self::RESERVED_LOGINS as $locked) {
+                $key = strtolower($locked);
+                $seen[$key] = true;
+                $out[] = $locked;
+            }
+        }
+
+        foreach ($names as $name) {
+            if (!is_scalar($name)) {
+                continue;
+            }
+            $login = trim((string) $name);
+            if ($login === '') {
+                continue;
+            }
+            if (class_exists('AP_User', false)) {
+                $login = AP_User::sanitizeUserLogin($login);
+            }
+            if ($login === '') {
+                continue;
+            }
+            $key = strtolower($login);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $login;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, true> lowercase login => true
+     */
+    private static function reservedLoginLookup(?AP_DB $db = null): array
+    {
+        $lookup = [];
+        foreach (self::reservedLogins($db) as $name) {
+            $lookup[strtolower($name)] = true;
+        }
+
+        return $lookup;
+    }
+
+    /**
      * Create a built-in math challenge for the registration form.
      *
      * @return array{
      *     mode: string,
+     *     legend: string,
      *     a: int,
      *     b: int,
      *     prompt: string,
@@ -253,12 +524,60 @@ class AP_Registration
 
         return [
             'mode' => self::CAPTCHA_MATH,
+            'legend' => 'Human check',
             'a' => $a,
             'b' => $b,
             'prompt' => sprintf('What is %d + %d?', $a, $b),
             'token' => $token,
             'field_answer' => 'captcha_answer',
             'field_token' => 'captcha_token',
+            'field_honeypot' => self::FIELD_HONEYPOT,
+        ];
+    }
+
+    /**
+     * Create a first-party guard challenge (checkbox card + signed token).
+     *
+     * `captcha_answer` is either the visible fallback code (no JS) or
+     * {@see self::GUARD_POW_PREFIX} plus a SHA-256 proof (JS enhancement).
+     *
+     * @return array{
+     *     mode: string,
+     *     legend: string,
+     *     prompt: string,
+     *     fallback_code: string,
+     *     fallback_prompt: string,
+     *     difficulty: int,
+     *     token: string,
+     *     field_answer: string,
+     *     field_token: string,
+     *     field_ack: string,
+     *     field_honeypot: string
+     * }
+     */
+    public static function createGuardChallenge(): array
+    {
+        $ts = time();
+        try {
+            $nonce = bin2hex(random_bytes(8));
+        } catch (Throwable) {
+            $nonce = bin2hex(substr(hash('sha256', uniqid((string) $ts, true), true), 0, 8));
+        }
+        $difficulty = self::GUARD_POW_DIFFICULTY;
+        $code = self::randomGuardCode();
+        $token = self::encodeGuardToken($ts, $nonce, $difficulty, $code);
+
+        return [
+            'mode' => self::CAPTCHA_GUARD,
+            'legend' => 'Human check',
+            'prompt' => 'I am a person',
+            'fallback_code' => $code,
+            'fallback_prompt' => sprintf('Type this code to continue: %s', $code),
+            'difficulty' => $difficulty,
+            'token' => $token,
+            'field_answer' => 'captcha_answer',
+            'field_token' => 'captcha_token',
+            'field_ack' => self::FIELD_GUARD_ACK,
             'field_honeypot' => self::FIELD_HONEYPOT,
         ];
     }
@@ -275,14 +594,18 @@ class AP_Registration
             return ['mode' => self::CAPTCHA_OFF];
         }
 
-        $challenge = $mode === self::CAPTCHA_MATH
-            ? self::createMathChallenge()
-            : [
+        if ($mode === self::CAPTCHA_MATH) {
+            $challenge = self::createMathChallenge();
+        } elseif ($mode === self::CAPTCHA_GUARD) {
+            $challenge = self::createGuardChallenge();
+        } else {
+            $challenge = [
                 'mode' => $mode,
                 'field_answer' => 'captcha_answer',
                 'field_token' => 'captcha_token',
                 'field_honeypot' => self::FIELD_HONEYPOT,
             ];
+        }
 
         if (function_exists('ap_apply_filters')) {
             $filtered = ap_apply_filters('ap_registration_captcha_challenge', $challenge, $mode, $db);
@@ -298,6 +621,8 @@ class AP_Registration
      * Verify CAPTCHA from registration form data.
      *
      * Expected keys when math mode is on: captcha_answer, captcha_token.
+     * Guard mode: captcha_token, ap_guard_ack=1, and captcha_answer as either
+     * the fallback code or {@see self::GUARD_POW_PREFIX} plus a valid proof.
      * Honeypot `ap_hp` is also rejected here when CAPTCHA is on (defense in
      * depth; {@see self::verifyFormGate()} always checks it on public register).
      * Always succeeds when CAPTCHA mode is off (the form gate still runs).
@@ -361,6 +686,8 @@ class AP_Registration
                     }
                 }
             }
+        } elseif ($mode === self::CAPTCHA_GUARD) {
+            $result = self::verifyGuardResponse($data);
         } else {
             // Unknown / plugin modes: fail closed unless a filter approves.
             $result = [
@@ -389,7 +716,8 @@ class AP_Registration
      * Optional: display_name.
      * Always required when public registration is open: empty `ap_hp`,
      * `ap_form_ticket` issued on GET of the form, and ~3s elapsed since issue.
-     * When CAPTCHA is enabled also: captcha_answer, captcha_token.
+     * When CAPTCHA is enabled also: captcha_answer, captcha_token
+     * (and ap_guard_ack=1 in guard mode).
      *
      * When email verification is required the account is created with
      * STATUS_PENDING and a verification email is sent. When not required the
@@ -493,9 +821,33 @@ class AP_Registration
             $payload[self::FIELD_HONEYPOT],
             $payload['website'],
             $payload[self::FIELD_FORM_TICKET],
-            $payload['ap_ft']
+            $payload['ap_ft'],
+            $payload[self::FIELD_GUARD_ACK]
         );
         $payload['user_status'] = $needsVerification ? self::STATUS_PENDING : 0;
+
+        $loginRaw = (string) ($payload['user_login'] ?? '');
+        $loginUnavailable = self::isReservedLogin($loginRaw, $db);
+        if (!$loginUnavailable && class_exists('AP_User', false)) {
+            $sanitizedLogin = AP_User::sanitizeUserLogin($loginRaw);
+            $loginUnavailable = $sanitizedLogin !== ''
+                && AP_User::getByLogin($sanitizedLogin, $db) !== null;
+        }
+        if ($loginUnavailable) {
+            if (class_exists('AP_Rate_Limit', false)) {
+                AP_Rate_Limit::hit(
+                    AP_Rate_Limit::ACTION_REGISTER,
+                    AP_Rate_Limit::ipBucket(),
+                    $db
+                );
+            }
+
+            $empty['errors'] = self::publicUsernameErrors([
+                self::reservedLoginUnavailableMessage(),
+            ]);
+
+            return $empty;
+        }
 
         $result = AP_User::create($payload, $db);
         if (!$result['ok'] || $result['user'] === null) {
@@ -511,7 +863,7 @@ class AP_Registration
             return [
                 'ok' => false,
                 'id' => 0,
-                'errors' => $result['errors'],
+                'errors' => self::publicUsernameErrors($result['errors']),
                 'user' => null,
                 'needs_verification' => false,
                 'plain_key' => '',
@@ -607,7 +959,52 @@ class AP_Registration
             ];
         }
 
+        return self::persistActiveStatus($user, self::resolveDb($db));
+    }
+
+    /**
+     * Activate a pending verification account without the email key.
+     *
+     * Staff path for Users → Edit / the users list when mail never arrived.
+     * Does not lift a forum ban: requires {@see self::userAwaitsVerification()}.
+     * Already-active accounts (status 0, empty key) succeed idempotently.
+     *
+     * @return array{ok: bool, errors: list<string>, user: ?AP_User}
+     */
+    public static function activatePendingUser(AP_User $user, ?AP_DB $db = null): array
+    {
+        if ($user->ID < 1) {
+            return ['ok' => false, 'errors' => ['Invalid user.'], 'user' => null];
+        }
+
         $db = self::resolveDb($db);
+        $fresh = AP_User::getById($user->ID, $db);
+        if ($fresh === null) {
+            return ['ok' => false, 'errors' => ['User not found.'], 'user' => null];
+        }
+
+        if ($fresh->user_status === 0 && $fresh->user_activation_key === '') {
+            return ['ok' => true, 'errors' => [], 'user' => $fresh];
+        }
+
+        if (!self::userAwaitsVerification($fresh)) {
+            return [
+                'ok' => false,
+                'errors' => ['This account is not waiting for email verification.'],
+                'user' => $fresh,
+            ];
+        }
+
+        return self::persistActiveStatus($fresh, $db);
+    }
+
+    /**
+     * Set user_status to active and clear the activation key.
+     *
+     * @return array{ok: bool, errors: list<string>, user: ?AP_User}
+     */
+    private static function persistActiveStatus(AP_User $user, AP_DB $db): array
+    {
         $updated = $db->update(
             'users',
             [
@@ -1237,6 +1634,162 @@ class AP_Registration
         }
 
         return ['ts' => $ts, 'nonce' => $nonce];
+    }
+
+    /**
+     * Guard checkbox + fallback code or JS proof-of-work.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array{ok: bool, errors: list<string>}
+     */
+    private static function verifyGuardResponse(array $data): array
+    {
+        $incomplete = [
+            'ok' => false,
+            'errors' => ['Please complete the human check.'],
+        ];
+
+        $ack = trim((string) ($data[self::FIELD_GUARD_ACK] ?? ''));
+        $answerRaw = trim((string) ($data['captcha_answer'] ?? ''));
+        $token = trim((string) ($data['captcha_token'] ?? ''));
+        if ($ack !== '1' || $answerRaw === '' || $token === '') {
+            return $incomplete;
+        }
+
+        $parsed = self::decodeGuardToken($token);
+        if ($parsed === null) {
+            return [
+                'ok' => false,
+                'errors' => ['The human check expired. Please try again.'],
+            ];
+        }
+
+        $prefix = self::GUARD_POW_PREFIX;
+        $prefixLen = strlen($prefix);
+        if (strncmp(strtolower($answerRaw), $prefix, $prefixLen) === 0) {
+            $proof = substr($answerRaw, $prefixLen);
+            if (self::guardProofIsValid($token, $proof, $parsed['difficulty'])) {
+                return ['ok' => true, 'errors' => []];
+            }
+
+            return $incomplete;
+        }
+
+        if (hash_equals(strtoupper($parsed['code']), strtoupper($answerRaw))) {
+            return ['ok' => true, 'errors' => []];
+        }
+
+        return $incomplete;
+    }
+
+    /**
+     * SHA-256(token + ':' + proof) starts with $difficulty hex zeros.
+     */
+    private static function guardProofIsValid(string $token, string $proof, int $difficulty): bool
+    {
+        if ($proof === '' || strlen($proof) > 16 || !ctype_alnum($proof)) {
+            return false;
+        }
+        if ($difficulty < 1 || $difficulty > 6) {
+            return false;
+        }
+
+        $hash = hash('sha256', $token . ':' . $proof);
+
+        return str_starts_with($hash, str_repeat('0', $difficulty));
+    }
+
+    /**
+     * Short no-JS fallback code (uppercase, no ambiguous 0/O/1/I).
+     */
+    private static function randomGuardCode(): string
+    {
+        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $max = strlen($alphabet) - 1;
+        $out = '';
+        for ($i = 0; $i < self::GUARD_CODE_LENGTH; $i++) {
+            $out .= $alphabet[random_int(0, $max)];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Signed guard token: base64url(ts:nonce:difficulty:code:hmac).
+     */
+    private static function encodeGuardToken(
+        int $timestamp,
+        string $nonce,
+        int $difficulty,
+        string $code
+    ): string {
+        $hmac = hash_hmac(
+            'sha256',
+            'guard|' . $timestamp . '|' . $nonce . '|' . $difficulty . '|' . $code,
+            self::signingSecret()
+        );
+
+        return self::toBase64Url(
+            $timestamp . ':' . $nonce . ':' . $difficulty . ':' . $code . ':' . $hmac
+        );
+    }
+
+    /**
+     * @return array{ts: int, nonce: string, difficulty: int, code: string}|null
+     */
+    private static function decodeGuardToken(string $token): ?array
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return null;
+        }
+
+        $payload = self::fromBase64Url($token);
+        if ($payload === null || $payload === '') {
+            return null;
+        }
+
+        $parts = explode(':', $payload, 5);
+        if (count($parts) !== 5) {
+            return null;
+        }
+
+        [$tsRaw, $nonce, $diffRaw, $code, $hmac] = $parts;
+        if (!ctype_digit($tsRaw) || !ctype_digit($diffRaw) || $nonce === '' || $code === '' || $hmac === '') {
+            return null;
+        }
+        if (!ctype_xdigit($nonce) || strlen($nonce) !== 16) {
+            return null;
+        }
+        if (!preg_match('/^[A-HJ-NP-Z2-9]{' . self::GUARD_CODE_LENGTH . '}$/', $code)) {
+            return null;
+        }
+
+        $ts = (int) $tsRaw;
+        $difficulty = (int) $diffRaw;
+        if ($ts < 1 || $difficulty < 1 || $difficulty > 6) {
+            return null;
+        }
+        if ((time() - $ts) > self::CAPTCHA_TTL || $ts > (time() + 60)) {
+            return null;
+        }
+
+        $expected = hash_hmac(
+            'sha256',
+            'guard|' . $ts . '|' . $nonce . '|' . $difficulty . '|' . $code,
+            self::signingSecret()
+        );
+        if (!hash_equals($expected, $hmac)) {
+            return null;
+        }
+
+        return [
+            'ts' => $ts,
+            'nonce' => $nonce,
+            'difficulty' => $difficulty,
+            'code' => $code,
+        ];
     }
 
     /**

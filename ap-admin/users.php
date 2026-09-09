@@ -15,9 +15,9 @@ AP_Admin::requireCapability('list_users');
 $userId = ap_get_current_user_id();
 $listTable = new AP_Users_List_Table();
 
-// Single-row delete via GET.
+// Single-row delete / activate via GET.
 $rowAction = (string) ($_GET['action'] ?? '');
-if ($rowAction === 'delete' && isset($_GET['user'])) {
+if (in_array($rowAction, ['delete', 'activate'], true) && isset($_GET['user'])) {
     $result = $listTable->processRowAction($_GET, $userId);
     $redirect = AP_Admin::url('users.php', array_filter([
         'role' => (string) ($_GET['role'] ?? '') ?: null,

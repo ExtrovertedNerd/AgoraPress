@@ -59,6 +59,10 @@ def test_settings_api_surface() -> None:
         "function registerCore",
         "function sanitizeCheckbox",
         "function sanitizeUrlOption",
+        "function sanitizeRegistrationCaptcha",
+        "function sanitizeReservedUsernames",
+        "reserved_usernames",
+        "['off', 'math', 'guard']",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-settings.php"
 
@@ -74,6 +78,8 @@ def test_options_module_helpers() -> None:
         "function updateWritingSettings",
         "function updateMailSettings",
         "function updatePermalinkSettings",
+        "'off', 'math', 'guard'",
+        "reserved_usernames",
         "function siteIcon",
         "MODULE_STATIC_PAGES",
         "MODULE_BLOG",
@@ -182,6 +188,25 @@ def test_mail_settings_screen() -> None:
     assert "registerSetting('mail', 'smtp_pass'" in settings
     smtp_block = settings.split("registerSetting('mail', 'smtp_pass'", 1)[1]
     assert "'autoload' => 'no'" in smtp_block.split("registerSetting(", 1)[0]
+
+
+def test_reserved_usernames_option() -> None:
+    settings = SETTINGS.read_text(encoding="utf-8")
+    options = OPTIONS.read_text(encoding="utf-8")
+    general = (ADMIN / "options-general.php").read_text(encoding="utf-8")
+    installer = (ROOT / "ap-includes" / "class-ap-installer.php").read_text(encoding="utf-8")
+
+    assert "registerSetting('general', 'reserved_usernames'" in settings
+    assert "function sanitizeReservedUsernames" in settings
+    assert "reserved_usernames" in options
+    assert 'name="reserved_usernames"' in general
+    assert "<textarea" in general
+    assert "One username per line" in general
+    assert "That username is not available." in general
+    assert "does not say a name is reserved" in general
+    assert "Users → Add" in general
+    assert "ap-cli user create" in general
+    assert "'reserved_usernames' => ''" in installer
 
 
 def test_bootstrap_wires_settings() -> None:

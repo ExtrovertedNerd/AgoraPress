@@ -205,8 +205,12 @@ class AP_Users_List_Table
         $userId = (int) ($get['user'] ?? $get['user_id'] ?? 0);
         $nonce = (string) ($get['_ap_nonce'] ?? $get['_wpnonce'] ?? '');
 
-        if ($action !== 'delete' || $userId < 1) {
+        if ($userId < 1 || !in_array($action, ['delete', 'activate'], true)) {
             return ['ok' => false, 'message_key' => '', 'errors' => ['Invalid action.']];
+        }
+
+        if ($action === 'activate') {
+            return $this->processActivateRow($userId, $nonce, $actorId);
         }
 
         if (!ap_check_nonce($nonce, 'delete-user-' . $userId, $actorId > 0 ? $actorId : null)) {
@@ -230,6 +234,42 @@ class AP_Users_List_Table
         }
 
         return ['ok' => true, 'message_key' => 'user_deleted', 'errors' => []];
+    }
+
+    /**
+     * @return array{ok: bool, message_key: string, errors: list<string>}
+     */
+    private function processActivateRow(int $userId, string $nonce, int $actorId): array
+    {
+        if (!ap_check_nonce($nonce, 'activate-user-' . $userId, $actorId > 0 ? $actorId : null)) {
+            return ['ok' => false, 'message_key' => 'nonce', 'errors' => ['Security check failed.']];
+        }
+
+        $db = $this->resolveDb();
+        if (!$this->actorCan('edit_users', $actorId, $db)) {
+            return ['ok' => false, 'message_key' => 'error', 'errors' => ['Permission denied.']];
+        }
+
+        $user = AP_User::getById($userId, $db);
+        if ($user === null) {
+            return ['ok' => false, 'message_key' => 'error', 'errors' => ['User not found.']];
+        }
+        if (!class_exists('AP_Registration', false)) {
+            return ['ok' => false, 'message_key' => 'error', 'errors' => ['Could not activate the account.']];
+        }
+
+        $result = AP_Registration::activatePendingUser($user, $db);
+        if (!$result['ok']) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => $result['errors'] !== []
+                    ? $result['errors']
+                    : ['Could not activate the account.'],
+            ];
+        }
+
+        return ['ok' => true, 'message_key' => 'user_activated', 'errors' => []];
     }
 
     /**
@@ -521,10 +561,25 @@ class AP_Users_List_Table
         } else {
             $html .= '<strong class="row-title">' . ap_esc_html($login) . '</strong>';
         }
+        $pending = class_exists('AP_Registration', false)
+            && AP_Registration::userAwaitsVerification($user);
+        if ($pending) {
+            $html .= ' <span class="ap-user-status pending">Pending</span>';
+        }
+
         $html .= '<div class="row-actions">';
         $actions = [];
         if ($canEdit) {
             $actions[] = '<span class="edit"><a href="' . ap_esc_url($editUrl) . '">Edit</a></span>';
+        }
+        if ($pending && $this->actorCan('edit_users', $actorId, $db)) {
+            $actNonce = ap_create_nonce('activate-user-' . $id, $actorId > 0 ? $actorId : null);
+            $actUrl = AP_Admin::url('users.php', [
+                'action' => 'activate',
+                'user' => $id,
+                '_ap_nonce' => $actNonce,
+            ]);
+            $actions[] = '<span class="activate"><a href="' . ap_esc_url($actUrl) . '">Activate</a></span>';
         }
         if ($canDelete) {
             $delNonce = ap_create_nonce('delete-user-' . $id, $actorId > 0 ? $actorId : null);

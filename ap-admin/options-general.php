@@ -64,9 +64,10 @@ $adminEmail = (string) AP_Options::get('admin_email', '', $db);
 $canRegister = (string) AP_Options::get('users_can_register', '0', $db) === '1';
 $requireVerify = (string) AP_Options::get('require_email_verification', '1', $db) === '1';
 $registrationCaptcha = strtolower(trim((string) AP_Options::get('registration_captcha', 'off', $db)));
-if (!in_array($registrationCaptcha, ['off', 'math'], true)) {
+if (!in_array($registrationCaptcha, ['off', 'math', 'guard'], true)) {
     $registrationCaptcha = 'off';
 }
+$reservedUsernames = (string) AP_Options::get('reserved_usernames', '', $db);
 $defaultRole = (string) AP_Options::get('default_role', 'subscriber', $db);
 $timezone = (string) AP_Options::get('timezone_string', 'UTC', $db);
 $wplang = (string) AP_Options::get('WPLANG', '', $db);
@@ -201,14 +202,33 @@ require __DIR__ . '/admin-header.php';
                 <option value="off" <?php echo $registrationCaptcha === 'off' ? 'selected' : ''; ?>>
                     Off (email verification / rate limits / hidden form gate)
                 </option>
+                <option value="guard" <?php echo $registrationCaptcha === 'guard' ? 'selected' : ''; ?>>
+                    Human check — checkbox card (recommended)
+                </option>
                 <option value="math" <?php echo $registrationCaptcha === 'math' ? 'selected' : ''; ?>>
-                    Simple math question
+                    Human check — math question
                 </option>
             </select>
             <span class="ap-help">
                 Optional extra visible protection against bot sign-ups. When registration
                 is open, a hidden honeypot, minimum fill time, and short-lived form ticket
-                always run. No third-party service; works offline.
+                always run. The checkbox card is first-party (signed token; tiny JS
+                proof-of-work when available; a short code if JavaScript is off).
+                No Google, hCaptcha, or Turnstile widget.
+            </span>
+        </p>
+        <p class="ap-field">
+            <label for="reserved_usernames">Extra reserved usernames</label>
+            <textarea name="reserved_usernames" id="reserved_usernames" class="large-text" rows="6"
+                placeholder="news"><?php echo ap_esc_textarea($reservedUsernames); ?></textarea>
+            <span class="ap-help">
+                Optional. One username per line. Public registration cannot take these
+                names, in addition to the built-in staff/system list
+                (<code>admin</code>, <code>root</code>, <code>moderator</code>, …).
+                The public form reports “That username is not available.”
+                and does not say a name is reserved. Users → Add and
+                <code>ap-cli user create</code> may still create them.
+                Existing accounts stay unique.
             </span>
         </p>
         <p class="ap-field">

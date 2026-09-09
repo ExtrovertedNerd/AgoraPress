@@ -740,6 +740,7 @@ def test_hooks_doc_content(docs_root: Path) -> None:
         "ap_moderation_topic_soft_deleted",
         "map target",
         "user_has_cap",
+        "that username is not available.",
         "plugins.md",
         "cli.md",
         "rest.md",
@@ -1210,6 +1211,7 @@ def test_cli_doc_content(docs_root: Path) -> None:
         "compact",
         "php 8.2",
         "`--format=json` always exits `0`",
+        "that username is not available.",
     ):
         assert phrase in lower, f"cli.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1321,6 +1323,10 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "noindex, nofollow",
         "default_max_bytes",
         "ap_admin::color_mode_meta",
+        "that username is not available.",
+        "activate account",
+        "ap_activate_account",
+        "activate-user-",
     ):
         assert phrase in lower, f"admin.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1473,6 +1479,9 @@ def test_roles_doc_content(docs_root: Path) -> None:
         "ap_add_user_cap",
         "ap_user_can_post_reply",
         "example.com",
+        "that username is not available.",
+        "activate account",
+        "activate-user-",
     ):
         assert phrase in lower, f"roles.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1592,6 +1601,8 @@ def test_security_doc_content(docs_root: Path) -> None:
         "x-wp-nonce",
         "last 12 hex",
         "ap_trust_proxy",
+        "that username is not available.",
+        "activatependinguser",
     ):
         assert phrase in lower, f"security.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1657,6 +1668,8 @@ def test_troubleshooting_doc_content(docs_root: Path) -> None:
         "not in core",
         "0.3.6-beta",
         "ap_db_version",
+        "activate account",
+        "resend verification",
     ):
         assert phrase in lower, f"troubleshooting.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):

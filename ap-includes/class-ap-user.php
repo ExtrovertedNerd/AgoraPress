@@ -275,7 +275,11 @@ class AP_User
     }
 
     /**
-     * Fetch a user by login (case-sensitive match on stored value).
+     * Fetch a user by login (case-insensitive).
+     *
+     * `Silas` and `silas` are the same login. When legacy rows already
+     * differ only by case, prefers an exact stored-value match and does
+     * not merge those rows.
      */
     public static function getByLogin(string $login, ?AP_DB $db = null): ?self
     {
@@ -284,19 +288,14 @@ class AP_User
             return null;
         }
 
-        $db = self::resolveDb($db);
-        $table = $db->quoteIdentifier($db->table('users'));
-        $row = $db->getRow(
-            'SELECT ' . self::selectColumns($db) . ' FROM ' . $table
-            . ' WHERE ' . $db->quoteIdentifier('user_login') . ' = ? LIMIT 1',
-            [$login]
-        );
-
-        return $row === null ? null : self::fromRow($row);
+        return self::getByCaseInsensitiveColumn('user_login', $login, self::resolveDb($db));
     }
 
     /**
-     * Fetch a user by email (exact match).
+     * Fetch a user by email (case-insensitive).
+     *
+     * Prefers an exact stored-value match so legacy rows that differ only
+     * by case stay distinct — this does not merge them.
      */
     public static function getByEmail(string $email, ?AP_DB $db = null): ?self
     {
@@ -305,15 +304,45 @@ class AP_User
             return null;
         }
 
-        $db = self::resolveDb($db);
-        $table = $db->quoteIdentifier($db->table('users'));
-        $row = $db->getRow(
-            'SELECT ' . self::selectColumns($db) . ' FROM ' . $table
-            . ' WHERE ' . $db->quoteIdentifier('user_email') . ' = ? LIMIT 1',
-            [$email]
-        );
+        return self::getByCaseInsensitiveColumn('user_email', $email, self::resolveDb($db));
+    }
 
-        return $row === null ? null : self::fromRow($row);
+    /**
+     * Case-insensitive lookup on a users string column.
+     *
+     * Prefers an exact stored-value match; otherwise the lowest ID.
+     * Does not merge existing rows.
+     *
+     * @param 'user_login'|'user_email' $column
+     */
+    private static function getByCaseInsensitiveColumn(string $column, string $value, AP_DB $db): ?self
+    {
+        $table = $db->quoteIdentifier($db->table('users'));
+        $col = $db->quoteIdentifier($column);
+        $idCol = $db->quoteIdentifier('ID');
+        $rows = $db->getResults(
+            'SELECT ' . self::selectColumns($db) . ' FROM ' . $table
+            . ' WHERE LOWER(' . $col . ') = LOWER(?)'
+            . ' ORDER BY ' . $idCol . ' ASC',
+            [$value]
+        );
+        if ($rows === []) {
+            return null;
+        }
+
+        $fallback = null;
+        foreach ($rows as $row) {
+            $user = self::fromRow($row);
+            if ($fallback === null) {
+                $fallback = $user;
+            }
+            $stored = $column === 'user_email' ? $user->user_email : $user->user_login;
+            if ($stored === $value) {
+                return $user;
+            }
+        }
+
+        return $fallback;
     }
 
     /**
@@ -509,6 +538,19 @@ class AP_User
      * Optional: display_name, user_url, user_nicename, user_status, role,
      * first_name, last_name, nickname, description.
      *
+     * Login and email uniqueness is case-insensitive (`Silas` and `silas`
+     * collide; `Silas@example.test` and `silas@example.test` collide).
+     * Stored case is preserved. Existing rows that already differ only by
+     * case are left as-is; a new insert that would collide is rejected.
+     *
+     * Does not enforce public-register reserved logins. ACP Users → Add,
+     * CLI `user create`, and other staff paths may create those accounts.
+     * {@see AP_Registration::register()} rejects them on self-register.
+     *
+     * After a successful insert, fires action `ap_user_created` with
+     * user id, login, email, and status (including pending verification,
+     * {@see AP_Registration::STATUS_PENDING}). Does not fire on failure.
+     *
      * @param array<string, mixed> $data
      *
      * @return array{ok: bool, id: int, errors: list<string>, user: ?self}
@@ -628,6 +670,10 @@ class AP_User
         }
 
         $user = self::getById($id, $db);
+
+        if (function_exists('ap_do_action')) {
+            ap_do_action('ap_user_created', $id, $login, $email, $status);
+        }
 
         return ['ok' => true, 'id' => $id, 'errors' => [], 'user' => $user];
     }
@@ -1147,7 +1193,8 @@ class AP_User
 
     /**
      * Sanitize a login name: strip tags, spaces → empty, allow a-z0-9 _ . @ - +
-     * Lowercased for consistency.
+     * Case is preserved. Uniqueness is enforced case-insensitively at
+     * {@see self::create()} and {@see self::getByLogin()}.
      */
     public static function sanitizeUserLogin(string $login): string
     {

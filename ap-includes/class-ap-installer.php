@@ -605,8 +605,10 @@ PHP;
             'mail_last_error' => '',
             'users_can_register' => '0',
             'require_email_verification' => '1',
-            // Optional registration CAPTCHA: off|math (disableable; off by default).
+            // Optional registration CAPTCHA: off|math|guard (disableable; off by default).
             'registration_captcha' => 'off',
+            // Extra public-register reserved logins (one per line). Locked list is in code.
+            'reserved_usernames' => '',
             'default_role' => 'subscriber',
             'ap_db_version' => $dbVersion,
             'ap_version' => $version,

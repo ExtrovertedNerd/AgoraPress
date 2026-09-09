@@ -129,6 +129,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'display_name' => (string) ($_POST['display_name'] ?? ''),
                     'captcha_answer' => (string) ($_POST['captcha_answer'] ?? ''),
                     'captcha_token' => (string) ($_POST['captcha_token'] ?? ''),
+                    'ap_guard_ack' => (string) ($_POST['ap_guard_ack'] ?? ''),
                     'ap_hp' => (string) ($_POST['ap_hp'] ?? ''),
                     'ap_form_ticket' => (string) ($_POST['ap_form_ticket'] ?? ''),
                 ]);
@@ -268,6 +269,10 @@ if ($action === 'rp') {
     if ($rpUser === null && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         $errors[] = 'This password reset link is invalid or has expired.';
     }
+}
+
+if ($action === 'register' && class_exists('AP_Registration', false) && $errors !== []) {
+    $errors = AP_Registration::publicUsernameErrors($errors);
 }
 
 $version = defined('AP_VERSION') ? (string) AP_VERSION : '';
@@ -422,13 +427,40 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                         <input type="password" name="user_pass2" id="reg_user_pass2" autocomplete="new-password" required minlength="8" />
                     </div>
                     <?php if ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? '') === 'math') : ?>
-                        <div class="ap-field">
-                            <label for="reg_captcha_answer"><?php echo ap_esc_html((string) ($captchaChallenge['prompt'] ?? 'Anti-spam check')); ?></label>
-                            <input type="text" name="captcha_answer" id="reg_captcha_answer" inputmode="numeric"
-                                   autocomplete="off" required value="" />
+                        <fieldset class="ap-human-check ap-human-check--math">
+                            <legend><?php echo ap_esc_html((string) ($captchaChallenge['legend'] ?? 'Human check')); ?></legend>
+                            <div class="ap-field">
+                                <label for="reg_captcha_answer"><?php echo ap_esc_html((string) ($captchaChallenge['prompt'] ?? 'Anti-spam check')); ?></label>
+                                <input type="text" name="captcha_answer" id="reg_captcha_answer" inputmode="numeric"
+                                       autocomplete="off" required value="" />
+                                <input type="hidden" name="captcha_token"
+                                       value="<?php echo ap_esc_attr((string) ($captchaChallenge['token'] ?? '')); ?>" />
+                            </div>
+                        </fieldset>
+                    <?php elseif ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? '') === 'guard') : ?>
+                        <fieldset
+                            class="ap-human-check ap-human-check--guard"
+                            id="ap-register-guard"
+                            data-ap-difficulty="<?php echo ap_esc_attr((string) ($captchaChallenge['difficulty'] ?? '3')); ?>"
+                        >
+                            <legend><?php echo ap_esc_html((string) ($captchaChallenge['legend'] ?? 'Human check')); ?></legend>
+                            <div class="ap-guard-card">
+                                <label class="ap-guard-check" for="ap_guard_ack">
+                                    <input type="checkbox" name="ap_guard_ack" id="ap_guard_ack" value="1" required />
+                                    <?php echo ap_esc_html((string) ($captchaChallenge['prompt'] ?? 'I am a person')); ?>
+                                </label>
+                                <span class="ap-guard-status" id="ap-guard-status" role="status" aria-live="polite" hidden></span>
+                            </div>
+                            <div class="ap-guard-fallback" id="ap-guard-fallback">
+                                <label for="reg_captcha_answer"><?php echo ap_esc_html((string) ($captchaChallenge['fallback_prompt'] ?? 'Type the code to continue')); ?></label>
+                                <input type="text" name="captcha_answer" id="reg_captcha_answer"
+                                       autocomplete="off" required maxlength="8" spellcheck="false"
+                                       autocapitalize="characters" value="" />
+                                <p class="ap-help">Required when JavaScript is off. Checking the box is enough when it is on.</p>
+                            </div>
                             <input type="hidden" name="captcha_token"
                                    value="<?php echo ap_esc_attr((string) ($captchaChallenge['token'] ?? '')); ?>" />
-                        </div>
+                        </fieldset>
                     <?php elseif ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? 'off') !== 'off') : ?>
                         <?php
                         // Custom/plugin CAPTCHA modes: hooks for extra markup.
@@ -520,6 +552,16 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
             </p>
         <?php endif; ?>
     </main>
+    <?php
+    $loadGuardJs = $action === 'register'
+        && $captchaEnabled
+        && is_array($captchaChallenge)
+        && ($captchaChallenge['mode'] ?? '') === 'guard';
+    if ($loadGuardJs) :
+        $guardJsUrl = AP_Admin::url('js/register-guard.js');
+        ?>
+    <script src="<?php echo ap_esc_url($guardJsUrl); ?>?v=<?php echo ap_esc_attr($version); ?>" defer></script>
+    <?php endif; ?>
     <script>
     (function () {
         var COLOR_KEY = 'ap_admin_color_mode';

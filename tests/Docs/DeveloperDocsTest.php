@@ -803,6 +803,9 @@ final class DeveloperDocsTest extends TestCase
                 'ap_rest_enabled',
                 'ap_plugin_installed',
                 'ap_moderation_topic_soft_deleted',
+                'ap_reserved_usernames',
+                'ap_user_created',
+                'That username is not available.',
                 'map target',
                 'user_has_cap',
             ] as $needle
@@ -1443,6 +1446,7 @@ final class DeveloperDocsTest extends TestCase
                 'toPublicArray',
                 'compact',
                 'PHP 8.2',
+                'That username is not available.',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1566,6 +1570,10 @@ final class DeveloperDocsTest extends TestCase
                 'open_graph_enabled',
                 'noindex, nofollow',
                 'DEFAULT_MAX_BYTES',
+                'That username is not available.',
+                'Activate account',
+                'ap_activate_account',
+                'activate-user-',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1739,6 +1747,9 @@ final class DeveloperDocsTest extends TestCase
                 'ap_add_user_cap',
                 'ap_user_can_post_reply',
                 'example.com',
+                'That username is not available.',
+                'Activate account',
+                'activate-user-',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1878,6 +1889,8 @@ final class DeveloperDocsTest extends TestCase
                 'X-WP-Nonce',
                 'last 12 hex',
                 'AP_TRUST_PROXY',
+                'That username is not available.',
+                'activatePendingUser',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1955,6 +1968,8 @@ final class DeveloperDocsTest extends TestCase
                 'not in core',
                 '0.3.6-beta',
                 'AP_DB_VERSION',
+                'Activate account',
+                'Resend verification',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(

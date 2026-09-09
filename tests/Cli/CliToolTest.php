@@ -17,6 +17,7 @@ use AP_Migrator;
 use AP_Options;
 use AP_Plugin;
 use AP_Post;
+use AP_Registration;
 use AP_Roles;
 use AP_Theme;
 use AP_User;
@@ -506,6 +507,95 @@ final class CliToolTest extends TestCase
         $this->assertStringContainsString('user_login: cliuser', $combined);
         $this->assertStringContainsString('cliuser@example.test', $combined);
         $this->assertStringContainsString('author', $combined);
+    }
+
+    public function testUserCreateAllowsReservedLogin(): void
+    {
+        $this->bootSqliteCore();
+        $out = $this->captureOut();
+        $err = $this->captureErr();
+
+        $code = AP_Cli::cmdUser(
+            ['create'],
+            [
+                'user_login' => 'admin',
+                'user_email' => 'cli-admin@example.test',
+                'user_pass' => 'securepass99',
+                'role' => 'administrator',
+            ],
+            $out,
+            $err
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $this->assertStringContainsString('User created', implode("\n", $this->stdout));
+
+        $user = AP_User::getByLogin('admin', $GLOBALS['apdb']);
+        $this->assertNotNull($user);
+        $this->assertSame('admin', $user->user_login);
+    }
+
+    public function testUserCreateAllowsExtraReservedLogin(): void
+    {
+        $this->bootSqliteCore();
+        require_once $this->root . '/ap-includes/class-ap-registration.php';
+        AP_Options::update('reserved_usernames', "news\nBoard", $GLOBALS['apdb']);
+        $this->assertTrue(AP_Registration::isReservedLogin('news', $GLOBALS['apdb']));
+
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdUser(
+            ['create'],
+            [
+                'user_login' => 'news',
+                'user_email' => 'cli-news@example.test',
+                'user_pass' => 'securepass99',
+            ],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+
+        $user = AP_User::getByLogin('news', $GLOBALS['apdb']);
+        $this->assertNotNull($user);
+        $this->assertSame('news', $user->user_login);
+    }
+
+    public function testUserCreateAllowsFilterReservedLogin(): void
+    {
+        $this->bootSqliteCore();
+        require_once $this->root . '/ap-includes/class-ap-registration.php';
+        ap_add_filter(
+            'ap_reserved_usernames',
+            static function (mixed $names): array {
+                $list = is_array($names) ? $names : [];
+                $list[] = 'herald';
+
+                return $list;
+            }
+        );
+        $this->assertTrue(AP_Registration::isReservedLogin('herald', $GLOBALS['apdb']));
+
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdUser(
+            ['create'],
+            [
+                'user_login' => 'herald',
+                'user_email' => 'cli-herald@example.test',
+                'user_pass' => 'securepass99',
+            ],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+
+        $user = AP_User::getByLogin('herald', $GLOBALS['apdb']);
+        $this->assertNotNull($user);
+        $this->assertSame('herald', $user->user_login);
+
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
     }
 
     public function testUserList(): void

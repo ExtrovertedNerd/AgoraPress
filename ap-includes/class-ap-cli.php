@@ -1309,6 +1309,7 @@ class AP_Cli
         }
 
         if ($sub === 'create') {
+            // Reserved public-register logins are allowed (AP_User::create).
             $login = (string) ($assoc['user_login'] ?? $assoc['login'] ?? $args[1] ?? '');
             $email = (string) ($assoc['user_email'] ?? $assoc['email'] ?? $args[2] ?? '');
             $pass = (string) ($assoc['user_pass'] ?? $assoc['password'] ?? getenv('AP_USER_PASSWORD') ?: '');

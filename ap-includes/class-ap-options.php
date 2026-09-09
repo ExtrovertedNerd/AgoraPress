@@ -512,6 +512,7 @@ class AP_Options
             $map = [
                 'blogname', 'blogdescription', 'siteurl', 'home', 'admin_email',
                 'users_can_register', 'require_email_verification', 'registration_captcha',
+                'reserved_usernames',
                 'default_role',
                 'timezone_string', 'WPLANG', 'date_format', 'time_format', 'start_of_week',
                 'site_icon',
@@ -574,16 +575,34 @@ class AP_Options
             self::truthy($settings['require_email_verification'] ?? '0') ? '1' : '0',
             $db
         ) && $ok;
+        // Keep allowlist in sync with AP_Settings::sanitizeRegistrationCaptcha().
         $cap = strtolower(trim((string) ($settings['registration_captcha'] ?? 'off')));
         if ($cap === '' || $cap === '0' || $cap === 'false' || $cap === 'no' || $cap === 'disabled') {
             $cap = 'off';
         } elseif ($cap === '1' || $cap === 'true' || $cap === 'yes' || $cap === 'on') {
             $cap = 'math';
         }
-        if (!in_array($cap, ['off', 'math'], true)) {
+        if (!in_array($cap, ['off', 'math', 'guard'], true)) {
             $cap = 'off';
         }
         $ok = self::update('registration_captcha', $cap, $db) && $ok;
+        if (array_key_exists('reserved_usernames', $settings)) {
+            $raw = (string) $settings['reserved_usernames'];
+            if (class_exists('AP_Registration', false)) {
+                $raw = implode("\n", AP_Registration::parseReservedUsernameList($raw));
+            } else {
+                $raw = str_replace(["\r\n", "\r"], "\n", $raw);
+                $lines = [];
+                foreach (explode("\n", $raw) as $line) {
+                    $line = trim($line);
+                    if ($line !== '') {
+                        $lines[] = $line;
+                    }
+                }
+                $raw = implode("\n", $lines);
+            }
+            $ok = self::update('reserved_usernames', $raw, $db) && $ok;
+        }
         if (isset($settings['default_role'])) {
             $role = strtolower(preg_replace('/[^a-z0-9_\-]/', '', (string) $settings['default_role']) ?? '');
             if ($role !== '' && $role !== 'administrator') {

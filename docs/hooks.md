@@ -171,6 +171,15 @@ Excerpt shaping is `ap_get_the_excerpt($post, $words)` (word-count argument). Th
 The core editor is a **classic visual WYSIWYG** (contenteditable + textarea, Visual \| Text modes) — see [editor.md](editor.md).  
 There is **no** block-editor hook surface in core.
 
+### Users / registration
+
+| Hook | Type | Notes |
+|------|------|-------|
+| `ap_user_created` | action | After `AP_User::create()` inserts a row, including pending verification (`AP_Registration::STATUS_PENDING` / `user_status` 1). Args: user id, login, email, status. Use `accepted_args` 4. Does not fire when create fails. |
+| `ap_reserved_usernames` | filter | Public-register reserved logins. Value is the locked staff/system list plus Settings → General extras (`reserved_usernames`, one login per line). Return an array of logins; locked core names always remain after the filter. Second arg is `?AP_DB`. Use `accepted_args` 2. Match is case-insensitive. Public `AP_Registration::register()` rejects these with “That username is not available.” (it does not say the name is reserved); ACP Users → Add and `php ap-cli user create` (via `AP_User::create()`) may still create them. |
+
+Grep `ap_registration_` in `class-ap-registration.php` for captcha mode / challenge / verify filters.
+
 ### Forums
 
 | Hook | Type | Notes |

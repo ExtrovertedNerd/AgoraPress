@@ -1790,6 +1790,7 @@ class AP_Admin
             'user_created' => ['User created.', 'success'],
             'user_updated' => ['User updated.', 'success'],
             'verification_resent' => ['Verification email sent.', 'success'],
+            'user_activated' => ['Account activated. The user can log in without email verification.', 'success'],
             'user_deleted' => ['User deleted.', 'success'],
             'profile_updated' => ['Profile updated.', 'success'],
             'bulk_user_deleted' => ['Selected users deleted.', 'success'],

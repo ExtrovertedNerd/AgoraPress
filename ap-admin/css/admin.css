@@ -1431,6 +1431,23 @@ input[type="url"]:focus {
     background: var(--ap-bg);
 }
 
+.ap-user-status {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0.1rem 0.45rem;
+    font-size: 0.75rem;
+    font-weight: 650;
+    line-height: 1.3;
+    border-radius: 999px;
+    vertical-align: middle;
+}
+
+.ap-user-status.pending {
+    color: var(--ap-warning-border);
+    background: var(--ap-warning-bg);
+    border: 1px solid var(--ap-warning-border);
+}
+
 .ap-user-list-avatar {
     display: inline-block;
     vertical-align: middle;
@@ -1673,6 +1690,73 @@ body.ap-admin-login .ap-login-color-toggle:focus-visible {
     width: 1px;
     height: 1px;
     overflow: hidden;
+}
+
+/* First-party Human check (math question or guard checkbox card). */
+.ap-login-box .ap-human-check {
+    margin: 0 0 0.85rem;
+    padding: 0.7rem 0.85rem 0.85rem;
+    border: 1px solid var(--ap-border);
+    border-radius: var(--ap-radius-lg);
+    background: var(--ap-surface-2);
+}
+
+.ap-login-box .ap-human-check legend {
+    padding: 0 0.35rem;
+    font-weight: 650;
+    font-size: 0.92rem;
+}
+
+.ap-login-box .ap-human-check .ap-field {
+    margin-bottom: 0;
+}
+
+.ap-login-box .ap-guard-card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.85rem;
+}
+
+.ap-login-box .ap-guard-check {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0;
+    font-weight: 550;
+    cursor: pointer;
+}
+
+.ap-login-box .ap-guard-check input[type="checkbox"] {
+    width: 1.15rem;
+    height: 1.15rem;
+    margin: 0;
+    flex-shrink: 0;
+    accent-color: var(--ap-primary);
+}
+
+.ap-login-box .ap-guard-status {
+    font-size: 0.85rem;
+    color: var(--ap-muted);
+}
+
+.ap-login-box .ap-guard-status--error {
+    color: var(--ap-danger);
+}
+
+.ap-login-box .ap-guard-fallback {
+    margin-top: 0.7rem;
+}
+
+.ap-login-box .ap-guard-fallback .ap-help {
+    display: block;
+    margin: 0.35rem 0 0;
+    color: var(--ap-muted);
+    font-size: 0.82rem;
+}
+
+.ap-login-box .ap-human-check--guard.ap-guard--js .ap-guard-fallback {
+    display: none;
 }
 
 /* Media Library */
