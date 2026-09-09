@@ -88,7 +88,7 @@ an alias of `rp`.
 |------------|----------------|
 | `login` (default) | Username or email (`log`) + password (`pwd`). Optional “remember me”. Nonce `admin-login`. Rate-limited (`AP_Rate_Limit`). Pending email verification is a distinct error. |
 | `logout` | CSRF-protected (`log-out` nonce). |
-| `register` | Shown only when option `users_can_register` is on (Settings → General). Nonce `admin-register`. Optional math CAPTCHA + honeypot field `ap_hp` (labeled Website). |
+| `register` | Shown only when option `users_can_register` is on (Settings → General). Nonce `admin-register`. Always-on when open: honeypot `ap_hp` (labeled Website), ~3s minimum fill, short-lived form ticket `ap_form_ticket` issued on GET. Optional math CAPTCHA. |
 | `lostpassword` | Request a reset mail. Nonce `admin-lostpassword`. |
 | `rp` / `resetpass` | Set a new password with the mailed key. |
 | `verifyemail` | Confirm a new account from the mailed link. |

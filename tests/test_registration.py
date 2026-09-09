@@ -54,6 +54,12 @@ def test_registration_class_defines_api() -> None:
         "function isCaptchaEnabled",
         "function createMathChallenge",
         "function verifyCaptcha",
+        "function createFormTicket",
+        "function formTicketForDisplay",
+        "function verifyFormGate",
+        "MIN_FILL_SECONDS",
+        "FORM_TICKET_TTL",
+        "ap_form_ticket",
         "CAPTCHA_OFF",
         "CAPTCHA_MATH",
         "registration_captcha",
@@ -89,6 +95,9 @@ def test_functions_expose_registration_helpers() -> None:
         "function ap_registration_captcha_enabled",
         "function ap_registration_create_captcha",
         "function ap_registration_verify_captcha",
+        "function ap_registration_create_form_ticket",
+        "function ap_registration_form_ticket_for_display",
+        "function ap_registration_verify_form_gate",
         "function ap_register_user",
         "function ap_verify_user_email",
         "function ap_request_password_reset",
@@ -125,6 +134,8 @@ def test_login_handles_register_and_reset_actions() -> None:
         "captcha_answer",
         "captcha_token",
         "ap_hp",
+        "ap_form_ticket",
+        "formTicketForDisplay",
         "ap_registration_captcha_enabled",
         "empty($result['mail_sent'])",
         "Please check your email to verify your account",
@@ -145,6 +156,8 @@ def test_general_settings_exposes_registration_captcha() -> None:
     src = general.read_text(encoding="utf-8")
     assert "registration_captcha" in src
     assert "Simple math question" in src
+    assert "short-lived form ticket" in src
+    assert "hidden honeypot" in src
 
 
 def test_installer_seeds_registration_captcha_off() -> None:
@@ -193,10 +206,13 @@ def test_register_verify_reset_via_php() -> None:
         "  'admin_email' => 'admin@example.test',\n"
         "] as $n => $v) { AP_Options::update($n, $v, $db); }\n"
         "AP_Mail::enableTestMode();\n"
+        "$ticket = AP_Registration::createFormTicket(time() - AP_Registration::MIN_FILL_SECONDS);\n"
         "$reg = AP_Registration::register([\n"
         "  'user_login' => 'pytestuser',\n"
         "  'user_email' => 'pytest@example.test',\n"
         "  'user_pass' => 'pytest-secret-1',\n"
+        "  'ap_form_ticket' => $ticket['token'],\n"
+        "  'ap_hp' => '',\n"
         "], $db);\n"
         "if (!$reg['ok']) { fwrite(STDERR, 'reg: ' . implode(',', $reg['errors']) . \"\\n\"); exit(1); }\n"
         "if (!$reg['needs_verification']) { fwrite(STDERR, \"expected verification\\n\"); exit(2); }\n"
@@ -216,10 +232,13 @@ def test_register_verify_reset_via_php() -> None:
         "  fwrite(STDERR, \"new password auth failed\\n\"); exit(8);\n"
         "}\n"
         "AP_Mail::failNextForTests('SMTP down');\n"
+        "$failTicket = AP_Registration::createFormTicket(time() - AP_Registration::MIN_FILL_SECONDS);\n"
         "$fail = AP_Registration::register([\n"
         "  'user_login' => 'mailfail',\n"
         "  'user_email' => 'mailfail@example.test',\n"
         "  'user_pass' => 'pytest-secret-1',\n"
+        "  'ap_form_ticket' => $failTicket['token'],\n"
+        "  'ap_hp' => '',\n"
         "], $db);\n"
         "if (!$fail['ok']) { fwrite(STDERR, 'failreg: ' . implode(',', $fail['errors']) . \"\\n\"); exit(9); }\n"
         "if (!empty($fail['mail_sent'])) { fwrite(STDERR, \"mail_sent should be false\\n\"); exit(10); }\n"

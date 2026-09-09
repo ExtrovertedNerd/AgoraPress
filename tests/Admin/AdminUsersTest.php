@@ -651,6 +651,10 @@ final class AdminUsersTest extends TestCase
             'user_login' => 'pendinguser',
             'user_email' => 'pendinguser@example.test',
             'user_pass' => 'securepass8',
+            'ap_form_ticket' => AP_Registration::createFormTicket(
+                time() - AP_Registration::MIN_FILL_SECONDS
+            )['token'],
+            'ap_hp' => '',
         ], $this->db);
         $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
         $target = AP_User::getById($pending['id'], $this->db);
@@ -686,6 +690,10 @@ final class AdminUsersTest extends TestCase
             'user_login' => 'editresend',
             'user_email' => 'editresend@example.test',
             'user_pass' => 'securepass8',
+            'ap_form_ticket' => AP_Registration::createFormTicket(
+                time() - AP_Registration::MIN_FILL_SECONDS
+            )['token'],
+            'ap_hp' => '',
         ], $this->db);
         $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
         AP_Mail::clearTestOutbox();

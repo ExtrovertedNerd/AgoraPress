@@ -187,11 +187,13 @@ The cookie `Secure` flag still honours `X-Forwarded-Proto` without this
 constant — that only affects whether the cookie is marked Secure, not the
 rate-limit IP.
 
-Registration is off by default (`users_can_register` = `0`). Optional math
-CAPTCHA (`registration_captcha`) and email verification are additional
-anti-spam, not a second password factor. Forum flood / spam guards
-(`forum_flood_interval` default 30 s) are documented with forums
-([forums.md](forums.md)).
+Registration is off by default (`users_can_register` = `0`). When it is on,
+the public form always uses a honeypot (`ap_hp`), a ~3 second minimum fill
+time, and a short-lived form ticket issued on GET (naked POSTs fail closed
+with a generic error). Optional math CAPTCHA (`registration_captcha`) and
+email verification are additional anti-spam, not a second password factor.
+Forum flood / spam guards (`forum_flood_interval` default 30 s) are
+documented with forums ([forums.md](forums.md)).
 
 ---
 

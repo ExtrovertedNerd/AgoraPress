@@ -199,15 +199,16 @@ require __DIR__ . '/admin-header.php';
             <label for="registration_captcha">Registration anti-spam (CAPTCHA)</label>
             <select name="registration_captcha" id="registration_captcha">
                 <option value="off" <?php echo $registrationCaptcha === 'off' ? 'selected' : ''; ?>>
-                    Off (email verification / rate limits only)
+                    Off (email verification / rate limits / hidden form gate)
                 </option>
                 <option value="math" <?php echo $registrationCaptcha === 'math' ? 'selected' : ''; ?>>
-                    Simple math question + honeypot
+                    Simple math question
                 </option>
             </select>
             <span class="ap-help">
-                Optional extra protection against bot sign-ups. No third-party service;
-                works offline. Plugins can extend verification via hooks.
+                Optional extra visible protection against bot sign-ups. When registration
+                is open, a hidden honeypot, minimum fill time, and short-lived form ticket
+                always run. No third-party service; works offline.
             </span>
         </p>
         <p class="ap-field">

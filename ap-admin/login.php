@@ -130,6 +130,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'captcha_answer' => (string) ($_POST['captcha_answer'] ?? ''),
                     'captcha_token' => (string) ($_POST['captcha_token'] ?? ''),
                     'ap_hp' => (string) ($_POST['ap_hp'] ?? ''),
+                    'ap_form_ticket' => (string) ($_POST['ap_form_ticket'] ?? ''),
                 ]);
                 if (!$result['ok']) {
                     $errors = array_merge($errors, $result['errors']);
@@ -389,6 +390,14 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
             <?php else : ?>
                 <form method="post" action="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'register'])); ?>">
                     <?php echo ap_nonce_field('admin-register', '_ap_nonce', false, 0); ?>
+                    <?php
+                    $postedTicket = trim((string) ($_POST['ap_form_ticket'] ?? ''));
+                    $formTicket = class_exists('AP_Registration', false)
+                        ? AP_Registration::formTicketForDisplay($postedTicket)
+                        : ['token' => ''];
+                    ?>
+                    <input type="hidden" name="ap_form_ticket" autocomplete="off"
+                           value="<?php echo ap_esc_attr((string) ($formTicket['token'] ?? '')); ?>" />
                     <div class="ap-field">
                         <label for="reg_user_login">Username</label>
                         <input type="text" name="user_login" id="reg_user_login" autocomplete="username" required
@@ -420,22 +429,18 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                             <input type="hidden" name="captcha_token"
                                    value="<?php echo ap_esc_attr((string) ($captchaChallenge['token'] ?? '')); ?>" />
                         </div>
-                        <div class="ap-hp" aria-hidden="true">
-                            <label for="ap_hp">Website</label>
-                            <input type="text" name="ap_hp" id="ap_hp" value="" tabindex="-1" autocomplete="off" />
-                        </div>
                     <?php elseif ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? 'off') !== 'off') : ?>
                         <?php
-                        // Custom/plugin CAPTCHA modes: expose honeypot + hooks for markup.
+                        // Custom/plugin CAPTCHA modes: hooks for extra markup.
                         if (function_exists('ap_do_action')) {
                             ap_do_action('ap_registration_captcha_fields', $captchaChallenge);
                         }
                         ?>
-                        <div class="ap-hp" aria-hidden="true">
-                            <label for="ap_hp">Website</label>
-                            <input type="text" name="ap_hp" id="ap_hp" value="" tabindex="-1" autocomplete="off" />
-                        </div>
                     <?php endif; ?>
+                    <div class="ap-hp" aria-hidden="true">
+                        <label for="ap_hp">Website</label>
+                        <input type="text" name="ap_hp" id="ap_hp" value="" tabindex="-1" autocomplete="off" />
+                    </div>
                     <button type="submit" class="button button-primary">Register</button>
                 </form>
                 <p class="ap-login-links">

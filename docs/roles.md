@@ -387,9 +387,9 @@ built-in AgoraPress role.
 | `php ap-cli user create --role=` | Default `subscriber`. CLI is `user <list\|get\|create>` only. **No** `user update` / `user delete`. |
 | REST `GET /ap/v1/users` | Public profile fields (no email). Email on `GET /users/{id}` only for self or `list_users`. **No** user writes. |
 
-Registration (`users_can_register`, email verification, math CAPTCHA) is
-Settings → General, not a membership plugin. There is **no** TOTP / 2FA
-in core.
+Registration (`users_can_register`, email verification, math CAPTCHA, and
+the always-on form gate) is Settings → General, not a membership plugin.
+There is **no** TOTP / 2FA in core.
 
 CLI create (password from the environment so it does not land in history):
 

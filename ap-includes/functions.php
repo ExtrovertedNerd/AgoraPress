@@ -373,6 +373,44 @@ function ap_registration_verify_captcha(array $data, ?AP_DB $db = null): array
 }
 
 /**
+ * Issue a short-lived public-registration form ticket (GET of the form).
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Registration::createFormTicket()
+ */
+function ap_registration_create_form_ticket(?int $issuedAt = null): array
+{
+    return AP_Registration::createFormTicket($issuedAt);
+}
+
+/**
+ * Ticket for the public register form (GET, or reuse a still-valid POST token).
+ *
+ * @return array<string, mixed>
+ *
+ * @see AP_Registration::formTicketForDisplay()
+ */
+function ap_registration_form_ticket_for_display(?string $postedToken = null): array
+{
+    return AP_Registration::formTicketForDisplay($postedToken);
+}
+
+/**
+ * Verify always-on public-register gate (honeypot, form ticket, min fill).
+ *
+ * @param array<string, mixed> $data
+ *
+ * @return array{ok: bool, errors: list<string>}
+ *
+ * @see AP_Registration::verifyFormGate()
+ */
+function ap_registration_verify_form_gate(array $data, ?AP_DB $db = null): array
+{
+    return AP_Registration::verifyFormGate($data, $db);
+}
+
+/**
  * Register a public account (when users_can_register is enabled).
  *
  * @param array<string, mixed> $data

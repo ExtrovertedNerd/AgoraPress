@@ -10,8 +10,12 @@
  * Gated by options:
  * - users_can_register (0/1)
  * - require_email_verification (0/1, default 1)
- * - registration_captcha (off|math, default off) — optional anti-spam beyond email verification
+ * - registration_captcha (off|math, default off) — optional visible anti-spam
  * - default_role (seeded by installer)
+ *
+ * When users_can_register is on, public register() always enforces a hidden
+ * honeypot (`ap_hp`), a ~3s minimum fill time, and a short-lived form ticket
+ * issued on GET of the register form. Naked POSTs fail closed.
  *
  * @package AgoraPress
  */
@@ -47,8 +51,20 @@ class AP_Registration
     /** CAPTCHA mode: disabled (default). */
     public const CAPTCHA_OFF = 'off';
 
-    /** CAPTCHA mode: built-in arithmetic challenge + honeypot. */
+    /** CAPTCHA mode: built-in arithmetic challenge. */
     public const CAPTCHA_MATH = 'math';
+
+    /** Minimum seconds a public registration form must stay open before POST. */
+    public const MIN_FILL_SECONDS = 3;
+
+    /** Form-ticket lifetime (30 minutes). */
+    public const FORM_TICKET_TTL = 1800;
+
+    /** Hidden honeypot field (must stay empty). */
+    public const FIELD_HONEYPOT = 'ap_hp';
+
+    /** Hidden form-ticket field issued on GET. */
+    public const FIELD_FORM_TICKET = 'ap_form_ticket';
 
     /**
      * Whether anyone may register (option users_can_register).
@@ -108,6 +124,113 @@ class AP_Registration
     }
 
     /**
+     * Issue a short-lived registration form ticket (GET of the public form).
+     *
+     * The token encodes the issue time so POST can enforce a minimum fill
+     * interval and reject naked submissions that never loaded the form.
+     *
+     * @param int|null $issuedAt Unix timestamp. Tests pass a past time to
+     *                           satisfy {@see self::MIN_FILL_SECONDS} without sleeping.
+     *
+     * @return array{
+     *     token: string,
+     *     issued_at: int,
+     *     field: string,
+     *     ttl: int,
+     *     min_fill: int
+     * }
+     */
+    public static function createFormTicket(?int $issuedAt = null): array
+    {
+        $ts = $issuedAt ?? time();
+        if ($ts < 1) {
+            $ts = time();
+        }
+
+        try {
+            $nonce = bin2hex(random_bytes(8));
+        } catch (Throwable) {
+            $nonce = bin2hex(substr(hash('sha256', uniqid((string) $ts, true), true), 0, 8));
+        }
+
+        return [
+            'token' => self::encodeFormTicket($ts, $nonce),
+            'issued_at' => $ts,
+            'field' => self::FIELD_FORM_TICKET,
+            'ttl' => self::FORM_TICKET_TTL,
+            'min_fill' => self::MIN_FILL_SECONDS,
+        ];
+    }
+
+    /**
+     * Ticket to embed in the public register form (GET, or re-display after POST).
+     *
+     * Reuses $postedToken when HMAC and TTL are still valid so a validation
+     * error does not restart the minimum-fill clock. Invalid or missing tokens
+     * get a freshly issued ticket (min-fill starts from this render).
+     *
+     * @return array{
+     *     token: string,
+     *     issued_at: int,
+     *     field: string,
+     *     ttl: int,
+     *     min_fill: int
+     * }
+     */
+    public static function formTicketForDisplay(?string $postedToken = null): array
+    {
+        $postedToken = trim((string) $postedToken);
+        if ($postedToken !== '') {
+            $parsed = self::decodeFormTicket($postedToken);
+            if ($parsed !== null) {
+                return [
+                    'token' => $postedToken,
+                    'issued_at' => $parsed['ts'],
+                    'field' => self::FIELD_FORM_TICKET,
+                    'ttl' => self::FORM_TICKET_TTL,
+                    'min_fill' => self::MIN_FILL_SECONDS,
+                ];
+            }
+        }
+
+        return self::createFormTicket();
+    }
+
+    /**
+     * Always-on public-register gate: empty honeypot, valid form ticket, min fill.
+     *
+     * Failures use a generic error so bots cannot tell which check failed.
+     *
+     * @param array<string, mixed> $data
+     * @param AP_DB|null $db Unused; same signature as {@see self::verifyCaptcha()}.
+     *
+     * @return array{ok: bool, errors: list<string>}
+     */
+    public static function verifyFormGate(array $data, ?AP_DB $db = null): array
+    {
+        $generic = self::genericFormFailure();
+
+        $honeypot = trim((string) ($data[self::FIELD_HONEYPOT] ?? ''));
+        $website = trim((string) ($data['website'] ?? ''));
+        if ($honeypot !== '' || $website !== '') {
+            return $generic;
+        }
+
+        $token = trim((string) ($data[self::FIELD_FORM_TICKET] ?? $data['ap_ft'] ?? ''));
+        $parsed = self::decodeFormTicket($token);
+        if ($parsed === null) {
+            return $generic;
+        }
+
+        $age = time() - $parsed['ts'];
+        if ($age < self::MIN_FILL_SECONDS) {
+            return $generic;
+        }
+
+        return ['ok' => true, 'errors' => []];
+    }
+
+    /**
      * Create a built-in math challenge for the registration form.
      *
      * @return array{
@@ -136,7 +259,7 @@ class AP_Registration
             'token' => $token,
             'field_answer' => 'captcha_answer',
             'field_token' => 'captcha_token',
-            'field_honeypot' => 'ap_hp',
+            'field_honeypot' => self::FIELD_HONEYPOT,
         ];
     }
 
@@ -158,7 +281,7 @@ class AP_Registration
                 'mode' => $mode,
                 'field_answer' => 'captcha_answer',
                 'field_token' => 'captcha_token',
-                'field_honeypot' => 'ap_hp',
+                'field_honeypot' => self::FIELD_HONEYPOT,
             ];
 
         if (function_exists('ap_apply_filters')) {
@@ -172,10 +295,12 @@ class AP_Registration
     }
 
     /**
-     * Verify CAPTCHA / honeypot from registration form data.
+     * Verify CAPTCHA from registration form data.
      *
-     * Expected keys when math mode is on: captcha_answer, captcha_token, ap_hp (must be empty).
-     * Always succeeds when CAPTCHA mode is off.
+     * Expected keys when math mode is on: captcha_answer, captcha_token.
+     * Honeypot `ap_hp` is also rejected here when CAPTCHA is on (defense in
+     * depth; {@see self::verifyFormGate()} always checks it on public register).
+     * Always succeeds when CAPTCHA mode is off (the form gate still runs).
      * Plugins may override via `ap_registration_verify_captcha`.
      *
      * @param array<string, mixed> $data
@@ -202,12 +327,10 @@ class AP_Registration
         }
 
         // Honeypot: bots often fill hidden "website" fields.
-        $honeypot = trim((string) ($data['ap_hp'] ?? $data['website'] ?? ''));
-        if ($honeypot !== '') {
-            $result = [
-                'ok' => false,
-                'errors' => ['Could not complete registration. Please try again.'],
-            ];
+        $honeypot = trim((string) ($data[self::FIELD_HONEYPOT] ?? ''));
+        $website = trim((string) ($data['website'] ?? ''));
+        if ($honeypot !== '' || $website !== '') {
+            $result = self::genericFormFailure();
         } elseif ($mode === self::CAPTCHA_MATH) {
             $answerRaw = trim((string) ($data['captcha_answer'] ?? ''));
             $token = trim((string) ($data['captcha_token'] ?? ''));
@@ -264,7 +387,9 @@ class AP_Registration
      *
      * Required keys: user_login, user_email, user_pass (or password).
      * Optional: display_name.
-     * When CAPTCHA is enabled: captcha_answer, captcha_token, ap_hp (empty).
+     * Always required when public registration is open: empty `ap_hp`,
+     * `ap_form_ticket` issued on GET of the form, and ~3s elapsed since issue.
+     * When CAPTCHA is enabled also: captcha_answer, captcha_token.
      *
      * When email verification is required the account is created with
      * STATUS_PENDING and a verification email is sent. When not required the
@@ -305,12 +430,29 @@ class AP_Registration
             return $empty;
         }
 
-        // Optional CAPTCHA / honeypot (beyond email verification).
+        $formGate = self::verifyFormGate($data, $db);
+        if (!$formGate['ok']) {
+            $empty['errors'] = $formGate['errors'] !== []
+                ? $formGate['errors']
+                : self::genericFormFailure()['errors'];
+
+            if (class_exists('AP_Rate_Limit', false)) {
+                AP_Rate_Limit::hit(
+                    AP_Rate_Limit::ACTION_REGISTER,
+                    AP_Rate_Limit::ipBucket(),
+                    $db
+                );
+            }
+
+            return $empty;
+        }
+
+        // Optional visible CAPTCHA (beyond the always-on form gate).
         $captcha = self::verifyCaptcha($data, $db);
         if (!$captcha['ok']) {
             $empty['errors'] = $captcha['errors'] !== []
                 ? $captcha['errors']
-                : ['Could not complete registration. Please try again.'];
+                : self::genericFormFailure()['errors'];
 
             // Count CAPTCHA failures toward the registration rate limit.
             if (class_exists('AP_Rate_Limit', false)) {
@@ -344,7 +486,15 @@ class AP_Registration
         $needsVerification = self::requireEmailVerification($db);
         $payload = $data;
         // Public registration always uses default_role (ignore client-supplied role).
-        unset($payload['role'], $payload['captcha_answer'], $payload['captcha_token'], $payload['ap_hp'], $payload['website']);
+        unset(
+            $payload['role'],
+            $payload['captcha_answer'],
+            $payload['captcha_token'],
+            $payload[self::FIELD_HONEYPOT],
+            $payload['website'],
+            $payload[self::FIELD_FORM_TICKET],
+            $payload['ap_ft']
+        );
         $payload['user_status'] = $needsVerification ? self::STATUS_PENDING : 0;
 
         $result = AP_User::create($payload, $db);
@@ -1014,6 +1164,82 @@ class AP_Registration
     }
 
     /**
+     * Generic public-register failure (honeypot / ticket / min-fill).
+     *
+     * @return array{ok: bool, errors: list<string>}
+     */
+    private static function genericFormFailure(): array
+    {
+        return [
+            'ok' => false,
+            'errors' => ['Could not complete registration. Please try again.'],
+        ];
+    }
+
+    /**
+     * Signed form ticket: base64url(ts:nonce:hmac).
+     */
+    private static function encodeFormTicket(int $timestamp, string $nonce): string
+    {
+        $hmac = hash_hmac(
+            'sha256',
+            'form_ticket|' . $timestamp . '|' . $nonce,
+            self::signingSecret()
+        );
+
+        return self::toBase64Url($timestamp . ':' . $nonce . ':' . $hmac);
+    }
+
+    /**
+     * @return array{ts: int, nonce: string}|null
+     */
+    private static function decodeFormTicket(string $token): ?array
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return null;
+        }
+
+        $payload = self::fromBase64Url($token);
+        if ($payload === null || $payload === '') {
+            return null;
+        }
+
+        $parts = explode(':', $payload, 3);
+        if (count($parts) !== 3) {
+            return null;
+        }
+
+        [$tsRaw, $nonce, $hmac] = $parts;
+        if (!ctype_digit($tsRaw) || $nonce === '' || $hmac === '') {
+            return null;
+        }
+        if (!ctype_xdigit($nonce) || strlen($nonce) !== 16) {
+            return null;
+        }
+
+        $ts = (int) $tsRaw;
+        $expected = hash_hmac(
+            'sha256',
+            'form_ticket|' . $ts . '|' . $nonce,
+            self::signingSecret()
+        );
+        if (!hash_equals($expected, $hmac)) {
+            return null;
+        }
+
+        $now = time();
+        if ($ts < 1 || $ts > ($now + 60)) {
+            return null;
+        }
+        if (($now - $ts) > self::FORM_TICKET_TTL) {
+            return null;
+        }
+
+        return ['ts' => $ts, 'nonce' => $nonce];
+    }
+
+    /**
      * Signed captcha token: base64url(ts:a:b:hmac).
      */
     private static function encodeCaptchaToken(int $a, int $b, int $timestamp): string
@@ -1023,9 +1249,8 @@ class AP_Registration
             'captcha|' . $timestamp . '|' . $a . '|' . $b,
             self::signingSecret()
         );
-        $payload = $timestamp . ':' . $a . ':' . $b . ':' . $hmac;
 
-        return rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+        return self::toBase64Url($timestamp . ':' . $a . ':' . $b . ':' . $hmac);
     }
 
     /**
@@ -1038,13 +1263,8 @@ class AP_Registration
             return null;
         }
 
-        $b64 = strtr($token, '-_', '+/');
-        $pad = strlen($b64) % 4;
-        if ($pad > 0) {
-            $b64 .= str_repeat('=', 4 - $pad);
-        }
-        $payload = base64_decode($b64, true);
-        if ($payload === false || $payload === '') {
+        $payload = self::fromBase64Url($token);
+        if ($payload === null || $payload === '') {
             return null;
         }
 
@@ -1078,6 +1298,26 @@ class AP_Registration
         }
 
         return ['a' => $a, 'b' => $b, 'ts' => $ts];
+    }
+
+    private static function toBase64Url(string $payload): string
+    {
+        return rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+    }
+
+    private static function fromBase64Url(string $token): ?string
+    {
+        $b64 = strtr($token, '-_', '+/');
+        $pad = strlen($b64) % 4;
+        if ($pad > 0) {
+            $b64 .= str_repeat('=', 4 - $pad);
+        }
+        $payload = base64_decode($b64, true);
+        if ($payload === false) {
+            return null;
+        }
+
+        return $payload;
     }
 
     /**
