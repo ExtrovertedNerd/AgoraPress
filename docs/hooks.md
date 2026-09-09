@@ -173,12 +173,18 @@ There is **no** block-editor hook surface in core.
 
 ### Users / registration
 
+Operator surface: [admin.md](admin.md#public-registration), [security.md](security.md#public-registration-gate). Always-on public-register checks (honeypot, ~3s min fill, GET form ticket) have **no** hook. Visible captcha is option `registration_captcha` (`off` / `math` / `guard`). Core has **no** Google, hCaptcha, or Turnstile widget.
+
+PHP helpers `ap_registration_captcha_mode()` and `ap_registration_verify_captcha()` wrap `AP_Registration` methods. They apply the filters below; they are **not** the filters.
+
 | Hook | Type | Notes |
 |------|------|-------|
-| `ap_user_created` | action | After `AP_User::create()` inserts a row, including pending verification (`AP_Registration::STATUS_PENDING` / `user_status` 1). Args: user id, login, email, status. Use `accepted_args` 4. Does not fire when create fails. |
-| `ap_reserved_usernames` | filter | Public-register reserved logins. Value is the locked staff/system list plus Settings → General extras (`reserved_usernames`, one login per line). Return an array of logins; locked core names always remain after the filter. Second arg is `?AP_DB`. Use `accepted_args` 2. Match is case-insensitive. Public `AP_Registration::register()` rejects these with “That username is not available.” (it does not say the name is reserved); ACP Users → Add and `php ap-cli user create` (via `AP_User::create()`) may still create them. |
-
-Grep `ap_registration_` in `class-ap-registration.php` for captcha mode / challenge / verify filters.
+| `ap_user_created` | action | After `AP_User::create()` inserts a row, including pending verification (`AP_Registration::STATUS_PENDING` / `user_status` 1). Args: user id, login, email, status. Use `accepted_args` 4. Does not fire when create fails. ACP Users → Add and `php ap-cli user create` use the same method, so they fire it too. |
+| `ap_reserved_usernames` | filter | Public-register reserved logins. Value is the locked staff/system list plus Settings → General extras (`reserved_usernames`, one login per line). Return an array of logins; plugins may **add** names. Locked core names always remain after the filter. Second arg is `?AP_DB`. Use `accepted_args` 2. Match is case-insensitive. Public `AP_Registration::register()` rejects these with “That username is not available.” (it does not say the name is reserved); ACP Users → Add and `php ap-cli user create` (via `AP_User::create()`) may still create them. |
+| `ap_registration_captcha_mode` | filter | Visible mode string. Value is the saved option (`off` / `math` / `guard`, or a plugin string). Second arg is `?AP_DB`. Return a non-empty string. Use `accepted_args` 2. Settings sanitizer still collapses unknown **saved** values to `off`; runtime keeps unknown strings so a plugin can supply a custom mode. |
+| `ap_registration_captcha_challenge` | filter | Challenge payload for the register form. Value is an array (`mode`, field names, …). Args: mode string, `?AP_DB`. Return an array. Use `accepted_args` 3. Does **not** run when the visible mode is `off` (that path returns `mode=off` unfiltered). |
+| `ap_registration_verify_captcha` | filter | Verify posted captcha/guard data. Value is `ok` + `errors`. Args: posted `$data`, mode string, `?AP_DB`. Return an array with an `ok` key. Use `accepted_args` 4. Runs even when the visible mode is `off` (incoming result is ok). Unknown / plugin modes fail closed unless this filter approves. |
+| `ap_registration_captcha_fields` | action | Extra markup for a plugin-supplied visible mode. Arg: the challenge array. Fires from `ap-admin/login.php` only when the mode is not core `off` / `math` / `guard`. |
 
 ### Forums
 
@@ -203,11 +209,11 @@ Grep `ap_registration_` in `class-ap-registration.php` for captcha mode / challe
 
 ### Mail
 
-Native outbound API is `AP_Mail::send()` (`ap_mail()`). When the classic theme layer is loaded, `wp_mail()` is a signature-compatible shim that calls the same method — [compatibility.md](compatibility.md).
+Native outbound API is `AP_Mail::send()` (`ap_mail()`). Settings → Mail: [admin.md](admin.md#mail). When the classic theme layer is loaded, `wp_mail()` is a signature-compatible shim that calls the same method — [compatibility.md](compatibility.md). Bodies are **text/plain**.
 
 | Hook | Type | Notes |
 |------|------|-------|
-| `ap_mail_send` | filter | `AP_Mail::send()`: return `true`/`false` to replace php/smtp; `null` continues. Second arg is the sanitized payload (`to`, `to_header`, `subject`, `message`, `headers`, `header_string`, `transport`). Use `accepted_args` 2; pass `$handled` through if you do not send. Does not run when the `mail` rate limit blocks the send — [security.md](security.md). |
+| `ap_mail_send` | filter | After recipients are sanitized and the `mail` rate limit allows the send. Return `true`/`false` to replace php/smtp (skips the test outbox too); `null` continues. Non-bool returns are treated as `null`. Second arg is the sanitized payload (`to`, `to_header`, `subject`, `message`, `headers`, `header_string`, `transport`). Use `accepted_args` 2; pass `$handled` through if you do not send. Does **not** run when there are no valid recipients or when the `mail` rate limit blocks the send — [security.md](security.md). |
 
 ### Cache, SEO, privacy, health, analytics
 

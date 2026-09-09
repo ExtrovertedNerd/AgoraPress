@@ -17,6 +17,9 @@ meta-caps are in [roles.md](roles.md).
 `ap-includes/class-ap-admin-menu.php` (`AP_Admin_Menu`),
 `ap-includes/class-ap-plugin-installer.php` (`AP_Plugin_Installer`),
 `ap-includes/class-ap-hall-of-fame.php` (`AP_Hall_Of_Fame`),
+`ap-includes/class-ap-mail.php` (`AP_Mail`),
+`ap-includes/class-ap-smtp.php` (`AP_SMTP`),
+`ap-includes/class-ap-registration.php` (`AP_Registration`),
 `ap-admin/admin-header.php`, `ap-admin/admin-footer.php`.
 
 There is **no** Gutenberg / block editor in the ACP, **no** official plugin or
@@ -86,18 +89,78 @@ an alias of `rp`.
 
 | `?action=` | What it does |
 |------------|----------------|
-| `login` (default) | Username or email (`log`) + password (`pwd`). Optional “remember me”. Nonce `admin-login`. Rate-limited (`AP_Rate_Limit`). Pending email verification is a distinct error. |
+| `login` (default) | Username or email (`log`) + password (`pwd`). Optional “remember me”. Nonce `admin-login`. Rate-limited (`AP_Rate_Limit`). Pending email verification is a distinct error: “Please verify your email address before logging in. If you did not receive the message, use Resend verification.” |
 | `logout` | CSRF-protected (`log-out` nonce). |
-| `register` | Shown only when option `users_can_register` is on (Settings → General). Nonce `admin-register`. Always-on when open: honeypot `ap_hp` (labeled Website), ~3s minimum fill, short-lived form ticket `ap_form_ticket` issued on GET. Optional visible anti-spam (`registration_captcha`: `off` / `math` / `guard`). Staff/system logins and extras in `reserved_usernames` cannot be self-registered. Public error: “That username is not available.” (the form does not say the name is reserved). Users → Add and `php ap-cli user create` may still create them. |
-| `lostpassword` | Request a reset mail. Nonce `admin-lostpassword`. |
-| `rp` / `resetpass` | Set a new password with the mailed key. |
+| `register` | Shown only when option `users_can_register` is on (Settings → General). Nonce `admin-register`. Always-on hidden gate, optional visible CAPTCHA, reserved logins — [Public registration](#public-registration). If `require_email_verification` is on and `AP_Mail::send()` fails, the pending account is **kept** and the form does **not** print “check your email” as success. Copy: “Your account was created, but the verification email could not be sent.” The screen then switches to `resend` with the email prefilled. |
+| `lostpassword` | Request a reset mail. Nonce `admin-lostpassword`. Unknown / pending accounts still show generic success so the form does not leak whether an address is registered. A real send failure is honest: “The password reset email could not be sent.” |
+| `rp` / `resetpass` | Set a new password with the mailed key (24-hour HMAC; same expiry copy as verification mail). |
 | `verifyemail` | Confirm a new account from the mailed link. |
+| `resend` | Public **Resend verification** form (`login.php?action=resend`). Nonce `admin-resend`. Username or email. Always linked from the login and register screens when those screens render. Success copy is generic: “If a pending account exists for that username or email, you will receive a verification message shortly.” Unknown or already-active accounts use that same generic ok (no enumeration). A real `send()` failure is reported honestly and does **not** claim the mail went out. Public resend shares the `password_reset` IP rate-limit bucket and a 60-second per-account cooldown (`VERIFY_RESEND_COOLDOWN`). Logged-in visitors are sent to the dashboard (this action is not excepted). |
 
-Already-logged-in visitors are sent to the dashboard (except verification
-links). Registration, default role, and “require email verification” live under
-[Settings → General](#settings), not on a separate membership screen.
+Already-logged-in visitors are sent to the dashboard except `verifyemail`
+links. Registration, default role, reserved extras, CAPTCHA mode, and
+“require email verification” live under [Settings → General](#settings), not
+on a separate membership screen. Outbound From / SMTP is
+[Settings → Mail](#mail).
 
 There is **no** TOTP / 2FA in core.
+
+### Public registration
+
+Visible only when `users_can_register` is on. Options and the visible CAPTCHA
+picker are Settings → General (`options-general.php`), Membership fieldset.
+
+**Always-on** when the form is open (even if visible CAPTCHA is `off`):
+
+| Check | As built |
+|-------|----------|
+| Honeypot | Field `ap_hp`, labeled Website, `aria-hidden`. Must stay empty. Also rejects a posted `website` field. |
+| Minimum fill | ~3 seconds (`AP_Registration::MIN_FILL_SECONDS`) from the form ticket’s issue time. |
+| Form ticket | Hidden `ap_form_ticket` issued on GET (30-minute TTL). A naked POST without a valid ticket fails closed. |
+
+Those three failures share one generic error: “Could not complete registration. Please try again.” The form does not say which check failed.
+
+**Visible modes** (`registration_captcha`; sanitizer allowlist `off` / `math` /
+`guard`; unknown values collapse to `off`; existing sites stay on `off`):
+
+| Mode | As built |
+|------|----------|
+| `off` | Default. No visible fieldset. Hidden gate still runs. |
+| `math` | “Human check” fieldset. Arithmetic prompt; fields `captcha_answer` + `captcha_token`. |
+| `guard` | Recommended-when-on. First-party checkbox card (`ap_guard_ack` = `1`) plus a signed token. Tiny JS proof-of-work (`ap-admin/js/register-guard.js`) is progressive enhancement. No-JS fallback: type a short code into `captcha_answer`. **No** Google, hCaptcha, or Turnstile widget in core. |
+
+Hooks `ap_registration_captcha_mode`, `ap_registration_captcha_challenge`,
+`ap_registration_verify_captcha`, and (for a plugin-supplied mode) action
+`ap_registration_captcha_fields` stay as shipped — [hooks.md](hooks.md).
+
+**Reserved logins** (public self-register only, case-insensitive). Locked
+list in `AP_Registration::RESERVED_LOGINS` — the extras textarea cannot
+remove these:
+
+```
+root, admin, administrator, administrators, adm, mod, moderator,
+moderators, mods, webmaster, postmaster, hostmaster, support, security,
+abuse, staff, superadmin, sysadmin, guest, nobody, noreply, no-reply,
+www, mail, system, owner, ap-admin, agora, agorapress
+```
+
+Per-site extras: option `reserved_usernames` (textarea, one login per line).
+Locked names typed there are dropped on save so the option stores extras
+only. Plugins may **add** names with filter `ap_reserved_usernames`; locked
+core names always remain after the filter. Public error for a reserved **or**
+already-taken login: “That username is not available.” The form does **not**
+say the name is reserved. Users → Add, Users → Edit, and
+`php ap-cli user create` **may** create reserved names (`AP_User::create()`
+does not enforce this list). New logins still collide case-insensitively
+(`Silas` and `silas` are the same login); existing rows that already differ
+only by case are not merged.
+
+Verification and password-reset bodies are **text/plain**. The link expires
+in 24 hours. If the message is missing, check the spam folder — the sending
+server may be new. Configure transport on [Settings → Mail](#mail).
+A pending account whose mail never arrived: public `resend`, or an
+administrator **Resend verification** / **Activate account** on
+[Users](#users).
 
 ---
 
@@ -153,7 +216,7 @@ for hierarchy, topic types, likes, ACL, PMs, and module-off behaviour:
 | Task | Menu | Cap | Notes |
 |------|------|-----|-------|
 | Forum tree | Forums (`forums.php`) | `manage_forums` | Categories and forums; bulk delete. |
-| Create / edit a forum | `forum-edit.php` | `manage_forums` | Per-forum visibility (`forum_access_level`): Public, Members only, Read only (members), Moderators only, Administrators only, or Custom (Guest / Registered / Moderator / Administrator matrix). Forum ACL is never applied to blog posts or pages. |
+| Create / edit a forum | `forum-edit.php` | `manage_forums` | Per-forum visibility (`forum_access_level`): Public, Members only, Read only (members), Moderators only, Administrators only, **This group only** (`group_only`, named non-system groups + administrators), or Custom (Guest / Registered / Moderator / Administrator matrix). Depth: [forums.md](forums.md). Forum ACL is never applied to blog posts or pages. |
 | Topics | Topics (`forum-topics.php`) | `moderate_forums` | Lock, sticky, approve, trash, delete. Topic types: `standard` / `sticky` / `announcement` / `rules`. |
 | Moderation queue | Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and reports. |
 | Groups | Groups (`forum-groups.php`) | `manage_forums` | Named groups and membership; used with per-forum ACL. |
@@ -211,9 +274,9 @@ without `edit_users` redirects to Profile.
 
 | Task | Menu | Cap | Notes |
 |------|------|-----|-------|
-| All users | Users (`users.php`) | `list_users` | Filter by role; bulk / row delete (not the sole administrator). Pending email-verification accounts show a **Pending** label. **Activate** (row action, cap `edit_users`, nonce `activate-user-{id}`) sets `user_status` to 0 and clears the activation key without the emailed link. It does **not** lift a forum ban. There is **no** bulk activate. |
+| All users | Users (`users.php`) | `list_users` | Filter by role; bulk / row delete (not the sole administrator). Pending email-verification accounts show a **Pending** label. **Activate** (row action, cap `edit_users`, nonce `activate-user-{id}`) sets `user_status` to 0 and clears the activation key without the emailed link. It does **not** lift a forum ban. There is **no** bulk activate and **no** list-row resend (resend is Users → Edit or the public `resend` form). |
 | Add user | `user-new.php` | `create_users` | Login, email, password, role. Nonce `create-user`. Public-register reserved logins (locked list + `reserved_usernames` extras + filter `ap_reserved_usernames`) **are** allowed here. |
-| Edit another user | `user-edit.php?user_id=` | `edit_users` | Profile fields, role, password. Cannot demote the last administrator. Role is **not** editable on Profile. Pending accounts: separate form (so it does not save other field changes) with **Resend verification** (`ap_resend_verification`) and **Activate account** (`ap_activate_account`). Activate uses `AP_Registration::activatePendingUser()` — same as the list row action. |
+| Edit another user | `user-edit.php?user_id=` | `edit_users` | Profile fields, role, password. Cannot demote the last administrator. Role is **not** editable on Profile. Pending accounts: separate form (so it does not save other field changes) with **Resend verification** (`ap_resend_verification`) and **Activate account** (`ap_activate_account`). Admin resend skips the public 60-second cooldown and reports success as “Verification email sent.” (`message` `verification_resent`) or the honest send-failure copy. Activate uses `AP_Registration::activatePendingUser()` — same as the list row action. |
 | Own profile | Profile (`profile.php`) | `read` | Any logged-in ACP user. Display name, email, avatar upload, signature, admin color-mode preference (usermeta `ap_admin_color_mode`). Changing password revokes other sessions. |
 
 Default role for self-registration is Settings → General (`default_role`).
@@ -248,8 +311,8 @@ with `manage_options` accepted as a fallback).
 
 | Task | Menu | What it stores |
 |------|------|----------------|
-| General | General (`options-general.php`) | `blogname`, `blogdescription`, **Site Icon** (`site_icon` attachment ID), `siteurl`, `home`, `admin_email`, `users_can_register`, `require_email_verification`, `registration_captcha` (`off` / `math` / `guard`), extra reserved usernames (`reserved_usernames`, textarea, one login per line; plugins may add more via filter `ap_reserved_usernames`), `default_role`, `WPLANG`, `timezone_string`, `date_format`, `time_format`, `start_of_week`. |
-| Mail | Settings → Mail (`options-mail.php`) | Own group (not General). From name (`mail_from_name`, empty uses `blogname`), From email (`mail_from_email`, separate from `admin_email`; empty uses `admin_email`; example `noreply@example.com`), optional Reply-To (`mail_reply_to`, empty uses `admin_email`), transport `php` \| `smtp` (`mail_transport`, default `php`), SMTP `smtp_host` / `smtp_port` / `smtp_encryption` (`none` \| `tls` \| `ssl`) / `smtp_user` / write-only `smtp_pass` (blank keeps the stored secret), **Send test email to admin_email**, last error (`mail_last_error`, also on **Tools → Site Health**). Nonce `ap_settings_mail`. When defined in `ap-config.php`, `AP_MAIL_FROM_NAME`, `AP_MAIL_FROM_EMAIL`, `AP_MAIL_TRANSPORT`, `AP_SMTP_HOST`, `AP_SMTP_PORT`, `AP_SMTP_ENCRYPTION`, `AP_SMTP_USER`, and `AP_SMTP_PASS` override these options (names documented as comments in `ap-config-sample.php`; never put a real password there). Outbound volume is rate-limited (`AP_Rate_Limit` action `mail`, default 20/hour per IP and per recipient; **no ACP screen**) — [security.md](security.md). |
+| General | General (`options-general.php`) | `blogname`, `blogdescription`, **Site Icon** (`site_icon` attachment ID), `siteurl`, `home`, `admin_email` (site notices **and** the address used by **Send test email to admin_email**), `users_can_register`, `require_email_verification` (default on), `registration_captcha` (`off` / `math` / `guard`), extra reserved usernames (`reserved_usernames`, textarea, one login per line; plugins may add more via filter `ap_reserved_usernames`), `default_role`, `WPLANG`, `timezone_string`, `date_format`, `time_format`, `start_of_week`. Membership fields: [Public registration](#public-registration). |
+| Mail | Settings → Mail (`options-mail.php`) | Own group (not stuffed into General). From identity, `php` \| `smtp` transport, SMTP host/port/encryption/user, write-only password, **Send test email to admin_email**, last error. Depth: [Mail](#mail). |
 | Modules | Modules (`options-modules.php`) | Independent toggles for Static Pages, Blog, and Forum. At least one must remain enabled. Related menus and front-end routes follow these switches. Nonce `ap_settings_modules`. |
 | Writing | Writing (`options-writing.php`) | Blog module (403 when off). Default category, smilies, default comment status on new posts. |
 | Reading | Reading (`options-reading.php`) | `show_on_front` (`posts` / `page`), `page_on_front`, `page_for_posts`, `posts_per_page`, `posts_per_rss`, `rss_use_excerpt`. |
@@ -259,6 +322,63 @@ with `manage_options` accepted as a fallback).
 | Privacy | Privacy (`options-privacy.php`) | Public Privacy Policy page (`wp_page_for_privacy_policy`). Links to Export / Erase Personal Data. |
 | Forums | Forums (`options-forums.php`) | Forum module (403 when off). Topics/posts per page, guest view/post, PMs, attachments (max size / allowed types), flood interval, approval, search, online, unread, signatures, spam blacklist / max links. Per-forum ACL is on **Forums → Edit**, not here. |
 | Hall of Fame | Hall of Fame (`options-hall-of-fame.php`) | Voluntary domain handshake — [section below](#hall-of-fame-handshake). |
+
+---
+
+## Mail
+
+**Menu:** Settings → Mail · **URL:** `/ap-admin/options-mail.php` · **Cap:**
+`manage_options`
+
+Own settings group (not stuffed into General). Nonce `ap_settings_mail`.
+Outbound API is `AP_Mail::send()` (`ap_mail()`). Native SMTP client
+(`AP_SMTP`: AUTH PLAIN / AUTH LOGIN, STARTTLS `tls` usually port 587, SMTPS
+`ssl` usually port 465). **No** PHPMailer and **no** Composer runtime mail
+library. Bodies are **text/plain** — no HTML templates, no newsletters, no
+comment-subscription mail.
+
+**Source:** `ap-includes/class-ap-mail.php`, `ap-includes/class-ap-smtp.php`,
+`ap-admin/options-mail.php`. Filter `ap_mail_send` (plugin transport swap):
+[hooks.md](hooks.md). Classic-compat `wp_mail()` shim:
+[compatibility.md](compatibility.md). Delivery failures:
+[troubleshooting.md](troubleshooting.md#mail-not-arriving).
+
+| Field / option | As built |
+|----------------|----------|
+| From name (`mail_from_name`) | Empty uses `blogname`. |
+| From email (`mail_from_email`) | Dedicated sending address such as `noreply@example.com`. Separate from Settings → General `admin_email`. Empty uses `admin_email`. |
+| Reply-To (`mail_reply_to`) | Optional. Empty uses `admin_email`. There is no Reply-To `ap-config.php` constant. |
+| Transport (`mail_transport`) | `php` (PHP `mail()`, default, zero-config) or `smtp`. |
+| SMTP host (`smtp_host`) | Example `smtp.example.com`. Required when transport is `smtp`. |
+| SMTP port (`smtp_port`) | Default **587**. Typical: 587 (`tls`), 465 (`ssl`), 25 (`none`). |
+| Encryption (`smtp_encryption`) | `none` / `tls` (STARTTLS) / `ssl` (SMTPS). Default `tls`. |
+| Username (`smtp_user`) | Stored in the options table unless `AP_SMTP_USER` is defined. |
+| Password (`smtp_pass`) | Write-only in the UI (blank keeps the stored secret). Prefer `AP_SMTP_PASS` in `ap-config.php` so the secret sits next to DB credentials. |
+| Send test email to admin_email | Saves settings first, then sends a text/plain test to **General** `admin_email` (not From email). Success notice: “Test email sent to the administration email address.” (`message` `mail_test_sent`). Failure stays on the screen with “Could not send the test email.” plus last error. |
+| Last error (`mail_last_error`) | Autoload `no`. Shown on this screen and on **Tools → Site Health**. Site Health does **not** send a test message and omits SMTP secrets. Info tab lists override-constant **names** (never values). |
+
+When defined in `ap-config.php`, these constants **override** the matching
+options (so a password can live next to DB creds). Names are comments in
+`ap-config-sample.php` — never a real password:
+
+`AP_MAIL_FROM_NAME`, `AP_MAIL_FROM_EMAIL`, `AP_MAIL_TRANSPORT`,
+`AP_SMTP_HOST`, `AP_SMTP_PORT`, `AP_SMTP_ENCRYPTION`, `AP_SMTP_USER`,
+`AP_SMTP_PASS`
+
+The Mail screen still edits the options table. A defined constant wins at
+send time even if the form shows a different stored value. Generic examples
+only (`smtp.example.com`, `noreply@example.com`).
+
+Outbound volume is rate-limited (`AP_Rate_Limit` action `mail`, default 20
+per hour per IP **and** per recipient; **no ACP screen**). Either bucket can
+block. Invalid recipients do not consume quota. A blocked send stores the
+lockout text in `mail_last_error` and returns false. Override with
+`rate_limit_mail_max` / `_window` / `_lockout` via `php ap-cli option set`
+— [security.md](security.md).
+
+If `require_email_verification` is on and `send()` fails, registration
+**keeps** the pending user and does **not** claim the mail went out. Offer
+resend on `login.php?action=resend` and on Users → Edit.
 
 ---
 
@@ -421,6 +541,10 @@ Do not tell operators these exist in `/ap-admin/`:
 - A user self-service privacy portal (export/erase are administrator Tools)
 - Telemetry collectors, `AP_TELEMETRY`, installer pings, or `usesInstallerPings()`
 - A paywall, license key screen, or optional-hide for the footer Donate link
+- PHPMailer, a Composer mail library, HTML mail, newsletters, or comment-subscription mail
+- Google reCAPTCHA, hCaptcha, or Turnstile widgets (registration `guard` is first-party)
+- A second membership / CAPTCHA screen besides Settings → General
+- Mail settings stuffed into Settings → General (they live on Settings → Mail)
 
 If a plugin registered an extra sidebar item via `ap_register_admin_page()`,
 that page is **that plugin**, not core.
@@ -438,7 +562,9 @@ that page is **that plugin**, not core.
 | Forums in depth | [forums.md](forums.md) |
 | Roles and caps | [roles.md](roles.md) |
 | REST (`/ap-json/`, `rest_api_enabled`) | [rest.md](rest.md) |
-| Nonces, deny rules, no telemetry | [security.md](security.md) |
+| Nonces, deny rules, no telemetry, mail rate limit | [security.md](security.md) |
+| Mail not arriving / SMTP test | [troubleshooting.md](troubleshooting.md#mail-not-arriving) |
+| Classic `wp_mail()` shim | [compatibility.md](compatibility.md) |
 | Plugin headers, Settings API | [plugins.md](plugins.md) |
 | Plugin zip installer / `ap_register_admin_page` | [plugins.md](plugins.md#plugin-installer) · [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp) |
 | Site Icon pack | [site-icon.md](site-icon.md) |

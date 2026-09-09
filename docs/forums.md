@@ -3,8 +3,9 @@
 This is the **operator and integrator guide** for AgoraPress’s first-class
 forum module at **`0.3.6-beta`** (schema `AP_DB_VERSION` **12**). It describes
 the hierarchy, topic types, two-pane topic view, likes, moderation, groups and
-per-forum ACL, attachments, private messages, search, flood guards,
-online/unread tracking, and board stats **as built**.
+per-forum ACL (including the **This group only** preset), listing hygiene,
+attachments, private messages, search, flood guards, online/unread tracking,
+and board stats **as built**.
 
 The compact landing-page bullets are in
 [`../README.md`](../README.md). Admin screen map:
@@ -22,6 +23,9 @@ forum ACL relationship: [roles.md](roles.md). Pretty URLs:
 `class-ap-forum-read.php` (`AP_Forum_Read`),
 `class-ap-forum-attachment.php` (`AP_Forum_Attachment`),
 `class-ap-group.php` (`AP_Group`),
+`class-ap-feed.php` (`AP_Feed`),
+`class-ap-sitemap.php` (`AP_Sitemap`),
+`class-ap-rest.php` (`AP_Rest`),
 `class-ap-private-message.php` (`AP_Private_Message`),
 `class-ap-online.php` (`AP_Online`),
 `ap-admin/forums.php`, `forum-edit.php`, `forum-topics.php`,
@@ -72,6 +76,9 @@ Pretty permalinks (Settings → Permalinks, then
 | `/forums/{slug}/` | `?ap_forum_view=forum&forum_slug=` (resolved to `forum_id`) | Single forum (topic list) |
 | `/topic/{slug}/` | `?ap_forum_view=topic&topic_slug=` (resolved to `topic_id`) | Topic + replies |
 | `/forums/search/` and `/forums/search/{term}/` | `?ap_forum_view=search&forum_s=` | Forum search |
+| `/forums/feed/` · `/forums/feed/atom/` | `?ap_forum_view=index&feed=rss2` (or `atom`) | Board-index feed |
+| `/forums/{slug}/feed/` · `/forums/{slug}/feed/atom/` | `?ap_forum_view=forum&forum_id=&feed=` | Single-forum feed |
+| `/topic/{slug}/feed/` · `/topic/{slug}/feed/atom/` | `?ap_forum_view=topic&topic_id=&feed=` | Topic feed |
 
 Paged variants exist (`/forums/page/2/`, `/forums/{slug}/page/2/`,
 `/topic/{slug}/page/2/`, `/forums/search/{term}/page/2/`, …). Query vars
@@ -98,9 +105,12 @@ Custom themes override the same filenames in the child/parent stack
 `ap_forum_unlock_topic`, `ap_forum_set_topic_type`.
 
 Sitemaps include the board index, forums, and topics when the module is on
-(`AP_Sitemap` provider `forums`). `AP_Forum::getForums()` default excludes
-`forum_status=hidden` (open + closed public listings). Hidden forums are
-not listed as public forum URLs.
+(`AP_Sitemap` providers `forums` and `topics`). `AP_Forum::getForums()`
+default excludes `forum_status=hidden` (open + closed). Listing also
+follows `view_forum`: a **This group only** room, and an empty parent
+category that only held that room, stay off the public index, search,
+feeds, sitemap, REST, pretty URLs, and nav menus for anyone who cannot
+view it — [Listing hygiene](#listing-hygiene-view_forum).
 
 ### Front notices
 
@@ -160,13 +170,16 @@ pointers. **Posts** on a forum row = approved opening posts **plus** replies
 ACP: **Forums** (`forums.php`, cap `manage_forums`) is the tree + bulk
 delete. **Create / Edit** (`forum-edit.php`) sets type, status, parent,
 order, and `forum_access_level` (the [access-level](#groups-and-per-forum-acl)
-preset). Deleting a forum that still has children or topics fails unless
-`AP_Forum::deleteForum($id, true)` force-deletes (recursive children +
-permanent topic/post removal). There is **no** destination-URL field for
-`forum_type=link`.
+preset), including **This group only** plus a named-group picker
+(`forum_access_groups[]`). Deleting a forum that still has children or
+topics fails unless `AP_Forum::deleteForum($id, true)` force-deletes
+(recursive children + permanent topic/post removal). There is **no**
+destination-URL field for `forum_type=link`. ACP still lists every board
+(`include_hidden`), including group-only rooms guests cannot see.
 
 Menus can link to forums (Appearance → Menus). That is a nav item, not a
-second forum tree.
+second forum tree. Public render still requires `view_forum`; empty parent
+categories are omitted.
 
 ---
 
@@ -321,7 +334,11 @@ Seeded on install (virtual membership where noted):
 Named groups (ACP **Groups**, `forum-groups.php`, cap `manage_forums`) have
 types `open` | `closed` | `hidden` | `system` and member roles
 `member` | `moderator` | `leader`. System groups cannot be deleted like
-ordinary groups.
+ordinary groups. Hidden groups are not listed publicly and have
+**no public Join control**. Closed and system groups also fail
+`AP_Group::joinPublic()` / `ap_join_group_public()`; only `open` named
+groups may self-join via that API. Default Agora does **not** ship a Join
+button. Forums → Groups remains the roster (Add Member).
 
 ### Permission keys (`AP_Forum_Permissions`)
 
@@ -331,42 +348,93 @@ ordinary groups.
 
 ### Access-level presets (Forums → Edit)
 
-Field `forum_access_level` on `forum-edit.php`. ACP stores a preset plus an
-optional custom Guest / Registered / Moderator / Administrator matrix.
-Labels as built (`AP_Forum_Permissions`):
+Field `forum_access_level` on `forum-edit.php` (posted; **not** a column on
+`{prefix}forums`). ACP applies a preset to `{prefix}forum_permissions`, or
+a custom Guest / Registered / Moderator / Administrator matrix. Labels as
+built (`AP_Forum_Permissions`):
 
-| Preset (stored `forum_access_level`) | Effect |
+| Preset (posted `forum_access_level`) | Effect |
 |--------|--------|
 | Public (`public`) | Guests view/read; registered post/edit-own/attach; staff moderate |
 | Members only (`members`) | Hidden from guests; registered post; staff moderate |
 | Read only (members) (`members_readonly`) | Guests and members view/read only; only staff post |
 | Moderators only (`moderators`) | Hidden from guests and ordinary members |
 | Administrators only (`administrators`) | Administrators only |
-| This group only (`group_only`) | Named (non-system) group(s) plus administrators. Guests are denied. Does **not** stamp an explicit deny on virtual `registered` (that would lock group members out). Site-wide `moderate_forums` does not enter unless the user is also in a chosen group. |
+| This group only (`group_only`) | Named (non-system) group(s) plus administrators. See below. |
 | Custom (`custom`) | Per-level checkboxes for every permission |
+
+### This group only (`group_only`)
+
+Picker: one or more named groups (`forum_access_groups[]`). System groups
+are not listed. Open, closed, and hidden named groups are. Create groups
+under Forums → Groups, then return to Forums → Edit.
+
+| Surface | As built |
+|---------|----------|
+| Option `forum_group_only` (`AP_Forum_Permissions::OPTION_GROUP_ONLY`) | Map of `forum_id` → named group ids. Schema stays **12**. |
+| `{prefix}forum_permissions` | Guest **deny-all**. Chosen groups get registered-level **allow** (`view_forum`, `read_forum`, `post_topics`, `post_replies`, `edit_own`, `delete_own`, `attach_files`). Administrators **allow-all**. |
+| `AP_Forum_Permissions::applyGroupOnlyAccess()` | Writes those rows. Switching away from the preset clears those named-group rows and the `forum_group_only` entry. |
+
+Apply rules:
+
+- Deny guests.
+- Do **not** stamp an explicit deny on virtual `registered` or
+  `global_moderators`. Every logged-in member is also registered; a
+  member-moderator is also a global moderator. Explicit deny-wins would
+  lock the chosen audience out.
+- Allow the chosen named group(s) + administrators.
+- An empty picker still marks the forum as group-only so Edit
+  round-trips the preset. Then only `manage_forums` can enter.
+
+**Staff caveat:** `manage_forums` (Administrator) **always** allows and
+still sees the board in ACP. Site-wide `moderate_forums` (Editor+) does
+**not** walk into a `group_only` room unless the user is also in a chosen
+named group. A group member who also has `moderate_forums` gets the
+moderation-family permissions once inside.
 
 ### Resolution
 
 1. `manage_forums` (Administrator) **always** allows.
-2. `moderate_forums` (Editor+) grants the moderation-family permissions
+2. On a `group_only` forum, anyone not in a chosen named group (and not
+   `manage_forums`) is denied **before** the `moderate_forums` shortcut.
+3. `moderate_forums` (Editor+) grants the moderation-family permissions
    (`moderate_forum`, sticky/announce/lock/move, edit_own, delete_own) on
-   forums the user can already `view_forum`. It does **not** walk into a
-   `group_only` room unless the user is in a chosen group.
-3. Collect effective groups (explicit membership + virtual system groups).
-4. Forum-specific rows override global (`forum_id = 0`).
-5. Explicit group **deny** wins; else explicit **allow** (so a VIP group can
+   forums the user can already `view_forum`.
+4. Collect effective groups (explicit membership + virtual system groups).
+5. Forum-specific rows override global (`forum_id = 0`).
+6. Explicit group **deny** wins; else explicit **allow** (so a VIP group can
    open a forum that registered users cannot see); else any remaining allow.
 
 Closed forums do not by themselves block view/read. Hidden forums still
 need `view_forum`.
 
+### Listing hygiene (`view_forum`)
+
 Anyone without `view_forum` does not see that forum, or an empty parent
-category, on the board index (`AP_Forum::getIndexData()`, Agora
-`forum.php`) or in forum search (`AP_Forum::search()` with
-`check_permissions`, Agora `forum-search.php`). Opening a forum or topic
-URL they cannot view — including a search scoped to that board — is a
-generic 404: “You cannot view this.” The response does not include the
-board name or slug.
+category that only contained unlistable children. Helpers:
+`AP_Forum::getListableForums()`, `AP_Forum::isListableToUser()`,
+`ap_get_listable_forums()`, `ap_forum_is_listable_to_user()`.
+
+A direct URL the viewer cannot list is a generic 404: “You cannot view
+this.” (`AP_Forum_Front::CANNOT_VIEW_MESSAGE`). The response does **not**
+include the board name or slug. Query flags: `ap_forum_cannot_view`,
+`ap_forum_cannot_view_message`, `is_404`. `forum_name`, `forum_slug`,
+`forum_desc`, `forum_s`, and topic title/slug are cleared so themes and
+SEO cannot teaser the room.
+
+| Surface | As built |
+|---------|----------|
+| Board index | `AP_Forum::getIndexData()`, Agora `forum.php`. Unlistable children omitted; a parent category with no remaining visible forum/link is dropped. |
+| Pretty URLs | `/forums/{slug}/`, `/topic/{slug}/` — generic 404 above. |
+| Search | `AP_Forum::search()` with `check_permissions` (Agora `forum-search.php`). Hits only in forums the viewer may list. A search scoped to an unlistable board is the same generic 404, not an empty result that would confirm the slug. |
+| Feeds | `/forums/feed/`, `/forums/{slug}/feed/`, `/topic/{slug}/feed/` (`AP_Feed`). Index items omit unlistable boards. A direct forum/topic feed the viewer cannot list is **HTML** 404 “You cannot view this.” — never RSS/Atom whose `<title>` or self URL would name the room. |
+| Sitemap | `AP_Sitemap` providers `forums` and `topics` use listable rows for the current viewer (crawlers are guests). Direct unlistable forum/topic sitemap URLs are the same HTML 404, not XML. `forum_type=link` is skipped in the forums urlset. |
+| REST | See [REST and CLI](#rest-and-cli). List uses `getListableForums`. Single get and a topics list scoped to a board: JSON 404 `rest_cannot_view` / “You cannot view this.” Missing and unlistable share that code so clients cannot probe ids or names. |
+| Nav menus | Forum items require `view_forum`; empty parent categories are omitted (`AP_Nav_Menu`). |
+
+ACP Forums / Edit still lists every board (`include_hidden`).
+Authenticated `manage_forums` can open group-only rooms on the front and
+via REST.
 
 Site-wide checkboxes on Settings → Forums
 (`forum_allow_guest_viewing` default **on**,
@@ -446,7 +514,7 @@ returns empty unless `force` is set (not used by the public front).
 | URL | `/forums/search/` or `?ap_forum_view=search` |
 | Query var | `forum_s` (pretty path segment is URL-encoded) |
 | Scope | Topic titles and post bodies (`type` `topics` / `posts` / `all`) |
-| ACL | Only forums the user may read; empty allowed set → no hits |
+| ACL | Only forums the user may `view_forum`; empty allowed set → no hits. Scoped search of an unlistable board is the generic 404 in [Listing hygiene](#listing-hygiene-view_forum), not an empty hit list. |
 | Page size | 20, filter `ap_forum_search_per_page` (clamped 1–100) |
 | Term | Trimmed, max 200 characters |
 
@@ -565,19 +633,21 @@ registered; handlers 404 when the module is off.
 
 | Method | Route | As built |
 |--------|-------|----------|
-| `GET` | `/ap-json/ap/v1/forums` | Open rows only (`AP_Forum::getForums(['status' => 'open'])`) — categories, forums, and links with `forum_status=open`. Closed and hidden omitted. |
-| `GET` | `/ap-json/ap/v1/forums/{id}` | One forum by id. **No** ACL. Missing → `rest_forum_invalid_id`. Hidden/closed still returned if the row exists. |
-| `GET` | `/ap-json/ap/v1/topics` | `forum` / `forum_id` lists that forum’s **open** topics; without it, approved topics via `AP_Forum::queryTopics`. `page` default 1, `per_page` default **20** (max 100). |
-| `GET` | `/ap-json/ap/v1/topics/{id}` | One topic by id (`AP_Forum::getTopic` — no status filter). Missing → `rest_topic_invalid_id`. |
+| `GET` | `/ap-json/ap/v1/forums` | `AP_Forum::getListableForums()` for the REST user (guest when unauthenticated). Omits `forum_status=hidden` (same default as `getForums()`), forums the viewer cannot `view_forum`, and empty parent categories. Closed boards still appear when listable. Group-only rooms are omitted for guests and non-members. **No** pagination. |
+| `GET` | `/ap-json/ap/v1/forums/{id}` | One forum by id when `isListableToUser`. Otherwise JSON **404** `rest_cannot_view` (“You cannot view this.”) — missing and unlistable share that code. |
+| `GET` | `/ap-json/ap/v1/topics` | `forum` / `forum_id` lists that forum’s **open** topics (`status=open`) after the same listable check; unlistable scope → `rest_cannot_view`. Without a forum id, approved topics via `AP_Forum::queryTopics` with `check_permissions`. `page` default 1, `per_page` default **20** (max 100). |
+| `GET` | `/ap-json/ap/v1/topics/{id}` | One topic by id when its forum is listable. Missing topic or unlistable forum → `rest_cannot_view`. |
 
 When the Forum module is off, those handlers return JSON **404**
 `rest_module_disabled` with message `Forum module is disabled.`
 
-`permission_callback` is always true (public). Forum payload:
+`permission_callback` is always true (the route is registered publicly).
+Handlers apply listing hygiene themselves. Forum payload:
 `id`, `name`, `slug`, `description`, `parent`, `type`, `status`,
 `topic_count`, `post_count`, `link`. Topic payload: `id`, `forum`,
 `title`, `slug`, `status`, `type`, `author`, `post_count`, `views`,
 `link`, `date`. There is **no** REST create/reply/like/moderate/PM.
+Core does **not** emit `rest_forum_invalid_id` or `rest_topic_invalid_id`.
 
 There is **no** `php ap-cli forum` (or topic/post-in-forum) command group.
 Toggle the module with `php ap-cli option get|set ap_module_forum`.
@@ -639,7 +709,13 @@ Do not tell operators these exist in AgoraPress core:
 
 - A `php ap-cli forum` (or PM / like / moderate) verb
 - REST write endpoints for topics, replies, likes, or PMs
-- REST list of closed or hidden forums (`GET /forums` is `status=open` only)
+- REST codes `rest_forum_invalid_id` / `rest_topic_invalid_id` (missing and
+  unlistable both return `rest_cannot_view`)
+- A REST, feed, or sitemap body that names a board the viewer cannot
+  `view_forum`
+- A public group Join button on default Agora (`AP_Group::joinPublic()`
+  exists for `open` named groups only; hidden / closed / system fail;
+  Forums → Groups is the roster)
 - A shipped Agora inbox / compose page or `/messages/` rewrite
 - A “Who’s online” block on the default board index (tracking API only)
 - A “Mark all as read” / “Mark forum read” button on default Agora

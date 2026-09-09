@@ -258,6 +258,13 @@ PHP;
         $this->assertStringContainsString('noreply@example.com', $src);
         $this->assertStringContainsString('your-smtp-password-here', $src);
         $this->assertStringNotContainsString('mail.0shits.com', $src);
+        foreach (['Roland', 'stallboy', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $src,
+                "ap-config-sample.php must not contain private marker: {$banned}"
+            );
+        }
         $this->assertDoesNotMatchRegularExpression(
             '/^\s*define\s*\(\s*[\'"]AP_SMTP_PASS[\'"]/m',
             $src,

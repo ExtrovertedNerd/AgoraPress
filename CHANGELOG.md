@@ -39,7 +39,7 @@ ACP Edit User loads the selected account, not the logged-in admin. No schema cha
 
 ### Fixed
 
-- **ACP Edit User form:** `admin-header.php` assigned `$user` to the current admin, overwriting the target loaded in `user-edit.php`. Header now uses `$ap_admin_user`; Edit User keeps `$editUser` so fields show the selected user (e.g. stallboy), not Admin.
+- **ACP Edit User form:** `admin-header.php` assigned `$user` to the current admin, overwriting the target loaded in `user-edit.php`. Header now uses `$ap_admin_user`; Edit User keeps `$editUser` so fields show the selected user, not the logged-in administrator.
 
 ### Tests
 

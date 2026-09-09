@@ -146,7 +146,7 @@ final class DeveloperDocsTest extends TestCase
         $this->assertStringContainsStringIgnoringCase('do not invent', $index);
         $this->assertStringContainsStringIgnoringCase('not in core', $index);
         $this->assertStringContainsString('bot_handbook.md', $index);
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $index,
@@ -269,6 +269,8 @@ final class DeveloperDocsTest extends TestCase
                 'session.save_path',
                 'example.com',
                 'admin@example.com',
+                'noreply@example.com',
+                'smtp.example.com',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -325,7 +327,7 @@ final class DeveloperDocsTest extends TestCase
             || str_contains($lower, 'do **not invent**'),
             'docs/bot_handbook.md should say do not invent surfaces'
         );
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -379,6 +381,8 @@ final class DeveloperDocsTest extends TestCase
                 'version.json',
                 'example.com',
                 'admin@example.com',
+                'noreply@example.com',
+                'smtp.example.com',
                 '/var/www/agorapress',
                 'session.save_path',
                 'php-fpm',
@@ -540,6 +544,22 @@ final class DeveloperDocsTest extends TestCase
                 '/%postname%/',
                 'Month and name',
                 'Post name',
+                'ap_mail_send',
+                'ap_user_created',
+                'ap_reserved_usernames',
+                'ap_registration_captcha_mode',
+                'forum_group_only',
+                'This group only',
+                'group_only',
+                'forum_access_groups',
+                'rest_cannot_view',
+                'ap_form_ticket',
+                'ap_hp',
+                'wp_mail',
+                'PHPMailer',
+                'hCaptcha',
+                'AP_MAIL_FROM_EMAIL',
+                'AP_SMTP_HOST',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -676,11 +696,61 @@ final class DeveloperDocsTest extends TestCase
             );
         }
 
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
                 "docs/features_and_functions.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testCatalogCoversMailRegisterGateAndGroupOnly(): void
+    {
+        $text = $this->readDoc('features_and_functions.md');
+        foreach ($this->mailOverrideConstantsFromPhp() as $const) {
+            $this->assertStringContainsString(
+                $const,
+                $text,
+                "docs/features_and_functions.md must name mail override constant {$const}"
+            );
+        }
+        foreach (
+            [
+                'ap_mail_send',
+                'wp_mail',
+                'options-mail.php',
+                'mail_from_email',
+                'mail_transport',
+                'smtp_encryption',
+                'mail_last_error',
+                'rate_limit_mail_max',
+                'ap_user_created',
+                'ap_reserved_usernames',
+                'ap_registration_captcha_mode',
+                'ap_registration_captcha_challenge',
+                'ap_registration_verify_captcha',
+                'ap_registration_captcha_fields',
+                'registration_captcha',
+                'reserved_usernames',
+                'ap_form_ticket',
+                'ap_hp',
+                'ap_guard_ack',
+                'register-guard.js',
+                'This group only',
+                'group_only',
+                'forum_group_only',
+                'forum_access_groups',
+                'rest_cannot_view',
+                'PHPMailer',
+                'hCaptcha',
+                'Turnstile',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/features_and_functions.md missing: {$needle}"
             );
         }
     }
@@ -805,6 +875,11 @@ final class DeveloperDocsTest extends TestCase
                 'ap_moderation_topic_soft_deleted',
                 'ap_reserved_usernames',
                 'ap_user_created',
+                'ap_mail_send',
+                'ap_registration_captcha_mode',
+                'ap_registration_captcha_challenge',
+                'ap_registration_verify_captcha',
+                'ap_registration_captcha_fields',
                 'That username is not available.',
                 'map target',
                 'user_has_cap',
@@ -826,6 +901,64 @@ final class DeveloperDocsTest extends TestCase
             || str_contains(strtolower($text), 'no `user_has_cap`'),
             'hooks.md must not invent user_has_cap as a core hook'
         );
+    }
+
+    public function testHooksDocCoversMailRegisterAndCaptcha(): void
+    {
+        $doc = $this->readDoc('hooks.md');
+        $selected = explode('## Grep for the rest', $doc, 2)[0];
+        $this->assertNotSame('', trim($selected), 'hooks.md must have a selected-hooks section');
+
+        foreach (
+            [
+                'ap_mail_send',
+                'ap_user_created',
+                'ap_reserved_usernames',
+                'ap_registration_captcha_mode',
+                'ap_registration_captcha_challenge',
+                'ap_registration_verify_captcha',
+                'ap_registration_captcha_fields',
+            ] as $name
+        ) {
+            $this->assertStringContainsString(
+                '`' . $name . '`',
+                $selected,
+                "hooks.md selected table must name {$name}"
+            );
+            $foundRow = false;
+            foreach (preg_split('/\R/', $selected) as $line) {
+                if (str_starts_with(ltrim((string) $line), '|') && str_contains((string) $line, '`' . $name . '`')) {
+                    $foundRow = true;
+                    break;
+                }
+            }
+            $this->assertTrue(
+                $foundRow,
+                "hooks.md must list {$name} as a selected hook row, not only a grep note"
+            );
+        }
+
+        $lower = strtolower($selected);
+        foreach (
+            [
+                'that username is not available.',
+                'accepted_args',
+                'status_pending',
+                'registration_captcha',
+                'hcaptcha',
+                'turnstile',
+                'text/plain',
+                'no valid recipients',
+                'rate limit blocks',
+                'plugin-supplied',
+            ] as $phrase
+        ) {
+            $this->assertStringContainsString(
+                $phrase,
+                $lower,
+                "hooks.md mail/register section missing: {$phrase}"
+            );
+        }
     }
 
     public function testHooksDocSelectedNamesExistInCode(): void
@@ -1226,7 +1359,7 @@ final class DeveloperDocsTest extends TestCase
             || str_contains($text, 'exit 0'),
             'install.md should document CLI installer exit codes'
         );
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -1284,7 +1417,7 @@ final class DeveloperDocsTest extends TestCase
             $text,
             'docs/rewrites.md must contain the shipped nginx try_files pattern'
         );
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -1371,7 +1504,7 @@ final class DeveloperDocsTest extends TestCase
                 "updates.md must name package-release flag {$docFlag}"
             );
         }
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -1457,7 +1590,7 @@ final class DeveloperDocsTest extends TestCase
         }
         $this->assertStringContainsString('php ap-cli core update', $text);
         $this->assertStringContainsString('`--format=json` always exits `0`', $text);
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -1574,6 +1707,22 @@ final class DeveloperDocsTest extends TestCase
                 'Activate account',
                 'ap_activate_account',
                 'activate-user-',
+                'admin-resend',
+                'ap_form_ticket',
+                'ap_guard_ack',
+                'register-guard.js',
+                'smtp.example.com',
+                'noreply@example.com',
+                'AP_MAIL_FROM_EMAIL',
+                'AP_SMTP_HOST',
+                'PHPMailer',
+                'hCaptcha',
+                'Human check',
+                'This group only',
+                'text/plain',
+                'Could not complete registration. Please try again.',
+                'Your account was created, but the verification email could not be sent.',
+                'verification_resent',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1583,11 +1732,31 @@ final class DeveloperDocsTest extends TestCase
             );
         }
         $this->assertStringContainsString('AP_Admin::COLOR_MODE_META', $text);
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
                 "docs/admin.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testAdminDocListsLockedReservedLoginsAndMailConstants(): void
+    {
+        $text = $this->readDoc('admin.md');
+        $lower = strtolower($text);
+        foreach ($this->reservedLoginsFromPhp() as $login) {
+            $this->assertStringContainsString(
+                strtolower((string) $login),
+                $lower,
+                "docs/admin.md must list locked reserved login {$login}"
+            );
+        }
+        foreach ($this->mailOverrideConstantsFromPhp() as $const) {
+            $this->assertStringContainsString(
+                (string) $const,
+                $text,
+                "docs/admin.md must name mail override constant {$const}"
             );
         }
     }
@@ -1670,6 +1839,16 @@ final class DeveloperDocsTest extends TestCase
                 'Log in to like posts.',
                 '10485760',
                 'ap_forum_session',
+                'This group only',
+                'group_only',
+                'forum_group_only',
+                'forum_access_groups',
+                'rest_cannot_view',
+                'You cannot view this.',
+                'ap_forum_cannot_view',
+                '/forums/feed/',
+                'getListableForums',
+                'no public Join',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1678,7 +1857,7 @@ final class DeveloperDocsTest extends TestCase
                 "forums.md should mention: {$needle}"
             );
         }
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -1758,7 +1937,7 @@ final class DeveloperDocsTest extends TestCase
                 "roles.md should mention: {$needle}"
             );
         }
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -1835,7 +2014,7 @@ final class DeveloperDocsTest extends TestCase
                 "rest.md should mention: {$needle}"
             );
         }
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -1891,6 +2070,30 @@ final class DeveloperDocsTest extends TestCase
                 'AP_TRUST_PROXY',
                 'That username is not available.',
                 'activatePendingUser',
+                'anti-squat',
+                'PHPMailer',
+                'hCaptcha',
+                'Turnstile',
+                'ap_form_ticket',
+                'ap_hp',
+                'smtp.example.com',
+                'noreply@example.com',
+                'AP_MAIL_FROM_EMAIL',
+                'AP_SMTP_HOST',
+                'AP_SMTP_PASS',
+                'Human check',
+                'stream_socket_client',
+                'Settings → Mail',
+                'options-mail.php',
+                'text/plain',
+                'ap_reserved_usernames',
+                'ap_user_created',
+                'Could not complete registration. Please try again.',
+                'AUTH PLAIN',
+                'register-guard.js',
+                'ap_guard_ack',
+                'Silas',
+                'not 2FA',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1899,13 +2102,39 @@ final class DeveloperDocsTest extends TestCase
                 "security.md should mention: {$needle}"
             );
         }
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
                 "docs/security.md must not contain private marker: {$banned}"
             );
         }
+    }
+
+    public function testSecurityDocListsMailRegisterGateAndReservedNames(): void
+    {
+        $text = $this->readDoc('security.md');
+        $lower = strtolower($text);
+        foreach ($this->reservedLoginsFromPhp() as $login) {
+            $this->assertStringContainsString(
+                strtolower((string) $login),
+                $lower,
+                "docs/security.md must list locked reserved login {$login}"
+            );
+        }
+        foreach ($this->mailOverrideConstantsFromPhp() as $const) {
+            $this->assertStringContainsString(
+                (string) $const,
+                $text,
+                "docs/security.md must name mail override constant {$const}"
+            );
+        }
+        $this->assertStringContainsStringIgnoringCase('anti-squat', $text);
+        $this->assertStringContainsStringIgnoringCase('not 2FA', $text);
+        $this->assertStringContainsStringIgnoringCase('PHPMailer', $text);
+        $this->assertStringContainsStringIgnoringCase('hCaptcha', $text);
+        $this->assertStringContainsStringIgnoringCase('Turnstile', $text);
+        $this->assertStringContainsStringIgnoringCase('stream_socket_client', $text);
     }
 
     public function testTroubleshootingDocCoversSymptomList(): void
@@ -1970,6 +2199,21 @@ final class DeveloperDocsTest extends TestCase
                 'AP_DB_VERSION',
                 'Activate account',
                 'Resend verification',
+                'spam folder',
+                'smtp.example.com',
+                'noreply@example.com',
+                'You cannot view this.',
+                'This group only',
+                'group_only',
+                'view_forum',
+                'Members only',
+                'rest_cannot_view',
+                'forum_group_only',
+                '24 hours',
+                'login.php?action=resend',
+                'stream_socket_client',
+                'check your email',
+                'forum_allow_guest_viewing',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1978,7 +2222,7 @@ final class DeveloperDocsTest extends TestCase
                 "troubleshooting.md should mention: {$needle}"
             );
         }
-        foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $text,
@@ -1990,6 +2234,37 @@ final class DeveloperDocsTest extends TestCase
             $text,
             'docs/troubleshooting.md must not name private accounts'
         );
+    }
+
+    public function testTroubleshootingCoversVerificationMailAndGroupAcl(): void
+    {
+        $text = $this->readDoc('troubleshooting.md');
+        $this->assertMatchesRegularExpression('/(?im)^##\\s+Mail not arriving\\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\\s+Group board invisible\\s*$/', $text);
+        $this->assertStringContainsStringIgnoringCase('verification mail never arrives', $text);
+        $this->assertStringContainsStringIgnoringCase('spam', $text);
+        $this->assertStringContainsStringIgnoringCase('smtp', $text);
+        $this->assertStringContainsStringIgnoringCase('does **not** print', $text);
+        $this->assertStringContainsStringIgnoringCase('check your email', $text);
+        $this->assertStringContainsString('You cannot view this.', $text);
+        $this->assertStringContainsString('This group only', $text);
+        $this->assertStringContainsString('`group_only`', $text);
+        $this->assertStringContainsString('`view_forum`', $text);
+        $this->assertStringContainsStringIgnoringCase('Members only', $text);
+        $this->assertStringContainsStringIgnoringCase('every logged-in', $text);
+        $this->assertStringContainsString('rest_cannot_view', $text);
+        $this->assertStringContainsString('moderate_forums', $text);
+        $this->assertStringContainsString('manage_forums', $text);
+        $this->assertStringContainsStringIgnoringCase('no public Join', $text);
+        $this->assertStringContainsString('smtp.example.com', $text);
+        $this->assertStringContainsString('noreply@example.com', $text);
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/troubleshooting.md must not contain private marker: {$banned}"
+            );
+        }
     }
 
     public function testReadmeLinksDeveloperDocs(): void
@@ -2109,6 +2384,45 @@ final class DeveloperDocsTest extends TestCase
         );
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function reservedLoginsFromPhp(): array
+    {
+        $regSrc = (string) file_get_contents(
+            dirname(__DIR__, 2) . '/ap-includes/class-ap-registration.php'
+        );
+        $this->assertNotSame('', $regSrc);
+        $this->assertSame(
+            1,
+            preg_match('/public const RESERVED_LOGINS = \[(.*?)\];/s', $regSrc, $m)
+        );
+        preg_match_all("/'([^']+)'/", $m[1], $logins);
+        $this->assertNotSame([], $logins[1], 'RESERVED_LOGINS should parse');
+
+        return $logins[1];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function mailOverrideConstantsFromPhp(): array
+    {
+        $mailSrc = (string) file_get_contents(
+            dirname(__DIR__, 2) . '/ap-includes/class-ap-mail.php'
+        );
+        $this->assertNotSame('', $mailSrc);
+        $start = strpos($mailSrc, 'function configConstantName');
+        $this->assertNotFalse($start);
+        $end = strpos($mailSrc, 'default => null', $start);
+        $this->assertNotFalse($end);
+        $block = substr($mailSrc, $start, $end - $start);
+        preg_match_all("/'(AP_(?:MAIL|SMTP)_[A-Z_]+)'/", $block, $consts);
+        $this->assertNotSame([], $consts[1], 'mail override constants should parse');
+
+        return $consts[1];
     }
 
     private function readDoc(string $relative): string

@@ -534,8 +534,9 @@ In short:
 - Strong admin password, modules, menus, privacy policy, Site Health.
 
 Generic examples in this guide (`example.com`, `localhost`,
-`admin@example.com`, `/var/www/agorapress`) are **examples**. Do not copy
-private host paths into public docs or tickets.
+`admin@example.com`, `noreply@example.com`, `smtp.example.com`,
+`/var/www/agorapress`) are **examples**. Do not copy private host paths
+into public docs or tickets.
 
 ---
 

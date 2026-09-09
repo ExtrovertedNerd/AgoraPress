@@ -766,8 +766,9 @@ php ap-cli site health --format=json
 ```
 
 Generic paths only: `example.com`, `https://your-domain.example`,
-`admin@example.com`, `/var/www/agorapress` (the last already appears in
-shipped `docker/nginx.conf.example`).
+`admin@example.com`, `noreply@example.com`, `smtp.example.com`,
+`/var/www/agorapress` (the last already appears in shipped
+`docker/nginx.conf.example`).
 
 ---
 

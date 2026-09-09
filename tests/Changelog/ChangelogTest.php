@@ -257,6 +257,17 @@ final class ChangelogTest extends TestCase
         }
     }
 
+    public function testChangelogContainsNoPrivateMarkers(): void
+    {
+        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $this->changelog,
+                "CHANGELOG.md must not contain private marker: {$banned}"
+            );
+        }
+    }
+
     public function testDocsPassDoesNotBumpApVersion(): void
     {
         $versionPath = $this->root . '/ap-includes/version.php';

@@ -59,7 +59,8 @@ This repository is **public**. Everything under `docs/` and the root
   [https://agorapress.extrovertednerd.com](https://agorapress.extrovertednerd.com)
   and its `version.json`
 - Generic examples: `example.com`, `https://your-domain.example`,
-  `admin@example.com`, `localhost`
+  `admin@example.com`, `noreply@example.com`, `smtp.example.com`,
+  `localhost`
 - `/var/www/agorapress` (already used in shipped `docker/nginx.conf.example`)
 - Generic mechanisms, stated without a private install: nginx `try_files`,
   PHP `session.save_path` must be writable by the php-fpm user, permalinks

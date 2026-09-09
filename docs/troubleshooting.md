@@ -14,17 +14,23 @@ the shipped code, say it is **not in core**.
 `ap-includes/class-ap-options.php`, `ap-includes/class-ap-media.php`,
 `ap-includes/class-ap-session.php`, `ap-includes/class-ap-site-health.php`,
 `ap-includes/class-ap-user.php`, `ap-includes/class-ap-core-updater.php`,
-`ap-includes/class-ap-rate-limit.php`, `ap-includes/functions.php`
-(`ap_handle_comment_form_post`), `ap-admin/user-edit.php`,
-`ap-admin/admin-header.php`, `ap-admin/login.php`,
+`ap-includes/class-ap-rate-limit.php`, `ap-includes/class-ap-mail.php`,
+`ap-includes/class-ap-smtp.php`, `ap-includes/class-ap-registration.php`,
+`ap-includes/class-ap-forum.php`, `ap-includes/class-ap-forum-front.php`,
+`ap-includes/class-ap-forum-permissions.php`, `ap-includes/class-ap-group.php`,
+`ap-includes/functions.php` (`ap_handle_comment_form_post`),
+`ap-admin/user-edit.php`, `ap-admin/admin-header.php`,
+`ap-admin/login.php`, `ap-admin/options-mail.php`,
 `ap-admin/options-modules.php`, `ap-admin/options-permalink.php`,
+`ap-admin/forum-edit.php`, `ap-admin/forum-groups.php`,
 `ap-admin/site-health.php`, `ap-includes/compatibility/`,
 [`.htaccess`](../.htaccess),
 [`docker/nginx.conf.example`](../docker/nginx.conf.example),
 [`docker/apache-vhost.conf`](../docker/apache-vhost.conf).
 
 Generic examples only (`example.com`, `localhost`, `admin@example.com`,
-`/var/www/agorapress`). Document **mechanisms**, not a private install.
+`noreply@example.com`, `smtp.example.com`, `/var/www/agorapress`).
+Document **mechanisms**, not a private install.
 
 ---
 
@@ -55,12 +61,14 @@ host configuration.
 | Pretty URL 404 (`/slug/`, `/YYYY/MM/DD/slug/`) while `?p=` still works | Front controller missing: Apache `mod_rewrite` + shipped [`.htaccess`](../.htaccess), or nginx `try_files $uri $uri/ /index.php?$args` | [rewrites.md](rewrites.md). Flush only after the web server reaches `index.php`. If `/about/` shows the **home page**, permalinks are still **Plain**. |
 | Web installer “Invalid security token”, or you bounce back to requirements after POST | PHP `session.save_path` not writable by the **php-fpm** (or Apache PHP) user | [security.md](security.md#php-sessionsave_path), [install.md](install.md#web-installer) |
 | Media upload or Site Icon fails | `ap-content/uploads/` (and year/month subdirs) must be writable by PHP; Site Icon also needs **GD or Imagick** and a raster image | [install.md](install.md#permissions), [site-icon.md](site-icon.md) |
-| Forum / blog / pages “missing” from menus or ACP | **Settings → Modules** (`options-modules.php`). Options `ap_module_static_pages`, `ap_module_blog`, `ap_module_forum` | At least one module must stay on. Front `/forums/` is an empty state, not a web-server 404. |
+| Forum / blog / pages “missing” from menus or ACP | **Settings → Modules** (`options-modules.php`). Options `ap_module_static_pages`, `ap_module_blog`, `ap_module_forum` | At least one module must stay on. Front `/forums/` is an empty state, not a web-server 404. If **one** board is missing while `/forums/` works, that is ACL — [Group board invisible](#group-board-invisible). |
+| Group board invisible (index / search / feed / sitemap / REST) or generic “You cannot view this.” | Per-forum ACL (`view_forum`), usually **This group only** (`group_only`) — not the Forum module toggle and not a rewrite 404 | [Group board invisible](#group-board-invisible), [forums.md](forums.md#this-group-only-group_only) |
+| “Members only” but every logged-in user can see the board | **Members only** is all registered accounts. A named group uses **This group only** | [Group board invisible](#group-board-invisible) |
 | Classic WP theme looks broken | Compat layer is for **classic PHP** themes. Block / FSE (`theme.json`, HTML under `templates/`) is out of scope | [compatibility.md](compatibility.md) |
 | REST 404 on `/ap-json/` or `?rest_route=` | Front controller (pretty `/ap-json/…`) **and** option `rest_api_enabled` | Distinguish a web-server HTML 404 from JSON `rest_disabled` / `rest_no_route` / `rest_module_disabled`. [rest.md](rest.md) |
 | Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.6-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
 | Login rejected / “too many attempts” / “verify your email” | Rate limit (`rate_limited`) or `require_email_verification` — not a broken `session.save_path` | [Login fails](#login-fails), [security.md](security.md), [roles.md](roles.md) |
-| Mail not arriving (verification / reset / test) | **Tools → Site Health** outbound-mail check and Settings → Mail last error (`mail_last_error`) | [Mail not arriving](#mail-not-arriving) |
+| Verification mail never arrives (reset / test too) | SMTP (or PHP `mail()`) on **Settings → Mail**; check the **spam** folder (new sending server); Site Health `mail_last_error` | [Mail not arriving](#mail-not-arriving) |
 | Admin screens look “old schema” after a zip/rsync, or Update Core is greyed | `php ap-cli db check` then `php ap-cli db migrate`. Pre-flight: `version_check_enabled`, ZipArchive, writable root | [updates.md](updates.md) |
 
 Each row is expanded below.
@@ -239,6 +247,11 @@ There is **no** `php ap-cli module` verb. Use **Settings → Modules** or
 `option get` / `option set`. Depth: [forums.md](forums.md#module-off),
 [admin.md](admin.md).
 
+If the Forum module is **on** and `/forums/` itself works, but **one**
+board (or an empty parent category that only held that board) is missing,
+that is **ACL**, not this toggle —
+[Group board invisible](#group-board-invisible).
+
 ---
 
 ## Compat theme looks broken
@@ -360,7 +373,7 @@ action is `admin-login` (`AP_Nonce`). Success sets a signed auth cookie
 | What you see | Meaning | Check |
 |--------------|---------|--------|
 | `Too many failed login attempts. Please try again later.` (code `rate_limited`) | Transient-backed IP + identity lockout (`AP_Rate_Limit::checkLogin`) | Wait; there is **no** core unlock CLI. [security.md](security.md) |
-| `Please verify your email address before logging in.` | Account `user_status` is pending and `require_email_verification` is on | Settings → General; confirmation mail. Fresh install seeds that option **on**. An administrator can **Activate** the account from Users (`users.php` row action or Users → Edit **Activate account**) without the email link. That path does not lift a forum ban. |
+| `Please verify your email address before logging in.` | Account `user_status` is pending and `require_email_verification` is on | Settings → General; confirmation mail. Fresh install seeds that option **on**. If the message never arrived: [Mail not arriving](#mail-not-arriving) (SMTP / spam, public `login.php?action=resend`). An administrator can **Activate** the account from Users (`users.php` row action or Users → Edit **Activate account**) without the email link. That path does not lift a forum ban. |
 | `Invalid username or password.` | Credentials, or the account does not exist | Caps / roles: [roles.md](roles.md). |
 | `Could not establish a session. Please try again.` | Signed cookie could not be set (`AP_Session::setAuthCookie` failed) | Browser cookies; `AP_LOGGED_IN_KEY` / `AP_LOGGED_IN_SALT` in `ap-config.php`. |
 | `Security check failed. Please try again.` | Login form nonce failed | Reload the form; do not cache `login.php`. |
@@ -369,8 +382,20 @@ action is `admin-login` (`AP_Nonce`). Success sets a signed auth cookie
 
 ## Mail not arriving
 
-**Symptom:** a verification message, password-reset mail, or Settings → Mail
-test never appears in the inbox.
+**Symptom:** a **verification** message never arrives (same checks for
+password-reset mail and the Settings → Mail test).
+
+**First:** the transport on **Settings → Mail** (`php` or `smtp`), then the
+recipient’s **spam** folder. Verification and reset bodies are text/plain
+and already say the link expires in **24 hours** and to check spam — a
+newly configured sending server is often untrusted.
+
+Do **not** treat “check your email” as proof the message left the server.
+If `require_email_verification` is on and `AP_Mail::send()` fails,
+registration **keeps** the pending user and does **not** print that
+success copy. The register screen says “Your account was created, but the
+verification email could not be sent.” and switches to public
+**Resend verification** (`login.php?action=resend`).
 
 **Tools → Site Health** reports the configured transport (`php` or `smtp`)
 and the stored last error (`mail_last_error`). That check does **not** send
@@ -381,25 +406,89 @@ a test message (Site Health never transmits data off-site).
    `admin_email`) and transport.
 3. For SMTP: host (example `smtp.example.com`), port, encryption
    (`none` / `tls` / `ssl`), username. The password field is write-only.
-4. Use **Send test email to admin_email**. A failure is stored as
-   `mail_last_error` and shown on that screen and on Site Health.
+   Native client (`AP_SMTP`, `stream_socket_client`): AUTH PLAIN / LOGIN,
+   STARTTLS `tls` usually port 587, SMTPS `ssl` usually port 465.
+4. Use **Send test email to admin_email**. That hits General `admin_email`,
+   not From email. A failure is stored as `mail_last_error` and shown on
+   that screen and on Site Health.
 5. If last error is `Too many attempts. Please try again in …`, outbound
    mail hit the `mail` rate limit (IP + recipient, default 20/hour). Wait,
    or raise `rate_limit_mail_max` via `php ap-cli option set` —
    [security.md](security.md). There is **no** core unlock CLI.
-6. Check the spam folder. A newly configured sending server is often
-   untrusted.
-7. When defined in `ap-config.php`, `AP_MAIL_TRANSPORT`, `AP_SMTP_HOST`,
+6. Check the spam folder. The mailed body itself tells the recipient to
+   do this when the sending server may be new.
+7. When defined in `ap-config.php`, `AP_MAIL_FROM_NAME`,
+   `AP_MAIL_FROM_EMAIL`, `AP_MAIL_TRANSPORT`, `AP_SMTP_HOST`,
    `AP_SMTP_PORT`, `AP_SMTP_ENCRYPTION`, `AP_SMTP_USER`, and `AP_SMTP_PASS`
    override the options table. `ap-config-sample.php` documents the names
-   as comments — never a real password.
-8. For a pending account whose confirmation never arrived: **Users → Edit**
-   has **Resend verification** and **Activate account**. The users list
-   shows a **Pending** label and an **Activate** row action. Activate
-   skips the emailed key; it does not lift a forum ban.
+   as comments — never a real password. There is **no** Reply-To constant.
+8. For a pending account whose confirmation never arrived: public
+   `login.php?action=resend`, or **Users → Edit** **Resend verification**
+   and **Activate account**. The users list shows a **Pending** label and
+   an **Activate** row action. Activate skips the emailed key; it does not
+   lift a forum ban. Public resend success copy is generic (no account
+   enumeration). A real `send()` failure is reported honestly.
 
 PHP `mail()` delivery depends on the host MTA. There is **no** PHPMailer
-in core.
+in core, **no** HTML mail, and **no** comment-subscription mail. Depth:
+[admin.md](admin.md#mail), [security.md](security.md#outbound-mail).
+
+---
+
+## Group board invisible
+
+**Symptom:** one forum is missing from the board index, search, feeds,
+sitemap, REST, or nav — or a known `/forums/{slug}/` / `/topic/{slug}/`
+URL shows the generic **“You cannot view this.”** — while `/forums/`
+itself still works and ACP **Forums** still lists the board.
+
+**Cause:** per-forum ACL (`view_forum` on `{prefix}forum_permissions`),
+usually the **This group only** preset (`group_only`). This is **not** the
+Forum module being off, **not** a pretty-permalink 404, and **not**
+`forum_status=hidden` by itself (hidden forums still need `view_forum`).
+
+Split the “missing board” **kind** before toggling modules or flushing
+rewrites:
+
+| What you see | Meaning | Check |
+|--------------|---------|--------|
+| Agora empty state **“The forum module is currently disabled.”** on `/forums/` | Option `ap_module_forum` is off | [Forum / blog / pages missing](#forum--blog--pages-missing) |
+| Web-server HTML 404 on `/forums/` or `/forums/{slug}/` | Front controller never ran | [Pretty permalink 404](#pretty-permalink-404-p-still-works) |
+| Generic **“You cannot view this.”** (`AP_Forum_Front::CANNOT_VIEW_MESSAGE`; query `ap_forum_cannot_view` / `is_404`) | Viewer lacks `view_forum`. Response does **not** print the board name or slug | Forums → Edit access preset; named-group roster |
+| JSON **404** `rest_cannot_view` / “You cannot view this.” | Same ACL on REST. Missing and unlistable share that code so clients cannot probe ids | [rest.md](rest.md) · [forums.md](forums.md#listing-hygiene-view_forum) |
+| JSON **404** `rest_module_disabled` | Forum module off | Settings → Modules |
+| Board listed in ACP, omitted on the public index / search / feed / sitemap / nav | Listing hygiene: anyone without `view_forum` does not see that forum, or an empty parent category that only held unlistable children | Expected for **This group only** |
+
+**This group only** vs **Members only** (Forums → Edit,
+`forum_access_level`):
+
+| Preset | Who can `view_forum` |
+|--------|----------------------|
+| Members only (`members`) | **Every** logged-in account (virtual `registered`). Guests cannot. If you set this and “everyone logged in can see it”, that is the preset working. |
+| This group only (`group_only`) | Chosen named (non-system) group(s) plus administrators (`manage_forums`). Guests and ordinary registered non-members cannot list or open it. Option `forum_group_only` maps `forum_id` → group ids (schema **12**; **no** Settings → Forums field). |
+
+Create groups and add members under **Forums → Groups**
+(`forum-groups.php`), then return to Forums → Edit and pick those groups
+(`forum_access_groups[]`). Hidden named groups have **no public Join**
+control — the operator is the roster. An empty picker still marks the
+forum group-only; then only `manage_forums` can enter.
+
+**Staff caveat:** `manage_forums` (Administrator) **always** allows and
+still sees the board in ACP. Site-wide `moderate_forums` (Editor+) does
+**not** walk into a `group_only` room unless that user is also in a chosen
+named group.
+
+Apply rules that surprise operators: do **not** stamp an explicit deny on
+virtual `registered` (every member is also registered; deny-wins would lock
+the chosen group out). Settings → Forums checkboxes
+`forum_allow_guest_viewing` / `forum_allow_guest_posting` are **stored**;
+`AP_Forum_Permissions::userCan()` does **not** read them. Toggling those
+alone does not hide or open a board.
+
+Direct unlistable URLs stay generic on pretty paths, scoped search, HTML
+feed/sitemap 404s (never RSS/Atom/XML whose `<title>` would name the
+room), and REST. Depth: [forums.md](forums.md#this-group-only-group_only),
+[roles.md](roles.md#forum-acl-relationship).
 
 ---
 
@@ -451,6 +540,9 @@ Do not invent these while diagnosing:
 - `php ap-cli module …`
 - Two-factor authentication, a bundled WAF, or Fail2ban
 - A user self-service privacy portal
+- PHPMailer, HTML mail, newsletters, or comment-subscription mail
+- A public group Join button on default Agora (Forums → Groups is the roster)
+- Forum ACL applied to blog posts or static pages
 - Host-specific pool names, private vhosts, or live fleet inventory
 
 If the surface is missing from these guides and from the shipped tree, it
@@ -468,7 +560,7 @@ is **not in core**.
 | [updates.md](updates.md) | `version.json`, Update Core, `db migrate` |
 | [cli.md](cli.md) | Built-in `ap-cli` groups, flags, exit codes |
 | [admin.md](admin.md) | `/ap-admin/` screens including Site Health |
-| [forums.md](forums.md) | Forum module surfaces |
+| [forums.md](forums.md) | Forum module, **This group only**, listing hygiene |
 | [roles.md](roles.md) | Caps, comment ownership |
 | [rest.md](rest.md) | `/ap-json/`, `ap/v1`, `rest_api_enabled` |
 | [security.md](security.md) | Sessions, nonces, deny rules |

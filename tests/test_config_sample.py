@@ -136,6 +136,11 @@ def test_sample_mail_constants_use_generic_examples(sample_text: str) -> None:
     assert "noreply@example.com" in sample_text
     assert "your-smtp-password-here" in sample_text
     assert "mail.0shits.com" not in sample_text
+    lower = sample_text.lower()
+    for banned in ("roland", "stallboy", "keepass", "stalwart"):
+        assert banned not in lower, (
+            f"ap-config-sample.php must not contain private marker: {banned}"
+        )
 
 
 def test_sample_load_does_not_define_mail_constants() -> None:

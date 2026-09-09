@@ -36,20 +36,20 @@
 | `siteurl` | (installer `--site-url`) | Settings → General | [admin.md](admin.md#settings) |
 | `home` | (installer `--site-url`) | Settings → General | [admin.md](admin.md#settings) |
 | `admin_email` | (installer) | Settings → General | [admin.md](admin.md#settings) |
-| `mail_from_name` | `''` (falls back to `blogname`) | Settings → Mail | [admin.md](admin.md#settings) |
-| `mail_from_email` | `''` (falls back to `admin_email`; not the same option) | Settings → Mail | [admin.md](admin.md#settings) |
-| `mail_reply_to` | `''` (falls back to `admin_email`) | Settings → Mail | [admin.md](admin.md#settings) |
-| `mail_transport` | `php` (`php` \| `smtp`) | Settings → Mail | [admin.md](admin.md#settings) |
-| `smtp_host` | `''` | Settings → Mail | [admin.md](admin.md#settings) |
-| `smtp_port` | `587` | Settings → Mail | [admin.md](admin.md#settings) |
-| `smtp_encryption` | `tls` (`none` \| `tls` \| `ssl`) | Settings → Mail | [admin.md](admin.md#settings) |
-| `smtp_user` | `''` | Settings → Mail | [admin.md](admin.md#settings) |
-| `smtp_pass` | `''` (write-only in ACP) | Settings → Mail | [admin.md](admin.md#settings) |
-| `mail_last_error` | `''` (autoload `no`; last send failure) | Settings → Mail and Tools → Site Health | [admin.md](admin.md#tools) · [troubleshooting.md](troubleshooting.md#mail-not-arriving) |
-| `users_can_register` | `0` | Settings → General | [admin.md](admin.md#sign-in) |
-| `require_email_verification` | `1` | Settings → General | [admin.md](admin.md#settings) |
-| `registration_captcha` | `off` (`off` \| `math` \| `guard`) | Settings → General | [admin.md](admin.md#settings) |
-| `reserved_usernames` | `''` (one extra login per line; filter `ap_reserved_usernames`) | Settings → General | [admin.md](admin.md#settings) · [hooks.md](hooks.md) |
+| `mail_from_name` | `''` (falls back to `blogname`) | Settings → Mail | [admin.md](admin.md#mail) |
+| `mail_from_email` | `''` (falls back to `admin_email`; not the same option) | Settings → Mail | [admin.md](admin.md#mail) |
+| `mail_reply_to` | `''` (falls back to `admin_email`; **no** `ap-config.php` constant) | Settings → Mail | [admin.md](admin.md#mail) |
+| `mail_transport` | `php` (`php` \| `smtp`) | Settings → Mail | [admin.md](admin.md#mail) |
+| `smtp_host` | `''` | Settings → Mail | [admin.md](admin.md#mail) |
+| `smtp_port` | `587` | Settings → Mail | [admin.md](admin.md#mail) |
+| `smtp_encryption` | `tls` (`none` \| `tls` \| `ssl`) | Settings → Mail | [admin.md](admin.md#mail) |
+| `smtp_user` | `''` | Settings → Mail | [admin.md](admin.md#mail) |
+| `smtp_pass` | `''` (write-only in ACP) | Settings → Mail | [admin.md](admin.md#mail) |
+| `mail_last_error` | `''` (autoload `no`; last send failure) | Settings → Mail and Tools → Site Health | [admin.md](admin.md#mail) · [troubleshooting.md](troubleshooting.md#mail-not-arriving) |
+| `users_can_register` | `0` | Settings → General | [admin.md](admin.md#sign-in) · [admin.md](admin.md#public-registration) |
+| `require_email_verification` | `1` | Settings → General | [admin.md](admin.md#settings) · [admin.md](admin.md#public-registration) |
+| `registration_captcha` | `off` (`off` \| `math` \| `guard`) | Settings → General | [admin.md](admin.md#public-registration) · [security.md](security.md#public-registration-gate) |
+| `reserved_usernames` | `''` (one extra login per line; filter `ap_reserved_usernames`) | Settings → General | [admin.md](admin.md#public-registration) · [hooks.md](hooks.md#users--registration) |
 | `default_role` | `subscriber` | Settings → General | [roles.md](roles.md) |
 | `timezone_string` | `UTC` | Settings → General | [admin.md](admin.md#settings) |
 | `WPLANG` | `''` | Settings → General | [admin.md](admin.md#settings) |
@@ -90,6 +90,28 @@
 | `forum_attachment_user_quota` | `10485760` | **CLI only** — not on Settings → Forums | [forums.md](forums.md) |
 | `forum_online_window` | `900` | **CLI only** — not on Settings → Forums | [forums.md](forums.md) |
 
+| `ap-config.php` mail constant | Overrides option | Guide |
+|-------------------------------|-------------------|-------|
+| `AP_MAIL_FROM_NAME` | `mail_from_name` | [admin.md](admin.md#mail) · [install.md](install.md#manual-config) |
+| `AP_MAIL_FROM_EMAIL` | `mail_from_email` | [admin.md](admin.md#mail) · [install.md](install.md#manual-config) |
+| `AP_MAIL_TRANSPORT` | `mail_transport` | [admin.md](admin.md#mail) · [install.md](install.md#manual-config) |
+| `AP_SMTP_HOST` | `smtp_host` | [admin.md](admin.md#mail) · [install.md](install.md#manual-config) |
+| `AP_SMTP_PORT` | `smtp_port` | [admin.md](admin.md#mail) · [install.md](install.md#manual-config) |
+| `AP_SMTP_ENCRYPTION` | `smtp_encryption` | [admin.md](admin.md#mail) · [install.md](install.md#manual-config) |
+| `AP_SMTP_USER` | `smtp_user` | [admin.md](admin.md#mail) · [install.md](install.md#manual-config) |
+| `AP_SMTP_PASS` | `smtp_pass` | [admin.md](admin.md#mail) · [install.md](install.md#manual-config) |
+| (none this pass) | `mail_reply_to` has **no** constant | [admin.md](admin.md#mail) |
+
+| Public register gate (when `users_can_register` is on) | As built | Guide |
+|--------------------------------------------------------|----------|-------|
+| Honeypot `ap_hp` | Always-on, even if visible captcha is `off`; must stay empty | [admin.md](admin.md#public-registration) · [security.md](security.md#public-registration-gate) |
+| Min fill | ~3 seconds (`AP_Registration::MIN_FILL_SECONDS`) | [admin.md](admin.md#public-registration) · [security.md](security.md#public-registration-gate) |
+| Form ticket `ap_form_ticket` | Issued on GET; 30-minute TTL; naked POST fails closed | [admin.md](admin.md#public-registration) · [security.md](security.md#public-registration-gate) |
+| Visible `registration_captcha` | `off` \| `math` (Human check) \| `guard` (`ap_guard_ack` + signed token; JS PoW in `ap-admin/js/register-guard.js`) | [admin.md](admin.md#public-registration) · [security.md](security.md#public-registration-gate) |
+| Public reserved logins | Locked list + `reserved_usernames` extras + filter `ap_reserved_usernames`; error “That username is not available.” | [admin.md](admin.md#public-registration) · [security.md](security.md#reserved-logins-anti-squat) |
+| ACP / CLI create | Users → Add and `php ap-cli user create` **may** use reserved logins | [admin.md](admin.md#users) · [cli.md](cli.md#user) |
+| `ap_user_created` | Fires from `AP_User::create()` after insert, including pending | [hooks.md](hooks.md#users--registration) |
+
 | Settings → Forums option | Default | Guide |
 |--------------------------|---------|-------|
 | `forum_topics_per_page` | `20` | [forums.md](forums.md) |
@@ -108,6 +130,14 @@
 | `forum_flood_interval` | `30` | [forums.md](forums.md) |
 | `forum_spam_max_links` | `5` | [forums.md](forums.md) |
 | `forum_spam_blacklist` | `''` | [forums.md](forums.md) |
+
+| Forum Edit access (not Settings → Forums) | As built | Guide |
+|-------------------------------------------|----------|-------|
+| posted `forum_access_level` | `public` \| `members` \| `members_readonly` \| `moderators` \| `administrators` \| `group_only` \| `custom` | [forums.md](forums.md#access-level-presets-forums--edit) |
+| **This group only** (`group_only`) | Named non-system groups + administrators; deny guests; do **not** stamp deny on virtual `registered` | [forums.md](forums.md#this-group-only-group_only) |
+| picker `forum_access_groups[]` | One or more named (non-system) group ids | [forums.md](forums.md#this-group-only-group_only) |
+| option `forum_group_only` | `forum_id` → named group ids; schema **12**; **no** Settings → Forums field | [forums.md](forums.md#this-group-only-group_only) |
+| Listing hygiene | No `view_forum` → omitted from index, search, feeds, sitemap, REST (`rest_cannot_view`) | [forums.md](forums.md#listing-hygiene-view_forum) |
 
 | Discussion extra (Settings → Discussion) | Default | Guide |
 |------------------------------------------|---------|-------|
@@ -147,9 +177,9 @@
 | `rate_limit_upload_max` | `40` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_upload_window` | `600` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_upload_lockout` | `300` | **no ACP screen** | [security.md](security.md) |
-| `rate_limit_mail_max` | `20` | **no ACP screen** | [security.md](security.md) |
-| `rate_limit_mail_window` | `3600` | **no ACP screen** | [security.md](security.md) |
-| `rate_limit_mail_lockout` | `3600` | **no ACP screen** | [security.md](security.md) |
+| `rate_limit_mail_max` | `20` | **no ACP screen** (outbound `mail` action) | [security.md](security.md#outbound-mail) |
+| `rate_limit_mail_window` | `3600` | **no ACP screen** (outbound `mail` action) | [security.md](security.md#outbound-mail) |
+| `rate_limit_mail_lockout` | `3600` | **no ACP screen** (outbound `mail` action) | [security.md](security.md#outbound-mail) |
 
 | CLI-only options | Command | Guide |
 |------------------|---------|-------|
@@ -220,11 +250,12 @@
 
 | Forum user level | System group | Who lands on it | Guide |
 |------------------|--------------|-----------------|-------|
-| ACP Forums → Edit | `forum_access_level` (Public / Members only / Read only / Moderators only / Administrators only / Custom) | Custom uses the four rungs below | [roles.md](roles.md#forum-user-levels-not-cms-roles) |
+| ACP Forums → Edit | `forum_access_level` (Public / Members only / Read only / Moderators only / Administrators only / **This group only** (`group_only`) / Custom) | Custom uses the four rungs below; `group_only` uses named groups | [forums.md](forums.md#access-level-presets-forums--edit) · [roles.md](roles.md#forum-user-levels-not-cms-roles) |
 | `guest` | `guests` | Not logged in | [roles.md](roles.md#forum-user-levels-not-cms-roles) |
 | `registered` | `registered` | Any logged-in user | [roles.md](roles.md#forum-user-levels-not-cms-roles) |
 | `moderator` | `global_moderators` | CMS cap `moderate_forums` | [roles.md](roles.md#forum-user-levels-not-cms-roles) |
 | `administrator` | `administrators` | CMS cap `manage_forums` **or** CMS role `administrator` | [roles.md](roles.md#forum-user-levels-not-cms-roles) |
+| `group_only` | named groups in option `forum_group_only` | Chosen named groups + administrators; guests denied; virtual `registered` **not** explicitly denied | [forums.md](forums.md#this-group-only-group_only) |
 
 | Not a CMS role / not an ACP screen | Guide |
 |------------------------------------|-------|
@@ -257,7 +288,7 @@
 | `option` | `option <get\|set\|delete\|list> ...` | yes | get / set / delete / list (`--search` on list). Bare `option` is usage | [cli.md](cli.md#option) |
 | `plugin` | `plugin <list\|activate\|deactivate>` | yes | list (`--format=json`), activate, deactivate. **No install/zip** | [cli.md](cli.md#plugin) |
 | `theme` | `theme <list\|activate>` | yes | list, activate. **No install/zip** | [cli.md](cli.md#theme) |
-| `user` | `user <list\|get\|create>` | yes | list / get / create. **No** `user update` / `user delete` | [cli.md](cli.md#user) |
+| `user` | `user <list\|get\|create>` | yes | list / get / create. **No** `user update` / `user delete`. Create **may** use reserved logins | [cli.md](cli.md#user) |
 | `post` | `post <list\|get\|create\|update>` | yes | `--type=post\|page`; `--file` **local filesystem only**. Create defaults: **post → draft**, **page → publish**. **No** `post delete` | [cli.md](cli.md#post) |
 | `cache` | `cache flush` | yes | flush (default) | [cli.md](cli.md#cache-flush) |
 | `cron` | `cron event <list\|run>` | yes | aliases: `cron list`, `cron run`. Bare `cron` is usage | [cli.md](cli.md#cron) |
@@ -314,8 +345,8 @@
 | GET | `/ap/v1/users` `[/{id}]` | public fields, GET only | [rest.md](rest.md#users) |
 | GET | `/ap/v1/categories` `[/{id}]` | GET only | [rest.md](rest.md#categories-and-tags) |
 | GET | `/ap/v1/tags` `[/{id}]` | GET only | [rest.md](rest.md#categories-and-tags) |
-| GET | `/ap/v1/forums` `[/{id}]` | GET; 404 if forum module off | [rest.md](rest.md#forums-and-topics) |
-| GET | `/ap/v1/topics` `[/{id}]` | GET; same | [rest.md](rest.md#forums-and-topics) |
+| GET | `/ap/v1/forums` `[/{id}]` | GET; 404 if forum module off; unlistable / `group_only` omitted or JSON 404 `rest_cannot_view` | [forums.md](forums.md#listing-hygiene-view_forum) · [rest.md](rest.md#forums-and-topics) |
+| GET | `/ap/v1/topics` `[/{id}]` | GET; same listable / `rest_cannot_view` rule | [forums.md](forums.md#listing-hygiene-view_forum) · [rest.md](rest.md#forums-and-topics) |
 
 | REST writes | As built | Guide |
 |-------------|----------|-------|
@@ -334,7 +365,7 @@
 
 | File | Task | Cap | Guide |
 |------|------|-----|-------|
-| `login.php` | Login / register / lost password / reset / verify email (`?action=` allowlist) | no login required | [admin.md](admin.md#sign-in) |
+| `login.php` | Login / register / lost password / reset / verify email / resend (`?action=` allowlist) | no login required | [admin.md](admin.md#sign-in) · [admin.md](admin.md#public-registration) |
 | `index.php` | Dashboard | `read` | [admin.md](admin.md#dashboard) |
 | `profile.php` | Own profile | `read` | [admin.md](admin.md#users) |
 | `edit.php` | Posts/pages list (`?post_type=`) | `edit_posts` / `edit_pages` | [admin.md](admin.md#content) |
@@ -351,13 +382,13 @@
 | `theme-options.php` | Theme Options / Additional CSS | `edit_theme_options` | [admin.md](admin.md#appearance) · [themes.md](themes.md) |
 | `plugins.php` | Plugins + **plugin zip installer** (`install_plugins`) | `activate_plugins` | [admin.md](admin.md#plugin-zip-installer) · [plugins.md](plugins.md#plugin-installer) |
 | `users.php` | Users list (pending **Activate** needs `edit_users`) | `list_users` | [admin.md](admin.md#users) |
-| `user-new.php` | Add user | `create_users` | [admin.md](admin.md#users) |
-| `user-edit.php` | Edit selected account (pending **Activate account**) | `edit_users` | [admin.md](admin.md#users) |
-| `forums.php` `forum-edit.php` | Forum tree / edit | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
+| `user-new.php` | Add user (reserved logins **allowed**) | `create_users` | [admin.md](admin.md#users) |
+| `user-edit.php` | Edit selected account (pending **Resend verification** / **Activate account**) | `edit_users` | [admin.md](admin.md#users) |
+| `forums.php` `forum-edit.php` | Forum tree / edit (**This group only** / `group_only`) | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md#this-group-only-group_only) |
 | `forum-groups.php` | Groups + ACL | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
 | `forum-topics.php` `forum-moderation.php` | Topics / mod queue | `moderate_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
-| `options-general.php` | General + **Site Icon** | `manage_options` | [admin.md](admin.md#settings) · [site-icon.md](site-icon.md) |
-| `options-mail.php` | Mail (from identity, php/smtp, test to `admin_email`) | `manage_options` | [admin.md](admin.md#settings) |
+| `options-general.php` | General + **Site Icon** + membership (`registration_captcha`, `reserved_usernames`) | `manage_options` | [admin.md](admin.md#settings) · [admin.md](admin.md#public-registration) · [site-icon.md](site-icon.md) |
+| `options-mail.php` | Mail (from identity, php/smtp, test to `admin_email`) | `manage_options` | [admin.md](admin.md#mail) |
 | `options-writing.php` | Writing | `manage_options` | [admin.md](admin.md#settings) |
 | `options-reading.php` | Reading / front page / feeds | `manage_options` | [admin.md](admin.md#settings) |
 | `options-discussion.php` | Discussion / avatars | `manage_options` | [admin.md](admin.md#settings) |
@@ -368,7 +399,7 @@
 | `options-forums.php` | Forum settings | `manage_options` | [admin.md](admin.md#settings) · [forums.md](forums.md) |
 | `options-hall-of-fame.php` | Voluntary handshake (join / leave / dismiss) | `manage_options` | [admin.md](admin.md#hall-of-fame-handshake) |
 | `analytics.php` | Tools → Analytics | `manage_options` | [admin.md](admin.md#tools) |
-| `site-health.php` | Tools → Site Health | `view_site_health` (`manage_options` fallback) | [admin.md](admin.md#tools) |
+| `site-health.php` | Tools → Site Health (outbound-mail last error; does **not** send) | `view_site_health` (`manage_options` fallback) | [admin.md](admin.md#tools) · [troubleshooting.md](troubleshooting.md#mail-not-arriving) |
 | `update-core.php` | Tools → Update Core | `update_core` | [admin.md](admin.md#tools) · [updates.md](updates.md) |
 | `import.php` | Tools → Import (WXR + phpBB) | `import` | [admin.md](admin.md#tools) |
 | `export-personal-data.php` | Privacy export | `export_others_personal_data` | [admin.md](admin.md#tools) · [security.md](security.md) |
@@ -405,7 +436,8 @@
 | Web installer | `/install/` steps `requirements` → `database` → `site` → `run` → `done` | [install.md](install.md) |
 | CLI installer | `php install/cli.php` (flags + `AP_ADMIN_PASSWORD` / `AP_DB_PASSWORD`; exit `0`/`1`/`2`/`3`) | [install.md](install.md) |
 | Docker | `docker-compose.yml` (example `localhost:8080`) | [install.md](install.md) |
-| Manual config | copy `ap-config-sample.php` → `ap-config.php` | [install.md](install.md) |
+| Manual config | copy `ap-config-sample.php` → `ap-config.php` | [install.md](install.md#manual-config) |
+| Mail constants | Commented `AP_MAIL_*` / `AP_SMTP_*` names in the sample; defined values override Settings → Mail | [install.md](install.md#manual-config) · [admin.md](admin.md#mail) |
 | Public `version.json` | `https://agorapress.extrovertednerd.com/version.json` — GET, **no site identity** | [updates.md](updates.md) |
 | One-click apply | Tools → Update Core (`update-core.php`, cap `update_core`) | [updates.md](updates.md) |
 | CLI check | `php ap-cli core check-update` (`--force`) | [updates.md](updates.md) · [cli.md](cli.md) |
@@ -437,12 +469,20 @@
 
 ## Hooks
 
-| Surface | Guide |
-|---------|-------|
-| Selected actions / filters / lifecycle | [hooks.md](hooks.md) — **grep core for the rest**. This catalog is not a second hook encyclopedia. |
-| Plugin ACP pages | [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp) (`ap_register_admin_page`) |
-| REST registration | [rest.md](rest.md) (`ap_rest_api_init`) |
-| CLI registration | [cli.md](cli.md) (`ap_cli_init`) |
+| Hook | Type | Guide |
+|------|------|-------|
+| Selected actions / filters / lifecycle | — | [hooks.md](hooks.md) — **grep core for the rest**. This catalog is not a second hook encyclopedia. |
+| `ap_mail_send` | filter | `AP_Mail::send()`: return `true`/`false` to replace php/smtp; `null` continues. Does not run when the `mail` rate limit blocks the send — [hooks.md](hooks.md#mail) · [admin.md](admin.md#mail) |
+| Classic-compat `wp_mail()` | shim | Calls `AP_Mail::send()` when the classic layer is loaded; attachments ignored this pass — [compatibility.md](compatibility.md) · [admin.md](admin.md#mail) |
+| `ap_user_created` | action | After `AP_User::create()` insert, including pending (`user_status` 1). Args: id, login, email, status — [hooks.md](hooks.md#users--registration) |
+| `ap_reserved_usernames` | filter | Public-register reserved logins (locked list + extras). May **add** names; locked names always remain — [hooks.md](hooks.md#users--registration) |
+| `ap_registration_captcha_mode` | filter | Visible mode string (`off` / `math` / `guard` / plugin) — [hooks.md](hooks.md#users--registration) · [admin.md](admin.md#public-registration) |
+| `ap_registration_captcha_challenge` | filter | Challenge payload for the register form — [hooks.md](hooks.md#users--registration) · [admin.md](admin.md#public-registration) |
+| `ap_registration_verify_captcha` | filter | Verify posted captcha/guard data — [hooks.md](hooks.md#users--registration) · [admin.md](admin.md#public-registration) |
+| `ap_registration_captcha_fields` | action | Extra markup for a plugin-supplied visible mode — [admin.md](admin.md#public-registration) |
+| Plugin ACP pages | — | [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp) (`ap_register_admin_page`) |
+| REST registration | — | [rest.md](rest.md) (`ap_rest_api_init`) |
+| CLI registration | — | [cli.md](cli.md) (`ap_cli_init`) |
 
 ## Not in core
 
@@ -459,6 +499,8 @@
 | `php ap-cli core update` / `db rollback` / `rewrite list` / `module` / `forum` / `role` | [cli.md](cli.md) |
 | Extra core roles beyond administrator / editor / author / contributor / subscriber | [roles.md](roles.md) |
 | Extra topic types beyond `standard` \| `sticky` \| `announcement` \| `rules` | [forums.md](forums.md) |
+| PHPMailer / Composer mail library; HTML mail / newsletters / comment-subscription mail | [admin.md](admin.md#mail) |
+| Google / hCaptcha / Turnstile widgets | [security.md](security.md#public-registration-gate) |
 | A second docs index (`docs/index.md`) or a Bot-only tree | [README.md](README.md) |
 
 ## Guides this catalog points at

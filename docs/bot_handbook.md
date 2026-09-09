@@ -79,7 +79,8 @@ payload:
   [https://agorapress.extrovertednerd.com](https://agorapress.extrovertednerd.com)
   and its `version.json`
 - Generic examples: `example.com`, `https://your-domain.example`,
-  `admin@example.com`, `localhost`
+  `admin@example.com`, `noreply@example.com`, `smtp.example.com`,
+  `localhost`
 - `/var/www/agorapress` (already used in shipped `docker/nginx.conf.example`)
 - Generic mechanisms, stated without a private install: nginx `try_files`,
   PHP `session.save_path` must be writable by the php-fpm user, permalinks
@@ -168,7 +169,8 @@ Order of work:
 | Logged-in comments / Edit User surprises | [troubleshooting.md](troubleshooting.md) — current 0.3.2 / 0.3.6 behaviour, not a war story |
 
 Use generic examples only (`example.com`, `localhost`,
-`admin@example.com`, `/var/www/agorapress`).
+`admin@example.com`, `noreply@example.com`, `smtp.example.com`,
+`/var/www/agorapress`).
 
 ---
 

@@ -3,13 +3,16 @@
 This is the **hardening and privacy guide** for AgoraPress **`0.3.6-beta`**
 (schema `AP_DB_VERSION` **12**). It describes the security model **as built**:
 PDO prepared statements, HMAC nonces, Argon2id passwords, rate limits,
-production deny rules, no telemetry, local opt-in analytics, voluntary Hall of
-Fame, and GDPR-style privacy export / erase.
+`php` / `smtp` outbound mail, a first-party public-register gate, reserved
+logins as **anti-squat** (not 2FA), production deny rules, no telemetry,
+local opt-in analytics, voluntary Hall of Fame, and GDPR-style privacy
+export / erase.
 
 The compact landing-page bullets are in
 [`../README.md`](../README.md#security--privacy). This file is the operator
-depth guide. It does **not** invent two-factor authentication, a WAF, or a
-core Content-Security-Policy — those are **not in core**.
+depth guide. It does **not** invent two-factor authentication, a WAF, a
+core Content-Security-Policy, PHPMailer, or third-party CAPTCHA widgets —
+those are **not in core**.
 
 **Source (as built):** `ap-includes/class-ap-db.php`,
 `ap-includes/class-ap-nonce.php`, `ap-includes/class-ap-user.php`,
@@ -17,9 +20,12 @@ core Content-Security-Policy — those are **not in core**.
 `ap-includes/class-ap-formatting.php`, `ap-includes/class-ap-privacy.php`,
 `ap-includes/class-ap-version-check.php`, `ap-includes/class-ap-hall-of-fame.php`,
 `ap-includes/class-ap-analytics.php`, `ap-includes/class-ap-media.php`,
-`ap-includes/class-ap-mail.php`,
+`ap-includes/class-ap-mail.php`, `ap-includes/class-ap-smtp.php`,
+`ap-includes/class-ap-registration.php`,
 `ap-includes/class-ap-site-health.php`, `ap-includes/class-ap-rest.php`,
-`install/index.php`, `ap-admin/login.php`, `ap-admin/options-privacy.php`,
+`install/index.php`, `ap-admin/login.php`, `ap-admin/options-mail.php`,
+`ap-admin/options-general.php`, `ap-admin/js/register-guard.js`,
+`ap-admin/options-privacy.php`,
 `ap-admin/export-personal-data.php`, `ap-admin/erase-personal-data.php`,
 [`.htaccess`](../.htaccess), [`ap-content/.htaccess`](../ap-content/.htaccess),
 [`docker/nginx.conf.example`](../docker/nginx.conf.example),
@@ -35,6 +41,9 @@ core Content-Security-Policy — those are **not in core**.
 | PDO prepared statements only (`AP_DB`) | Query builders that interpolate untrusted SQL |
 | HMAC nonces on state-changing ACP forms and REST cookie writes | PHP `$_SESSION` CSRF after install (only the web installer uses `$_SESSION`) |
 | Argon2id password hashes (`PASSWORD_ARGON2ID` when PHP has it) | Optional 2FA / TOTP |
+| Native outbound mail (`php` / `smtp` via `AP_Mail::send()`) | PHPMailer, Composer mail libraries, HTML newsletters |
+| Always-on public-register gate + first-party `math` / `guard` | Google reCAPTCHA, hCaptcha, or Turnstile in core |
+| Reserved public-register logins (**anti-squat**, not a second factor) | Treating those names as 2FA / TOTP |
 | Transient-backed rate limits (login, register, password reset, upload, outbound mail) | Fail2ban, IP firewalls, or a bundled WAF |
 | Capability checks on admin screens and privileged APIs | A second permission system besides [roles.md](roles.md) / forum ACL |
 | Escape on output / sanitize on input (`AP_Formatting`) | “Trusted HTML from the database” as a security model |
@@ -43,7 +52,7 @@ core Content-Security-Policy — those are **not in core**.
 | Local analytics only, option `analytics_enabled` default **off** | Third-party pixels, beacons, or analytics endpoints |
 | Voluntary Hall of Fame (domain listing, withdrawable) | Automatic domain registration at install |
 | Tools → Export / Erase Personal Data | A user self-service privacy portal |
-| Site Health (salts, debug, HTTPS, telemetry absence) | Automatic Let’s Encrypt / HSTS / CSP headers |
+| Site Health (salts, debug, HTTPS, telemetry absence, outbound mail) | Automatic Let’s Encrypt / HSTS / CSP headers |
 
 HTTPS is **operator-provided**. Site Health recommends it. The shipped Nginx
 example comments TLS lines; it does not issue certificates.
@@ -137,7 +146,9 @@ verification account from Users without the emailed key
 activate-purpose key on the row, so it does **not** lift a forum ban that
 reuses `user_status` = `1`.
 
-**Optional 2FA is not in core.**
+**Optional 2FA / TOTP is not in core.** The public-register gate and
+reserved-login list are anti-spam / **anti-squat**. They are **not** a
+second password factor.
 
 ---
 
@@ -180,7 +191,8 @@ form cannot turn the configured SMTP (or PHP `mail()`) into a cannon.
 Invalid recipients do not consume quota. A blocked send stores the lockout
 text in `mail_last_error` (Settings → Mail / Site Health) and returns false.
 Override with `rate_limit_mail_max` / `_window` / `_lockout` (**no ACP
-screen**). Tests may call `AP_Rate_Limit::disable()`.
+screen**). Tests may call `AP_Rate_Limit::disable()`. Transports, constants,
+and failed-send honesty: [Outbound mail](#outbound-mail).
 
 Client IP is `REMOTE_ADDR` by default (not spoofable without a proxy). Only if
 you **define `AP_TRUST_PROXY` true** in `ap-config.php` (not in the sample
@@ -192,18 +204,134 @@ constant — that only affects whether the cookie is marked Secure, not the
 rate-limit IP.
 
 Registration is off by default (`users_can_register` = `0`). When it is on,
-the public form always uses a honeypot (`ap_hp`), a ~3 second minimum fill
-time, and a short-lived form ticket issued on GET (naked POSTs fail closed
-with a generic error). Optional visible anti-spam (`registration_captcha`:
-`off` / `math` / `guard`) and email verification are additional anti-spam,
-not a second password factor. Public self-register cannot take staff/system
-logins (`admin`, `root`, `moderator`, …) or extras in option
-`reserved_usernames` (one per line; filter `ap_reserved_usernames`). The
-public error is “That username is not available.” — it does not say the
-name is reserved. Users → Add and `php ap-cli user create` may still create
-those accounts.
+the public form is gated as described in
+[Public registration gate](#public-registration-gate) and
+[Reserved logins (anti-squat)](#reserved-logins-anti-squat). Those checks
+are anti-spam / anti-squat, **not** two-factor authentication.
+
 Forum flood / spam guards (`forum_flood_interval` default 30 s) are
 documented with forums ([forums.md](forums.md)).
+
+---
+
+## Outbound mail
+
+`AP_Mail::send()` (`ap_mail()`) is the **only** outbound API. Bodies are
+**text/plain** (`Content-Type: text/plain; charset=UTF-8`). There is **no**
+PHPMailer, **no** Composer runtime mail library, **no** HTML templates, **no**
+newsletters, and **no** comment-subscription mail.
+
+| Transport | As built |
+|-----------|----------|
+| `php` | PHP `mail()`. Default. Zero-config fallback. In-memory test outbox unchanged. |
+| `smtp` | Native `stream_socket_client` client (`AP_SMTP`). AUTH PLAIN and AUTH LOGIN. Encryption `none` / `tls` (STARTTLS, typically port 587) / `ssl` (SMTPS, typically port 465). |
+
+Operator screen: **Settings → Mail** (`ap-admin/options-mail.php`, cap
+`manage_options`) — [admin.md](admin.md#mail). Own settings group (not stuffed
+into General). “Send test email to admin_email” hits General `admin_email`,
+not the From address. Last error is shown on that screen and on Tools → Site
+Health. Site Health does **not** send a test message and omits SMTP secrets.
+
+When defined in `ap-config.php`, these constants **override** the matching
+options (so a password can live next to DB creds). Names are comments in
+`ap-config-sample.php` — never a real password:
+
+`AP_MAIL_FROM_NAME`, `AP_MAIL_FROM_EMAIL`, `AP_MAIL_TRANSPORT`,
+`AP_SMTP_HOST`, `AP_SMTP_PORT`, `AP_SMTP_ENCRYPTION`, `AP_SMTP_USER`,
+`AP_SMTP_PASS`
+
+There is **no** Reply-To `ap-config.php` constant. Generic examples only:
+`smtp.example.com`, `noreply@example.com`.
+
+Filter `ap_mail_send` may replace php/smtp (return `true` / `false` to
+short-circuit; `null` continues). It does **not** run when the `mail` rate
+limit blocks the send — [hooks.md](hooks.md). Classic-compat `wp_mail()`
+calls `AP_Mail::send()` when that layer is loaded —
+[compatibility.md](compatibility.md). Native plugins should call `ap_mail()`
+/ `AP_Mail::send()`.
+
+If `require_email_verification` is on and `send()` fails: keep the pending
+user; **do not** show “check your email” as success; store last error; offer
+resend on `login.php?action=resend` and on Users → Edit. Verification and
+password-reset bodies: the link expires in 24 hours; if the message is
+missing, check the spam folder — the sending server may be new.
+
+---
+
+## Public registration gate
+
+Registration is off by default (`users_can_register` = `0`). Membership
+options live on Settings → General (`options-general.php`), not a separate
+membership plugin — [admin.md](admin.md#public-registration).
+
+This gate is **anti-spam for an open form**. It is **not** two-factor
+authentication, not a second password, and not a substitute for Argon2id.
+Optional 2FA / TOTP is **not in core**. Email verification
+(`require_email_verification`, default on) is proof of mailbox, **not** 2FA.
+
+**Always-on** when the public form is open (even if visible captcha is `off`):
+
+| Check | As built |
+|-------|----------|
+| Honeypot | Field `ap_hp`, labeled Website, `aria-hidden`. Must stay empty. Also rejects a posted `website` field. |
+| Minimum fill | ~3 seconds (`AP_Registration::MIN_FILL_SECONDS`) from the form ticket’s issue time. |
+| Form ticket | Hidden `ap_form_ticket` issued on GET (30-minute TTL, `AP_Registration::FORM_TICKET_TTL`). A naked POST without a valid ticket fails closed. |
+
+Those three failures share one generic error: “Could not complete registration. Please try again.” The form does not say which check failed.
+
+**Visible modes** (`registration_captcha`; sanitizer allowlist `off` / `math` /
+`guard`; unknown saved values collapse to `off`; existing sites stay on
+`off`):
+
+| Mode | As built |
+|------|----------|
+| `off` | Default. No visible fieldset. Hidden gate still runs. |
+| `math` | “Human check” fieldset. Arithmetic prompt; fields `captcha_answer` + `captcha_token`. |
+| `guard` | Recommended-when-on. First-party checkbox card (`ap_guard_ack` = `1`) plus a signed token. Tiny JS proof-of-work (`ap-admin/js/register-guard.js`) is progressive enhancement. No-JS fallback: type a short code into `captcha_answer`. **No** Google reCAPTCHA, hCaptcha, or Turnstile widget in core. |
+
+Hooks `ap_registration_captcha_mode`, `ap_registration_captcha_challenge`,
+`ap_registration_verify_captcha`, and (for a plugin-supplied mode) action
+`ap_registration_captcha_fields` stay as shipped — [hooks.md](hooks.md).
+
+IP rate limit on the register action is in the table above. Failed
+verification mail must not claim success — [Outbound mail](#outbound-mail).
+
+---
+
+## Reserved logins (anti-squat)
+
+Reserved names stop strangers from **self-registering staff and system
+logins** (`admin`, `root`, `moderator`, …). That is **anti-squat**: it keeps
+those logins off the public form. It is **not** a second password factor,
+**not** TOTP, and **not 2FA**. Optional 2FA / TOTP remains **not in core**.
+
+Site administrators **may** still create those accounts from Users → Add,
+Users → Edit, and `php ap-cli user create`. `AP_User::create()` does not
+enforce this list.
+
+Locked list in `AP_Registration::RESERVED_LOGINS` — the extras textarea
+cannot remove these:
+
+```
+root, admin, administrator, administrators, adm, mod, moderator,
+moderators, mods, webmaster, postmaster, hostmaster, support, security,
+abuse, staff, superadmin, sysadmin, guest, nobody, noreply, no-reply,
+www, mail, system, owner, ap-admin, agora, agorapress
+```
+
+Per-site extras: option `reserved_usernames` (textarea, one login per line).
+Locked names typed there are dropped on save so the option stores extras
+only. Plugins may **add** names with filter `ap_reserved_usernames`; locked
+core names always remain after the filter. Public error for a reserved **or**
+already-taken login: “That username is not available.” The form does **not**
+say the name is reserved.
+
+New logins collide case-insensitively (`Silas` and `silas` are the same
+login). Existing rows that already differ only by case are not merged. After
+a successful insert, `AP_User::create()` fires action `ap_user_created`
+(user id, login, email, status), including `STATUS_PENDING`. Manual activate
+of a pending row stays an `edit_users` path
+(`AP_Registration::activatePendingUser()`) — [Passwords (Argon2id)](#passwords-argon2id).
 
 ---
 
@@ -215,6 +343,7 @@ built:
 
 | Screen | Primary cap (fallbacks in code) |
 |--------|----------------------------------|
+| Settings → Mail | `manage_options` |
 | Settings → Privacy | `manage_privacy_options` (`manage_options`) |
 | Tools → Export Personal Data | `export_others_personal_data` (`manage_options`, `export`) |
 | Tools → Erase Personal Data | `erase_others_personal_data` (`manage_options`, `delete_users`) |
@@ -475,7 +604,10 @@ REST master switch: option `rest_api_enabled` (default on). Set `0` to disable
 4. `ap-content/` and `uploads/` writable by PHP, not world-writable.
 5. TLS at the reverse proxy; Site Health HTTPS check green.
 6. `AP_DEBUG` off on the public site.
-7. Registration off unless you intend it; review rate-limit defaults.
+7. Registration off unless you intend it. If it is on: Settings → Mail
+   actually delivers; review rate-limit defaults; reserved extras and
+   `registration_captcha` (`guard` when you want a visible first-party
+   check). Reserved logins are **anti-squat**, not 2FA.
 8. Analytics stays off unless you opt in. Hall of Fame stays opt-in.
 9. Set a privacy policy page. Use Tools → Export / Erase when a data subject
    asks — there is no self-service portal in core.
@@ -492,10 +624,12 @@ REST master switch: option `rest_api_enabled` (default on). Set `0` to disable
 | Version check / updater, no site identity | [updates.md](updates.md) |
 | Capabilities | [roles.md](roles.md) |
 | `X-AP-Nonce`, Basic, `rest_api_enabled` | [rest.md](rest.md) |
-| ACP screens including Hall of Fame and privacy tools | [admin.md](admin.md) |
+| Settings → Mail, public register, Users resend / activate | [admin.md](admin.md) |
 | Privacy principles checklist | [vision-compliance.md](vision-compliance.md) |
-| Installer CSRF / session symptoms | [troubleshooting.md](troubleshooting.md) |
+| Installer CSRF / session symptoms; mail not arriving | [troubleshooting.md](troubleshooting.md) |
 | `php ap-cli option set` for flags with no ACP screen | [cli.md](cli.md) |
 | Plugin Settings API / nonces | [plugins.md](plugins.md) |
+| Classic `wp_mail()` shim | [compatibility.md](compatibility.md) |
+| `ap_mail_send`, `ap_reserved_usernames`, `ap_user_created` | [hooks.md](hooks.md) |
 | Prepared statements; no invented tables | [schema.md](schema.md) |
 | Forum flood vs login rate limits | [forums.md](forums.md) |

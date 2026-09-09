@@ -113,7 +113,7 @@ def test_docs_index_states_public_safe_rule(docs_root: Path) -> None:
     assert "not in core" in index
     assert "bot_handbook.md" in index
     # Public docs must not name private hosts / mailboxes / process internals.
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in index, f"docs/README.md must not contain private marker: {banned}"
 
 
@@ -211,6 +211,8 @@ def test_docs_index_as_built_surfaces(docs_root: Path) -> None:
         "session.save_path",
         "example.com",
         "admin@example.com",
+        "noreply@example.com",
+        "smtp.example.com",
     ):
         assert phrase.lower() in lower, f"docs/README.md missing as-built phrase: {phrase}"
     not_core = index[index.lower().find("## not in core") :]
@@ -242,7 +244,7 @@ def test_bot_handbook_states_public_safe_rule(docs_root: Path) -> None:
     assert "do not invent" in lower
     assert "not in core" in lower
     assert "do not invent surfaces" in lower or "do **not invent**" in lower
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/bot_handbook.md must not contain private marker: {banned}"
     assert "stallboy" not in lower, "docs/bot_handbook.md must not name private accounts"
 
@@ -278,6 +280,8 @@ def test_bot_handbook_operating_model(docs_root: Path) -> None:
         "version.json",
         "example.com",
         "admin@example.com",
+        "noreply@example.com",
+        "smtp.example.com",
         "/var/www/agorapress",
         "session.save_path",
         "php-fpm",
@@ -324,7 +328,7 @@ def test_bot_handbook_operating_model(docs_root: Path) -> None:
         "site-icon.md",
     ):
         assert phrase in lower, f"bot_handbook.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/bot_handbook.md must not contain private marker: {banned}"
     assert "stallboy" not in lower, "docs/bot_handbook.md must not name private accounts"
 
@@ -497,6 +501,22 @@ def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> Non
         "/%postname%/",
         "Month and name",
         "Post name",
+        "ap_mail_send",
+        "ap_user_created",
+        "ap_reserved_usernames",
+        "ap_registration_captcha_mode",
+        "forum_group_only",
+        "This group only",
+        "group_only",
+        "forum_access_groups",
+        "rest_cannot_view",
+        "ap_form_ticket",
+        "ap_hp",
+        "wp_mail",
+        "PHPMailer",
+        "hCaptcha",
+        "AP_MAIL_FROM_EMAIL",
+        "AP_SMTP_HOST",
     ):
         assert phrase in text, f"features_and_functions.md missing: {phrase}"
 
@@ -537,10 +557,50 @@ def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> Non
         )
 
     lower = text.lower()
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, (
             f"docs/features_and_functions.md must not contain private marker: {banned}"
         )
+
+
+def test_catalog_covers_mail_register_gate_and_group_only(docs_root: Path) -> None:
+    """SPEC: catalog rows for new mail / register-gate / group-only surfaces."""
+    text = (docs_root / "features_and_functions.md").read_text(encoding="utf-8")
+    for const in _php_mail_override_constants():
+        assert const in text, (
+            f"docs/features_and_functions.md must name mail override constant {const}"
+        )
+    for needle in (
+        "ap_mail_send",
+        "wp_mail",
+        "options-mail.php",
+        "mail_from_email",
+        "mail_transport",
+        "smtp_encryption",
+        "mail_last_error",
+        "rate_limit_mail_max",
+        "ap_user_created",
+        "ap_reserved_usernames",
+        "ap_registration_captcha_mode",
+        "ap_registration_captcha_challenge",
+        "ap_registration_verify_captcha",
+        "ap_registration_captcha_fields",
+        "registration_captcha",
+        "reserved_usernames",
+        "ap_form_ticket",
+        "ap_hp",
+        "ap_guard_ack",
+        "register-guard.js",
+        "This group only",
+        "group_only",
+        "forum_group_only",
+        "forum_access_groups",
+        "rest_cannot_view",
+        "PHPMailer",
+        "hCaptcha",
+        "Turnstile",
+    ):
+        assert needle in text, f"docs/features_and_functions.md missing: {needle}"
 
 
 def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
@@ -574,7 +634,7 @@ def test_vision_compliance_doc_content(docs_root: Path) -> None:
         "editor.md",
     ):
         assert phrase in text, f"vision-compliance.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/vision-compliance.md must not contain private marker: {banned}"
 
 
@@ -599,7 +659,7 @@ def test_editor_doc_content(docs_root: Path) -> None:
         "class-ap-admin-post-edit.php",
     ):
         assert phrase in text, f"editor.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/editor.md must not contain private marker: {banned}"
 
 
@@ -629,7 +689,7 @@ def test_site_icon_doc_content(docs_root: Path) -> None:
         "install.md",
     ):
         assert phrase in text, f"site-icon.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/site-icon.md must not contain private marker: {banned}"
 
 
@@ -741,6 +801,13 @@ def test_hooks_doc_content(docs_root: Path) -> None:
         "map target",
         "user_has_cap",
         "that username is not available.",
+        "ap_mail_send",
+        "ap_user_created",
+        "ap_reserved_usernames",
+        "ap_registration_captcha_mode",
+        "ap_registration_captcha_challenge",
+        "ap_registration_verify_captcha",
+        "ap_registration_captcha_fields",
         "plugins.md",
         "cli.md",
         "rest.md",
@@ -751,7 +818,7 @@ def test_hooks_doc_content(docs_root: Path) -> None:
         assert phrase in text, f"hooks.md missing: {phrase}"
     assert "native core does **not** fire" in text or "native core does not fire" in text
     assert "**no** `user_has_cap`" in text or "no `user_has_cap`" in text
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/hooks.md must not contain private marker: {banned}"
 
 
@@ -811,6 +878,42 @@ def test_hooks_doc_selected_names_exist_in_code(docs_root: Path) -> None:
     )
 
 
+def test_hooks_doc_covers_mail_register_and_captcha(docs_root: Path) -> None:
+    """SPEC: hooks.md lists mail, user-created, reserved names, captcha as shipped."""
+    doc = (docs_root / "hooks.md").read_text(encoding="utf-8")
+    selected, _, _ = doc.partition("## Grep for the rest")
+    assert selected, "hooks.md must have a selected-hooks section before grep-for-the-rest"
+    for name in (
+        "ap_mail_send",
+        "ap_user_created",
+        "ap_reserved_usernames",
+        "ap_registration_captcha_mode",
+        "ap_registration_captcha_challenge",
+        "ap_registration_verify_captcha",
+        "ap_registration_captcha_fields",
+    ):
+        assert f"`{name}`" in selected, f"hooks.md selected table must name {name}"
+        found_row = any(
+            line.lstrip().startswith("|") and f"`{name}`" in line
+            for line in selected.splitlines()
+        )
+        assert found_row, f"hooks.md must list {name} as a selected hook row, not only a grep note"
+    lower = selected.lower()
+    for phrase in (
+        "that username is not available.",
+        "accepted_args",
+        "status_pending",
+        "registration_captcha",
+        "hcaptcha",
+        "turnstile",
+        "text/plain",
+        "no valid recipients",
+        "rate limit blocks",
+        "plugin-supplied",
+    ):
+        assert phrase in lower, f"hooks.md mail/register section missing: {phrase}"
+
+
 def test_themes_doc_content(docs_root: Path) -> None:
     text = (docs_root / "themes.md").read_text(encoding="utf-8").lower()
     for phrase in (
@@ -835,7 +938,7 @@ def test_themes_doc_content(docs_root: Path) -> None:
         "compatibility.md",
     ):
         assert phrase in text, f"themes.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/themes.md must not contain private marker: {banned}"
 
 
@@ -876,7 +979,7 @@ def test_plugins_doc_content(docs_root: Path) -> None:
         "get-only",
     ):
         assert phrase in text, f"plugins.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/plugins.md must not contain private marker: {banned}"
 
 
@@ -933,7 +1036,7 @@ def test_compatibility_doc_content(docs_root: Path) -> None:
         "ap_mail::send",
     ):
         assert phrase in text, f"compatibility.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/compatibility.md must not contain private marker: {banned}"
 
 
@@ -1001,7 +1104,7 @@ def test_install_doc_content(docs_root: Path) -> None:
             f"install.md must name CLI installer flag {flag} "
             "(AP_Cli_Install::KNOWN_OPTIONS)"
         )
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/install.md must not contain private marker: {banned}"
 
 
@@ -1044,7 +1147,7 @@ def test_rewrites_doc_content(docs_root: Path) -> None:
         "not in core",
     ):
         assert phrase in lower, f"rewrites.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/rewrites.md must not contain private marker: {banned}"
 
 
@@ -1140,7 +1243,7 @@ def test_updates_doc_content(docs_root: Path) -> None:
         assert doc_flag in text, (
             f"updates.md must name package-release flag {doc_flag}"
         )
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/updates.md must not contain private marker: {banned}"
 
 
@@ -1214,7 +1317,7 @@ def test_cli_doc_content(docs_root: Path) -> None:
         "that username is not available.",
     ):
         assert phrase in lower, f"cli.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/cli.md must not contain private marker: {banned}"
 
 
@@ -1327,10 +1430,64 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "activate account",
         "ap_activate_account",
         "activate-user-",
+        "admin-resend",
+        "ap_form_ticket",
+        "ap_guard_ack",
+        "register-guard.js",
+        "smtp.example.com",
+        "noreply@example.com",
+        "ap_mail_from_email",
+        "ap_smtp_host",
+        "phpmailer",
+        "hcaptcha",
+        "human check",
+        "this group only",
+        "text/plain",
+        "could not complete registration. please try again.",
+        "your account was created, but the verification email could not be sent.",
+        "verification_resent",
     ):
         assert phrase in lower, f"admin.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/admin.md must not contain private marker: {banned}"
+
+
+def _php_reserved_logins() -> list[str]:
+    src = (ROOT / "ap-includes" / "class-ap-registration.php").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(
+        r"public const RESERVED_LOGINS = \[(.*?)\];",
+        src,
+        re.S,
+    )
+    assert match, "AP_Registration::RESERVED_LOGINS should parse"
+    names = re.findall(r"'([^']+)'", match.group(1))
+    assert names, "RESERVED_LOGINS should not be empty"
+    return names
+
+
+def _php_mail_override_constants() -> list[str]:
+    src = (ROOT / "ap-includes" / "class-ap-mail.php").read_text(encoding="utf-8")
+    start = src.index("function configConstantName")
+    end = src.index("default => null", start)
+    names = re.findall(r"'(AP_(?:MAIL|SMTP)_[A-Z_]+)'", src[start:end])
+    assert names, "AP_Mail::configConstantName() should list override constants"
+    return names
+
+
+def test_admin_doc_covers_mail_and_register_gate(docs_root: Path) -> None:
+    """SPEC: admin.md documents Settings → Mail, resend, captcha, reserved names."""
+    text = (docs_root / "admin.md").read_text(encoding="utf-8")
+    lower = text.lower()
+    for login in _php_reserved_logins():
+        assert login in lower, (
+            f"docs/admin.md must list locked reserved login {login!r}"
+        )
+    for const in _php_mail_override_constants():
+        assert const in text, (
+            f"docs/admin.md must name mail override constant {const}"
+        )
 
 
 def test_forums_doc_content(docs_root: Path) -> None:
@@ -1412,9 +1569,19 @@ def test_forums_doc_content(docs_root: Path) -> None:
         "log in to like posts.",
         "10485760",
         "ap_forum_session",
+        "this group only",
+        "group_only",
+        "forum_group_only",
+        "forum_access_groups",
+        "rest_cannot_view",
+        "you cannot view this.",
+        "ap_forum_cannot_view",
+        "/forums/feed/",
+        "getlistableforums",
+        "no public join",
     ):
         assert phrase in lower, f"forums.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/forums.md must not contain private marker: {banned}"
 
 
@@ -1484,7 +1651,7 @@ def test_roles_doc_content(docs_root: Path) -> None:
         "activate-user-",
     ):
         assert phrase in lower, f"roles.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/roles.md must not contain private marker: {banned}"
 
 
@@ -1551,7 +1718,7 @@ def test_rest_doc_content(docs_root: Path) -> None:
         "this page only",
     ):
         assert phrase in lower, f"rest.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/rest.md must not contain private marker: {banned}"
 
 
@@ -1603,10 +1770,56 @@ def test_security_doc_content(docs_root: Path) -> None:
         "ap_trust_proxy",
         "that username is not available.",
         "activatependinguser",
+        "anti-squat",
+        "phpmailer",
+        "hcaptcha",
+        "turnstile",
+        "ap_form_ticket",
+        "ap_hp",
+        "smtp.example.com",
+        "noreply@example.com",
+        "ap_mail_from_email",
+        "ap_smtp_host",
+        "ap_smtp_pass",
+        "human check",
+        "stream_socket_client",
+        "settings → mail",
+        "options-mail.php",
+        "text/plain",
+        "ap_reserved_usernames",
+        "ap_user_created",
+        "could not complete registration. please try again.",
+        "auth plain",
+        "register-guard.js",
+        "ap_guard_ack",
+        "silas",
+        "not 2fa",
     ):
         assert phrase in lower, f"security.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/security.md must not contain private marker: {banned}"
+
+
+def test_security_doc_covers_mail_register_gate_and_reserved_names(
+    docs_root: Path,
+) -> None:
+    """SPEC: security.md documents mail transports, register gate, anti-squat."""
+    text = (docs_root / "security.md").read_text(encoding="utf-8")
+    lower = text.lower()
+    for login in _php_reserved_logins():
+        assert login in lower, (
+            f"docs/security.md must list locked reserved login {login!r}"
+        )
+    for const in _php_mail_override_constants():
+        assert const in text, (
+            f"docs/security.md must name mail override constant {const}"
+        )
+    assert "anti-squat" in lower
+    assert "not 2fa" in lower
+    assert "phpmailer" in lower
+    assert "hcaptcha" in lower
+    assert "turnstile" in lower
+    assert "stream_socket_client" in lower
 
 
 def test_troubleshooting_doc_content(docs_root: Path) -> None:
@@ -1670,12 +1883,56 @@ def test_troubleshooting_doc_content(docs_root: Path) -> None:
         "ap_db_version",
         "activate account",
         "resend verification",
+        "spam folder",
+        "smtp.example.com",
+        "noreply@example.com",
+        "you cannot view this.",
+        "this group only",
+        "group_only",
+        "view_forum",
+        "members only",
+        "rest_cannot_view",
+        "forum_group_only",
+        "24 hours",
+        "login.php?action=resend",
+        "stream_socket_client",
+        "check your email",
+        "forum_allow_guest_viewing",
     ):
         assert phrase in lower, f"troubleshooting.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/troubleshooting.md must not contain private marker: {banned}"
     # Public-safe: do not name private accounts even without '@'.
     assert "stallboy" not in lower, "docs/troubleshooting.md must not name private accounts"
+
+
+def test_troubleshooting_covers_verification_mail_and_group_acl(
+    docs_root: Path,
+) -> None:
+    """SPEC: verification mail → SMTP/spam; group board invisible → ACL."""
+    text = (docs_root / "troubleshooting.md").read_text(encoding="utf-8")
+    lower = text.lower()
+    assert "## mail not arriving" in lower
+    assert "## group board invisible" in lower
+    assert "verification mail never arrives" in lower
+    assert "spam" in lower
+    assert "smtp" in lower
+    assert "does **not** print" in lower
+    assert "check your email" in lower
+    assert "you cannot view this." in lower
+    assert "this group only" in lower
+    assert "`group_only`" in text
+    assert "`view_forum`" in text
+    assert "members only" in lower
+    assert "every logged-in" in lower
+    assert "rest_cannot_view" in lower
+    assert "moderate_forums" in lower
+    assert "manage_forums" in lower
+    assert "no public join" in lower
+    assert "smtp.example.com" in lower
+    assert "noreply@example.com" in lower
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/troubleshooting.md must not contain private marker: {banned}"
 
 
 def test_schema_doc_content(docs_root: Path) -> None:
@@ -1716,7 +1973,7 @@ def test_schema_doc_content(docs_root: Path) -> None:
         "not in core",
     ):
         assert phrase in text, f"schema.md missing: {phrase}"
-    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/schema.md must not contain private marker: {banned}"
 
 # Root README Documentation table: existing integrator guides plus the
@@ -1962,6 +2219,7 @@ OPERATOR_GUIDE_CROSS_LINKS = {
         "themes.md",
         "schema.md",
         "hooks.md",
+        "compatibility.md",
     ),
     "forums.md": (
         "admin.md",

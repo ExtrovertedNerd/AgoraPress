@@ -54,7 +54,7 @@ PHASE0_CLI_GROUPS = (
 
 PRIVATE_MARKERS = (
     "roland",
-    "stallboy@",
+    "stallboy",
     "mail.0shits.com",
     "keepass",
     "stalwart",
@@ -67,6 +67,14 @@ CATALOG_TOKENS = (
     "rest_api_enabled",
     "analytics_enabled",
     "ap_register_admin_page",
+    "options-mail.php",
+    "ap_mail_send",
+    "ap_user_created",
+    "ap_reserved_usernames",
+    "forum_group_only",
+    "group_only",
+    "This group only",
+    "AP_MAIL_TRANSPORT",
 )
 
 ADD_COMMAND = re.compile(
@@ -375,6 +383,13 @@ def test_admin_doc_matches_acp_as_built(docs_root: Path) -> None:
         "phpbb-db",
         "paywall",
         "not in core",
+        "admin-resend",
+        "smtp.example.com",
+        "noreply@example.com",
+        "AP_MAIL_FROM_EMAIL",
+        "AP_SMTP_HOST",
+        "This group only",
+        "register-guard.js",
     ):
         assert needle in text, f"docs/admin.md should mention: {needle}"
 
@@ -525,6 +540,16 @@ def test_forums_doc_matches_module_as_built(docs_root: Path) -> None:
         "Mark all as read",
         "status=open",
         "not in core",
+        "This group only",
+        "group_only",
+        "forum_group_only",
+        "forum_access_groups",
+        "rest_cannot_view",
+        "You cannot view this.",
+        "ap_forum_cannot_view",
+        "/forums/feed/",
+        "getListableForums",
+        "no public Join",
     ):
         assert needle in text, f"docs/forums.md should mention: {needle}"
 
@@ -547,6 +572,42 @@ def test_docs_file_contains_no_private_markers(docs_root: Path, name: str) -> No
     for banned in PRIVATE_MARKERS:
         assert banned not in text, (
             f"docs/{name} must not contain private marker: {banned}"
+        )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ("README.md", "CHANGELOG.md", "ap-config-sample.php"),
+)
+def test_public_product_file_contains_no_private_markers(relative: str) -> None:
+    path = ROOT / relative
+    assert path.is_file(), f"Missing public file: {relative}"
+    text = path.read_text(encoding="utf-8").lower()
+    for banned in PRIVATE_MARKERS:
+        assert banned not in text, (
+            f"{relative} must not contain private marker: {banned}"
+        )
+
+
+def test_public_safe_mail_examples_appear_in_operator_docs() -> None:
+    for relative in (
+        "docs/README.md",
+        "docs/bot_handbook.md",
+        "docs/admin.md",
+        "docs/security.md",
+        "docs/install.md",
+        "docs/troubleshooting.md",
+        "docs/cli.md",
+        "ap-config-sample.php",
+    ):
+        path = ROOT / relative
+        assert path.is_file(), f"Missing {relative}"
+        text = path.read_text(encoding="utf-8")
+        assert "smtp.example.com" in text, (
+            f"{relative} should use generic SMTP host smtp.example.com"
+        )
+        assert "noreply@example.com" in text, (
+            f"{relative} should use generic from-address noreply@example.com"
         )
 
 
@@ -701,11 +762,7 @@ def test_spec_success_bot_can_answer_charter_questions(docs_root: Path) -> None:
 
 
 def test_spec_success_root_readme_has_no_private_markers() -> None:
-    """SPEC: public landing doc names no private host, mailbox, or Addons skin.
-
-    Historical CHANGELOG [0.3.6-beta] fixture wording is deferred
-    (SPEC: do not rewrite changelog history).
-    """
+    """SPEC: public landing doc names no private host, mailbox, or Addons skin."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
     for banned in PRIVATE_MARKERS:
         assert banned not in readme, f"README.md must not contain private marker: {banned}"

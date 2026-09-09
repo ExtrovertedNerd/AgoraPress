@@ -157,6 +157,14 @@ def test_unreleased_notes_documentation_pass(changelog_text: str) -> None:
         assert path.lower() in lower, f"[Unreleased] should mention {path}"
 
 
+def test_changelog_contains_no_private_markers(changelog_text: str) -> None:
+    lower = changelog_text.lower()
+    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, (
+            f"CHANGELOG.md must not contain private marker: {banned}"
+        )
+
+
 def test_docs_pass_does_not_bump_ap_version() -> None:
     version_php = VERSION_PHP.read_text(encoding="utf-8")
     match = re.search(

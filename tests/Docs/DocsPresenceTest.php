@@ -53,7 +53,7 @@ final class DocsPresenceTest extends TestCase
      */
     private const PRIVATE_MARKERS = [
         'Roland',
-        'stallboy@',
+        'stallboy',
         'mail.0shits.com',
         'KeePass',
         'Stalwart',
@@ -71,6 +71,14 @@ final class DocsPresenceTest extends TestCase
         'rest_api_enabled',
         'analytics_enabled',
         'ap_register_admin_page',
+        'options-mail.php',
+        'ap_mail_send',
+        'ap_user_created',
+        'ap_reserved_usernames',
+        'forum_group_only',
+        'group_only',
+        'This group only',
+        'AP_MAIL_TRANSPORT',
     ];
 
     protected function setUp(): void
@@ -453,6 +461,13 @@ final class DocsPresenceTest extends TestCase
                 'phpbb-db',
                 'paywall',
                 'not in core',
+                'admin-resend',
+                'smtp.example.com',
+                'noreply@example.com',
+                'AP_MAIL_FROM_EMAIL',
+                'AP_SMTP_HOST',
+                'This group only',
+                'register-guard.js',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -640,6 +655,16 @@ final class DocsPresenceTest extends TestCase
                 'Mark all as read',
                 'status=open',
                 'not in core',
+                'This group only',
+                'group_only',
+                'forum_group_only',
+                'forum_access_groups',
+                'rest_cannot_view',
+                'You cannot view this.',
+                'ap_forum_cannot_view',
+                '/forums/feed/',
+                'getListableForums',
+                'no public Join',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -739,6 +764,66 @@ final class DocsPresenceTest extends TestCase
                 $banned,
                 $text,
                 "docs/{$relative} must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    /**
+     * Public landing files (not only docs/*.md) must stay secret-safe.
+     * Generic mail examples are the only SMTP host / from-address samples.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function publicProductFileProvider(): array
+    {
+        return [
+            'README.md' => ['README.md'],
+            'CHANGELOG.md' => ['CHANGELOG.md'],
+            'ap-config-sample.php' => ['ap-config-sample.php'],
+        ];
+    }
+
+    #[DataProvider('publicProductFileProvider')]
+    public function testPublicProductFileContainsNoPrivateMarkers(string $relative): void
+    {
+        $path = $this->root . '/' . $relative;
+        $this->assertFileIsReadable($path, "Missing public file: {$relative}");
+        $text = (string) file_get_contents($path);
+        foreach (self::PRIVATE_MARKERS as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "{$relative} must not contain private marker: {$banned}"
+            );
+        }
+    }
+
+    public function testPublicSafeMailExamplesAppearInOperatorDocs(): void
+    {
+        foreach (
+            [
+                'docs/README.md',
+                'docs/bot_handbook.md',
+                'docs/admin.md',
+                'docs/security.md',
+                'docs/install.md',
+                'docs/troubleshooting.md',
+                'docs/cli.md',
+                'ap-config-sample.php',
+            ] as $relative
+        ) {
+            $path = $this->root . '/' . $relative;
+            $this->assertFileIsReadable($path, "Missing {$relative}");
+            $text = (string) file_get_contents($path);
+            $this->assertStringContainsString(
+                'smtp.example.com',
+                $text,
+                "{$relative} should use generic SMTP host smtp.example.com"
+            );
+            $this->assertStringContainsString(
+                'noreply@example.com',
+                $text,
+                "{$relative} should use generic from-address noreply@example.com"
             );
         }
     }
@@ -936,9 +1021,9 @@ final class DocsPresenceTest extends TestCase
 
     /**
      * SPEC success: no public landing doc names a private host, mailbox, or
-     * Addons skin. Charter new guides are scanned in
-     * testDocsFileContainsNoPrivateMarkers. Historical CHANGELOG [0.3.6-beta]
-     * fixture wording is deferred (SPEC: do not rewrite changelog history).
+     * Addons skin. Charter guides are scanned in
+     * testDocsFileContainsNoPrivateMarkers; README / CHANGELOG / sample in
+     * testPublicProductFileContainsNoPrivateMarkers.
      */
     public function testSpecSuccessRootReadmeHasNoPrivateMarkers(): void
     {
