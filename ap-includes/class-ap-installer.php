@@ -440,7 +440,8 @@ PHP;
      * @param array{title: string, url: string, email?: string} $site
      * @param array{username: string, email: string, password: string} $admin
      * @param string $configPath Absolute path for ap-config.php
-     * @param array{sample_content?: bool} $options Install options (optional sample content).
+     * @param array{sample_content?: bool, abspath?: string} $options
+     *     Install options (optional sample content; site root for uploads).
      *
      * @return array{
      *     ok: bool,
@@ -486,6 +487,18 @@ PHP;
 
             return $result;
         }
+
+        if (!class_exists('AP_Requirements', false)) {
+            require_once __DIR__ . '/class-ap-requirements.php';
+        }
+        if (isset($options['abspath']) && is_string($options['abspath']) && $options['abspath'] !== '') {
+            $root = rtrim($options['abspath'], "/\\") . '/';
+        } elseif (defined('AP_ABSPATH')) {
+            $root = rtrim((string) AP_ABSPATH, "/\\") . '/';
+        } else {
+            $root = dirname(__DIR__) . '/';
+        }
+        AP_Requirements::ensureUploadsDirectory($root);
 
         try {
             $connection = self::connect($db);

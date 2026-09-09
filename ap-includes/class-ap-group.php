@@ -483,7 +483,8 @@ class AP_Group
     /**
      * List groups.
      *
-     * @param array<string, mixed> $args type, search, exclude_system, exclude_hidden, public, orderby, order, limit, offset
+     * @param array<string, mixed> $args type, search, exclude_system, exclude_hidden,
+     *                                   public, orderby, order, limit, offset
      *
      * @return list<object>
      */

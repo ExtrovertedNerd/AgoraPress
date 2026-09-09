@@ -45,6 +45,7 @@ final class RequirementsTest extends TestCase
         $this->assertContains('php_version', $ids);
         $this->assertContains('pdo_driver', $ids);
         $this->assertContains('writable_config', $ids);
+        $this->assertContains('writable_uploads', $ids);
         $this->assertContains('ext_pdo', $ids);
         $this->assertContains('ext_mbstring', $ids);
     }
@@ -102,5 +103,67 @@ final class RequirementsTest extends TestCase
         $this->assertArrayHasKey('curl', $required);
         $this->assertArrayHasKey('fileinfo', $required);
         $this->assertArrayHasKey('zip', $required);
+    }
+
+    public function testEnsureUploadsDirectoryCreatesWhenContentIsWritable(): void
+    {
+        $site = sys_get_temp_dir() . '/ap-req-uploads-' . uniqid('', true);
+        $content = $site . '/ap-content';
+        $uploads = $content . '/uploads';
+        $this->assertTrue(mkdir($content, 0700, true));
+        $this->assertDirectoryDoesNotExist($uploads);
+
+        try {
+            $ok = AP_Requirements::ensureUploadsDirectory($site . '/');
+            $this->assertTrue($ok);
+            $this->assertDirectoryExists($uploads);
+            $this->assertTrue(is_writable($uploads));
+            $index = $uploads . '/index.php';
+            $this->assertFileExists($index);
+            $src = (string) file_get_contents($index);
+            $this->assertStringContainsString('http_response_code(403)', $src);
+
+            $again = AP_Requirements::ensureUploadsDirectory($site . '/');
+            $this->assertTrue($again);
+            $this->assertSame($src, (string) file_get_contents($index));
+
+            $checks = AP_Requirements::check($site . '/');
+            $uploadsCheck = null;
+            foreach ($checks as $check) {
+                if ($check['id'] === 'writable_uploads') {
+                    $uploadsCheck = $check;
+                    break;
+                }
+            }
+            $this->assertNotNull($uploadsCheck);
+            $this->assertTrue($uploadsCheck['ok']);
+            $this->assertTrue($uploadsCheck['required']);
+        } finally {
+            if (is_file($uploads . '/index.php')) {
+                @unlink($uploads . '/index.php');
+            }
+            if (is_dir($uploads)) {
+                @rmdir($uploads);
+            }
+            if (is_dir($content)) {
+                @rmdir($content);
+            }
+            if (is_dir($site)) {
+                @rmdir($site);
+            }
+        }
+    }
+
+    public function testEnsureUploadsDirectoryFailsWhenContentIsMissing(): void
+    {
+        $site = sys_get_temp_dir() . '/ap-req-noconent-' . uniqid('', true);
+        $this->assertTrue(mkdir($site, 0700, true));
+
+        try {
+            $this->assertFalse(AP_Requirements::ensureUploadsDirectory($site . '/'));
+            $this->assertDirectoryDoesNotExist($site . '/ap-content/uploads');
+        } finally {
+            @rmdir($site);
+        }
     }
 }

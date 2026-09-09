@@ -784,7 +784,10 @@ class AP_Forum_Front
         if ((int) ($topic->topic_approved ?? 1) !== 1) {
             $userId = self::currentUserId($db);
             $posterId = (int) ($topic->topic_poster ?? 0);
-            $canSee = $userId > 0 && ($userId === $posterId || self::userCanModerate((int) $topic->forum_id, $userId, $db));
+            $canSee = $userId > 0 && (
+                $userId === $posterId
+                || self::userCanModerate((int) $topic->forum_id, $userId, $db)
+            );
             if (!$canSee) {
                 return null;
             }

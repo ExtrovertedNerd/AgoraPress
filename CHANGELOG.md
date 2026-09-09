@@ -25,6 +25,10 @@ Documentation pass for humans and Grok Bot. Core remains `AP_VERSION` **0.3.6-be
 - Root `README.md` Documentation table lists every topic guide
 - Integrator docs tightened against 0.3.6-beta
 
+### Fixed
+
+- Installer creates `ap-content/uploads/` when missing if `ap-content/` is writable
+
 ### Removed
 
 - Site-specific plugins and themes other than default Agora (`ap-content/themes/agora/` only)

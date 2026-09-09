@@ -246,9 +246,7 @@ class AP_Requirements
                 : 'ap-content must exist and be writable',
         ];
 
-        $uploadsDir = $contentDir . '/uploads';
-        $uploadsOk = is_dir($uploadsDir) && is_writable($uploadsDir);
-        // Uploads may be created later; directory should exist from scaffold.
+        $uploadsOk = self::ensureUploadsDirectory($root);
         $checks[] = [
             'id' => 'writable_uploads',
             'label' => 'ap-content/uploads directory',
@@ -260,6 +258,56 @@ class AP_Requirements
         ];
 
         return $checks;
+    }
+
+    /**
+     * Create ap-content/uploads when it is missing and ap-content is writable.
+     *
+     * Runtime uploads are gitignored, so a fresh clone has no uploads
+     * directory. Web and CLI installers share this helper via {@see check()}
+     * so a missing empty dir is not a required-check failure.
+     *
+     * @return bool True when the directory exists and is writable afterwards.
+     */
+    public static function ensureUploadsDirectory(string $root): bool
+    {
+        $root = rtrim($root, "/\\") . '/';
+        $contentDir = $root . 'ap-content';
+        $uploadsDir = $contentDir . '/uploads';
+
+        if (is_dir($uploadsDir)) {
+            self::writeUploadsIndex($uploadsDir);
+
+            return is_writable($uploadsDir);
+        }
+
+        if (!is_dir($contentDir) || !is_writable($contentDir)) {
+            return false;
+        }
+
+        if (!@mkdir($uploadsDir, 0755, false) && !is_dir($uploadsDir)) {
+            return false;
+        }
+
+        self::writeUploadsIndex($uploadsDir);
+
+        return is_dir($uploadsDir) && is_writable($uploadsDir);
+    }
+
+    /**
+     * Write a silent 403 index.php so a new uploads directory is not a listing.
+     */
+    private static function writeUploadsIndex(string $uploadsDir): void
+    {
+        $index = rtrim(str_replace('\\', '/', $uploadsDir), '/') . '/index.php';
+        if (is_file($index)) {
+            return;
+        }
+
+        @file_put_contents(
+            $index,
+            "<?php\n// Silence is golden.\nhttp_response_code(403);\nexit;\n"
+        );
     }
 
     /**

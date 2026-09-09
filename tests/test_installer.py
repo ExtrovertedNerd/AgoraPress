@@ -51,6 +51,7 @@ def test_installer_classes_define_expected_api() -> None:
     assert "class AP_Requirements" in req
     assert "function check" in req
     assert "function allRequiredPassed" in req
+    assert "function ensureUploadsDirectory" in req
 
     inst = INSTALLER.read_text(encoding="utf-8")
     assert "class AP_Installer" in inst
@@ -60,6 +61,7 @@ def test_installer_classes_define_expected_api() -> None:
     assert "function run" in inst
     assert "function configExists" in inst
     assert "function alreadyInstalledMessage" in inst
+    assert "AP_Requirements::ensureUploadsDirectory" in inst
     # Password hashing lives on AP_User (Argon2id); installer delegates.
     assert "AP_User::hashPassword" in inst
     # writeConfigFile must refuse overwrite (already-installed protection).

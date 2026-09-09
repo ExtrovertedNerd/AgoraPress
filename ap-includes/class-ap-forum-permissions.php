@@ -242,14 +242,18 @@ class AP_Forum_Permissions
         return [
             self::ACCESS_PUBLIC => 'Anyone can view and read. Registered users can post. Moderators can moderate.',
             self::ACCESS_MEMBERS => 'Hidden from guests. Registered users can post. Moderators can moderate.',
-            self::ACCESS_MEMBERS_READONLY => 'Guests and members can view/read but not post. Only moderators and admins can create topics or reply.',
-            self::ACCESS_MODERATORS => 'Visible only to moderators and administrators. Guests and regular members cannot see this forum.',
-            self::ACCESS_ADMINISTRATORS => 'Visible only to administrators. Moderators and members cannot see this forum.',
+            self::ACCESS_MEMBERS_READONLY => 'Guests and members can view/read but not post. '
+                . 'Only moderators and admins can create topics or reply.',
+            self::ACCESS_MODERATORS => 'Visible only to moderators and administrators. '
+                . 'Guests and regular members cannot see this forum.',
+            self::ACCESS_ADMINISTRATORS => 'Visible only to administrators. '
+                . 'Moderators and members cannot see this forum.',
             self::ACCESS_GROUP_ONLY => 'Visible only to members of the selected named group(s). '
                 . 'Guests and other registered users cannot see this forum. '
                 . 'Administrators can always view. Site-wide moderators cannot '
                 . 'unless they are in a chosen group. Create groups under Forums → Groups.',
-            self::ACCESS_CUSTOM => 'Set each permission for Guest, Registered, Moderator, and Administrator individually.',
+            self::ACCESS_CUSTOM => 'Set each permission for Guest, Registered, '
+                . 'Moderator, and Administrator individually.',
         ];
     }
 
@@ -387,30 +391,45 @@ class AP_Forum_Permissions
                 $allowSet($matrix[self::LEVEL_GUEST], self::baselinePermissionsForLevel(self::LEVEL_GUEST));
                 $allowSet($matrix[self::LEVEL_REGISTERED], self::baselinePermissionsForLevel(self::LEVEL_REGISTERED));
                 $allowSet($matrix[self::LEVEL_MODERATOR], self::baselinePermissionsForLevel(self::LEVEL_MODERATOR));
-                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                $allowSet(
+                    $matrix[self::LEVEL_ADMINISTRATOR],
+                    self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR)
+                );
                 break;
 
             case self::ACCESS_MEMBERS:
                 // Guests: all deny (already false).
                 $allowSet($matrix[self::LEVEL_REGISTERED], self::baselinePermissionsForLevel(self::LEVEL_REGISTERED));
                 $allowSet($matrix[self::LEVEL_MODERATOR], self::baselinePermissionsForLevel(self::LEVEL_MODERATOR));
-                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                $allowSet(
+                    $matrix[self::LEVEL_ADMINISTRATOR],
+                    self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR)
+                );
                 break;
 
             case self::ACCESS_MEMBERS_READONLY:
                 $allowSet($matrix[self::LEVEL_GUEST], [self::PERM_VIEW, self::PERM_READ]);
                 $allowSet($matrix[self::LEVEL_REGISTERED], [self::PERM_VIEW, self::PERM_READ]);
                 $allowSet($matrix[self::LEVEL_MODERATOR], self::baselinePermissionsForLevel(self::LEVEL_MODERATOR));
-                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                $allowSet(
+                    $matrix[self::LEVEL_ADMINISTRATOR],
+                    self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR)
+                );
                 break;
 
             case self::ACCESS_MODERATORS:
                 $allowSet($matrix[self::LEVEL_MODERATOR], self::baselinePermissionsForLevel(self::LEVEL_MODERATOR));
-                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                $allowSet(
+                    $matrix[self::LEVEL_ADMINISTRATOR],
+                    self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR)
+                );
                 break;
 
             case self::ACCESS_ADMINISTRATORS:
-                $allowSet($matrix[self::LEVEL_ADMINISTRATOR], self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR));
+                $allowSet(
+                    $matrix[self::LEVEL_ADMINISTRATOR],
+                    self::baselinePermissionsForLevel(self::LEVEL_ADMINISTRATOR)
+                );
                 break;
         }
 

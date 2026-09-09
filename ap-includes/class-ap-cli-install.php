@@ -455,6 +455,7 @@ TXT;
 
         $result = AP_Installer::run($db, $site, $admin, $configPath, [
             'sample_content' => $wantSample,
+            'abspath' => $root,
         ]);
 
         if (!$result['ok']) {

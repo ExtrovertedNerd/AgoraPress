@@ -417,7 +417,7 @@ The requirements checker (`AP_Requirements`) treats these as **required**:
 |------|------|
 | Site root (`ap-config.php` location) | Directory writable so PHP can **create** `ap-config.php` (or the file itself writable if it already exists) |
 | `ap-content/` | Directory exists and is writable |
-| `ap-content/uploads/` | Directory exists and is writable (scaffold ships `uploads/index.php`) |
+| `ap-content/uploads/` | Directory exists and is writable. The installer creates it (with a silent `index.php` that returns 403) when it is missing and `ap-content/` is writable. Runtime files stay gitignored (`/ap-content/uploads/`). |
 
 Typical Unix setup: directories owned by the PHP user (php-fpm or Apache),
 mode that user can write. Do not make the tree world-writable as a shortcut.
@@ -436,9 +436,12 @@ Also:
   deny `ap-config.php`, `.env`, SQLite/DB files, and raw `ap-includes/` PHP
   (CSS/JS under `ap-includes` stay public). `ap-content/.htaccess` turns off
   indexes and denies `.sqlite` / `.db`. See [security.md](security.md).
-- **Uploads:** `ap-content/uploads/index.php` returns 403 so the directory is
-  not a script entry point. Media files are served as static files when they
-  exist.
+- **Uploads:** the installer creates `ap-content/uploads/` when it is missing
+  and `ap-content/` is writable (web and CLI share `AP_Requirements`).
+  `ap-content/uploads/index.php` returns 403 so the directory is not a
+  script entry point. Media files are served as static files when they
+  exist. Do not use `--skip-requirements` to paper over a missing uploads
+  directory.
 
 The installer does not chown the tree for you.
 

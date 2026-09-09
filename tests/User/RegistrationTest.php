@@ -1810,7 +1810,7 @@ final class RegistrationTest extends TestCase
                 'Resend verification',
                 'ap-human-check',
                 'Human check',
-                "(\$captchaChallenge['mode'] ?? '') === 'guard'",
+                "\$captchaMode === 'guard'",
                 'ap_guard_ack',
                 'ap-guard-fallback',
                 'register-guard.js',
@@ -1860,7 +1860,7 @@ final class RegistrationTest extends TestCase
         // Honeypot is always-on (after the captcha branch), not nested in captcha-on only.
         $hpPos = strpos($src, 'class="ap-hp"');
         $this->assertNotFalse($hpPos);
-        $captchaMath = strpos($src, "(\$captchaChallenge['mode'] ?? '') === 'math'");
+        $captchaMath = strpos($src, "\$captchaMode === 'math'");
         $this->assertNotFalse($captchaMath);
         $this->assertGreaterThan(
             $captchaMath,

@@ -52,6 +52,7 @@ def test_gitignore_covers_sqlite() -> None:
     gi = GITIGNORE.read_text(encoding="utf-8")
     assert "*.sqlite" in gi or "database.sqlite" in gi
     assert "ap-config.php" in gi
+    assert "/ap-content/uploads/" in gi
 
 
 def test_package_release_excludes_sqlite() -> None:

@@ -335,6 +335,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $installOptions = [
                     'sample_content' => !empty($_SESSION['ap_install_sample_content']),
+                    'abspath' => defined('AP_ABSPATH') ? (string) AP_ABSPATH : dirname(__DIR__) . '/',
                 ];
                 $result = AP_Installer::run($db, $site, $admin, $configPath, $installOptions);
                 if (!$result['ok']) {

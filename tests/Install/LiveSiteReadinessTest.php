@@ -64,6 +64,7 @@ final class LiveSiteReadinessTest extends TestCase
         );
         $this->assertStringContainsString('ap-config.php', $gi);
         $this->assertStringContainsString('/dist/', $gi);
+        $this->assertStringContainsString('/ap-content/uploads/', $gi);
     }
 
     public function testPackageReleaseExcludesSqlite(): void
@@ -159,6 +160,8 @@ final class LiveSiteReadinessTest extends TestCase
         $this->assertTrue(mkdir($tmp, 0700, true));
         $config = $tmp . '/ap-config.php';
         $db = $tmp . '/site.sqlite';
+        $uploads = $this->root . '/ap-content/uploads';
+        $stash = $this->stashUploadsDirectory($uploads);
 
         $php = PHP_BINARY !== '' ? PHP_BINARY : 'php';
         $cmd = escapeshellarg($php) . ' ' . escapeshellarg($cli)
@@ -172,6 +175,12 @@ final class LiveSiteReadinessTest extends TestCase
             . ' --config-path=' . escapeshellarg($config)
             . ' --no-sample-content 2>&1';
 
+        $this->assertStringNotContainsString(
+            'skip-requirements',
+            $cmd,
+            'Fresh-clone CLI install must run AP_Requirements, not skip them'
+        );
+
         $output = [];
         $exit = 0;
         exec($cmd, $output, $exit);
@@ -181,6 +190,8 @@ final class LiveSiteReadinessTest extends TestCase
             $this->assertSame(0, $exit, $combined);
             $this->assertFileExists($config);
             $this->assertFileExists($db);
+            $this->assertDirectoryExists($uploads);
+            $this->assertFileExists($uploads . '/index.php');
             $this->assertStringContainsString('Installation complete', $combined);
             $cfg = (string) file_get_contents($config);
             $this->assertStringContainsString("define('AP_DEBUG', false)", $cfg);
@@ -189,6 +200,68 @@ final class LiveSiteReadinessTest extends TestCase
             @unlink($config);
             @unlink($db);
             @rmdir($tmp);
+            $this->restoreStashedUploads($uploads, $stash);
         }
+    }
+
+    /**
+     * Move a local uploads dir aside so this test matches a fresh clone
+     * (runtime uploads are gitignored).
+     */
+    private function stashUploadsDirectory(string $uploads): ?string
+    {
+        if (!is_dir($uploads)) {
+            return null;
+        }
+
+        $stash = sys_get_temp_dir() . '/ap-uploads-stash-' . uniqid('', true);
+        if (!@rename($uploads, $stash)) {
+            return null;
+        }
+
+        return $stash;
+    }
+
+    private function restoreStashedUploads(string $uploads, ?string $stash): void
+    {
+        if ($stash === null || !is_dir($stash)) {
+            return;
+        }
+
+        if (is_dir($uploads)) {
+            $trash = sys_get_temp_dir() . '/ap-uploads-trash-' . uniqid('', true);
+            if (@rename($uploads, $trash)) {
+                $this->deleteDirectoryTree($trash);
+            }
+        }
+
+        @rename($stash, $uploads);
+    }
+
+    private function deleteDirectoryTree(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        $items = @scandir($dir);
+        if (!is_array($items)) {
+            @rmdir($dir);
+
+            return;
+        }
+
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $item;
+            if (is_dir($path)) {
+                $this->deleteDirectoryTree($path);
+            } else {
+                @unlink($path);
+            }
+        }
+        @rmdir($dir);
     }
 }

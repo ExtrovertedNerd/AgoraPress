@@ -294,6 +294,58 @@ final class CliInstallTest extends TestCase
         $this->assertStringContainsString('// existing', (string) file_get_contents($config));
     }
 
+    public function testExecuteCreatesUploadsWithoutSkipRequirements(): void
+    {
+        $siteRoot = $this->tempDir . '/fresh-site';
+        $content = $siteRoot . '/ap-content';
+        $this->assertTrue(mkdir($content, 0700, true));
+        $this->assertDirectoryDoesNotExist($content . '/uploads');
+
+        $sqlite = $this->tempDir . '/fresh.sqlite';
+        $config = $this->tempDir . '/fresh-config.php';
+
+        $code = AP_Cli_Install::execute(
+            [
+                'db_driver' => 'sqlite',
+                'db_name' => $sqlite,
+                'db_user' => '',
+                'db_password' => '',
+                'db_host' => '',
+                'db_charset' => 'utf8mb4',
+                'table_prefix' => 'ap_',
+                'site_title' => 'Fresh Clone Site',
+                'site_url' => 'https://fresh.example.test',
+                'admin_user' => 'freshadmin',
+                'admin_email' => 'fresh@example.test',
+                'admin_password' => 'freshpass99',
+                'config_path' => $config,
+                'skip_requirements' => false,
+            ],
+            $this->captureOut(),
+            $this->captureErr(),
+            $siteRoot . '/'
+        );
+
+        $this->assertSame(
+            AP_Cli_Install::EXIT_OK,
+            $code,
+            "stdout:\n" . implode("\n", $this->stdout)
+            . "\nstderr:\n" . implode("\n", $this->stderr)
+        );
+        $this->assertDirectoryExists($content . '/uploads');
+        $this->assertFileExists($content . '/uploads/index.php');
+        $this->assertStringContainsString(
+            'Requirements OK',
+            implode("\n", $this->stdout)
+        );
+        $this->assertStringNotContainsString(
+            'Skipping requirements',
+            implode("\n", $this->stdout)
+        );
+        $this->assertFileIsReadable($config);
+        $this->assertFileExists($sqlite);
+    }
+
     public function testEntryScriptExistsAndIsCliOnly(): void
     {
         $script = $this->root . '/install/cli.php';

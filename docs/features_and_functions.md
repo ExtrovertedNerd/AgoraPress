@@ -435,6 +435,7 @@
 |------|----------|-------|
 | Web installer | `/install/` steps `requirements` → `database` → `site` → `run` → `done` | [install.md](install.md) |
 | CLI installer | `php install/cli.php` (flags + `AP_ADMIN_PASSWORD` / `AP_DB_PASSWORD`; exit `0`/`1`/`2`/`3`) | [install.md](install.md) |
+| Uploads dir | Installer creates `ap-content/uploads/` (silent `index.php`) when missing and `ap-content/` is writable; runtime files stay gitignored | [install.md](install.md#permissions) |
 | Docker | `docker-compose.yml` (example `localhost:8080`) | [install.md](install.md) |
 | Manual config | copy `ap-config-sample.php` → `ap-config.php` | [install.md](install.md#manual-config) |
 | Mail constants | Commented `AP_MAIL_*` / `AP_SMTP_*` names in the sample; defined values override Settings → Mail | [install.md](install.md#manual-config) · [admin.md](admin.md#mail) |

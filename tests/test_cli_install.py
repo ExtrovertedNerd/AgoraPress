@@ -38,6 +38,8 @@ def test_cli_class_defines_expected_api() -> None:
     assert "function runFromArgv" in src
     assert "EXIT_OK" in src
     assert "AP_Installer::run" in src
+    assert "AP_Requirements::check" in src
+    assert "'abspath' => $root" in src
 
 
 def test_installer_mentions_cli_path() -> None:

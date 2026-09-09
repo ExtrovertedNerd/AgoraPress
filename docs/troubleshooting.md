@@ -178,7 +178,7 @@ The requirements checker treats these as **required**:
 |------|------|
 | Site root | PHP can create `ap-config.php` |
 | `ap-content/` | Directory exists and is writable |
-| `ap-content/uploads/` | Directory exists and is writable (scaffold ships `uploads/index.php`) |
+| `ap-content/uploads/` | Directory exists and is writable. Installer creates it (silent `index.php`) when missing if `ap-content/` is writable |
 
 Typical Unix setup: directories owned by the PHP user, mode that user can
 write. The installer does not chown the tree for you.

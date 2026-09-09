@@ -290,6 +290,31 @@ $pageTitle = match ($action) {
 $loginHtmlLang = function_exists('ap_get_html_lang') ? ap_get_html_lang() : 'en';
 $loginTextDir = function_exists('ap_get_text_direction') ? ap_get_text_direction() : 'ltr';
 $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' : 'ltr');
+$loginUrl = AP_Admin::url('login.php');
+$registerUrl = AP_Admin::url('login.php', ['action' => 'register']);
+$lostPasswordUrl = AP_Admin::url('login.php', ['action' => 'lostpassword']);
+$resendUrl = AP_Admin::url('login.php', ['action' => 'resend']);
+$resendLoginValue = $resendPrefill !== ''
+    ? $resendPrefill
+    : (string) ($_POST['user_login'] ?? '');
+$captchaMode = '';
+$captchaLegend = 'Human check';
+$captchaPrompt = 'Anti-spam check';
+$captchaToken = '';
+$captchaDifficulty = '3';
+$captchaFallbackPrompt = 'Type the code to continue';
+if (is_array($captchaChallenge)) {
+    $captchaMode = (string) ($captchaChallenge['mode'] ?? 'off');
+    $captchaLegend = (string) ($captchaChallenge['legend'] ?? 'Human check');
+    $captchaToken = (string) ($captchaChallenge['token'] ?? '');
+    $captchaDifficulty = (string) ($captchaChallenge['difficulty'] ?? '3');
+    $captchaFallbackPrompt = (string) (
+        $captchaChallenge['fallback_prompt'] ?? 'Type the code to continue'
+    );
+    $captchaPrompt = (string) ($captchaChallenge['prompt'] ?? (
+        $captchaMode === 'guard' ? 'I am a person' : 'Anti-spam check'
+    ));
+}
 ?><!DOCTYPE html>
 <html
     lang="<?php echo ap_esc_attr($loginHtmlLang); ?>"
@@ -331,7 +356,8 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
              aria-hidden="true" focusable="false">
             <circle cx="12" cy="12" r="4"></circle>
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41
+                     M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
         </svg>
         <svg class="ap-color-mode-icon ap-color-mode-icon--moon" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -356,7 +382,7 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
         <?php endforeach; ?>
 
         <?php if ($action === 'login') : ?>
-            <form method="post" action="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">
+            <form method="post" action="<?php echo ap_esc_url($loginUrl); ?>">
                 <?php echo ap_nonce_field('admin-login', '_ap_nonce', false, 0); ?>
                 <input type="hidden" name="redirect_to" value="<?php echo ap_esc_attr($redirectTo); ?>" />
                 <div class="ap-field">
@@ -377,23 +403,23 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                 <button type="submit" class="button button-primary">Log In</button>
             </form>
             <p class="ap-login-links">
-                <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'lostpassword'])); ?>">Lost your password?</a>
+                <a href="<?php echo ap_esc_url($lostPasswordUrl); ?>">Lost your password?</a>
                 <?php if ($canRegister) : ?>
                     <span class="ap-login-sep">|</span>
-                    <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'register'])); ?>">Register</a>
+                    <a href="<?php echo ap_esc_url($registerUrl); ?>">Register</a>
                 <?php endif; ?>
                 <span class="ap-login-sep">|</span>
-                <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'resend'])); ?>">Resend verification email</a>
+                <a href="<?php echo ap_esc_url($resendUrl); ?>">Resend verification email</a>
             </p>
 
         <?php elseif ($action === 'register') : ?>
             <?php if (!$canRegister) : ?>
                 <p>Registration is currently closed.</p>
                 <p class="ap-login-links">
-                    <a href="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">← Back to log in</a>
+                    <a href="<?php echo ap_esc_url($loginUrl); ?>">← Back to log in</a>
                 </p>
             <?php else : ?>
-                <form method="post" action="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'register'])); ?>">
+                <form method="post" action="<?php echo ap_esc_url($registerUrl); ?>">
                     <?php echo ap_nonce_field('admin-register', '_ap_nonce', false, 0); ?>
                     <?php
                     $postedTicket = trim((string) ($_POST['ap_form_ticket'] ?? ''));
@@ -420,48 +446,59 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                     </div>
                     <div class="ap-field">
                         <label for="reg_user_pass">Password</label>
-                        <input type="password" name="user_pass" id="reg_user_pass" autocomplete="new-password" required minlength="8" />
+                        <input type="password" name="user_pass" id="reg_user_pass"
+                               autocomplete="new-password" required minlength="8" />
                     </div>
                     <div class="ap-field">
                         <label for="reg_user_pass2">Confirm password</label>
-                        <input type="password" name="user_pass2" id="reg_user_pass2" autocomplete="new-password" required minlength="8" />
+                        <input type="password" name="user_pass2" id="reg_user_pass2"
+                               autocomplete="new-password" required minlength="8" />
                     </div>
-                    <?php if ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? '') === 'math') : ?>
+                    <?php if ($captchaEnabled && $captchaMode === 'math') : ?>
                         <fieldset class="ap-human-check ap-human-check--math">
-                            <legend><?php echo ap_esc_html((string) ($captchaChallenge['legend'] ?? 'Human check')); ?></legend>
+                            <legend><?php echo ap_esc_html($captchaLegend); ?></legend>
                             <div class="ap-field">
-                                <label for="reg_captcha_answer"><?php echo ap_esc_html((string) ($captchaChallenge['prompt'] ?? 'Anti-spam check')); ?></label>
+                                <label for="reg_captcha_answer"><?php echo ap_esc_html($captchaPrompt); ?></label>
                                 <input type="text" name="captcha_answer" id="reg_captcha_answer" inputmode="numeric"
                                        autocomplete="off" required value="" />
                                 <input type="hidden" name="captcha_token"
-                                       value="<?php echo ap_esc_attr((string) ($captchaChallenge['token'] ?? '')); ?>" />
+                                       value="<?php echo ap_esc_attr($captchaToken); ?>" />
                             </div>
                         </fieldset>
-                    <?php elseif ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? '') === 'guard') : ?>
+                    <?php elseif ($captchaEnabled && $captchaMode === 'guard') : ?>
                         <fieldset
                             class="ap-human-check ap-human-check--guard"
                             id="ap-register-guard"
-                            data-ap-difficulty="<?php echo ap_esc_attr((string) ($captchaChallenge['difficulty'] ?? '3')); ?>"
+                            data-ap-difficulty="<?php echo ap_esc_attr($captchaDifficulty); ?>"
                         >
-                            <legend><?php echo ap_esc_html((string) ($captchaChallenge['legend'] ?? 'Human check')); ?></legend>
+                            <legend><?php echo ap_esc_html($captchaLegend); ?></legend>
                             <div class="ap-guard-card">
                                 <label class="ap-guard-check" for="ap_guard_ack">
                                     <input type="checkbox" name="ap_guard_ack" id="ap_guard_ack" value="1" required />
-                                    <?php echo ap_esc_html((string) ($captchaChallenge['prompt'] ?? 'I am a person')); ?>
+                                    <?php echo ap_esc_html($captchaPrompt); ?>
                                 </label>
-                                <span class="ap-guard-status" id="ap-guard-status" role="status" aria-live="polite" hidden></span>
+                                <span
+                                    class="ap-guard-status"
+                                    id="ap-guard-status"
+                                    role="status"
+                                    aria-live="polite"
+                                    hidden
+                                ></span>
                             </div>
                             <div class="ap-guard-fallback" id="ap-guard-fallback">
-                                <label for="reg_captcha_answer"><?php echo ap_esc_html((string) ($captchaChallenge['fallback_prompt'] ?? 'Type the code to continue')); ?></label>
+                                <label for="reg_captcha_answer">
+                                    <?php echo ap_esc_html($captchaFallbackPrompt); ?>
+                                </label>
                                 <input type="text" name="captcha_answer" id="reg_captcha_answer"
                                        autocomplete="off" required maxlength="8" spellcheck="false"
                                        autocapitalize="characters" value="" />
-                                <p class="ap-help">Required when JavaScript is off. Checking the box is enough when it is on.</p>
+                                <p class="ap-help">Required when JavaScript is off.
+                                    Checking the box is enough when it is on.</p>
                             </div>
                             <input type="hidden" name="captcha_token"
-                                   value="<?php echo ap_esc_attr((string) ($captchaChallenge['token'] ?? '')); ?>" />
+                                   value="<?php echo ap_esc_attr($captchaToken); ?>" />
                         </fieldset>
-                    <?php elseif ($captchaEnabled && is_array($captchaChallenge) && ($captchaChallenge['mode'] ?? 'off') !== 'off') : ?>
+                    <?php elseif ($captchaEnabled && $captchaMode !== 'off') : ?>
                         <?php
                         // Custom/plugin CAPTCHA modes: hooks for extra markup.
                         if (function_exists('ap_do_action')) {
@@ -476,35 +513,36 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                     <button type="submit" class="button button-primary">Register</button>
                 </form>
                 <p class="ap-login-links">
-                    <a href="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">← Back to log in</a>
+                    <a href="<?php echo ap_esc_url($loginUrl); ?>">← Back to log in</a>
                     <span class="ap-login-sep">|</span>
-                    <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'resend'])); ?>">Resend verification email</a>
+                    <a href="<?php echo ap_esc_url($resendUrl); ?>">Resend verification email</a>
                 </p>
             <?php endif; ?>
 
         <?php elseif ($action === 'resend') : ?>
             <p class="ap-login-hint">Enter your username or email to resend the verification message
                 if your account is still waiting to be confirmed.</p>
-            <form method="post" action="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'resend'])); ?>">
+            <form method="post" action="<?php echo ap_esc_url($resendUrl); ?>">
                 <?php echo ap_nonce_field('admin-resend', '_ap_nonce', false, 0); ?>
                 <div class="ap-field">
                     <label for="resend_user_login">Username or Email</label>
                     <input type="text" name="user_login" id="resend_user_login" autocomplete="username" required
-                           value="<?php echo ap_esc_attr($resendPrefill !== '' ? $resendPrefill : (string) ($_POST['user_login'] ?? '')); ?>" />
+                           value="<?php echo ap_esc_attr($resendLoginValue); ?>" />
                 </div>
                 <button type="submit" class="button button-primary">Resend verification</button>
             </form>
             <p class="ap-login-links">
-                <a href="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">← Back to log in</a>
+                <a href="<?php echo ap_esc_url($loginUrl); ?>">← Back to log in</a>
                 <?php if ($canRegister) : ?>
                     <span class="ap-login-sep">|</span>
-                    <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'register'])); ?>">Register</a>
+                    <a href="<?php echo ap_esc_url($registerUrl); ?>">Register</a>
                 <?php endif; ?>
             </p>
 
         <?php elseif ($action === 'lostpassword') : ?>
-            <p class="ap-login-hint">Enter your username or email and we will send reset instructions if an account exists.</p>
-            <form method="post" action="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'lostpassword'])); ?>">
+            <p class="ap-login-hint">Enter your username or email and we will send
+                reset instructions if an account exists.</p>
+            <form method="post" action="<?php echo ap_esc_url($lostPasswordUrl); ?>">
                 <?php echo ap_nonce_field('admin-lostpassword', '_ap_nonce', false, 0); ?>
                 <div class="ap-field">
                     <label for="lost_user_login">Username or Email</label>
@@ -514,10 +552,10 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                 <button type="submit" class="button button-primary">Get New Password</button>
             </form>
             <p class="ap-login-links">
-                <a href="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">← Back to log in</a>
+                <a href="<?php echo ap_esc_url($loginUrl); ?>">← Back to log in</a>
                 <?php if ($canRegister) : ?>
                     <span class="ap-login-sep">|</span>
-                    <a href="<?php echo ap_esc_url(AP_Admin::url('login.php', ['action' => 'register'])); ?>">Register</a>
+                    <a href="<?php echo ap_esc_url($registerUrl); ?>">Register</a>
                 <?php endif; ?>
             </p>
 
@@ -533,30 +571,31 @@ $loginBodyClass = 'ap-admin ap-admin-login ' . ($loginTextDir === 'rtl' ? 'rtl' 
                     <input type="hidden" name="key" value="<?php echo ap_esc_attr($rpKey); ?>" />
                     <div class="ap-field">
                         <label for="pass1">New password</label>
-                        <input type="password" name="pass1" id="pass1" autocomplete="new-password" required minlength="8" />
+                        <input type="password" name="pass1" id="pass1"
+                               autocomplete="new-password" required minlength="8" />
                     </div>
                     <div class="ap-field">
                         <label for="pass2">Confirm new password</label>
-                        <input type="password" name="pass2" id="pass2" autocomplete="new-password" required minlength="8" />
+                        <input type="password" name="pass2" id="pass2"
+                               autocomplete="new-password" required minlength="8" />
                     </div>
                     <button type="submit" class="button button-primary">Reset Password</button>
                 </form>
             <?php endif; ?>
             <p class="ap-login-links">
-                <a href="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">← Back to log in</a>
+                <a href="<?php echo ap_esc_url($loginUrl); ?>">← Back to log in</a>
             </p>
 
         <?php else : /* verifyemail failure path (success redirects) */ ?>
             <p class="ap-login-links">
-                <a href="<?php echo ap_esc_url(AP_Admin::url('login.php')); ?>">← Back to log in</a>
+                <a href="<?php echo ap_esc_url($loginUrl); ?>">← Back to log in</a>
             </p>
         <?php endif; ?>
     </main>
     <?php
     $loadGuardJs = $action === 'register'
         && $captchaEnabled
-        && is_array($captchaChallenge)
-        && ($captchaChallenge['mode'] ?? '') === 'guard';
+        && $captchaMode === 'guard';
     if ($loadGuardJs) :
         $guardJsUrl = AP_Admin::url('js/register-guard.js');
         ?>

@@ -187,17 +187,29 @@ final class ForumGroupsPermissionsTest extends TestCase
         // Guests can view/read, not post.
         $this->assertTrue(AP_Forum_Permissions::userCan(0, $forumId, AP_Forum_Permissions::PERM_VIEW, $this->db));
         $this->assertTrue(AP_Forum_Permissions::userCan(0, $forumId, AP_Forum_Permissions::PERM_READ, $this->db));
-        $this->assertFalse(AP_Forum_Permissions::userCan(0, $forumId, AP_Forum_Permissions::PERM_POST_TOPICS, $this->db));
+        $this->assertFalse(
+            AP_Forum_Permissions::userCan(0, $forumId, AP_Forum_Permissions::PERM_POST_TOPICS, $this->db)
+        );
         $this->assertFalse(AP_Forum_Permissions::userCan(0, $forumId, AP_Forum_Permissions::PERM_MODERATE, $this->db));
 
         // Registered subscriber can post.
         $userId = $this->createUser('member1', 'm1@example.test', 'subscriber');
         $this->assertTrue(AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_VIEW, $this->db));
-        $this->assertTrue(AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_POST_TOPICS, $this->db));
-        $this->assertTrue(AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_POST_REPLIES, $this->db));
-        $this->assertTrue(AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_ATTACH, $this->db));
-        $this->assertFalse(AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_MODERATE, $this->db));
-        $this->assertFalse(AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_STICKY, $this->db));
+        $this->assertTrue(
+            AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_POST_TOPICS, $this->db)
+        );
+        $this->assertTrue(
+            AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_POST_REPLIES, $this->db)
+        );
+        $this->assertTrue(
+            AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_ATTACH, $this->db)
+        );
+        $this->assertFalse(
+            AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_MODERATE, $this->db)
+        );
+        $this->assertFalse(
+            AP_Forum_Permissions::userCan($userId, $forumId, AP_Forum_Permissions::PERM_STICKY, $this->db)
+        );
     }
 
     public function testAdministratorBypassesAcl(): void
@@ -218,9 +230,15 @@ final class ForumGroupsPermissionsTest extends TestCase
         );
 
         $memberId = $this->createUser('plain', 'plain@example.test', 'subscriber');
-        $this->assertFalse(AP_Forum_Permissions::userCan($memberId, $forumId, AP_Forum_Permissions::PERM_VIEW, $this->db));
-        $this->assertTrue(AP_Forum_Permissions::userCan($adminId, $forumId, AP_Forum_Permissions::PERM_VIEW, $this->db));
-        $this->assertTrue(AP_Forum_Permissions::userCan($adminId, $forumId, AP_Forum_Permissions::PERM_MODERATE, $this->db));
+        $this->assertFalse(
+            AP_Forum_Permissions::userCan($memberId, $forumId, AP_Forum_Permissions::PERM_VIEW, $this->db)
+        );
+        $this->assertTrue(
+            AP_Forum_Permissions::userCan($adminId, $forumId, AP_Forum_Permissions::PERM_VIEW, $this->db)
+        );
+        $this->assertTrue(
+            AP_Forum_Permissions::userCan($adminId, $forumId, AP_Forum_Permissions::PERM_MODERATE, $this->db)
+        );
     }
 
     public function testEditorModerateForumsCap(): void
@@ -230,8 +248,12 @@ final class ForumGroupsPermissionsTest extends TestCase
         $editorId = $this->createUser('editor1', 'ed@example.test', 'editor');
 
         $this->assertTrue(AP_Roles::userCan($editorId, 'moderate_forums', null, $this->db));
-        $this->assertTrue(AP_Forum_Permissions::userCan($editorId, $forumId, AP_Forum_Permissions::PERM_MODERATE, $this->db));
-        $this->assertTrue(AP_Forum_Permissions::userCan($editorId, $forumId, AP_Forum_Permissions::PERM_LOCK, $this->db));
+        $this->assertTrue(
+            AP_Forum_Permissions::userCan($editorId, $forumId, AP_Forum_Permissions::PERM_MODERATE, $this->db)
+        );
+        $this->assertTrue(
+            AP_Forum_Permissions::userCan($editorId, $forumId, AP_Forum_Permissions::PERM_LOCK, $this->db)
+        );
         $this->assertTrue(AP_Forum_Permissions::userCanModerate($editorId, $forumId, $this->db));
     }
 
@@ -258,7 +280,9 @@ final class ForumGroupsPermissionsTest extends TestCase
         );
 
         $outsider = $this->createUser('outsider', 'out@example.test', 'subscriber');
-        $this->assertFalse(AP_Forum_Permissions::userCan($outsider, $forumId, AP_Forum_Permissions::PERM_VIEW, $this->db));
+        $this->assertFalse(
+            AP_Forum_Permissions::userCan($outsider, $forumId, AP_Forum_Permissions::PERM_VIEW, $this->db)
+        );
         $this->assertFalse(AP_Forum_Permissions::userCanPostTopic($outsider, $forumId, $this->db));
 
         // Explicit ban group deny still blocks even when registered would allow elsewhere.
@@ -287,7 +311,12 @@ final class ForumGroupsPermissionsTest extends TestCase
         $this->assertNotNull($registered);
 
         // Deny the virtual registered group; allow VIP group.
-        foreach ([AP_Forum_Permissions::PERM_VIEW, AP_Forum_Permissions::PERM_READ, AP_Forum_Permissions::PERM_POST_TOPICS] as $perm) {
+        $vipPerms = [
+            AP_Forum_Permissions::PERM_VIEW,
+            AP_Forum_Permissions::PERM_READ,
+            AP_Forum_Permissions::PERM_POST_TOPICS,
+        ];
+        foreach ($vipPerms as $perm) {
             AP_Forum_Permissions::setPermission($forumId, (int) $registered->group_id, $perm, false, $this->db);
             AP_Forum_Permissions::setPermission($forumId, $vipId, $perm, true, $this->db);
         }
@@ -1679,10 +1708,18 @@ final class ForumGroupsPermissionsTest extends TestCase
         $guestMixedSecret = AP_Forum::search('ZX9SearchBackroomToken', $acl + ['user_id' => 0], $this->db);
         $this->assertSame(0, (int) ($guestMixedSecret['total'] ?? -1));
 
-        $guestBodySearch = AP_Forum::search('ZX9SearchSecretBody', $acl + ['type' => 'posts', 'user_id' => 0], $this->db);
+        $guestBodySearch = AP_Forum::search(
+            'ZX9SearchSecretBody',
+            $acl + ['type' => 'posts', 'user_id' => 0],
+            $this->db
+        );
         $this->assertSame(0, (int) ($guestBodySearch['total'] ?? -1));
         $this->assertSame([], $guestBodySearch['posts'] ?? ['x']);
-        $guestBodyTopics = AP_Forum::search('ZX9SearchSecretBody', $acl + ['type' => 'topics', 'user_id' => 0], $this->db);
+        $guestBodyTopics = AP_Forum::search(
+            'ZX9SearchSecretBody',
+            $acl + ['type' => 'topics', 'user_id' => 0],
+            $this->db
+        );
         $this->assertSame(0, (int) ($guestBodyTopics['total'] ?? -1));
 
         $guestHelper = ap_forum_search('ZX9SearchSecretToken', ['type' => 'all'], $this->db);
@@ -1747,7 +1784,10 @@ final class ForumGroupsPermissionsTest extends TestCase
             'forum_name' => 'ZX9SearchVault',
         ], $this->db);
         $this->assertTrue(!empty($scopedBoardNameAsTerm['ap_forum_cannot_view']));
-        $this->assertSame(AP_Forum_Front::CANNOT_VIEW_MESSAGE, $scopedBoardNameAsTerm['ap_forum_cannot_view_message'] ?? null);
+        $this->assertSame(
+            AP_Forum_Front::CANNOT_VIEW_MESSAGE,
+            $scopedBoardNameAsTerm['ap_forum_cannot_view_message'] ?? null
+        );
         $this->assertSame('', (string) ($scopedBoardNameAsTerm['forum_s'] ?? 'x'));
         $this->assertSame('', (string) ($scopedBoardNameAsTerm['s'] ?? 'x'));
         $this->assertSame('', (string) ($scopedBoardNameAsTerm['forum_name'] ?? 'x'));
@@ -1779,7 +1819,10 @@ final class ForumGroupsPermissionsTest extends TestCase
             'forum_slug' => $secretSlug,
         ], $this->db);
         $this->assertTrue(!empty($scopedBySlugOnly['ap_forum_cannot_view']));
-        $this->assertSame(AP_Forum_Front::CANNOT_VIEW_MESSAGE, $scopedBySlugOnly['ap_forum_cannot_view_message'] ?? null);
+        $this->assertSame(
+            AP_Forum_Front::CANNOT_VIEW_MESSAGE,
+            $scopedBySlugOnly['ap_forum_cannot_view_message'] ?? null
+        );
         $this->assertSame('', (string) ($scopedBySlugOnly['forum_slug'] ?? 'x'));
         $this->assertSame('', (string) ($scopedBySlugOnly['forum_name'] ?? 'x'));
         $this->assertSame(0, (int) ($scopedBySlugOnly['forum_id'] ?? -1));
