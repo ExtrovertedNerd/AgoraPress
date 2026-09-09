@@ -116,6 +116,54 @@ final class FeedTest extends TestCase
         $this->assertFalse(AP_Feed::isFeedRequest(['feed' => '']));
     }
 
+    public function testIsForumFeedRequest(): void
+    {
+        $this->assertFalse(AP_Feed::isForumFeedRequest(['feed' => 'rss2']));
+        $this->assertFalse(AP_Feed::isForumFeedRequest(['ap_forum_view' => 'index']));
+        $this->assertTrue(AP_Feed::isForumFeedRequest([
+            'feed' => 'rss2',
+            'ap_forum_view' => 'index',
+        ]));
+        $this->assertTrue(AP_Feed::isForumFeedRequest([
+            'feed' => 'atom',
+            'forum_slug' => 'general',
+        ]));
+        $this->assertTrue(AP_Feed::isForumFeedRequest([
+            'feed' => 'rss2',
+            'topic_slug' => 'hello',
+        ]));
+        $this->assertTrue(AP_Feed::isForumFeedRequest([
+            'feed' => true,
+            'forum_id' => 3,
+        ]));
+    }
+
+    public function testDeniedForumFeedDoesNotFallThroughToBlogRss(): void
+    {
+        AP_Post::insert([
+            'post_title' => 'Blog Should Not Replace Denied Forum Feed',
+            'post_content' => 'Visible only on the site blog feed.',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+
+        ob_start();
+        $body = AP_Feed::serve([
+            'feed' => 'rss2',
+            'ap_forum_cannot_view' => true,
+            'forum_name' => 'Secret Board Name',
+            'forum_slug' => 'secret-board-slug',
+        ], $this->db, false);
+        $echoed = (string) ob_get_clean();
+
+        $this->assertSame($body, $echoed);
+        $this->assertStringContainsString('You cannot view this.', $body);
+        $this->assertStringNotContainsString('<rss', $body);
+        $this->assertStringNotContainsString('Secret Board Name', $body);
+        $this->assertStringNotContainsString('secret-board-slug', $body);
+        $this->assertStringNotContainsString('Blog Should Not Replace Denied Forum Feed', $body);
+    }
+
     public function testBuildRss2IncludesPublishedPosts(): void
     {
         AP_Post::insert([

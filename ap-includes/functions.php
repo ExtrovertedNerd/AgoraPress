@@ -5803,6 +5803,30 @@ function ap_get_forum_hierarchy(int $parentId = 0, array $args = [], ?AP_DB $db 
 }
 
 /**
+ * Forums the viewer may list (view_forum), minus empty parent categories.
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum::getListableForums()
+ */
+function ap_get_listable_forums(int $userId, array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Forum::getListableForums($userId, $args, $db);
+}
+
+/**
+ * Whether the viewer may list this forum (view_forum, plus a non-empty category).
+ *
+ * @see AP_Forum::isListableToUser()
+ */
+function ap_forum_is_listable_to_user(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    return AP_Forum::isListableToUser($userId, $forumId, $db);
+}
+
+/**
  * Child forums of a parent (or root when 0).
  *
  * @param array<string, mixed> $args
@@ -6075,6 +6099,24 @@ function ap_forum_url(object|int $forum): string
     $id = is_object($forum) ? (int) ($forum->forum_id ?? 0) : (int) $forum;
 
     return ap_forums_url() . ($id > 0 ? '?forum_id=' . $id : '');
+}
+
+/**
+ * Syndication URL for a forum (RSS/Atom).
+ *
+ * @see AP_Forum::forumFeedUrl()
+ */
+function ap_forum_feed_url(object|int $forum, string $feed = 'rss2'): string
+{
+    if (class_exists('AP_Forum', false)) {
+        return AP_Forum::forumFeedUrl($forum, $feed);
+    }
+    $id = is_object($forum) ? (int) ($forum->forum_id ?? 0) : (int) $forum;
+    $type = class_exists('AP_Feed', false) ? AP_Feed::normalizeType($feed) : 'rss2';
+
+    return ap_forums_url() . ($id > 0
+        ? '?ap_forum_view=forum&forum_id=' . $id . '&feed=' . rawurlencode($type)
+        : '?ap_forum_view=index&feed=' . rawurlencode($type));
 }
 
 /**
@@ -6877,6 +6919,21 @@ function ap_forum_search(string $query, array $args = [], ?AP_DB $db = null): ar
         ];
     }
 
+    // Public helper: omit boards the viewer cannot `view_forum` unless the
+    // caller explicitly disables the ACL (ACP / importers).
+    if (!array_key_exists('check_permissions', $args)) {
+        $args['check_permissions'] = true;
+    }
+    if (!array_key_exists('user_id', $args)) {
+        if (function_exists('ap_get_current_user_id')) {
+            $args['user_id'] = (int) ap_get_current_user_id($db);
+        } elseif (class_exists('AP_Session', false)) {
+            $args['user_id'] = (int) AP_Session::getCurrentUserId($db);
+        } else {
+            $args['user_id'] = 0;
+        }
+    }
+
     return AP_Forum::search($query, $args, $db);
 }
 
@@ -7239,6 +7296,40 @@ function ap_delete_group(int $id, ?AP_DB $db = null): bool
 function ap_get_groups(array $args = [], ?AP_DB $db = null): array
 {
     return AP_Group::query($args, $db);
+}
+
+/**
+ * Named groups that may appear in a public directory (open and closed).
+ *
+ * @param array<string, mixed> $args
+ *
+ * @return list<object>
+ *
+ * @see AP_Group::queryPublic()
+ */
+function ap_get_public_groups(array $args = [], ?AP_DB $db = null): array
+{
+    return AP_Group::queryPublic($args, $db);
+}
+
+/**
+ * Whether a group may show a public Join control (open named groups only).
+ *
+ * @see AP_Group::allowsPublicJoin()
+ */
+function ap_group_allows_public_join(int $groupId, ?AP_DB $db = null): bool
+{
+    return AP_Group::allowsPublicJoin($groupId, $db);
+}
+
+/**
+ * Public self-join. Hidden groups always fail; operators add members in Forums → Groups.
+ *
+ * @see AP_Group::joinPublic()
+ */
+function ap_join_group_public(int $groupId, int $userId, ?AP_DB $db = null): int
+{
+    return AP_Group::joinPublic($groupId, $userId, $db);
 }
 
 /**

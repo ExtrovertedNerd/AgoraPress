@@ -296,8 +296,9 @@ class AP_Rewrite
         $rules['ap-json/(.*)$'] = 'rest_route=/$matches[1]';
 
         // Forum front-end (before structure / page catch-all).
-        // Matches AP_Forum::forumUrl / topicUrl / searchUrl:
-        // /forums/, /forums/search/, /forums/{slug}/, /topic/{slug}/.
+        // Matches AP_Forum::forumUrl / topicUrl / searchUrl / feed URLs:
+        // /forums/, /forums/search/, /forums/feed/, /forums/{slug}/,
+        // /forums/{slug}/feed/, /topic/{slug}/, /topic/{slug}/feed/.
         $rules['forums/page/?([0-9]{1,})/?$'] = 'ap_forum_view=index&paged=$matches[1]';
         $rules['forums/?$'] = 'ap_forum_view=index';
         // Search must come before the generic forum-slug rule.
@@ -306,9 +307,18 @@ class AP_Rewrite
             'ap_forum_view=search&forum_s=$matches[1]&paged=$matches[2]';
         $rules['forums/search/(.+)/?$'] = 'ap_forum_view=search&forum_s=$matches[1]';
         $rules['forums/search/?$'] = 'ap_forum_view=search';
+        // Feeds before the generic slug rule so "feed" is not a forum slug.
+        $rules['forums/feed/(feed|rdf|rss|rss2|atom)/?$'] = 'ap_forum_view=index&feed=$matches[1]';
+        $rules['forums/feed/?$'] = 'ap_forum_view=index&feed=rss2';
+        $rules['forums/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$'] =
+            'ap_forum_view=forum&forum_slug=$matches[1]&feed=$matches[2]';
+        $rules['forums/([^/]+)/feed/?$'] = 'ap_forum_view=forum&forum_slug=$matches[1]&feed=rss2';
         $rules['forums/([^/]+)/page/?([0-9]{1,})/?$'] =
             'ap_forum_view=forum&forum_slug=$matches[1]&paged=$matches[2]';
         $rules['forums/([^/]+)/?$'] = 'ap_forum_view=forum&forum_slug=$matches[1]';
+        $rules['topic/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$'] =
+            'ap_forum_view=topic&topic_slug=$matches[1]&feed=$matches[2]';
+        $rules['topic/([^/]+)/feed/?$'] = 'ap_forum_view=topic&topic_slug=$matches[1]&feed=rss2';
         $rules['topic/([^/]+)/page/?([0-9]{1,})/?$'] =
             'ap_forum_view=topic&topic_slug=$matches[1]&paged=$matches[2]';
         $rules['topic/([^/]+)/?$'] = 'ap_forum_view=topic&topic_slug=$matches[1]';

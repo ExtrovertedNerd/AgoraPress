@@ -16,6 +16,15 @@ AP_Theme::getHeader();
 $q = isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query
     ? $GLOBALS['ap_query']
     : null;
+$cannotView = $q instanceof AP_Query && !empty($q->get('ap_forum_cannot_view', false));
+$cannotViewMessage = $q instanceof AP_Query
+    ? (string) $q->get('ap_forum_cannot_view_message', '')
+    : '';
+if ($cannotViewMessage === '') {
+    $cannotViewMessage = class_exists('AP_Forum_Front', false)
+        ? AP_Forum_Front::CANNOT_VIEW_MESSAGE
+        : 'You cannot view this.';
+}
 $forumId = $q instanceof AP_Query ? (int) $q->get('forum_id', 0) : 0;
 $forumName = $q instanceof AP_Query ? (string) $q->get('forum_name', '') : '';
 $forumDesc = $q instanceof AP_Query ? (string) $q->get('forum_desc', '') : '';
@@ -26,14 +35,14 @@ $disabled = $q instanceof AP_Query && !empty($q->get('ap_forum_disabled', false)
 $allowedTopicTypes = $q instanceof AP_Query && is_array($q->get('allowed_topic_types', null))
     ? $q->get('allowed_topic_types', [])
     : [];
-if ($forumName === '') {
+if (!$cannotView && $forumName === '') {
     $forumName = 'Forum';
 }
 $home = function_exists('agora_home_url') ? agora_home_url('/') : '/';
 $forumsUrl = function_exists('ap_forums_url')
     ? ap_forums_url()
     : (rtrim($home, '/') . '/forums/');
-$topics = function_exists('agora_get_forum_topics_data')
+$topics = (!$cannotView && function_exists('agora_get_forum_topics_data'))
     ? agora_get_forum_topics_data($forumId)
     : [];
 $notice = function_exists('ap_get_forum_notice') ? ap_get_forum_notice() : null;
@@ -50,6 +59,17 @@ if ($allowedTopicTypes === [] && $canPost && $forumId > 0 && function_exists('ap
     $allowedTopicTypes = ap_forum_allowed_topic_types_for_create($forumId);
 }
 ?>
+<?php if ($cannotView) : ?>
+<div class="ap-forum ap-forum--cannot-view">
+    <div class="ap-empty ap-forum-empty ap-forum-empty--cannot_view" role="status">
+        <p><?php echo agora_esc($cannotViewMessage); ?></p>
+        <p class="ap-forum-empty__back"><a href="<?php echo agora_esc_url($forumsUrl); ?>">Back to forums</a></p>
+    </div>
+</div>
+<?php
+AP_Theme::getFooter();
+return;
+endif; ?>
 <nav class="ap-breadcrumbs" aria-label="Breadcrumb">
     <ol>
         <li><a href="<?php echo agora_esc_url($home); ?>">Home</a></li>

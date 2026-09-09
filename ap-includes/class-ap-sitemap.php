@@ -11,6 +11,10 @@
  * Providers (module-aware): posts, pages, categories, tags, forums, topics.
  * Max URLs per sitemap: 2000. Respects blog_public (discourage search engines).
  *
+ * Anyone without `view_forum` must not see the forum or an empty parent
+ * category on sitemap. A direct URL stuffed with a board id/slug is a
+ * generic “you cannot view this” page — do not advertise the name or slug.
+ *
  * @package AgoraPress
  */
 
@@ -148,7 +152,41 @@ class AP_Sitemap
     }
 
     /**
+     * Whether rewrite/query vars request a forum-scoped sitemap (not the
+     * public forums/topics provider lists).
+     *
+     * Direct URLs that stuff a board id/slug onto /sitemap-forums.xml (or
+     * ?sitemap=forums) must not 200 with XML that would confirm the room.
+     *
+     * @param array<string, mixed> $vars
+     */
+    public static function isForumSitemapRequest(array $vars): bool
+    {
+        if (!self::isSitemapRequest($vars)) {
+            return false;
+        }
+        if (self::isDeniedForumSitemap($vars)) {
+            return true;
+        }
+        $view = strtolower(trim((string) ($vars['ap_forum_view'] ?? '')));
+        if (in_array($view, ['forum', 'topic', 'search'], true)) {
+            return true;
+        }
+        if ((int) ($vars['forum_id'] ?? 0) > 0 || (int) ($vars['topic_id'] ?? 0) > 0) {
+            return true;
+        }
+        if (trim((string) ($vars['forum_slug'] ?? '')) !== '') {
+            return true;
+        }
+
+        return trim((string) ($vars['topic_slug'] ?? '')) !== '';
+    }
+
+    /**
      * Emit sitemap (or robots) and stop PHP.
+     *
+     * Forum-scoped requests that the viewer cannot list become a generic HTML
+     * 404 (“You cannot view this.”) instead of XML that would name the board.
      *
      * @param array<string, mixed> $vars
      *
@@ -157,33 +195,41 @@ class AP_Sitemap
     public static function serve(array $vars = [], ?AP_DB $db = null, bool $exit = true): string
     {
         if (self::isRobotsRequest($vars)) {
-            $body = self::buildRobots($db);
-            if (!headers_sent()) {
-                header('Content-Type: text/plain; charset=UTF-8');
-                header('X-Content-Type-Options: nosniff');
-                http_response_code(200);
-            }
-            echo $body;
-            if ($exit) {
-                exit(0);
-            }
-
-            return $body;
+            return self::emitBody(
+                self::buildRobots($db),
+                'text/plain; charset=UTF-8',
+                200,
+                $exit,
+                ['X-Content-Type-Options' => 'nosniff']
+            );
         }
 
         if (!self::isEnabled($db) || !self::isPublic($db)) {
-            $body = self::disabledBody();
-            if (!headers_sent()) {
-                header('Content-Type: text/plain; charset=UTF-8');
-                header('X-Robots-Tag: noindex');
-                http_response_code(404);
-            }
-            echo $body;
-            if ($exit) {
-                exit(0);
-            }
+            return self::emitBody(
+                self::disabledBody(),
+                'text/plain; charset=UTF-8',
+                404,
+                $exit,
+                ['X-Robots-Tag' => 'noindex']
+            );
+        }
 
-            return $body;
+        // Already-denied rewrite args (name/slug stripped) must not fall
+        // through to a 200 urlset.
+        if (self::isDeniedForumSitemap($vars)) {
+            return self::emitCannotView($exit);
+        }
+        if (self::isForumSitemapRequest($vars)) {
+            $view = self::forumSitemapView($vars);
+            $vars['ap_forum_view'] = $view;
+            if ($view === 'forum' || $view === 'topic') {
+                if (class_exists('AP_Forum_Front', false)) {
+                    $vars = AP_Forum_Front::enrichQueryArgs($vars, $db);
+                }
+                if (self::isDeniedForumSitemap($vars) || !self::forumSitemapScopeIsListable($vars, $view, $db)) {
+                    return self::emitCannotView($exit);
+                }
+            }
         }
 
         $type = self::normalizeType(isset($vars['sitemap']) ? (string) $vars['sitemap'] : 'index');
@@ -193,19 +239,13 @@ class AP_Sitemap
             ? self::buildIndex($db)
             : self::buildProvider($type, $page, $db);
 
-        if (!headers_sent()) {
-            header('Content-Type: application/xml; charset=UTF-8');
-            header('X-Content-Type-Options: nosniff');
-            http_response_code(200);
-        }
-
-        echo $xml;
-
-        if ($exit) {
-            exit(0);
-        }
-
-        return $xml;
+        return self::emitBody(
+            $xml,
+            'application/xml; charset=UTF-8',
+            200,
+            $exit,
+            ['X-Content-Type-Options' => 'nosniff']
+        );
     }
 
     /**
@@ -530,10 +570,10 @@ class AP_Sitemap
             return 0;
         }
         try {
-            // Default excludes hidden; include open + closed public forums.
-            $forums = AP_Forum::getForums([], $db);
+            // Anyone without view_forum: omit the forum and empty parent categories.
+            $forums = self::listableForumsForSitemap($db);
 
-            return is_array($forums) ? count($forums) : 0;
+            return count($forums);
         } catch (Throwable) {
             return 0;
         }
@@ -548,10 +588,7 @@ class AP_Sitemap
             return [];
         }
         try {
-            $forums = AP_Forum::getForums([], $db);
-            if (!is_array($forums)) {
-                return [];
-            }
+            $forums = self::listableForumsForSitemap($db);
             $rows = [];
             if ($offset === 0) {
                 $index = AP_Forum::forumsIndexUrl();
@@ -594,6 +631,14 @@ class AP_Sitemap
                 return 0;
             }
             $table = $db->quoteIdentifier($db->table('topics'));
+            if (method_exists('AP_Forum', 'countTopicsQuery')) {
+                return max(0, AP_Forum::countTopicsQuery([
+                    'approved_only' => true,
+                    'include_deleted' => false,
+                    'check_permissions' => true,
+                    'user_id' => self::currentSitemapUserId($db),
+                ], $db));
+            }
             $n = $db->getVar(
                 'SELECT COUNT(*) FROM ' . $table
                 . ' WHERE topic_approved = 1 AND topic_status != ?',
@@ -623,6 +668,8 @@ class AP_Sitemap
                 'page' => $page,
                 'orderby' => 'last_post',
                 'order' => 'DESC',
+                'check_permissions' => true,
+                'user_id' => self::currentSitemapUserId($db),
             ], $db);
             $out = [];
             foreach ($topics as $topic) {
@@ -650,6 +697,200 @@ class AP_Sitemap
         } catch (Throwable) {
             return [];
         }
+    }
+
+    /**
+     * Forums the current viewer may list (view_forum), minus empty parents.
+     *
+     * @return list<object>
+     */
+    private static function listableForumsForSitemap(?AP_DB $db): array
+    {
+        if (!class_exists('AP_Forum', false)) {
+            return [];
+        }
+        $userId = self::currentSitemapUserId($db);
+        if (method_exists('AP_Forum', 'getListableForums')) {
+            $forums = AP_Forum::getListableForums($userId, [], $db);
+
+            return is_array($forums) ? $forums : [];
+        }
+        $forums = AP_Forum::getForums([], $db);
+
+        return is_array($forums) ? $forums : [];
+    }
+
+    /**
+     * @param array<string, mixed> $vars
+     */
+    private static function isDeniedForumSitemap(array $vars): bool
+    {
+        return !empty($vars['ap_forum_cannot_view'])
+            || !empty($vars['is_404'])
+            || !empty($vars['ap_forum_not_found']);
+    }
+
+    /**
+     * @param array<string, mixed> $vars
+     */
+    private static function forumSitemapView(array $vars): string
+    {
+        $view = strtolower(trim((string) ($vars['ap_forum_view'] ?? '')));
+        if ($view === 'search') {
+            if (
+                (int) ($vars['forum_id'] ?? 0) > 0
+                || trim((string) ($vars['forum_slug'] ?? '')) !== ''
+            ) {
+                return 'forum';
+            }
+
+            return 'index';
+        }
+        if (in_array($view, ['index', 'forum', 'topic'], true)) {
+            return $view;
+        }
+        if (
+            (int) ($vars['topic_id'] ?? 0) > 0
+            || trim((string) ($vars['topic_slug'] ?? '')) !== ''
+        ) {
+            return 'topic';
+        }
+        if (
+            (int) ($vars['forum_id'] ?? 0) > 0
+            || trim((string) ($vars['forum_slug'] ?? '')) !== ''
+        ) {
+            return 'forum';
+        }
+
+        return 'index';
+    }
+
+    private static function currentSitemapUserId(?AP_DB $db): int
+    {
+        if (function_exists('ap_get_current_user_id')) {
+            try {
+                return max(0, (int) ap_get_current_user_id($db));
+            } catch (Throwable) {
+                return 0;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * Whether this forum/topic-scoped sitemap may emit XML for the viewer.
+     *
+     * Fail closed: missing forum classes, unknown slugs, unlistable boards,
+     * and empty parent categories are not listable.
+     *
+     * @param array<string, mixed> $vars
+     */
+    private static function forumSitemapScopeIsListable(
+        array $vars,
+        string $view,
+        ?AP_DB $db
+    ): bool {
+        if (!class_exists('AP_Forum', false)) {
+            return false;
+        }
+        $userId = self::currentSitemapUserId($db);
+        if ($view === 'topic') {
+            $topic = null;
+            $tid = (int) ($vars['topic_id'] ?? 0);
+            if ($tid > 0) {
+                $topic = AP_Forum::getTopic($tid, $db);
+            }
+            if ($topic === null) {
+                $slug = trim((string) ($vars['topic_slug'] ?? ''));
+                if ($slug !== '' && method_exists('AP_Forum', 'getTopicBySlug')) {
+                    $topic = AP_Forum::getTopicBySlug($slug, 0, $db);
+                }
+            }
+            if ($topic === null) {
+                return false;
+            }
+
+            return AP_Forum::isListableToUser(
+                $userId,
+                (int) ($topic->forum_id ?? 0),
+                $db
+            );
+        }
+        $forum = null;
+        $fid = (int) ($vars['forum_id'] ?? 0);
+        if ($fid > 0) {
+            $forum = AP_Forum::getForum($fid, $db);
+        }
+        if ($forum === null) {
+            $slug = trim((string) ($vars['forum_slug'] ?? ''));
+            if ($slug !== '') {
+                $forum = AP_Forum::getForumBySlug($slug, $db);
+            }
+        }
+        if ($forum === null) {
+            return false;
+        }
+
+        return AP_Forum::isListableToUser($userId, (int) ($forum->forum_id ?? 0), $db);
+    }
+
+    /**
+     * Generic HTML 404. Do not interpolate board name or slug.
+     *
+     * @return never|string
+     */
+    private static function emitCannotView(bool $exit): string
+    {
+        $msg = class_exists('AP_Forum_Front', false)
+            ? AP_Forum_Front::CANNOT_VIEW_MESSAGE
+            : 'You cannot view this.';
+        $safe = htmlspecialchars($msg, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $html = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>' . $safe . '</title></head><body><main><p>'
+            . $safe . '</p></main></body></html>';
+
+        return self::emitBody(
+            $html,
+            'text/html; charset=UTF-8',
+            404,
+            $exit,
+            ['X-Content-Type-Options' => 'nosniff']
+        );
+    }
+
+    /**
+     * @param array<string, string> $extraHeaders
+     *
+     * @return never|string
+     */
+    private static function emitBody(
+        string $body,
+        string $contentType,
+        int $status,
+        bool $exit,
+        array $extraHeaders = []
+    ): string {
+        if (!headers_sent()) {
+            header('Content-Type: ' . $contentType);
+            header('X-Content-Type-Options: nosniff');
+            foreach ($extraHeaders as $name => $value) {
+                $skip = strcasecmp($name, 'Content-Type') === 0
+                    || strcasecmp($name, 'X-Content-Type-Options') === 0;
+                if ($skip) {
+                    continue;
+                }
+                header($name . ': ' . $value);
+            }
+            http_response_code($status);
+        }
+        echo $body;
+        if ($exit) {
+            exit(0);
+        }
+
+        return $body;
     }
 
     private static function providerLastmod(string $provider, ?AP_DB $db): string

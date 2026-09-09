@@ -689,7 +689,12 @@ class AP_Forum
      *
      * Each node: ['forum' => object, 'children' => list of nodes]
      *
-     * @param array<string, mixed> $args Passed to getChildForums at each level
+     * Public callers (no include_hidden / skip_permissions): forums the viewer
+     * cannot `view_forum` are omitted, and empty parent categories are dropped.
+     * ACP passes include_hidden so the operator still sees every board.
+     *
+     * @param array<string, mixed> $args Passed to getChildForums at each level.
+     *                                   Optional: user_id, skip_permissions
      *
      * @return list<array{forum: object, children: list}>
      */
@@ -701,11 +706,47 @@ class AP_Forum
 
         $db = self::resolveDb($db);
         $children = self::getChildForums($parentId, $args, $db);
+        $skipAcl = !empty($args['include_hidden']) || !empty($args['skip_permissions']);
+        $visibleIds = null;
+        if (!$skipAcl && class_exists('AP_Forum_Permissions', false)) {
+            $visibleIds = [];
+            foreach (
+                self::filterForumsVisibleToUser(
+                    $children,
+                    self::resolveViewerUserId($args, $db),
+                    $db
+                ) as $visibleForum
+            ) {
+                $vid = (int) ($visibleForum->forum_id ?? 0);
+                if ($vid > 0) {
+                    $visibleIds[$vid] = true;
+                }
+            }
+        }
+
         $tree = [];
         foreach ($children as $forum) {
+            $kids = self::getHierarchy((int) $forum->forum_id, $args, $db, $depth + 1);
+            $type = (string) ($forum->forum_type ?? '');
+            $fid = (int) ($forum->forum_id ?? 0);
+            if ($visibleIds !== null && ($fid < 1 || !isset($visibleIds[$fid]))) {
+                // Unlistable node: do not advertise its name. Viewable
+                // descendants still appear at this level.
+                foreach ($kids as $kid) {
+                    $tree[] = $kid;
+                }
+                continue;
+            }
+            if (
+                !$skipAcl
+                && $type === self::FORUM_TYPE_CATEGORY
+                && $kids === []
+            ) {
+                continue;
+            }
             $tree[] = [
                 'forum' => $forum,
-                'children' => self::getHierarchy((int) $forum->forum_id, $args, $db, $depth + 1),
+                'children' => $kids,
             ];
         }
 
@@ -807,6 +848,345 @@ class AP_Forum
     }
 
     /**
+     * Forums the viewer may list (view_forum), minus empty parent categories.
+     *
+     * Used by the board index's sibling surfaces (feeds, sitemap, REST).
+     * Hidden-status forums stay omitted unless $args['include_hidden'] is set.
+     *
+     * @param array<string, mixed> $args Passed to {@see getForums()}
+     *
+     * @return list<object>
+     */
+    public static function getListableForums(int $userId, array $args = [], ?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+        $forums = self::getForums($args, $db);
+        if ($forums === []) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($forums as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            if ($fid > 0) {
+                $ids[] = $fid;
+            }
+        }
+        $visible = null;
+        if (class_exists('AP_Forum_Permissions', false)) {
+            $visible = array_fill_keys(
+                AP_Forum_Permissions::filterViewableForumIds($userId, $ids, $db),
+                true
+            );
+        }
+
+        $parentOf = [];
+        foreach ($forums as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            if ($fid > 0) {
+                $parentOf[$fid] = (int) ($forum->parent_id ?? 0);
+            }
+        }
+
+        $hasVisibleChild = [];
+        foreach ($forums as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            $type = (string) ($forum->forum_type ?? '');
+            if ($fid < 1) {
+                continue;
+            }
+            if ($visible !== null && !isset($visible[$fid])) {
+                continue;
+            }
+            if ($type === self::FORUM_TYPE_CATEGORY) {
+                continue;
+            }
+            $parent = (int) ($forum->parent_id ?? 0);
+            $guard = 0;
+            while ($parent > 0 && $guard < 50) {
+                $hasVisibleChild[$parent] = true;
+                $parent = $parentOf[$parent] ?? 0;
+                $guard++;
+            }
+        }
+
+        $kept = [];
+        foreach ($forums as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            $type = (string) ($forum->forum_type ?? '');
+            if ($fid < 1) {
+                continue;
+            }
+            if ($visible !== null && !isset($visible[$fid])) {
+                continue;
+            }
+            if ($type === self::FORUM_TYPE_CATEGORY && !isset($hasVisibleChild[$fid])) {
+                continue;
+            }
+            $kept[] = $forum;
+        }
+
+        return $kept;
+    }
+
+    /**
+     * Whether $forumId has a descendant forum/link the viewer may list.
+     *
+     * Empty parent categories must not appear on the index, feeds, sitemap, or REST.
+     */
+    public static function hasListableDescendant(int $forumId, int $userId, ?AP_DB $db = null, int $depth = 0): bool
+    {
+        if ($forumId < 1 || $depth > 20) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        $children = self::getChildForums($forumId, [], $db);
+        if ($children === []) {
+            return false;
+        }
+
+        $ids = [];
+        foreach ($children as $child) {
+            $cid = (int) ($child->forum_id ?? 0);
+            if ($cid > 0) {
+                $ids[] = $cid;
+            }
+        }
+        $visible = null;
+        if (class_exists('AP_Forum_Permissions', false)) {
+            $visible = array_fill_keys(
+                AP_Forum_Permissions::filterViewableForumIds($userId, $ids, $db),
+                true
+            );
+        }
+
+        foreach ($children as $child) {
+            $cid = (int) ($child->forum_id ?? 0);
+            if ($cid < 1) {
+                continue;
+            }
+            if ($visible !== null && !isset($visible[$cid])) {
+                continue;
+            }
+            $type = (string) ($child->forum_type ?? '');
+            if ($type === self::FORUM_TYPE_FORUM || $type === self::FORUM_TYPE_LINK) {
+                return true;
+            }
+            if (
+                $type === self::FORUM_TYPE_CATEGORY
+                && self::hasListableDescendant($cid, $userId, $db, $depth + 1)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the viewer may list this forum (view_forum, plus a non-empty category).
+     *
+     * Direct URLs, feeds, REST, menus, and theme helpers use this so an empty
+     * parent category is as invisible as the group-only room it only contained.
+     */
+    public static function isListableToUser(int $userId, int $forumId, ?AP_DB $db = null): bool
+    {
+        if ($forumId < 1) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        $forum = self::getForum($forumId, $db);
+        if ($forum === null) {
+            return false;
+        }
+        if (
+            class_exists('AP_Forum_Permissions', false)
+            && !AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db)
+        ) {
+            return false;
+        }
+        $type = (string) ($forum->forum_type ?? '');
+        if ($type === self::FORUM_TYPE_CATEGORY) {
+            return self::hasListableDescendant($forumId, $userId, $db);
+        }
+
+        return true;
+    }
+
+    /**
+     * Forum ids whose topics may appear in a feed for $userId.
+     *
+     * $scopeForumId 0 = every listable non-category board. A listable category
+     * expands to its listable forum-type descendants. Unlistable boards and
+     * empty parent categories yield an empty list.
+     *
+     * @return list<int>
+     */
+    public static function feedForumIdsForScope(int $userId, int $scopeForumId = 0, ?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+        $listable = self::getListableForums($userId, [], $db);
+        if ($listable === []) {
+            return [];
+        }
+
+        $byId = [];
+        foreach ($listable as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            if ($fid > 0) {
+                $byId[$fid] = $forum;
+            }
+        }
+
+        $topicForumIds = [];
+        foreach ($byId as $fid => $forum) {
+            $type = (string) ($forum->forum_type ?? '');
+            if ($type !== self::FORUM_TYPE_CATEGORY) {
+                $topicForumIds[] = $fid;
+            }
+        }
+
+        if ($scopeForumId < 1) {
+            return $topicForumIds;
+        }
+        if (!isset($byId[$scopeForumId])) {
+            return [];
+        }
+
+        $scope = $byId[$scopeForumId];
+        if ((string) ($scope->forum_type ?? '') !== self::FORUM_TYPE_CATEGORY) {
+            return [$scopeForumId];
+        }
+
+        $parentOf = [];
+        foreach (self::getForums([], $db) as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            if ($fid > 0) {
+                $parentOf[$fid] = (int) ($forum->parent_id ?? 0);
+            }
+        }
+
+        $out = [];
+        foreach ($topicForumIds as $fid) {
+            $parent = $parentOf[$fid] ?? 0;
+            $guard = 0;
+            while ($parent > 0 && $guard < 50) {
+                if ($parent === $scopeForumId) {
+                    $out[] = $fid;
+                    break;
+                }
+                $parent = $parentOf[$parent] ?? 0;
+                $guard++;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Recent topics the viewer may list, for syndication feeds.
+     *
+     * Anyone without `view_forum` must not see the forum or an empty parent
+     * category: unlistable boards are omitted from the id scope.
+     *
+     * @param array<string, mixed> $args user_id, forum_id (0 = all listable), per_page
+     *
+     * @return list<object>
+     */
+    public static function getFeedTopics(array $args = [], ?AP_DB $db = null): array
+    {
+        $db = self::resolveDb($db);
+        $userId = self::resolveViewerUserId($args, $db);
+        $scopeId = max(0, (int) ($args['forum_id'] ?? 0));
+        $ids = self::feedForumIdsForScope($userId, $scopeId, $db);
+        if ($ids === []) {
+            return [];
+        }
+
+        $table = $db->quoteIdentifier($db->table('topics'));
+        $forumCol = $db->quoteIdentifier('forum_id');
+        $sql = 'SELECT * FROM ' . $table . ' WHERE ';
+        $params = [];
+        if (count($ids) === 1) {
+            $sql .= $forumCol . ' = ?';
+            $params[] = $ids[0];
+        } else {
+            $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+            $sql .= $forumCol . ' IN (' . $placeholders . ')';
+            foreach ($ids as $id) {
+                $params[] = $id;
+            }
+        }
+        $sql .= ' AND ' . $db->quoteIdentifier('topic_status') . ' != ?';
+        $params[] = self::TOPIC_STATUS_DELETED;
+        $sql .= ' AND ' . $db->quoteIdentifier('topic_approved') . ' = 1';
+        $sql .= ' ORDER BY ' . $db->quoteIdentifier('topic_last_post_time') . ' DESC, '
+            . $db->quoteIdentifier('topic_id') . ' DESC';
+
+        $limit = (int) ($args['per_page'] ?? 10);
+        if ($limit < 1) {
+            $limit = 10;
+        }
+        if ($limit > 100) {
+            $limit = 100;
+        }
+        $sql .= ' LIMIT ' . $limit;
+
+        $rows = $db->getResults($sql, $params);
+        $out = [];
+        foreach ($rows as $row) {
+            $out[] = self::normalizeTopicRow($row);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Approved posts in a topic the viewer may list, for topic syndication feeds.
+     *
+     * Unlistable boards yield an empty list. Direct URLs still 404 via AP_Feed
+     * so the response does not advertise the board name or slug.
+     *
+     * @param array<string, mixed> $args user_id, per_page
+     *
+     * @return list<object>
+     */
+    public static function getFeedPosts(int $topicId, array $args = [], ?AP_DB $db = null): array
+    {
+        if ($topicId < 1) {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+        $userId = self::resolveViewerUserId($args, $db);
+        $topic = self::getTopic($topicId, $db);
+        if ($topic === null) {
+            return [];
+        }
+        $forumId = (int) ($topic->forum_id ?? 0);
+        if ($forumId < 1 || !self::isListableToUser($userId, $forumId, $db)) {
+            return [];
+        }
+
+        $limit = (int) ($args['per_page'] ?? 10);
+        if ($limit < 1) {
+            $limit = 10;
+        }
+        if ($limit > 100) {
+            $limit = 100;
+        }
+
+        return self::getPosts($topicId, [
+            'approved_only' => true,
+            'per_page' => $limit,
+            'page' => 1,
+            'order' => 'ASC',
+        ], $db);
+    }
+
+    /**
      * Index-oriented structure: categories (or root forums) with nested forums.
      *
      * Matches Agora theme expectations:
@@ -832,11 +1212,14 @@ class AP_Forum
     public static function getIndexData(?AP_DB $db = null, array $args = []): array
     {
         $db = self::resolveDb($db);
+        $userId = self::resolveViewerUserId($args, $db);
         $roots = self::getChildForums(0, [], $db);
         $categories = [];
         $orphanForums = [];
         /** @var list<object> $allForumObjects */
         $allForumObjects = [];
+        /** @var list<int> $categoryIds Parallel to $categories (not returned). */
+        $categoryIds = [];
 
         foreach ($roots as $root) {
             $type = (string) $root->forum_type;
@@ -855,11 +1238,61 @@ class AP_Forum
                     'name' => (string) $root->forum_name,
                     'forums' => $forums, // objects; converted after batch preload
                 ];
+                $categoryIds[] = (int) $root->forum_id;
             } elseif ($type === self::FORUM_TYPE_FORUM || $type === self::FORUM_TYPE_LINK) {
                 $orphanForums[] = $root;
                 $allForumObjects[] = $root;
             }
         }
+
+        // Anyone without view_forum must not see the forum or an empty parent.
+        $allForumObjects = self::filterForumsVisibleToUser($allForumObjects, $userId, $db);
+        $visibleIds = [];
+        foreach ($allForumObjects as $obj) {
+            $fid = (int) ($obj->forum_id ?? 0);
+            if ($fid > 0) {
+                $visibleIds[$fid] = true;
+            }
+        }
+        $visibleCategoryIds = null;
+        if ($categoryIds !== [] && class_exists('AP_Forum_Permissions', false)) {
+            $visibleCategoryIds = array_fill_keys(
+                AP_Forum_Permissions::filterViewableForumIds($userId, $categoryIds, $db),
+                true
+            );
+        }
+        foreach ($categories as $i => $category) {
+            $catId = $categoryIds[$i] ?? 0;
+            $kept = [];
+            foreach ($category['forums'] as $child) {
+                $cid = (int) ($child->forum_id ?? 0);
+                if ($cid > 0 && isset($visibleIds[$cid])) {
+                    $kept[] = $child;
+                }
+            }
+            if ($visibleCategoryIds !== null && $catId > 0 && !isset($visibleCategoryIds[$catId])) {
+                // Parent is unlistable: do not advertise its name. Viewable
+                // children still appear as root-level forums.
+                foreach ($kept as $child) {
+                    $orphanForums[] = $child;
+                }
+                $categories[$i]['forums'] = [];
+                continue;
+            }
+            $categories[$i]['forums'] = $kept;
+        }
+        $categories = array_values(array_filter(
+            $categories,
+            static fn (array $category): bool => $category['forums'] !== []
+        ));
+        $orphanForums = array_values(array_filter(
+            $orphanForums,
+            static function (object $forum) use ($visibleIds): bool {
+                $fid = (int) ($forum->forum_id ?? 0);
+
+                return $fid > 0 && isset($visibleIds[$fid]);
+            }
+        ));
 
         // Batch last-topic titles + author display names (no per-row SELECT).
         $preload = self::buildForumRowPreload($allForumObjects, $db);
@@ -887,7 +1320,6 @@ class AP_Forum
         }
 
         // Single annotate pass for the whole board (O(1) mark/topic queries).
-        $userId = self::resolveViewerUserId($args, $db);
         if (class_exists('AP_Forum_Read', false)) {
             $flat = [];
             /** @var list<array{0: int, 1: int}> $positions */
@@ -1498,9 +1930,10 @@ class AP_Forum
     /**
      * Query topics across all forums (admin list tables).
      *
-     * @param array<string, mixed> $args Keys: forum_id, status, type, include_deleted,
-     *                                   approved_only (bool|null; null = any), pending_only,
-     *                                   search, poster_id, per_page, page, orderby, order
+     * @param array<string, mixed> $args Keys: forum_id, forum_ids (list<int>), status, type,
+     *                                   include_deleted, approved_only (bool|null; null = any),
+     *                                   pending_only, search, poster_id, per_page, page,
+     *                                   orderby, order, check_permissions, user_id
      *
      * @return list<object>
      */
@@ -1510,10 +1943,9 @@ class AP_Forum
         $table = $db->quoteIdentifier($db->table('topics'));
         $sql = 'SELECT * FROM ' . $table . ' WHERE 1=1';
         $params = [];
-
-        if (isset($args['forum_id']) && (int) $args['forum_id'] > 0) {
-            $sql .= ' AND ' . $db->quoteIdentifier('forum_id') . ' = ?';
-            $params[] = (int) $args['forum_id'];
+        $forumCol = $db->quoteIdentifier('forum_id');
+        if (!self::appendForumIdConstraint($args, $db, $forumCol, $sql, $params)) {
+            return [];
         }
 
         if (!empty($args['pending_only'])) {
@@ -1599,10 +2031,9 @@ class AP_Forum
         $table = $db->quoteIdentifier($db->table('topics'));
         $sql = 'SELECT COUNT(*) FROM ' . $table . ' WHERE 1=1';
         $params = [];
-
-        if (isset($args['forum_id']) && (int) $args['forum_id'] > 0) {
-            $sql .= ' AND ' . $db->quoteIdentifier('forum_id') . ' = ?';
-            $params[] = (int) $args['forum_id'];
+        $forumCol = $db->quoteIdentifier('forum_id');
+        if (!self::appendForumIdConstraint($args, $db, $forumCol, $sql, $params)) {
+            return 0;
         }
 
         if (!empty($args['pending_only'])) {
@@ -1659,13 +2090,22 @@ class AP_Forum
     public static function getTopicsDisplayData(int $forumId, array $args = [], ?AP_DB $db = null): array
     {
         $db = self::resolveDb($db);
+        $userId = self::resolveViewerUserId($args, $db);
+        if (
+            $forumId < 1
+            || (
+                empty($args['skip_permissions'])
+                && !self::isListableToUser($userId, $forumId, $db)
+            )
+        ) {
+            return [];
+        }
         $topics = self::getTopics($forumId, $args, $db);
         $out = [];
         foreach ($topics as $topic) {
             $out[] = self::topicToDisplayRow($topic, $db);
         }
 
-        $userId = self::resolveViewerUserId($args, $db);
         if (class_exists('AP_Forum_Read', false)) {
             return AP_Forum_Read::annotateTopics($userId, $out, $db);
         }
@@ -2095,15 +2535,18 @@ class AP_Forum
     public static function getPostsDisplayData(int $topicId, array $args = [], ?AP_DB $db = null): array
     {
         $db = self::resolveDb($db);
-        $posts = self::getPosts($topicId, $args, $db);
-        $viewerId = 0;
-        if (function_exists('ap_get_current_user_id')) {
-            try {
-                $viewerId = (int) ap_get_current_user_id($db);
-            } catch (Throwable) {
-                $viewerId = 0;
+        $viewerId = self::resolveViewerUserId($args, $db);
+        if ($topicId < 1) {
+            return [];
+        }
+        if (empty($args['skip_permissions'])) {
+            $topic = self::getTopic($topicId, $db);
+            $forumId = $topic !== null ? (int) ($topic->forum_id ?? 0) : 0;
+            if ($forumId < 1 || !self::isListableToUser($viewerId, $forumId, $db)) {
+                return [];
             }
         }
+        $posts = self::getPosts($topicId, $args, $db);
         $postIds = [];
         $authorIds = [];
         $forumIdForTopic = 0;
@@ -2287,7 +2730,8 @@ class AP_Forum
     }
 
     /**
-     * Whether a user may edit a forum post (own post with edit_own, or moderator).
+     * Whether a user may edit a forum post (own post with edit_own, or
+     * moderator of that forum).
      */
     public static function userCanEditPost(int $userId, object|int $post, ?AP_DB $db = null): bool
     {
@@ -2302,19 +2746,17 @@ class AP_Forum
             return false;
         }
         $forumId = (int) ($post->forum_id ?? 0);
-        if (function_exists('ap_user_can')) {
+        if (class_exists('AP_Forum_Permissions', false)) {
+            if (AP_Forum_Permissions::userCanModerate($userId, $forumId, $db)) {
+                return true;
+            }
+        } elseif (function_exists('ap_user_can')) {
             if (
                 ap_user_can($userId, 'manage_forums', null, $db)
                 || ap_user_can($userId, 'moderate_forums', null, $db)
             ) {
                 return true;
             }
-        }
-        if (
-            class_exists('AP_Forum_Permissions', false)
-            && AP_Forum_Permissions::userCanModerate($userId, $forumId, $db)
-        ) {
-            return true;
         }
         $isOwner = (int) ($post->poster_id ?? 0) === $userId;
         if (!$isOwner) {
@@ -2328,7 +2770,8 @@ class AP_Forum
     }
 
     /**
-     * Whether a user may delete a forum post (own with delete_own, or moderator).
+     * Whether a user may delete a forum post (own with delete_own, or
+     * moderator of that forum).
      */
     public static function userCanDeletePost(int $userId, object|int $post, ?AP_DB $db = null): bool
     {
@@ -2343,19 +2786,17 @@ class AP_Forum
             return false;
         }
         $forumId = (int) ($post->forum_id ?? 0);
-        if (function_exists('ap_user_can')) {
+        if (class_exists('AP_Forum_Permissions', false)) {
+            if (AP_Forum_Permissions::userCanModerate($userId, $forumId, $db)) {
+                return true;
+            }
+        } elseif (function_exists('ap_user_can')) {
             if (
                 ap_user_can($userId, 'manage_forums', null, $db)
                 || ap_user_can($userId, 'moderate_forums', null, $db)
             ) {
                 return true;
             }
-        }
-        if (
-            class_exists('AP_Forum_Permissions', false)
-            && AP_Forum_Permissions::userCanModerate($userId, $forumId, $db)
-        ) {
-            return true;
         }
         $isOwner = (int) ($post->poster_id ?? 0) === $userId;
         if (!$isOwner) {
@@ -3681,6 +4122,59 @@ class AP_Forum
     }
 
     /**
+     * Syndication URL for the board index (pretty /forums/feed/ or plain query).
+     */
+    public static function forumsIndexFeedUrl(string $feed = 'rss2'): string
+    {
+        $feed = self::normalizeFeedType($feed);
+        $home = self::homeBaseUrl();
+        $pretty = class_exists('AP_Rewrite', false) && AP_Rewrite::usingPermalinks();
+        if ($pretty) {
+            return $home . 'forums/feed/' . ($feed === 'atom' ? 'atom/' : '');
+        }
+
+        return $home . '?ap_forum_view=index&feed=' . rawurlencode($feed);
+    }
+
+    /**
+     * Syndication URL for a forum (pretty /forums/{slug}/feed/ or plain query).
+     */
+    public static function forumFeedUrl(object|int $forum, string $feed = 'rss2'): string
+    {
+        $feed = self::normalizeFeedType($feed);
+        $id = is_object($forum) ? (int) ($forum->forum_id ?? 0) : (int) $forum;
+        $slug = is_object($forum) ? (string) ($forum->forum_slug ?? '') : '';
+        $home = self::homeBaseUrl();
+        $pretty = class_exists('AP_Rewrite', false) && AP_Rewrite::usingPermalinks();
+        if ($pretty && $slug !== '') {
+            $base = $home . 'forums/' . rawurlencode($slug) . '/feed/';
+
+            return $feed === 'atom' ? $base . 'atom/' : $base;
+        }
+
+        return $home . '?ap_forum_view=forum&forum_id=' . $id . '&feed=' . rawurlencode($feed);
+    }
+
+    /**
+     * Syndication URL for a topic (pretty /topic/{slug}/feed/ or plain query).
+     */
+    public static function topicFeedUrl(object|int $topic, string $feed = 'rss2'): string
+    {
+        $feed = self::normalizeFeedType($feed);
+        $id = is_object($topic) ? (int) ($topic->topic_id ?? 0) : (int) $topic;
+        $slug = is_object($topic) ? (string) ($topic->topic_slug ?? '') : '';
+        $home = self::homeBaseUrl();
+        $pretty = class_exists('AP_Rewrite', false) && AP_Rewrite::usingPermalinks();
+        if ($pretty && $slug !== '') {
+            $base = $home . 'topic/' . rawurlencode($slug) . '/feed/';
+
+            return $feed === 'atom' ? $base . 'atom/' : $base;
+        }
+
+        return $home . '?ap_forum_view=topic&topic_id=' . $id . '&feed=' . rawurlencode($feed);
+    }
+
+    /**
      * Site home base ending with a single trailing slash.
      */
     private static function homeBaseUrl(): string
@@ -4017,9 +4511,85 @@ class AP_Forum
         return $key;
     }
 
+    private static function normalizeFeedType(string $feed): string
+    {
+        if (class_exists('AP_Feed', false)) {
+            return AP_Feed::normalizeType($feed);
+        }
+        $feed = strtolower(trim($feed));
+        if ($feed === 'atom') {
+            return 'atom';
+        }
+
+        return 'rss2';
+    }
+
     private static function escapeLike(string $value): string
     {
         return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
+    }
+
+    /**
+     * Restrict a topic/post query to requested forum ids intersected with view_forum.
+     *
+     * @param array<string, mixed> $args forum_id, forum_ids, check_permissions, user_id
+     * @param list<mixed>          $params
+     *
+     * @return bool false when the constraint matches no forums (caller should return empty)
+     */
+    private static function appendForumIdConstraint(
+        array $args,
+        AP_DB $db,
+        string $columnSql,
+        string &$sql,
+        array &$params
+    ): bool {
+        $allowed = self::forumIdsAllowedForSearch($args, $db);
+
+        $requested = [];
+        $hasRequested = false;
+        if (isset($args['forum_id']) && (int) $args['forum_id'] > 0) {
+            $hasRequested = true;
+            $requested[] = (int) $args['forum_id'];
+        } elseif (array_key_exists('forum_ids', $args) && is_array($args['forum_ids'])) {
+            $hasRequested = true;
+            foreach ($args['forum_ids'] as $raw) {
+                $id = (int) $raw;
+                if ($id > 0) {
+                    $requested[$id] = $id;
+                }
+            }
+            $requested = array_values($requested);
+        }
+
+        if ($hasRequested && $requested === []) {
+            return false;
+        }
+
+        $ids = $requested;
+        if (is_array($allowed)) {
+            $ids = $hasRequested
+                ? array_values(array_intersect($requested, $allowed))
+                : $allowed;
+            if ($ids === []) {
+                return false;
+            }
+        } elseif (!$hasRequested) {
+            return true;
+        }
+
+        if (count($ids) === 1) {
+            $sql .= ' AND ' . $columnSql . ' = ?';
+            $params[] = $ids[0];
+        } else {
+            $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+            $sql .= ' AND ' . $columnSql . ' IN (' . $placeholders . ')';
+            foreach ($ids as $id) {
+                $params[] = $id;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -4070,12 +4640,45 @@ class AP_Forum
             if ((string) ($forum->forum_type ?? '') === self::FORUM_TYPE_CATEGORY) {
                 continue;
             }
-            if (AP_Forum_Permissions::userCan($userId, $fid, AP_Forum_Permissions::PERM_READ, $db)) {
-                $allowed[] = $fid;
+            $allowed[] = $fid;
+        }
+
+        return AP_Forum_Permissions::filterViewableForumIds($userId, $allowed, $db);
+    }
+
+    /**
+     * Drop forums the viewer cannot `view_forum`.
+     *
+     * @param list<object> $forums
+     *
+     * @return list<object>
+     */
+    private static function filterForumsVisibleToUser(array $forums, int $userId, AP_DB $db): array
+    {
+        if ($forums === [] || !class_exists('AP_Forum_Permissions', false)) {
+            return $forums;
+        }
+
+        $ids = [];
+        foreach ($forums as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            if ($fid > 0) {
+                $ids[] = $fid;
+            }
+        }
+        $visible = array_fill_keys(
+            AP_Forum_Permissions::filterViewableForumIds($userId, $ids, $db),
+            true
+        );
+        $out = [];
+        foreach ($forums as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            if ($fid > 0 && isset($visible[$fid])) {
+                $out[] = $forum;
             }
         }
 
-        return $allowed;
+        return $out;
     }
 
     private static function nowLocal(): string

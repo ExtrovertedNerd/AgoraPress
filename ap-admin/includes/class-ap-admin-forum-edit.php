@@ -403,6 +403,18 @@ class AP_Admin_Forum_Edit
         }
         $html .= '</div>';
 
+        $selectedGroupIds = $forumId > 0
+            ? AP_Forum_Permissions::getAccessGroupIds($forumId, $db)
+            : [];
+        $html .= self::renderGroupOnlyPicker(
+            $selectedGroupIds,
+            $accessLevel === AP_Forum_Permissions::ACCESS_GROUP_ONLY,
+            $db
+        );
+
+        $matrixHidden = $accessLevel === AP_Forum_Permissions::ACCESS_GROUP_ONLY ? ' hidden' : '';
+        $html .= '<div id="ap-forum-perm-matrix"' . $matrixHidden . '>';
+
         $html .= '<p class="ap-help" style="margin-top:0.75rem;">'
             . '<strong>Custom matrix</strong> (used when Access level is “Custom”, '
             . 'or as a preview of the selected preset). '
@@ -442,12 +454,15 @@ class AP_Admin_Forum_Edit
             }
             $html .= '</tr>';
         }
-        $html .= '</tbody></table></div>';
+        $html .= '</tbody></table></div></div>';
 
         // Lightweight progressive enhancement: selecting a preset fills checkboxes.
         $presetsJson = [];
         foreach (AP_Forum_Permissions::accessLevels() as $slug) {
-            if ($slug === AP_Forum_Permissions::ACCESS_CUSTOM) {
+            if (
+                $slug === AP_Forum_Permissions::ACCESS_CUSTOM
+                || $slug === AP_Forum_Permissions::ACCESS_GROUP_ONLY
+            ) {
                 continue;
             }
             $presetsJson[$slug] = AP_Forum_Permissions::matrixForAccessLevel($slug);
@@ -458,13 +473,18 @@ class AP_Admin_Forum_Edit
             . 'var sel=document.getElementById("forum_access_level");'
             . 'if(!sel)return;'
             . 'var presets=' . $json . ';'
+            . 'var picker=document.getElementById("ap-forum-group-only-picker");'
+            . 'var matrix=document.getElementById("ap-forum-perm-matrix");'
             . 'function showDesc(level){'
             . 'var nodes=document.querySelectorAll(".ap-forum-access-desc");'
             . 'for(var i=0;i<nodes.length;i++){'
             . 'nodes[i].hidden=nodes[i].getAttribute("data-access-level")!==level;'
-            . '}}'
+            . '}'
+            . 'if(picker)picker.hidden=level!=="group_only";'
+            . 'if(matrix)matrix.hidden=level==="group_only";'
+            . '}'
             . 'function applyPreset(level){'
-            . 'if(level==="custom"||!presets[level])return;'
+            . 'if(level==="custom"||level==="group_only"||!presets[level])return;'
             . 'var m=presets[level];'
             . 'var boxes=document.querySelectorAll(".ap-forum-perm-table input[type=checkbox][data-level]");'
             . 'for(var i=0;i<boxes.length;i++){'
@@ -486,6 +506,71 @@ class AP_Admin_Forum_Edit
             . '})();</script>';
 
         $html .= '</fieldset>';
+
+        return $html;
+    }
+
+    /**
+     * Checkbox picker of named (non-system) groups for ACCESS_GROUP_ONLY.
+     *
+     * @param list<int> $selectedIds
+     */
+    private static function renderGroupOnlyPicker(
+        array $selectedIds,
+        bool $visible,
+        ?AP_DB $db = null
+    ): string {
+        $groups = AP_Forum_Permissions::namedGroupsForPicker($db);
+        $hidden = $visible ? '' : ' hidden';
+        $groupsUrl = class_exists('AP_Admin', false)
+            ? AP_Admin::url('forum-groups.php')
+            : 'forum-groups.php';
+        $typeLabels = [
+            AP_Group::TYPE_OPEN => 'Open',
+            AP_Group::TYPE_CLOSED => 'Closed',
+            AP_Group::TYPE_HIDDEN => 'Hidden',
+        ];
+
+        $html = '<div class="ap-forum-group-only-picker" id="ap-forum-group-only-picker"'
+            . $hidden . '>'
+            . '<p class="ap-field">'
+            . '<strong>This group only</strong>'
+            . '<span class="ap-help">Select one or more named groups. Members of those '
+            . 'groups can view and use this forum. Guests and other registered users cannot. '
+            . 'Administrators can always view. System groups are not listed — manage named '
+            . 'groups under <a href="' . ap_esc_url($groupsUrl) . '">Forums → Groups</a>.'
+            . '</span>'
+            . '</p>';
+
+        if ($groups === []) {
+            $html .= '<p class="ap-help ap-forum-group-only-empty">'
+                . 'No named groups yet. '
+                . '<a href="' . ap_esc_url($groupsUrl) . '">Create a group</a> first, '
+                . 'then return here.'
+                . '</p>';
+        } else {
+            $html .= '<ul class="ap-forum-group-only-list">';
+            foreach ($groups as $group) {
+                $gid = (int) $group->group_id;
+                $name = (string) $group->group_name;
+                $type = (string) $group->group_type;
+                $typeLabel = $typeLabels[$type] ?? $type;
+                $checked = in_array($gid, $selectedIds, true) ? ' checked' : '';
+                $id = 'forum_access_group_' . $gid;
+                $html .= '<li class="ap-forum-group-only-item">'
+                    . '<label for="' . ap_esc_attr($id) . '">'
+                    . '<input type="checkbox" id="' . ap_esc_attr($id) . '" '
+                    . 'name="forum_access_groups[]" value="' . $gid . '"'
+                    . $checked . '>'
+                    . ap_esc_html($name)
+                    . ' <span class="ap-muted">(' . ap_esc_html($typeLabel) . ')</span>'
+                    . '</label>'
+                    . '</li>';
+            }
+            $html .= '</ul>';
+        }
+
+        $html .= '</div>';
 
         return $html;
     }

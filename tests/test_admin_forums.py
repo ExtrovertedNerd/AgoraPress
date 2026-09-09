@@ -139,6 +139,9 @@ def test_admin_forum_classes_define_core_api() -> None:
         "TYPE_HIDDEN",
         "function addMember",
         "add-group-member-",
+        "no Join control",
+        "Forums → Groups is the roster",
+        "Add Member",
     ):
         assert needle in groups_src, f"Expected {needle!r} in forum groups class"
 
@@ -203,10 +206,11 @@ def test_groups_acp_is_existing_forum_groups_screen() -> None:
     edit = (ADMIN / "includes" / "class-ap-admin-forum-edit.php").read_text(
         encoding="utf-8"
     )
-    assert "This group only" not in edit
+    assert "This group only" in edit
+    assert "forum_access_groups[]" in edit
     phpunit = PHPUNIT.read_text(encoding="utf-8")
     assert "testForumGroupsAcpCreatesHiddenNamedGroupAndAddsMember" in phpunit
-    assert "testForumEditAccessPresetsDoNotListNamedGroups" in phpunit
+    assert "testForumEditThisGroupOnlyPresetListsNamedGroups" in phpunit
 
 
 def test_structure_asserts_forum_admin_files() -> None:

@@ -729,7 +729,8 @@ class AP_Nav_Menu
      * Page and post items only render when the object exists, matches the
      * expected type, and has a public (published) status. Useful links resolve
      * at render time (privacy page must exist; register only when open).
-     * Custom links and taxonomy/forum items stay visible when they resolve a label.
+     * Forum items require `view_forum` (empty parent categories are omitted).
+     * Custom links and taxonomy items stay visible when they resolve a label.
      *
      * @param array<string, mixed> $item
      */
@@ -765,6 +766,10 @@ class AP_Nav_Menu
         if ($type === 'register') {
             // Hide when registration is closed (or URL cannot be built).
             return self::usersCanRegister($db) && self::registerUrl($db) !== '';
+        }
+        if ($type === 'forum') {
+            return self::forumItemIsListable($objectId, $db)
+                && self::itemTitle($item, $db) !== '';
         }
 
         // Non-content items: visible when they can produce a title.
@@ -1324,6 +1329,37 @@ class AP_Nav_Menu
         }
 
         return '?ap_forum_view=forum&forum_id=' . $id;
+    }
+
+    /**
+     * Forum menu items follow view_forum; empty parent categories stay hidden.
+     */
+    private static function forumItemIsListable(int $forumId, ?AP_DB $db): bool
+    {
+        if ($forumId < 1 || !class_exists('AP_Forum', false)) {
+            return false;
+        }
+        $userId = 0;
+        if (function_exists('ap_get_current_user_id')) {
+            try {
+                $userId = max(0, (int) ap_get_current_user_id($db));
+            } catch (Throwable) {
+                $userId = 0;
+            }
+        } elseif (class_exists('AP_Session', false)) {
+            $userId = max(0, (int) AP_Session::getCurrentUserId($db));
+        }
+        if (method_exists('AP_Forum', 'isListableToUser')) {
+            return AP_Forum::isListableToUser($userId, $forumId, $db);
+        }
+        if (
+            class_exists('AP_Forum_Permissions', false)
+            && !AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db)
+        ) {
+            return false;
+        }
+
+        return AP_Forum::getForum($forumId, $db) !== null;
     }
 
     private static function objectPermalink(int $id, string $type, ?AP_DB $db): string

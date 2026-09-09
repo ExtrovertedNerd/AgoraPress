@@ -342,14 +342,16 @@ Labels as built (`AP_Forum_Permissions`):
 | Read only (members) (`members_readonly`) | Guests and members view/read only; only staff post |
 | Moderators only (`moderators`) | Hidden from guests and ordinary members |
 | Administrators only (`administrators`) | Administrators only |
+| This group only (`group_only`) | Named (non-system) group(s) plus administrators. Guests are denied. Does **not** stamp an explicit deny on virtual `registered` (that would lock group members out). Site-wide `moderate_forums` does not enter unless the user is also in a chosen group. |
 | Custom (`custom`) | Per-level checkboxes for every permission |
 
 ### Resolution
 
 1. `manage_forums` (Administrator) **always** allows.
 2. `moderate_forums` (Editor+) grants the moderation-family permissions
-   everywhere (`moderate_forum`, sticky/announce/lock/move, edit_own,
-   delete_own).
+   (`moderate_forum`, sticky/announce/lock/move, edit_own, delete_own) on
+   forums the user can already `view_forum`. It does **not** walk into a
+   `group_only` room unless the user is in a chosen group.
 3. Collect effective groups (explicit membership + virtual system groups).
 4. Forum-specific rows override global (`forum_id = 0`).
 5. Explicit group **deny** wins; else explicit **allow** (so a VIP group can
@@ -357,6 +359,14 @@ Labels as built (`AP_Forum_Permissions`):
 
 Closed forums do not by themselves block view/read. Hidden forums still
 need `view_forum`.
+
+Anyone without `view_forum` does not see that forum, or an empty parent
+category, on the board index (`AP_Forum::getIndexData()`, Agora
+`forum.php`) or in forum search (`AP_Forum::search()` with
+`check_permissions`, Agora `forum-search.php`). Opening a forum or topic
+URL they cannot view — including a search scoped to that board — is a
+generic 404: “You cannot view this.” The response does not include the
+board name or slug.
 
 Site-wide checkboxes on Settings → Forums
 (`forum_allow_guest_viewing` default **on**,

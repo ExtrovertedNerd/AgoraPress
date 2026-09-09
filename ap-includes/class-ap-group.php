@@ -12,6 +12,9 @@
  * Group types: open | closed | hidden | system
  * Member roles: member | moderator | leader
  *
+ * Hidden groups have no public Join control. Operators add members in
+ * Forums → Groups (`forum-groups.php`), which remains the roster.
+ *
  * @package AgoraPress
  */
 
@@ -99,6 +102,51 @@ class AP_Group
         $role = self::sanitizeKey($role);
 
         return in_array($role, self::memberRoles(), true) ? $role : self::ROLE_MEMBER;
+    }
+
+    /**
+     * Whether this group type may offer a public Join control.
+     *
+     * Only open named groups may. Hidden, closed, and system groups do not:
+     * operators add those members in Forums → Groups.
+     */
+    public static function groupTypeAllowsPublicJoin(string $type): bool
+    {
+        return self::normalizeGroupType($type) === self::TYPE_OPEN;
+    }
+
+    /**
+     * Whether this group type may appear in a public directory.
+     *
+     * Open and closed groups may be listed. Hidden and system groups are omitted.
+     */
+    public static function groupTypeIsPubliclyListed(string $type): bool
+    {
+        $type = self::normalizeGroupType($type);
+
+        return $type === self::TYPE_OPEN || $type === self::TYPE_CLOSED;
+    }
+
+    /**
+     * Whether a visitor-facing Join control is allowed for this group.
+     */
+    public static function allowsPublicJoin(int $groupId, ?AP_DB $db = null): bool
+    {
+        $group = self::get($groupId, $db);
+
+        return $group !== null
+            && self::groupTypeAllowsPublicJoin((string) $group->group_type);
+    }
+
+    /**
+     * Whether this group may appear in a public directory.
+     */
+    public static function isPubliclyListed(int $groupId, ?AP_DB $db = null): bool
+    {
+        $group = self::get($groupId, $db);
+
+        return $group !== null
+            && self::groupTypeIsPubliclyListed((string) $group->group_type);
     }
 
     /**
@@ -435,7 +483,7 @@ class AP_Group
     /**
      * List groups.
      *
-     * @param array<string, mixed> $args type, search, exclude_system, orderby, order, limit, offset
+     * @param array<string, mixed> $args type, search, exclude_system, exclude_hidden, public, orderby, order, limit, offset
      *
      * @return list<object>
      */
@@ -444,19 +492,7 @@ class AP_Group
         $db = self::resolveDb($db);
         $table = $db->quoteIdentifier($db->table('groups'));
 
-        $where = [];
-        $params = [];
-
-        if (!empty($args['type'])) {
-            $type = self::normalizeGroupType((string) $args['type']);
-            $where[] = $db->quoteIdentifier('group_type') . ' = ?';
-            $params[] = $type;
-        }
-
-        if (!empty($args['exclude_system'])) {
-            $where[] = $db->quoteIdentifier('group_type') . ' <> ?';
-            $params[] = self::TYPE_SYSTEM;
-        }
+        [$where, $params] = self::queryWhere($args, $db);
 
         if (!empty($args['search'])) {
             $like = '%' . self::escapeLike((string) $args['search']) . '%';
@@ -508,6 +544,21 @@ class AP_Group
     }
 
     /**
+     * Named groups that may appear in a public directory (open and closed).
+     * Hidden and system groups are omitted.
+     *
+     * @param array<string, mixed> $args
+     *
+     * @return list<object>
+     */
+    public static function queryPublic(array $args = [], ?AP_DB $db = null): array
+    {
+        $args['public'] = true;
+
+        return self::query($args, $db);
+    }
+
+    /**
      * Count groups matching query args (ignores limit/offset).
      *
      * @param array<string, mixed> $args
@@ -517,17 +568,8 @@ class AP_Group
         $db = self::resolveDb($db);
         $table = $db->quoteIdentifier($db->table('groups'));
 
-        $where = [];
-        $params = [];
+        [$where, $params] = self::queryWhere($args, $db);
 
-        if (!empty($args['type'])) {
-            $where[] = $db->quoteIdentifier('group_type') . ' = ?';
-            $params[] = self::normalizeGroupType((string) $args['type']);
-        }
-        if (!empty($args['exclude_system'])) {
-            $where[] = $db->quoteIdentifier('group_type') . ' <> ?';
-            $params[] = self::TYPE_SYSTEM;
-        }
         if (!empty($args['search'])) {
             $like = '%' . self::escapeLike((string) $args['search']) . '%';
             $where[] = '('
@@ -615,6 +657,24 @@ class AP_Group
         }
 
         return $membershipId;
+    }
+
+    /**
+     * Public self-join. Hidden, closed, and system groups always fail.
+     * Operators add those members in Forums → Groups.
+     *
+     * Open groups succeed for a logged-in user (idempotent if already a member).
+     */
+    public static function joinPublic(int $groupId, int $userId, ?AP_DB $db = null): int
+    {
+        if ($groupId < 1 || $userId < 1) {
+            return 0;
+        }
+        if (!self::allowsPublicJoin($groupId, $db)) {
+            return 0;
+        }
+
+        return self::addMember($groupId, $userId, self::ROLE_MEMBER, $db);
     }
 
     /**
@@ -917,6 +977,42 @@ class AP_Group
         }
 
         throw new RuntimeException('Database connection is not available.');
+    }
+
+    /**
+     * Shared WHERE fragments for query() / count().
+     *
+     * @param array<string, mixed> $args
+     *
+     * @return array{0: list<string>, 1: list<mixed>}
+     */
+    private static function queryWhere(array $args, AP_DB $db): array
+    {
+        $where = [];
+        $params = [];
+        $typeCol = $db->quoteIdentifier('group_type');
+
+        if (!empty($args['type'])) {
+            $where[] = $typeCol . ' = ?';
+            $params[] = self::normalizeGroupType((string) $args['type']);
+        }
+
+        if (!empty($args['public'])) {
+            $where[] = $typeCol . ' IN (?, ?)';
+            $params[] = self::TYPE_OPEN;
+            $params[] = self::TYPE_CLOSED;
+        } else {
+            if (!empty($args['exclude_system'])) {
+                $where[] = $typeCol . ' <> ?';
+                $params[] = self::TYPE_SYSTEM;
+            }
+            if (!empty($args['exclude_hidden'])) {
+                $where[] = $typeCol . ' <> ?';
+                $params[] = self::TYPE_HIDDEN;
+            }
+        }
+
+        return [$where, $params];
     }
 
     private static function isSystemSlug(string $slug): bool

@@ -10,9 +10,17 @@
  *
  * Resolution for a user on a forum:
  * 1. Core cap `manage_forums` always allows.
- * 2. Collect effective groups (explicit membership + virtual system groups).
- * 3. For each group, forum-specific row overrides global (forum_id=0).
- * 4. Deny from any group wins; else allow if any group allows; else false.
+ * 2. Group-only forums: anyone who is not in a chosen named group is denied
+ *    (including site-wide `moderate_forums`). Administrators already passed (1).
+ * 3. Core cap `moderate_forums` grants the moderation family on forums the
+ *    user may enter.
+ * 4. Collect effective groups (explicit membership + virtual system groups).
+ * 5. For each group, forum-specific row overrides global (forum_id=0).
+ *    Group-only forums do not inherit global allow for virtual `registered`
+ *    or `global_moderators`.
+ * 6. Explicit (named / elevated) group deny wins; else explicit allow; else
+ *    virtual guests/registered deny; else virtual allow. A named-group allow
+ *    overrides deny on the soft virtual groups `guests` / `registered`.
  *
  * Integrated with {@see AP_Roles} (manage_forums / moderate_forums) and
  * {@see AP_Group} system groups.
@@ -67,6 +75,9 @@ class AP_Forum_Permissions
 
     /** @var array<string, bool> userId:forumId:perm => result */
     private static array $userCanCache = [];
+
+    /** @var array<int, list<int>> user_id => effective group ids */
+    private static array $effectiveGroupIdsCache = [];
 
     // -------------------------------------------------------------------------
     // Catalog
@@ -167,8 +178,17 @@ class AP_Forum_Permissions
     /** Administrators only. */
     public const ACCESS_ADMINISTRATORS = 'administrators';
 
+    /**
+     * Named group(s) only (Forums → Edit picker). System groups are not eligible.
+     * Selected group ids are stored in option {@see self::OPTION_GROUP_ONLY}.
+     */
+    public const ACCESS_GROUP_ONLY = 'group_only';
+
     /** Custom matrix (per-level checkboxes in ACP). */
     public const ACCESS_CUSTOM = 'custom';
+
+    /** Option key: forum_id => list of named group ids for ACCESS_GROUP_ONLY. */
+    public const OPTION_GROUP_ONLY = 'forum_group_only';
 
     public const LEVEL_GUEST = 'guest';
 
@@ -191,6 +211,7 @@ class AP_Forum_Permissions
             self::ACCESS_MEMBERS_READONLY,
             self::ACCESS_MODERATORS,
             self::ACCESS_ADMINISTRATORS,
+            self::ACCESS_GROUP_ONLY,
             self::ACCESS_CUSTOM,
         ];
     }
@@ -206,6 +227,7 @@ class AP_Forum_Permissions
             self::ACCESS_MEMBERS_READONLY => 'Read only (members)',
             self::ACCESS_MODERATORS => 'Moderators only',
             self::ACCESS_ADMINISTRATORS => 'Administrators only',
+            self::ACCESS_GROUP_ONLY => 'This group only',
             self::ACCESS_CUSTOM => 'Custom',
         ];
     }
@@ -223,6 +245,10 @@ class AP_Forum_Permissions
             self::ACCESS_MEMBERS_READONLY => 'Guests and members can view/read but not post. Only moderators and admins can create topics or reply.',
             self::ACCESS_MODERATORS => 'Visible only to moderators and administrators. Guests and regular members cannot see this forum.',
             self::ACCESS_ADMINISTRATORS => 'Visible only to administrators. Moderators and members cannot see this forum.',
+            self::ACCESS_GROUP_ONLY => 'Visible only to members of the selected named group(s). '
+                . 'Guests and other registered users cannot see this forum. '
+                . 'Administrators can always view. Site-wide moderators cannot '
+                . 'unless they are in a chosen group. Create groups under Forums → Groups.',
             self::ACCESS_CUSTOM => 'Set each permission for Guest, Registered, Moderator, and Administrator individually.',
         ];
     }
@@ -343,8 +369,8 @@ class AP_Forum_Permissions
     public static function matrixForAccessLevel(string $accessLevel): array
     {
         $accessLevel = self::normalizeAccessLevel($accessLevel);
-        if ($accessLevel === self::ACCESS_CUSTOM) {
-            // Empty signal: caller should use the posted custom matrix.
+        if ($accessLevel === self::ACCESS_CUSTOM || $accessLevel === self::ACCESS_GROUP_ONLY) {
+            // Empty signal: custom uses the posted matrix; group-only uses named groups.
             return self::emptyLevelMatrix(false);
         }
 
@@ -447,11 +473,105 @@ class AP_Forum_Permissions
     public static function applyAccessLevel(int $forumId, string $accessLevel, ?AP_DB $db = null): bool
     {
         $accessLevel = self::normalizeAccessLevel($accessLevel);
-        if ($accessLevel === self::ACCESS_CUSTOM) {
+        if ($accessLevel === self::ACCESS_CUSTOM || $accessLevel === self::ACCESS_GROUP_ONLY) {
             return false;
         }
 
+        $db = self::resolveDb($db);
+        if ($forumId > 0) {
+            self::leaveGroupOnlyForum($forumId, $db);
+        }
+
         return self::applyLevelMatrix($forumId, self::matrixForAccessLevel($accessLevel), $db);
+    }
+
+    /**
+     * Apply the “This group only” ACL for a forum.
+     *
+     * Stamps:
+     * - guests: explicit deny (all permissions)
+     * - chosen named groups: registered-level allow (view/read/post/edit-own/attach)
+     * - administrators: allow all
+     *
+     * Does **not** stamp virtual `registered` or `global_moderators`. Every
+     * logged-in member is also registered, and a member-moderator is also a
+     * global moderator; an explicit deny-wins row would lock them out.
+     * Those groups also do not inherit global allow on group-only forums, so
+     * outsiders — including site-wide `moderate_forums` — stay out.
+     *
+     * @param list<int|string> $groupIds
+     */
+    public static function applyGroupOnlyAccess(int $forumId, array $groupIds, ?AP_DB $db = null): bool
+    {
+        $forumId = max(0, $forumId);
+        if ($forumId < 1) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        self::ensureDefaults($db);
+
+        $previousIds = self::getAccessGroupIds($forumId, $db);
+        $newIds = self::sanitizeAccessGroupIds($groupIds, $db);
+
+        $ok = self::setAccessGroupIds($forumId, $newIds, $db);
+
+        $systemIds = self::systemLevelGroupIds($db);
+        $guestGid = (int) ($systemIds[self::LEVEL_GUEST] ?? 0);
+        $registeredGid = (int) ($systemIds[self::LEVEL_REGISTERED] ?? 0);
+        $moderatorGid = (int) ($systemIds[self::LEVEL_MODERATOR] ?? 0);
+        $adminGid = (int) ($systemIds[self::LEVEL_ADMINISTRATOR] ?? 0);
+
+        $denyAll = [];
+        $allowAll = [];
+        foreach (self::allPermissions() as $perm) {
+            $denyAll[$perm] = false;
+            $allowAll[$perm] = true;
+        }
+
+        if ($guestGid > 0) {
+            if (!self::setGroupPermissions($forumId, $guestGid, $denyAll, $db)) {
+                $ok = false;
+            }
+        } else {
+            $ok = false;
+        }
+
+        // Clear leftover forum-specific registered / global_moderators rows.
+        // Do not write deny — members (and member-moderators) also sit there.
+        foreach ([$registeredGid, $moderatorGid] as $virtualGid) {
+            if ($virtualGid > 0 && !self::setGroupPermissions($forumId, $virtualGid, [], $db)) {
+                $ok = false;
+            }
+        }
+
+        if ($adminGid > 0) {
+            if (!self::setGroupPermissions($forumId, $adminGid, $allowAll, $db)) {
+                $ok = false;
+            }
+        } else {
+            $ok = false;
+        }
+
+        $removed = array_diff($previousIds, $newIds);
+        foreach ($removed as $gid) {
+            $gid = (int) $gid;
+            if ($gid > 0 && !self::setGroupPermissions($forumId, $gid, [], $db)) {
+                $ok = false;
+            }
+        }
+
+        $memberPerms = [];
+        foreach (self::baselinePermissionsForLevel(self::LEVEL_REGISTERED) as $perm) {
+            $memberPerms[$perm] = true;
+        }
+        foreach ($newIds as $gid) {
+            if (!self::setGroupPermissions($forumId, $gid, $memberPerms, $db)) {
+                $ok = false;
+            }
+        }
+
+        return $ok;
     }
 
     /**
@@ -496,12 +616,16 @@ class AP_Forum_Permissions
      */
     public static function detectAccessLevel(int $forumId, ?AP_DB $db = null): string
     {
+        $db = self::resolveDb($db);
+        if ($forumId > 0 && self::isGroupOnlyForum($forumId, $db)) {
+            return self::ACCESS_GROUP_ONLY;
+        }
+
         $current = self::getLevelMatrix($forumId, false, $db);
         // If no forum-specific rows, fall back to comparing merged (global) matrix
         // only for display of "inherited" public defaults.
         $hasLocal = false;
         $groupIds = self::systemLevelGroupIds($db);
-        $db = self::resolveDb($db);
         foreach ($groupIds as $gid) {
             if ($gid < 1 || $forumId < 1) {
                 continue;
@@ -520,7 +644,7 @@ class AP_Forum_Permissions
         }
 
         foreach (self::accessLevels() as $level) {
-            if ($level === self::ACCESS_CUSTOM) {
+            if ($level === self::ACCESS_CUSTOM || $level === self::ACCESS_GROUP_ONLY) {
                 continue;
             }
             $expected = self::matrixForAccessLevel($level);
@@ -547,22 +671,31 @@ class AP_Forum_Permissions
      * Parse ACP form fields into a level matrix.
      *
      * Expected POST shape:
-     *   forum_access_level = public|members|…
+     *   forum_access_level = public|members|…|group_only
+     *   forum_access_groups[] = named group id (when group_only)
      *   forum_perm[guest][view_forum] = 1
      *   forum_perm[registered][post_topics] = 1
      *   …
      *
      * @param array<string, mixed> $input
      *
-     * @return array{level: string, matrix: array<string, array<string, bool>>}
+     * @return array{
+     *     level: string,
+     *     matrix: array<string, array<string, bool>>,
+     *     group_ids: list<int>
+     * }
      */
     public static function parseAccessFormInput(array $input): array
     {
         $level = self::normalizeAccessLevel((string) ($input['forum_access_level'] ?? self::ACCESS_PUBLIC));
+        $groupIds = $level === self::ACCESS_GROUP_ONLY
+            ? self::parsePostedGroupIds($input)
+            : [];
         if ($level !== self::ACCESS_CUSTOM) {
             return [
                 'level' => $level,
                 'matrix' => self::matrixForAccessLevel($level),
+                'group_ids' => $groupIds,
             ];
         }
 
@@ -588,19 +721,251 @@ class AP_Forum_Permissions
         return [
             'level' => self::ACCESS_CUSTOM,
             'matrix' => $matrix,
+            'group_ids' => [],
         ];
     }
 
     /**
      * Apply access settings from an ACP form bag to a forum.
      *
+     * Group-only denies guests, allows the chosen named group(s) plus
+     * administrators, and leaves virtual `registered` / `global_moderators`
+     * unstamped. Site-wide `moderate_forums` does not enter unless the user
+     * is in a chosen group.
+     *
      * @param array<string, mixed> $input
      */
     public static function saveAccessFromForm(int $forumId, array $input, ?AP_DB $db = null): bool
     {
+        $forumId = max(0, $forumId);
+        $db = self::resolveDb($db);
         $parsed = self::parseAccessFormInput($input);
 
+        if ($parsed['level'] === self::ACCESS_GROUP_ONLY) {
+            if ($forumId < 1) {
+                return false;
+            }
+
+            return self::applyGroupOnlyAccess($forumId, $parsed['group_ids'], $db);
+        }
+
+        if ($forumId > 0) {
+            self::leaveGroupOnlyForum($forumId, $db);
+        }
+
         return self::applyLevelMatrix($forumId, $parsed['matrix'], $db);
+    }
+
+    /**
+     * Named (non-system) groups for the Forum Edit picker.
+     *
+     * @return list<object>
+     */
+    public static function namedGroupsForPicker(?AP_DB $db = null): array
+    {
+        if (!class_exists('AP_Group', false)) {
+            return [];
+        }
+
+        return AP_Group::query([
+            'exclude_system' => true,
+            'orderby' => 'name',
+            'order' => 'ASC',
+        ], $db);
+    }
+
+    /**
+     * Whether Forums → Edit stored this forum as “This group only”.
+     */
+    public static function isGroupOnlyForum(int $forumId, ?AP_DB $db = null): bool
+    {
+        if ($forumId < 1) {
+            return false;
+        }
+        $map = self::loadGroupOnlyMap($db);
+
+        return array_key_exists($forumId, $map);
+    }
+
+    /**
+     * Named group ids assigned to a group-only forum.
+     *
+     * @return list<int>
+     */
+    public static function getAccessGroupIds(int $forumId, ?AP_DB $db = null): array
+    {
+        if ($forumId < 1) {
+            return [];
+        }
+        $map = self::loadGroupOnlyMap($db);
+
+        return $map[$forumId] ?? [];
+    }
+
+    /**
+     * Persist named groups for the “This group only” preset.
+     *
+     * System groups and unknown ids are dropped. An empty list still marks the
+     * forum as group-only so the Edit screen round-trips the preset.
+     *
+     * @param list<int|string> $groupIds
+     */
+    public static function setAccessGroupIds(int $forumId, array $groupIds, ?AP_DB $db = null): bool
+    {
+        if ($forumId < 1) {
+            return false;
+        }
+        $db = self::resolveDb($db);
+        $map = self::loadGroupOnlyMap($db);
+        $map[$forumId] = self::sanitizeAccessGroupIds($groupIds, $db);
+
+        return self::storeGroupOnlyMap($map, $db);
+    }
+
+    /**
+     * Drop the group-only assignment for a forum (other presets, or forum delete).
+     */
+    public static function clearAccessGroupIds(int $forumId, ?AP_DB $db = null): bool
+    {
+        if ($forumId < 1) {
+            return false;
+        }
+        $map = self::loadGroupOnlyMap($db);
+        if (!array_key_exists($forumId, $map)) {
+            return true;
+        }
+        unset($map[$forumId]);
+
+        return self::storeGroupOnlyMap($map, $db);
+    }
+
+    /**
+     * Keep ids that refer to existing non-system named groups.
+     *
+     * @param list<int|string> $groupIds
+     *
+     * @return list<int>
+     */
+    public static function sanitizeAccessGroupIds(array $groupIds, ?AP_DB $db = null): array
+    {
+        if (!class_exists('AP_Group', false)) {
+            return [];
+        }
+        $db = self::resolveDb($db);
+        $out = [];
+        foreach ($groupIds as $raw) {
+            $id = (int) $raw;
+            if ($id < 1 || isset($out[$id])) {
+                continue;
+            }
+            $group = AP_Group::get($id, $db);
+            if ($group === null) {
+                continue;
+            }
+            if ((string) $group->group_type === AP_Group::TYPE_SYSTEM) {
+                continue;
+            }
+            $out[$id] = $id;
+        }
+
+        return array_values($out);
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     *
+     * @return list<int>
+     */
+    private static function parsePostedGroupIds(array $input): array
+    {
+        $raw = $input['forum_access_groups'] ?? [];
+        if (!is_array($raw)) {
+            $raw = [$raw];
+        }
+        $ids = [];
+        foreach ($raw as $value) {
+            if (is_array($value)) {
+                continue;
+            }
+            $id = (int) $value;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+
+        return array_values($ids);
+    }
+
+    /**
+     * @return array<int, list<int>>
+     */
+    private static function loadGroupOnlyMap(?AP_DB $db): array
+    {
+        if (!class_exists('AP_Options', false)) {
+            return [];
+        }
+        $raw = AP_Options::get(self::OPTION_GROUP_ONLY, [], $db);
+        if (!is_array($raw)) {
+            return [];
+        }
+        $out = [];
+        foreach ($raw as $fid => $ids) {
+            $forumId = (int) $fid;
+            if ($forumId < 1 || !is_array($ids)) {
+                continue;
+            }
+            $clean = [];
+            foreach ($ids as $id) {
+                $id = (int) $id;
+                if ($id > 0) {
+                    $clean[$id] = $id;
+                }
+            }
+            $out[$forumId] = array_values($clean);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<int, list<int>> $map
+     */
+    private static function storeGroupOnlyMap(array $map, ?AP_DB $db): bool
+    {
+        if (!class_exists('AP_Options', false)) {
+            return false;
+        }
+        $stored = [];
+        foreach ($map as $fid => $ids) {
+            $forumId = (int) $fid;
+            if ($forumId < 1 || !is_array($ids)) {
+                continue;
+            }
+            $clean = [];
+            foreach ($ids as $id) {
+                $id = (int) $id;
+                if ($id > 0) {
+                    $clean[$id] = $id;
+                }
+            }
+            $stored[(string) $forumId] = array_values($clean);
+        }
+
+        return AP_Options::update(self::OPTION_GROUP_ONLY, $stored, $db);
+    }
+
+    /**
+     * Drop named-group ACL rows and the group-only assignment when leaving the preset.
+     */
+    private static function leaveGroupOnlyForum(int $forumId, AP_DB $db): void
+    {
+        if ($forumId < 1) {
+            return;
+        }
+        foreach (self::getAccessGroupIds($forumId, $db) as $gid) {
+            self::setGroupPermissions($forumId, $gid, [], $db);
+        }
+        self::clearAccessGroupIds($forumId, $db);
     }
 
     /**
@@ -915,6 +1280,7 @@ class AP_Forum_Permissions
 
         $db = self::resolveDb($db);
         $ok = $db->delete('forum_permissions', ['forum_id' => $forumId]);
+        self::clearAccessGroupIds($forumId, $db);
         self::flushCache();
 
         return $ok !== false;
@@ -955,8 +1321,23 @@ class AP_Forum_Permissions
 
                 return true;
             }
+        }
 
-            // Site-wide moderators get moderation-family permissions everywhere.
+        // Group-only rooms: only chosen named-group members may enter.
+        // Site-wide moderate_forums does not walk in.
+        if (
+            $forumId > 0
+            && self::isGroupOnlyForum($forumId, $db)
+            && !self::userIsInGroupOnlyAudience($userId, $forumId, $db)
+        ) {
+            self::$userCanCache[$cacheKey] = false;
+
+            return false;
+        }
+
+        if ($userId > 0 && class_exists('AP_Roles', false)) {
+            // Site-wide moderators get moderation-family permissions on forums
+            // they may enter (group-only outsiders already returned above).
             if (
                 in_array($perm, self::moderationPermissions(), true)
                 && AP_Roles::userCan($userId, 'moderate_forums', null, $db)
@@ -976,7 +1357,7 @@ class AP_Forum_Permissions
         // Ensure defaults exist so a fresh install has sensible ACL.
         self::ensureDefaults($db);
 
-        $groupIds = AP_Group::getEffectiveGroupIds($userId, $db);
+        $groupIds = self::cachedEffectiveGroupIds($userId, $db);
         if ($groupIds === []) {
             self::$userCanCache[$cacheKey] = false;
 
@@ -1014,6 +1395,53 @@ class AP_Forum_Permissions
         $out = [];
         foreach (self::allPermissions() as $perm) {
             $out[$perm] = self::userCan($userId, $forumId, $perm, $db);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Forum ids the user may view (`view_forum`).
+     *
+     * Superusers with `manage_forums` receive every candidate. Permission
+     * matrices for the set are loaded in one query so board index / search /
+     * sitemap stay O(1) in forum count.
+     *
+     * @param list<int|string> $forumIds
+     *
+     * @return list<int>
+     */
+    public static function filterViewableForumIds(int $userId, array $forumIds, ?AP_DB $db = null): array
+    {
+        $clean = [];
+        foreach ($forumIds as $raw) {
+            $id = (int) $raw;
+            if ($id > 0) {
+                $clean[$id] = $id;
+            }
+        }
+        $forumIds = array_values($clean);
+        if ($forumIds === []) {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+
+        if ($userId > 0 && class_exists('AP_Roles', false) && AP_Roles::userCan($userId, 'manage_forums', null, $db)) {
+            foreach ($forumIds as $fid) {
+                self::$userCanCache[$userId . ':' . $fid . ':' . self::PERM_VIEW] = true;
+            }
+
+            return $forumIds;
+        }
+
+        self::preloadMatrices(array_merge([self::FORUM_GLOBAL], $forumIds), $db);
+
+        $out = [];
+        foreach ($forumIds as $fid) {
+            if (self::userCan($userId, $fid, self::PERM_VIEW, $db)) {
+                $out[] = $fid;
+            }
         }
 
         return $out;
@@ -1241,6 +1669,7 @@ class AP_Forum_Permissions
     {
         self::$matrixCache = null;
         self::$userCanCache = [];
+        self::$effectiveGroupIdsCache = [];
     }
 
     public static function flushUserCache(?int $userId = null): void
@@ -1353,6 +1782,12 @@ class AP_Forum_Permissions
 
     /**
      * Forum-specific setting if present, else global; null if neither.
+     *
+     * Group-only forums skip the virtual registered / global_moderators global
+     * allow so non-members (including site-wide moderators) are not admitted.
+     * Local rows are still honoured if present (operators must not stamp deny
+     * there — members are also registered, and a member-moderator is also a
+     * global moderator).
      */
     private static function effectiveSetting(
         int $forumId,
@@ -1365,9 +1800,72 @@ class AP_Forum_Permissions
             if ($local !== null) {
                 return $local;
             }
+            if (
+                self::groupOnlySkipsGlobalAllow($groupId, $db)
+                && self::isGroupOnlyForum($forumId, $db)
+            ) {
+                return null;
+            }
         }
 
         return self::getRawSetting(self::FORUM_GLOBAL, $groupId, $perm, $db);
+    }
+
+    /**
+     * Virtual groups whose global allow must not admit outsiders to a
+     * group-only room. Explicit deny is never stamped on these groups.
+     */
+    private static function groupOnlySkipsGlobalAllow(int $groupId, AP_DB $db): bool
+    {
+        if (!class_exists('AP_Group', false)) {
+            return false;
+        }
+
+        $group = AP_Group::get($groupId, $db);
+        if ($group === null) {
+            return false;
+        }
+
+        $slug = (string) ($group->group_slug ?? '');
+
+        return $slug === AP_Group::SLUG_REGISTERED
+            || $slug === AP_Group::SLUG_GLOBAL_MODERATORS;
+    }
+
+    /**
+     * Explicit member of any named group assigned to a group-only forum.
+     *
+     * Uses effective group ids (explicit membership + virtual system groups)
+     * so a board-index scan does not issue per-group membership queries.
+     */
+    private static function userIsInGroupOnlyAudience(int $userId, int $forumId, AP_DB $db): bool
+    {
+        if ($userId < 1 || !class_exists('AP_Group', false)) {
+            return false;
+        }
+
+        $effective = self::cachedEffectiveGroupIds($userId, $db);
+        foreach (self::getAccessGroupIds($forumId, $db) as $gid) {
+            if ($gid > 0 && in_array($gid, $effective, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private static function cachedEffectiveGroupIds(int $userId, AP_DB $db): array
+    {
+        if (array_key_exists($userId, self::$effectiveGroupIdsCache)) {
+            return self::$effectiveGroupIdsCache[$userId];
+        }
+        $ids = AP_Group::getEffectiveGroupIds($userId, $db);
+        self::$effectiveGroupIdsCache[$userId] = $ids;
+
+        return $ids;
     }
 
     private static function getRawSetting(
@@ -1427,5 +1925,66 @@ class AP_Forum_Permissions
             . ' WHERE ' . $db->quoteIdentifier('forum_id') . ' = ?',
             [$forumId]
         );
+    }
+
+    /**
+     * Load permission matrices for many forums in one query.
+     *
+     * @param list<int> $forumIds
+     */
+    private static function preloadMatrices(array $forumIds, AP_DB $db): void
+    {
+        $wanted = [];
+        foreach ($forumIds as $raw) {
+            $id = (int) $raw;
+            if ($id >= 0) {
+                $wanted[$id] = $id;
+            }
+        }
+        if ($wanted === []) {
+            return;
+        }
+
+        if (self::$matrixCache === null) {
+            self::$matrixCache = [];
+        }
+
+        $missing = [];
+        foreach ($wanted as $id) {
+            $key = (string) $id;
+            if (!isset(self::$matrixCache[$key])) {
+                $missing[] = $id;
+            }
+        }
+        if ($missing === []) {
+            return;
+        }
+
+        $table = $db->quoteIdentifier($db->table('forum_permissions'));
+        $col = $db->quoteIdentifier('forum_id');
+        $placeholders = implode(', ', array_fill(0, count($missing), '?'));
+        $rows = $db->getResults(
+            'SELECT * FROM ' . $table . ' WHERE ' . $col . ' IN (' . $placeholders . ')',
+            $missing
+        );
+
+        $grouped = [];
+        foreach ($missing as $id) {
+            $grouped[$id] = [];
+        }
+        foreach ($rows as $row) {
+            $gid = (int) ($row->group_id ?? 0);
+            $fid = (int) ($row->forum_id ?? -1);
+            $perm = self::normalizePermission((string) ($row->perm_name ?? ''));
+            if ($gid < 1 || $perm === '' || !isset($grouped[$fid])) {
+                continue;
+            }
+            $grouped[$fid][$gid][$perm] = ((int) ($row->perm_setting ?? 0)) === self::SETTING_ALLOW
+                ? self::SETTING_ALLOW
+                : self::SETTING_DENY;
+        }
+        foreach ($grouped as $fid => $map) {
+            self::$matrixCache[(string) $fid] = $map;
+        }
     }
 }

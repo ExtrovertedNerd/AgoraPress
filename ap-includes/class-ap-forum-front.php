@@ -33,6 +33,9 @@ class AP_Forum_Front
     /** Change topic type (standard | sticky | announcement | rules) within caps. */
     public const ACTION_SET_TOPIC_TYPE = 'ap_forum_set_topic_type';
 
+    /** Generic denial for a direct URL the viewer cannot `view_forum`. */
+    public const CANNOT_VIEW_MESSAGE = 'You cannot view this.';
+
     /** @var array<string, mixed> Flash notice for the next render (same request). */
     private static array $notice = [];
 
@@ -73,10 +76,27 @@ class AP_Forum_Front
             return '';
         }
 
+        // Do not re-infer a forum view from leftover ids after a generic denial.
+        if (!empty($query->get('ap_forum_cannot_view', false))) {
+            return '';
+        }
+
         $view = strtolower(trim((string) $query->get('ap_forum_view', '')));
-        if ($view === '' && (int) $query->get('topic_id', 0) > 0) {
+        if (
+            $view === ''
+            && (
+                (int) $query->get('topic_id', 0) > 0
+                || trim((string) $query->get('topic_slug', '')) !== ''
+            )
+        ) {
             $view = 'topic';
-        } elseif ($view === '' && (int) $query->get('forum_id', 0) > 0) {
+        } elseif (
+            $view === ''
+            && (
+                (int) $query->get('forum_id', 0) > 0
+                || trim((string) $query->get('forum_slug', '')) !== ''
+            )
+        ) {
             $view = 'forum';
         } elseif ($view === '') {
             $flag = $query->get('ap_forum', null);
@@ -141,6 +161,46 @@ class AP_Forum_Front
             $args['forum_search_url'] = AP_Forum::searchUrl('', $db);
             $args['forum_search_enabled'] = !class_exists('AP_Forum_Guard', false)
                 || AP_Forum_Guard::isSearchEnabled($db);
+            $args['forum_search_ready'] = true;
+            // Search chrome is generic; never keep a stuffed board teaser.
+            $args['forum_desc'] = '';
+            $args['topic_id'] = 0;
+            $args['topic_slug'] = '';
+            $args['topic_title'] = '';
+            unset($args['ap_forum_obj'], $args['ap_topic']);
+            $userId = self::currentUserId($db);
+            $forumId = (int) ($args['forum_id'] ?? 0);
+            $forumSlug = trim((string) ($args['forum_slug'] ?? ''));
+            if ($forumId < 1 && $forumSlug !== '' && class_exists('AP_Forum', false)) {
+                $bySlug = method_exists('AP_Forum', 'getForumBySlug')
+                    ? AP_Forum::getForumBySlug($forumSlug, $db)
+                    : null;
+                if (is_object($bySlug)) {
+                    $forumId = (int) ($bySlug->forum_id ?? 0);
+                }
+            }
+            $requestedScope = $forumId > 0 || $forumSlug !== '';
+            if ($requestedScope) {
+                if ($forumId < 1) {
+                    $args['ap_forum_not_found'] = true;
+                    $args['is_404'] = true;
+                    $args['forum_id'] = 0;
+                    $args['forum_slug'] = '';
+                    $args['forum_search_total'] = 0;
+                    $args['forum_search_results'] = [];
+
+                    return $args;
+                }
+                if (!self::userCanListForum($userId, $forumId, $db)) {
+                    // Direct URL / scoped search: generic 404, do not advertise
+                    // the board, and do not broaden to the public index.
+                    return self::denyUnviewableForum($args);
+                }
+                $args['forum_id'] = $forumId;
+            } else {
+                $args['forum_id'] = 0;
+                $args['forum_slug'] = '';
+            }
             if ($args['forum_search_enabled'] && $term !== '') {
                 $perPage = 20;
                 if (function_exists('ap_apply_filters')) {
@@ -155,9 +215,8 @@ class AP_Forum_Front
                     'page' => max(1, (int) ($args['paged'] ?? 1)),
                     'approved_only' => true,
                     'check_permissions' => true,
-                    'user_id' => self::currentUserId($db),
+                    'user_id' => $userId,
                 ];
-                $forumId = (int) ($args['forum_id'] ?? 0);
                 if ($forumId > 0) {
                     $searchArgs['forum_id'] = $forumId;
                 }
@@ -181,6 +240,14 @@ class AP_Forum_Front
                 return $args;
             }
             $forumId = (int) $forum->forum_id;
+            $userId = self::currentUserId($db);
+            if (
+                method_exists('AP_Forum', 'isListableToUser')
+                    ? !AP_Forum::isListableToUser($userId, $forumId, $db)
+                    : !self::userCanViewForum($userId, $forumId, $db)
+            ) {
+                return self::denyUnviewableForum($args);
+            }
             $args['forum_id'] = $forumId;
             $args['forum_slug'] = (string) ($forum->forum_slug ?? '');
             $args['forum_name'] = (string) ($forum->forum_name ?? 'Forum');
@@ -188,7 +255,6 @@ class AP_Forum_Front
             $args['forum_desc'] = (string) ($forum->forum_desc ?? '');
             $args['forum_status'] = (string) ($forum->forum_status ?? 'open');
             $args['forum_closed'] = (string) ($forum->forum_status ?? '') === AP_Forum::FORUM_STATUS_CLOSED;
-            $userId = self::currentUserId($db);
             $args['can_post_topic'] = self::userCanPostTopic($userId, $forumId, $db);
             $args['can_sticky'] = $userId > 0 && class_exists('AP_Forum_Permissions', false)
                 && AP_Forum_Permissions::userCanSticky($userId, $forumId, $db);
@@ -211,6 +277,10 @@ class AP_Forum_Front
             }
             $topicId = (int) $topic->topic_id;
             $forumId = (int) $topic->forum_id;
+            $userId = self::currentUserId($db);
+            if ($forumId < 1 || !self::userCanViewForum($userId, $forumId, $db)) {
+                return self::denyUnviewableForum($args);
+            }
             $args['topic_id'] = $topicId;
             $args['topic_slug'] = (string) ($topic->topic_slug ?? '');
             $args['topic_title'] = (string) ($topic->topic_title ?? 'Topic');
@@ -228,7 +298,6 @@ class AP_Forum_Front
                 $args['forum_url'] = AP_Forum::forumsIndexUrl();
             }
 
-            $userId = self::currentUserId($db);
             $args['can_reply'] = !$args['topic_locked']
                 && self::userCanReply($userId, $forumId, $db);
             $args['can_moderate'] = $userId > 0 && self::userCanModerate($forumId, $userId, $db);
@@ -257,6 +326,21 @@ class AP_Forum_Front
      */
     public static function applyToQuery(AP_Query $query, ?AP_DB $db = null): void
     {
+        // Stuffed cannot_view + leftover name/slug/search term: still strip teasers.
+        if (!empty($query->get('ap_forum_cannot_view', false))) {
+            $stripped = self::denyUnviewableForum($query->query_vars);
+            foreach ($stripped as $key => $value) {
+                $query->set($key, $value);
+            }
+            $query->is_404 = true;
+            $query->is_home = false;
+            $query->is_front_page = false;
+            $query->is_feed = false;
+            $query->is_search = false;
+
+            return;
+        }
+
         $view = self::viewFromQuery($query);
         if ($view === '') {
             return;
@@ -269,10 +353,16 @@ class AP_Forum_Front
             $query->set($key, $value);
         }
 
-        if (!empty($enriched['is_404']) || !empty($enriched['ap_forum_not_found'])) {
+        if (
+            !empty($enriched['is_404'])
+            || !empty($enriched['ap_forum_not_found'])
+            || !empty($enriched['ap_forum_cannot_view'])
+        ) {
             $query->is_404 = true;
             $query->is_home = false;
             $query->is_front_page = false;
+            $query->is_feed = false;
+            $query->is_search = false;
         } else {
             $query->is_home = false;
             $query->is_front_page = false;
@@ -280,7 +370,11 @@ class AP_Forum_Front
         }
 
         // Topic view side effects: views + unread mark.
-        if ($view === 'topic' && empty($enriched['ap_forum_not_found'])) {
+        if (
+            $view === 'topic'
+            && empty($enriched['ap_forum_not_found'])
+            && empty($enriched['ap_forum_cannot_view'])
+        ) {
             $topicId = (int) ($enriched['topic_id'] ?? 0);
             if ($topicId > 0 && class_exists('AP_Forum', false)) {
                 try {
@@ -324,7 +418,11 @@ class AP_Forum_Front
         }
 
         // Presence tracking on forum pages.
-        if (class_exists('AP_Online', false) && empty($enriched['ap_forum_disabled'])) {
+        if (
+            class_exists('AP_Online', false)
+            && empty($enriched['ap_forum_disabled'])
+            && empty($enriched['ap_forum_cannot_view'])
+        ) {
             try {
                 $context = [
                     'page' => match ($view) {
@@ -499,8 +597,14 @@ class AP_Forum_Front
         if (!$query instanceof AP_Query && isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
             $query = $GLOBALS['ap_query'];
         }
+        if ($query instanceof AP_Query && !empty($query->get('ap_forum_cannot_view', false))) {
+            return [];
+        }
         $forumId = $query instanceof AP_Query ? (int) $query->get('forum_id', 0) : 0;
         if ($forumId < 1 || !class_exists('AP_Forum', false)) {
+            return [];
+        }
+        if (!self::userCanViewForum(self::currentUserId($db), $forumId, $db)) {
             return [];
         }
         $page = $query instanceof AP_Query ? max(1, (int) $query->get('paged', 1)) : 1;
@@ -528,8 +632,19 @@ class AP_Forum_Front
         if (!$query instanceof AP_Query && isset($GLOBALS['ap_query']) && $GLOBALS['ap_query'] instanceof AP_Query) {
             $query = $GLOBALS['ap_query'];
         }
+        if ($query instanceof AP_Query && !empty($query->get('ap_forum_cannot_view', false))) {
+            return [];
+        }
         $topicId = $query instanceof AP_Query ? (int) $query->get('topic_id', 0) : 0;
         if ($topicId < 1 || !class_exists('AP_Forum', false)) {
+            return [];
+        }
+        $forumId = $query instanceof AP_Query ? (int) $query->get('forum_id', 0) : 0;
+        if ($forumId < 1) {
+            $topic = AP_Forum::getTopic($topicId, $db);
+            $forumId = $topic !== null ? (int) ($topic->forum_id ?? 0) : 0;
+        }
+        if ($forumId < 1 || !self::userCanViewForum(self::currentUserId($db), $forumId, $db)) {
             return [];
         }
         $page = $query instanceof AP_Query ? max(1, (int) $query->get('paged', 1)) : 1;
@@ -550,6 +665,81 @@ class AP_Forum_Front
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    /**
+     * Generic denial for a direct forum/topic URL the viewer cannot `view_forum`.
+     *
+     * Strips name/slug so templates and SEO do not advertise the board.
+     *
+     * @param array<string, mixed> $args
+     *
+     * @return array<string, mixed>
+     */
+    private static function denyUnviewableForum(array $args): array
+    {
+        $args['ap_forum_cannot_view'] = true;
+        $args['ap_forum_cannot_view_message'] = self::CANNOT_VIEW_MESSAGE;
+        $args['is_404'] = true;
+        // Do not leave a forum view slug that themes could use as a teaser.
+        $args['ap_forum_view'] = '';
+        $args['ap_forum'] = '';
+        $args['forum_id'] = 0;
+        $args['forum_slug'] = '';
+        $args['forum_name'] = '';
+        $args['forum_desc'] = '';
+        $args['forum_status'] = '';
+        $args['forum_closed'] = false;
+        $args['forum_url'] = class_exists('AP_Forum', false)
+            ? AP_Forum::forumsIndexUrl()
+            : '';
+        $args['topic_id'] = 0;
+        $args['topic_slug'] = '';
+        $args['topic_title'] = '';
+        $args['can_post_topic'] = false;
+        $args['can_reply'] = false;
+        $args['can_moderate'] = false;
+        $args['can_sticky'] = false;
+        $args['can_announce'] = false;
+        $args['can_set_topic_type'] = false;
+        $args['allowed_topic_types'] = [];
+        $args['first_unread_post_id'] = 0;
+        $args['forum_search_total'] = 0;
+        $args['forum_search_results'] = [];
+        $args['forum_search_ready'] = true;
+        // Direct URL may stuff forum_s / s with the board name or slug.
+        $args['s'] = '';
+        $args['forum_s'] = '';
+        unset($args['ap_forum_obj'], $args['ap_topic']);
+
+        return $args;
+    }
+
+    private static function userCanViewForum(int $userId, int $forumId, ?AP_DB $db): bool
+    {
+        if ($forumId < 1) {
+            return false;
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            return AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db);
+        }
+
+        return true;
+    }
+
+    /**
+     * Listing hygiene: view_forum plus a non-empty category.
+     */
+    private static function userCanListForum(int $userId, int $forumId, ?AP_DB $db): bool
+    {
+        if ($forumId < 1) {
+            return false;
+        }
+        if (class_exists('AP_Forum', false) && method_exists('AP_Forum', 'isListableToUser')) {
+            return AP_Forum::isListableToUser($userId, $forumId, $db);
+        }
+
+        return self::userCanViewForum($userId, $forumId, $db);
+    }
 
     /**
      * @param array<string, mixed> $args
@@ -608,16 +798,12 @@ class AP_Forum_Front
         if ($userId < 1) {
             return false;
         }
-        if (function_exists('ap_user_can')) {
-            if (
-                ap_user_can($userId, 'manage_forums', null, $db)
-                || ap_user_can($userId, 'moderate_forums', null, $db)
-            ) {
-                return true;
-            }
-        }
         if (class_exists('AP_Forum_Permissions', false)) {
             return AP_Forum_Permissions::userCanModerate($userId, $forumId, $db);
+        }
+        if (function_exists('ap_user_can')) {
+            return ap_user_can($userId, 'manage_forums', null, $db)
+                || ap_user_can($userId, 'moderate_forums', null, $db);
         }
 
         return false;
@@ -1175,15 +1361,33 @@ class AP_Forum_Front
         if ($term === '' || !class_exists('AP_Forum', false)) {
             return $empty;
         }
+        if ($query instanceof AP_Query && !empty($query->get('ap_forum_cannot_view', false))) {
+            return $empty;
+        }
         if (class_exists('AP_Forum_Guard', false) && !AP_Forum_Guard::isSearchEnabled($db)) {
             return $empty;
         }
 
         $page = 1;
         $forumId = 0;
+        $forumSlug = '';
         if ($query instanceof AP_Query) {
             $page = max(1, (int) $query->get('paged', 1));
             $forumId = (int) $query->get('forum_id', 0);
+            $forumSlug = trim((string) $query->get('forum_slug', ''));
+        }
+        if ($forumId < 1 && $forumSlug !== '' && method_exists('AP_Forum', 'getForumBySlug')) {
+            $bySlug = AP_Forum::getForumBySlug($forumSlug, $db);
+            if (is_object($bySlug)) {
+                $forumId = (int) ($bySlug->forum_id ?? 0);
+            }
+        }
+        // Scoped search the viewer cannot list: empty, do not broaden to all boards.
+        if (
+            ($forumId > 0 || $forumSlug !== '')
+            && ($forumId < 1 || !self::userCanListForum(self::currentUserId($db), $forumId, $db))
+        ) {
+            return $empty;
         }
         $perPage = 20;
         if (function_exists('ap_apply_filters')) {

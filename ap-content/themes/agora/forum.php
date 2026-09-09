@@ -81,16 +81,13 @@ if ($searchEnabled) :
             <?php
             $catName = (string) ($category['name'] ?? 'Category');
             $forums = is_array($category['forums'] ?? null) ? $category['forums'] : [];
+            // Empty parent categories (including ACL-empty group-only rooms) stay off the index.
+            if ($forums === []) {
+                continue;
+            }
             ?>
             <section class="ap-forum-panel">
                 <h2 class="ap-forum-panel__title"><?php echo agora_esc($catName); ?></h2>
-                <?php if ($forums === []) : ?>
-                    <?php
-                    echo function_exists('ap_forum_empty_state_html')
-                        ? ap_forum_empty_state_html('category_empty', ['class' => 'ap-forum-empty--inset'])
-                        : '<div class="ap-empty ap-forum-empty ap-forum-empty--category_empty ap-forum-empty--inset" role="status"><p>No forums in this category.</p></div>';
-                    ?>
-                <?php else : ?>
                     <?php // SPEC A3: category header label row (Title spans icon+title cols). ?>
                     <div class="ap-forum-cat-header" role="row" aria-hidden="true">
                         <span class="ap-forum-cat-header__title">Title</span>
@@ -216,7 +213,6 @@ if ($searchEnabled) :
                             </li>
                         <?php endforeach; ?>
                     </ul>
-                <?php endif; ?>
             </section>
         <?php endforeach; ?>
     <?php endif; ?>

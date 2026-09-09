@@ -16,6 +16,10 @@
  *   GET  /ap/v1/categories[/{id}]  /ap/v1/tags[/{id}]
  *   GET  /ap/v1/forums[/{id}] /ap/v1/topics[/{id}]  (forum module)
  *
+ * Anyone without `view_forum` must not see the forum or an empty parent
+ * category on REST. A direct URL stuffed with a board id/slug is a generic
+ * “you cannot view this” JSON 404 — do not advertise the name or slug.
+ *
  * Plugins register routes on `ap_rest_api_init` via AP_Rest::registerRoute().
  *
  * Auth: session cookie (logged-in browser) and optional HTTP Basic
@@ -100,6 +104,49 @@ class AP_Rest
         }
 
         return false;
+    }
+
+    /**
+     * Whether rewrite/query vars request a forum-scoped REST URL (not the
+     * public forums/topics collection lists).
+     *
+     * Direct URLs that stuff a board id/slug onto /ap-json/… (or
+     * ?rest_route=) must not 200 with JSON that would confirm the room.
+     *
+     * @param array<string, mixed> $vars
+     */
+    public static function isForumRestRequest(array $vars): bool
+    {
+        if (!self::isRestRequest($vars)) {
+            return false;
+        }
+        $scope = self::forumRestScopeVars($vars, [], (string) ($vars['rest_route'] ?? '/'));
+        if (self::isDeniedForumRest($scope)) {
+            return true;
+        }
+        $view = strtolower(trim((string) ($scope['ap_forum_view'] ?? '')));
+        if (in_array($view, ['forum', 'topic', 'search'], true)) {
+            return true;
+        }
+        if ((int) ($scope['forum_id'] ?? 0) > 0 || (int) ($scope['topic_id'] ?? 0) > 0) {
+            return true;
+        }
+        if (trim((string) ($scope['forum_slug'] ?? '')) !== '') {
+            return true;
+        }
+        if (trim((string) ($scope['topic_slug'] ?? '')) !== '') {
+            return true;
+        }
+
+        $route = self::normalizeRoute((string) ($scope['rest_route'] ?? '/'));
+        if (preg_match('#^/ap/v1/forums/\d+$#', $route) === 1) {
+            return true;
+        }
+        if (preg_match('#^/ap/v1/topics/\d+$#', $route) === 1) {
+            return true;
+        }
+
+        return (int) ($scope['forum'] ?? 0) > 0;
     }
 
     /**
@@ -245,6 +292,7 @@ class AP_Rest
      *     method?: string,
      *     route?: string,
      *     query?: array<string, mixed>,
+     *     params?: array<string, mixed>,
      *     body?: array<string, mixed>|string|null,
      *     headers?: array<string, string>,
      *     server?: array<string, mixed>,
@@ -267,6 +315,7 @@ class AP_Rest
         }
         $route = self::normalizeRoute((string) ($input['route'] ?? '/'));
         $query = is_array($input['query'] ?? null) ? $input['query'] : [];
+        $suppliedParams = is_array($input['params'] ?? null) ? $input['params'] : [];
         $headers = self::normalizeHeaders(is_array($input['headers'] ?? null) ? $input['headers'] : []);
         $body = self::parseBody($input['body'] ?? null, $headers);
         $server = is_array($input['server'] ?? null) ? $input['server'] : [];
@@ -302,8 +351,8 @@ class AP_Rest
             'server' => $server,
         ];
 
-        // Merge path params + query + body into params for convenience.
-        $request['params'] = array_merge($query, $body, $match['params']);
+        // Merge supplied params + query + body + path params (path wins).
+        $request['params'] = array_merge($suppliedParams, $query, $body, $match['params']);
 
         $def = $match['definition'];
         if (is_callable($def['permission_callback'])) {
@@ -387,14 +436,35 @@ class AP_Rest
             }
         }
 
-        $response = self::dispatch([
-            'method' => $method,
-            'route' => $route,
-            'query' => $_GET,
-            'body' => $rawBody,
-            'headers' => $headers,
-            'server' => $_SERVER,
-        ], $db);
+        $query = is_array($_GET) ? $_GET : [];
+        foreach ($vars as $key => $value) {
+            if ($key === 'rest_route' || array_key_exists($key, $query)) {
+                continue;
+            }
+            $query[$key] = $value;
+        }
+
+        $userId = self::authenticate($headers, $_SERVER, $db);
+
+        // Already-denied rewrite args (name/slug stripped) must not fall
+        // through to a 200 collection that would confirm the room.
+        $scope = self::forumRestScopeVars($vars, $query, $route);
+        if (self::isEnabled($db) && self::shouldDenyForumRest($scope, $db, $userId)) {
+            $response = self::cannotViewResponse();
+        } else {
+            $dispatch = [
+                'method' => $method,
+                'route' => $route,
+                'query' => $query,
+                'body' => $rawBody,
+                'headers' => $headers,
+                'server' => $_SERVER,
+            ];
+            if ($userId > 0) {
+                $dispatch['user_id'] = $userId;
+            }
+            $response = self::dispatch($dispatch, $db);
+        }
 
         if (function_exists('ap_do_action')) {
             ap_do_action('ap_rest_served', $response, $route, $method);
@@ -1236,9 +1306,16 @@ class AP_Rest
             return ['status' => 200, 'data' => []];
         }
 
-        $forums = AP_Forum::getForums(['status' => 'open'], $db);
+        $userId = (int) ($request['user_id'] ?? 0);
+        // Anyone without view_forum: omit the forum and empty parent categories.
+        $forums = method_exists('AP_Forum', 'getListableForums')
+            ? AP_Forum::getListableForums($userId, [], $db)
+            : AP_Forum::getForums([], $db);
         $items = [];
         foreach ($forums as $forum) {
+            if (!self::canViewForumResource($userId, $forum, $db)) {
+                continue;
+            }
             $items[] = self::prepareForum($forum, $db);
         }
 
@@ -1258,8 +1335,9 @@ class AP_Rest
         }
         $id = (int) ($request['params']['id'] ?? 0);
         $forum = class_exists('AP_Forum', false) ? AP_Forum::getForum($id, $db) : null;
-        if ($forum === null) {
-            return self::errorResponse('rest_forum_invalid_id', 'Invalid forum ID.', 404);
+        $userId = (int) ($request['user_id'] ?? 0);
+        if ($forum === null || !self::canViewForumResource($userId, $forum, $db)) {
+            return self::cannotViewResponse();
         }
 
         return ['status' => 200, 'data' => self::prepareForum($forum, $db)];
@@ -1283,7 +1361,12 @@ class AP_Rest
         $forumId = (int) ($request['params']['forum'] ?? $request['params']['forum_id'] ?? 0);
         $page = max(1, (int) ($request['params']['page'] ?? 1));
         $perPage = min(100, max(1, (int) ($request['params']['per_page'] ?? 20)));
+        $userId = (int) ($request['user_id'] ?? 0);
         if ($forumId > 0) {
+            $forum = AP_Forum::getForum($forumId, $db);
+            if ($forum === null || !self::canViewForumResource($userId, $forum, $db)) {
+                return self::cannotViewResponse();
+            }
             $topics = AP_Forum::getTopics($forumId, [
                 'per_page' => $perPage,
                 'page' => $page,
@@ -1294,6 +1377,8 @@ class AP_Rest
                 'per_page' => $perPage,
                 'page' => $page,
                 'approved_only' => true,
+                'check_permissions' => true,
+                'user_id' => $userId,
             ], $db);
         } else {
             $topics = [];
@@ -1319,8 +1404,13 @@ class AP_Rest
         }
         $id = (int) ($request['params']['id'] ?? 0);
         $topic = class_exists('AP_Forum', false) ? AP_Forum::getTopic($id, $db) : null;
-        if ($topic === null) {
-            return self::errorResponse('rest_topic_invalid_id', 'Invalid topic ID.', 404);
+        $userId = (int) ($request['user_id'] ?? 0);
+        $forumId = $topic !== null ? (int) ($topic->forum_id ?? 0) : 0;
+        $forum = ($forumId > 0 && class_exists('AP_Forum', false))
+            ? AP_Forum::getForum($forumId, $db)
+            : null;
+        if ($topic === null || $forum === null || !self::canViewForumResource($userId, $forum, $db)) {
+            return self::cannotViewResponse();
         }
 
         return ['status' => 200, 'data' => self::prepareTopic($topic, $db)];
@@ -1659,6 +1749,243 @@ class AP_Rest
         }
 
         return AP_Options::isModuleEnabled(AP_Options::MODULE_FORUM, $db);
+    }
+
+    /**
+     * Whether the REST viewer may see this forum row (view_forum + non-empty category).
+     */
+    private static function canViewForumResource(int $userId, object $forum, ?AP_DB $db): bool
+    {
+        $forumId = (int) ($forum->forum_id ?? $forum->id ?? 0);
+        if ($forumId < 1) {
+            return false;
+        }
+        if (class_exists('AP_Forum', false) && method_exists('AP_Forum', 'isListableToUser')) {
+            return AP_Forum::isListableToUser($userId, $forumId, $db);
+        }
+        if (
+            class_exists('AP_Forum_Permissions', false)
+            && !AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db)
+        ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Generic JSON 404. Do not interpolate board name or slug.
+     *
+     * @return array{status: int, data: array<string, mixed>, headers: array<string, string>}
+     */
+    private static function cannotViewResponse(): array
+    {
+        return self::errorResponse('rest_cannot_view', self::cannotViewMessage(), 404);
+    }
+
+    /**
+     * Generic denial copy for a direct URL the viewer cannot `view_forum`.
+     */
+    private static function cannotViewMessage(): string
+    {
+        return class_exists('AP_Forum_Front', false)
+            ? AP_Forum_Front::CANNOT_VIEW_MESSAGE
+            : 'You cannot view this.';
+    }
+
+    /**
+     * @param array<string, mixed> $vars
+     * @param array<string, mixed> $query
+     *
+     * @return array<string, mixed>
+     */
+    private static function forumRestScopeVars(array $vars, array $query, string $route): array
+    {
+        $scope = array_merge($vars, $query);
+        $scope['rest_route'] = $route;
+        $normalized = self::normalizeRoute($route);
+        if (preg_match('#^/ap/v1/forums/(\d+)$#', $normalized, $m) === 1) {
+            if ((int) ($scope['forum_id'] ?? 0) < 1) {
+                $scope['forum_id'] = (int) $m[1];
+            }
+        }
+        if (preg_match('#^/ap/v1/topics/(\d+)$#', $normalized, $m) === 1) {
+            if ((int) ($scope['topic_id'] ?? 0) < 1) {
+                $scope['topic_id'] = (int) $m[1];
+            }
+        }
+        $forumParam = (int) ($scope['forum'] ?? 0);
+        if ($forumParam > 0 && (int) ($scope['forum_id'] ?? 0) < 1) {
+            $scope['forum_id'] = $forumParam;
+        }
+
+        return $scope;
+    }
+
+    /**
+     * @param array<string, mixed> $vars
+     */
+    private static function isDeniedForumRest(array $vars): bool
+    {
+        return !empty($vars['ap_forum_cannot_view'])
+            || !empty($vars['is_404'])
+            || !empty($vars['ap_forum_not_found']);
+    }
+
+    /**
+     * @param array<string, mixed> $vars
+     */
+    private static function forumRestView(array $vars): string
+    {
+        $view = strtolower(trim((string) ($vars['ap_forum_view'] ?? '')));
+        if ($view === 'search') {
+            if (
+                (int) ($vars['forum_id'] ?? 0) > 0
+                || trim((string) ($vars['forum_slug'] ?? '')) !== ''
+            ) {
+                return 'forum';
+            }
+
+            return 'index';
+        }
+        if (in_array($view, ['index', 'forum', 'topic'], true)) {
+            return $view;
+        }
+        $route = self::normalizeRoute((string) ($vars['rest_route'] ?? '/'));
+        if (preg_match('#^/ap/v1/topics/\d+$#', $route) === 1) {
+            return 'topic';
+        }
+        if (preg_match('#^/ap/v1/forums/\d+$#', $route) === 1) {
+            return 'forum';
+        }
+        if (
+            (int) ($vars['topic_id'] ?? 0) > 0
+            || trim((string) ($vars['topic_slug'] ?? '')) !== ''
+        ) {
+            return 'topic';
+        }
+        if (
+            (int) ($vars['forum_id'] ?? 0) > 0
+            || trim((string) ($vars['forum_slug'] ?? '')) !== ''
+            || (int) ($vars['forum'] ?? 0) > 0
+        ) {
+            return 'forum';
+        }
+
+        return 'index';
+    }
+
+    /**
+     * Forum-scoped REST that the viewer cannot list becomes a generic JSON
+     * 404 (“You cannot view this.”) instead of a body that would name the board.
+     *
+     * @param array<string, mixed> $vars
+     */
+    private static function shouldDenyForumRest(array $vars, ?AP_DB $db, ?int $viewerId = null): bool
+    {
+        if (!self::forumModuleOn($db)) {
+            return false;
+        }
+        if (self::isDeniedForumRest($vars)) {
+            return true;
+        }
+        if (!self::isForumRestRequest($vars)) {
+            return false;
+        }
+        $view = self::forumRestView($vars);
+        $vars['ap_forum_view'] = $view;
+        if ($view !== 'forum' && $view !== 'topic') {
+            return false;
+        }
+        // Do not run AP_Forum_Front::enrichQueryArgs here: that helper reads the
+        // session user, not HTTP Basic, and would 404 a listable board for an
+        // authenticated API client. JSON never interpolates leftover name/slug.
+        if (!self::forumRestScopeIsListable($vars, $view, $db, $viewerId)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether this forum/topic-scoped REST URL may emit JSON for the viewer.
+     *
+     * Fail closed: missing forum classes, unknown slugs, unlistable boards,
+     * and empty parent categories are not listable.
+     *
+     * @param array<string, mixed> $vars
+     */
+    private static function forumRestScopeIsListable(
+        array $vars,
+        string $view,
+        ?AP_DB $db,
+        ?int $viewerId = null
+    ): bool {
+        if (!class_exists('AP_Forum', false)) {
+            return false;
+        }
+        $userId = $viewerId !== null ? max(0, $viewerId) : self::currentRestUserId($db);
+        if ($view === 'topic') {
+            $topic = null;
+            $tid = (int) ($vars['topic_id'] ?? 0);
+            if ($tid > 0) {
+                $topic = AP_Forum::getTopic($tid, $db);
+            }
+            if ($topic === null) {
+                $slug = trim((string) ($vars['topic_slug'] ?? ''));
+                if ($slug !== '' && method_exists('AP_Forum', 'getTopicBySlug')) {
+                    $topic = AP_Forum::getTopicBySlug($slug, 0, $db);
+                }
+            }
+            if ($topic === null) {
+                return false;
+            }
+
+            return AP_Forum::isListableToUser(
+                $userId,
+                (int) ($topic->forum_id ?? 0),
+                $db
+            );
+        }
+        $forum = null;
+        $fid = (int) ($vars['forum_id'] ?? 0);
+        if ($fid > 0) {
+            $forum = AP_Forum::getForum($fid, $db);
+        }
+        if ($forum === null) {
+            $slug = trim((string) ($vars['forum_slug'] ?? ''));
+            if ($slug !== '') {
+                $forum = AP_Forum::getForumBySlug($slug, $db);
+            }
+        }
+        if ($forum === null) {
+            return false;
+        }
+
+        return AP_Forum::isListableToUser($userId, (int) ($forum->forum_id ?? 0), $db);
+    }
+
+    private static function currentRestUserId(?AP_DB $db): int
+    {
+        if (class_exists('AP_Session', false)) {
+            try {
+                $current = AP_Session::getCurrentUser($db);
+                if ($current instanceof AP_User) {
+                    return (int) $current->ID;
+                }
+            } catch (Throwable) {
+                // Guest.
+            }
+        }
+        if (function_exists('ap_get_current_user_id')) {
+            try {
+                return max(0, (int) ap_get_current_user_id($db));
+            } catch (Throwable) {
+                return 0;
+            }
+        }
+
+        return 0;
     }
 
     /**

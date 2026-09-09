@@ -493,6 +493,14 @@ final class AdminForumsTest extends TestCase
         $this->assertStringContainsString('Closed', $form);
         $this->assertStringContainsString('Hidden', $form);
         $this->assertStringContainsString('Members', $form);
+        $this->assertStringContainsString('no Join control', $form);
+        $this->assertStringContainsString('Forums → Groups is the roster', $form);
+        $this->assertStringContainsString('Add Member', $form);
+        $this->assertStringNotContainsString('Join this group', $form);
+        $this->assertStringNotContainsString('name="ap_forum_action"', $form);
+        $this->assertFalse(AP_Group::allowsPublicJoin($gid, $this->db));
+        $this->assertSame(0, AP_Group::joinPublic($gid, $this->subscriberId, $this->db));
+        $this->assertFalse(AP_Group::isMember($gid, $this->subscriberId, $this->db));
 
         $memberNonce = ap_create_nonce('add-group-member-' . $gid, $this->actorId);
         $added = $groups->addMember([
@@ -506,7 +514,7 @@ final class AdminForumsTest extends TestCase
         $this->assertTrue(AP_Group::isMember($gid, $this->subscriberId, $this->db));
     }
 
-    public function testForumEditAccessPresetsDoNotListNamedGroups(): void
+    public function testForumEditThisGroupOnlyPresetListsNamedGroups(): void
     {
         AP_Group::ensureSystemGroups($this->db);
         $namedId = AP_Group::create([
@@ -514,14 +522,91 @@ final class AdminForumsTest extends TestCase
             'group_type' => AP_Group::TYPE_CLOSED,
         ], $this->db);
         $this->assertGreaterThan(0, $namedId);
+        $hiddenId = AP_Group::create([
+            'group_name' => 'Staff Circle',
+            'group_type' => AP_Group::TYPE_HIDDEN,
+        ], $this->db);
+        $this->assertGreaterThan(0, $hiddenId);
+
+        $guests = AP_Group::getBySlug(AP_Group::SLUG_GUESTS, $this->db);
+        $registered = AP_Group::getBySlug(AP_Group::SLUG_REGISTERED, $this->db);
+        $this->assertNotNull($guests);
+        $this->assertNotNull($registered);
 
         $form = AP_Admin_Forum_Edit::renderForm(null, $this->actorId, $this->db);
         $this->assertStringContainsString('Members only', $form);
         $this->assertStringContainsString('Moderators only', $form);
         $this->assertStringContainsString('Administrators only', $form);
+        $this->assertStringContainsString('This group only', $form);
+        $this->assertStringContainsString('value="group_only"', $form);
         $this->assertStringContainsString('Custom', $form);
-        $this->assertStringNotContainsString('This group only', $form);
-        $this->assertStringNotContainsString('Lounge VIP', $form);
+        $this->assertStringContainsString('forum_access_groups[]', $form);
+        $this->assertStringContainsString('Lounge VIP', $form);
+        $this->assertStringContainsString('Staff Circle', $form);
+        $this->assertStringContainsString('forum-groups.php', $form);
+        $this->assertStringContainsString(
+            'name="forum_access_groups[]" value="' . $namedId . '"',
+            $form
+        );
+        $this->assertStringNotContainsString(
+            'name="forum_access_groups[]" value="' . (int) $guests->group_id . '"',
+            $form
+        );
+        $this->assertStringNotContainsString(
+            'name="forum_access_groups[]" value="' . (int) $registered->group_id . '"',
+            $form
+        );
+
+        $nonce = ap_create_nonce('add-forum', $this->actorId);
+        $created = AP_Admin_Forum_Edit::save([
+            '_ap_nonce' => $nonce,
+            'forum_name' => 'VIP Lounge',
+            'forum_type' => AP_Forum::FORUM_TYPE_FORUM,
+            'forum_access_level' => AP_Forum_Permissions::ACCESS_GROUP_ONLY,
+            'forum_access_groups' => [$namedId, $hiddenId, (int) $guests->group_id],
+        ], $this->actorId, $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+        $forumId = $created['forum_id'];
+        $this->assertGreaterThan(0, $forumId);
+        $this->assertSame(
+            AP_Forum_Permissions::ACCESS_GROUP_ONLY,
+            AP_Forum_Permissions::detectAccessLevel($forumId, $this->db)
+        );
+        $this->assertSame(
+            'This group only',
+            AP_Forum_Permissions::summarizeAccess($forumId, $this->db)
+        );
+        $savedIds = AP_Forum_Permissions::getAccessGroupIds($forumId, $this->db);
+        sort($savedIds);
+        $expect = [$namedId, $hiddenId];
+        sort($expect);
+        $this->assertSame($expect, $savedIds);
+
+        $forum = AP_Forum::getForum($forumId, $this->db);
+        $editForm = AP_Admin_Forum_Edit::renderForm($forum, $this->actorId, $this->db);
+        $this->assertStringContainsString('value="group_only" selected', $editForm);
+        $this->assertStringContainsString(
+            'name="forum_access_groups[]" value="' . $namedId . '" checked',
+            $editForm
+        );
+        $this->assertStringContainsString(
+            'name="forum_access_groups[]" value="' . $hiddenId . '" checked',
+            $editForm
+        );
+
+        $editNonce = ap_create_nonce('edit-forum-' . $forumId, $this->actorId);
+        $updated = AP_Admin_Forum_Edit::save([
+            '_ap_nonce' => $editNonce,
+            'forum_id' => $forumId,
+            'forum_name' => 'VIP Lounge',
+            'forum_access_level' => AP_Forum_Permissions::ACCESS_PUBLIC,
+        ], $this->actorId, $this->db);
+        $this->assertTrue($updated['ok'], implode('; ', $updated['errors']));
+        $this->assertSame(
+            AP_Forum_Permissions::ACCESS_PUBLIC,
+            AP_Forum_Permissions::detectAccessLevel($forumId, $this->db)
+        );
+        $this->assertSame([], AP_Forum_Permissions::getAccessGroupIds($forumId, $this->db));
     }
 
     public function testForumSettingsSave(): void

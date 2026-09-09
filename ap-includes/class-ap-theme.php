@@ -501,6 +501,11 @@ class AP_Theme
         $query = self::resolveQuery($query);
         $templates = [];
 
+        // Unviewable board URLs: generic 404, never a forum/topic template.
+        if (!empty($query->query_vars['ap_forum_cannot_view'])) {
+            $query->is_404 = true;
+        }
+
         if ($query->is_404) {
             $templates[] = '404.php';
         } elseif ($query->is_search) {
@@ -1387,8 +1392,18 @@ class AP_Theme
             . 'or add an <code>index.php</code> to the active theme.</p>';
 
         if ($query->is_404) {
-            $title = 'Not Found';
-            $body = '<p>The requested content could not be found.</p>';
+            $cannotView = !empty($query->query_vars['ap_forum_cannot_view']);
+            $cannotViewMessage = trim((string) ($query->query_vars['ap_forum_cannot_view_message'] ?? ''));
+            if ($cannotView && $cannotViewMessage === '' && class_exists('AP_Forum_Front', false)) {
+                $cannotViewMessage = AP_Forum_Front::CANNOT_VIEW_MESSAGE;
+            }
+            if ($cannotView) {
+                $title = $cannotViewMessage !== '' ? $cannotViewMessage : 'You cannot view this.';
+                $body = '<p>' . htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>';
+            } else {
+                $title = 'Not Found';
+                $body = '<p>The requested content could not be found.</p>';
+            }
         } elseif ($query->post_count > 0 && ($query->posts[0] ?? null) instanceof AP_Post) {
             $parts = [];
             foreach ($query->posts as $post) {

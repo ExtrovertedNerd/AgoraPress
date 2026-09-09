@@ -1269,6 +1269,15 @@ class AP_Query
         if ($feed !== '') {
             $this->is_feed = true;
         }
+
+        // Direct unviewable board URLs (and explicit 404 args) win over home/front/search.
+        if (!empty($qv['is_404']) || !empty($qv['ap_forum_cannot_view'])) {
+            $this->is_404 = true;
+            $this->is_home = false;
+            $this->is_front_page = false;
+            $this->is_feed = false;
+            $this->is_search = false;
+        }
     }
 
     private function resetConditionals(): void

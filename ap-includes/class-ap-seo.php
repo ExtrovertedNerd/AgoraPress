@@ -61,6 +61,11 @@ class AP_Seo
         // Discourage indexing when the site is private.
         if (class_exists('AP_Sitemap', false) && !AP_Sitemap::isPublic($db)) {
             echo '<meta name="robots" content="noindex, nofollow">' . "\n";
+        } elseif (
+            $query instanceof AP_Query
+            && (!empty($query->is_404) || !empty($query->query_vars['ap_forum_cannot_view']))
+        ) {
+            echo '<meta name="robots" content="noindex, nofollow">' . "\n";
         }
 
         $canonical = self::getCanonicalUrl($query, $db);
@@ -115,7 +120,7 @@ class AP_Seo
         $url = '';
 
         if ($query instanceof AP_Query) {
-            if (!empty($query->is_404)) {
+            if (!empty($query->is_404) || !empty($query->query_vars['ap_forum_cannot_view'])) {
                 $url = '';
             } elseif (!empty($query->is_singular) && $query->post instanceof AP_Post) {
                 $url = self::postPermalink($query->post, $db);
@@ -229,6 +234,8 @@ class AP_Seo
             }
         } elseif (
             $query instanceof AP_Query
+            && empty($query->is_404)
+            && empty($query->query_vars['ap_forum_cannot_view'])
             && class_exists('AP_Forum_Front', false)
             && method_exists('AP_Forum_Front', 'isForumRequest')
             && AP_Forum_Front::isForumRequest($query)
@@ -238,7 +245,12 @@ class AP_Seo
             if ($forumTitle !== '') {
                 $title = $forumTitle . ($siteName !== '' ? ' — ' . $siteName : '');
             }
-        } elseif ($query instanceof AP_Query && !empty($query->is_search)) {
+        } elseif (
+            $query instanceof AP_Query
+            && !empty($query->is_search)
+            && empty($query->is_404)
+            && empty($query->query_vars['ap_forum_cannot_view'])
+        ) {
             $s = trim((string) ($query->query_vars['s'] ?? ''));
             $title = $s !== '' ? ('Search: ' . $s . ' — ' . $siteName) : ('Search — ' . $siteName);
         } elseif ($query instanceof AP_Query && (!empty($query->is_category) || !empty($query->is_tag))) {
@@ -365,7 +377,15 @@ class AP_Seo
         if (!class_exists('AP_Forum', false)) {
             return '';
         }
+        if (!empty($query->is_404) || !empty($query->query_vars['ap_forum_cannot_view'])) {
+            return '';
+        }
         $view = (string) ($query->query_vars['ap_forum_view'] ?? '');
+        // Search must not inherit a leftover forum_id / slug as canonical — that
+        // would advertise a board the query only used as a scope.
+        if ($view === 'search') {
+            return '';
+        }
         if ($view === 'topic' || !empty($query->query_vars['topic_id']) || !empty($query->query_vars['topic_slug'])) {
             $topic = null;
             if (!empty($query->query_vars['topic_id'])) {
@@ -395,12 +415,7 @@ class AP_Seo
                 return AP_Forum::forumUrl($forum);
             }
         }
-        if ($view === 'index' || $view === '' || $view === 'search') {
-            // Search has no stable canonical; index does.
-            if ($view === 'search') {
-                return '';
-            }
-
+        if ($view === 'index' || $view === '') {
             return AP_Forum::forumsIndexUrl();
         }
 

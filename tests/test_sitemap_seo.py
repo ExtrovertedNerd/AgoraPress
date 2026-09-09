@@ -40,6 +40,7 @@ def test_sitemap_api_surface() -> None:
         "class AP_Sitemap",
         "function isSitemapRequest",
         "function isRobotsRequest",
+        "function isForumSitemapRequest",
         "function buildIndex",
         "function buildProvider",
         "function buildRobots",

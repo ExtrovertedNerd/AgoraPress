@@ -325,7 +325,11 @@ class AP_Admin_Forum_Groups
                 $html .= '<option value="' . ap_esc_attr($val) . '"' . $sel . '>'
                     . ap_esc_html($label) . '</option>';
             }
-            $html .= '</select></p>';
+            $html .= '</select><br>'
+                . '<span class="ap-help">'
+                . 'Hidden groups are not listed publicly and have no Join control. '
+                . 'Add members on this screen — Forums → Groups is the roster.'
+                . '</span></p>';
         } else {
             $html .= '<input type="hidden" name="group_type" value="system">'
                 . '<p class="ap-help">System groups cannot change type or be deleted.</p>';

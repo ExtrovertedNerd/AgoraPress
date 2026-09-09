@@ -44,6 +44,10 @@ def test_rest_class_defines_expected_api() -> None:
     assert "handlePostCreate" in src
     assert "handleSettings" in src
     assert "handleForumsList" in src
+    assert "function isForumRestRequest" in src
+    assert "function canViewForumResource" in src
+    assert "function shouldDenyForumRest" in src
+    assert "You cannot view this." in src
     assert "ap_rest_api_init" in src
     assert "OPTION_ENABLED" in src
     assert "NONCE_ACTION" in src

@@ -351,6 +351,10 @@ function agora_get_forum_view(?AP_Query $query = null): string
 
     $view = '';
     if ($q instanceof AP_Query) {
+        // Direct URL the viewer cannot `view_forum`: generic 404, no forum chrome.
+        if (!empty($q->get('ap_forum_cannot_view', false))) {
+            return '';
+        }
         $view = strtolower(trim((string) $q->get('ap_forum_view', '')));
         if ($view === '' && (int) $q->get('topic_id', 0) > 0) {
             $view = 'topic';
@@ -559,6 +563,13 @@ function agora_get_forum_search_data(): array
         ? $GLOBALS['ap_query']
         : null;
     if ($q instanceof AP_Query) {
+        if (!empty($q->get('ap_forum_cannot_view', false))) {
+            return [
+                'query' => '',
+                'total' => 0,
+                'results' => [],
+            ];
+        }
         $data['query'] = trim((string) $q->get('forum_s', ''));
         if ($data['query'] === '') {
             $data['query'] = trim((string) $q->get('s', ''));
@@ -567,7 +578,11 @@ function agora_get_forum_search_data(): array
         $results = $q->get('forum_search_results', []);
         $data['results'] = is_array($results) ? array_values($results) : [];
     }
-    if ($data['results'] === [] && $data['query'] !== '' && function_exists('ap_forum_search')) {
+    $alreadyRan = $q instanceof AP_Query && (
+        (string) $q->get('ap_forum_view', '') === 'search'
+        || !empty($q->get('forum_search_ready', false))
+    );
+    if (!$alreadyRan && $data['results'] === [] && $data['query'] !== '' && function_exists('ap_forum_search')) {
         try {
             $page = $q instanceof AP_Query ? max(1, (int) $q->get('paged', 1)) : 1;
             $userId = 0;
