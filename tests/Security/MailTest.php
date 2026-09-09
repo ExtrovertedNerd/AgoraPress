@@ -303,6 +303,43 @@ final class MailTest extends TestCase
         $this->assertSame([], AP_Mail::getTestOutbox());
     }
 
+    public function testSendTestToAdminRecordsLastErrorOnFailure(): void
+    {
+        $result = $this->runIsolatedMailScript(<<<'PHP'
+function ap_get_option(string $name, mixed $default = null): mixed
+{
+    return match ($name) {
+        'admin_email' => 'admin@example.com',
+        'blogname' => 'Example Site',
+        default => $default,
+    };
+}
+
+require $argv[1];
+
+AP_Mail::enableTestMode();
+AP_Mail::failNextForTests('SMTP handshake failed.');
+if (AP_Mail::sendTestToAdmin()) {
+    fwrite(STDERR, "sendTestToAdmin unexpectedly succeeded\n");
+    exit(2);
+}
+if (AP_Mail::lastError() !== 'SMTP handshake failed.') {
+    fwrite(STDERR, 'lastError=' . AP_Mail::lastError() . "\n");
+    exit(3);
+}
+if (AP_Mail::getTestOutbox() !== []) {
+    fwrite(STDERR, "outbox not empty after failed test mail\n");
+    exit(4);
+}
+
+echo "ok\n";
+exit(0);
+PHP);
+
+        $this->assertSame(0, $result['exit'], $result['body']);
+        $this->assertStringContainsString('ok', $result['body']);
+    }
+
     public function testHealthSnapshotDoesNotSendAndOmitsSecrets(): void
     {
         AP_Mail::setConfigForTests([

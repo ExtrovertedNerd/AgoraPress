@@ -760,6 +760,30 @@ final class SettingsApiTest extends TestCase
         $this->assertStringContainsString('text/plain', $outbox[0]['headers']);
     }
 
+    public function testSendTestToAdminRecordsLastErrorOnFailure(): void
+    {
+        AP_Options::update('admin_email', 'admin@example.com', $this->db);
+        AP_Options::update('blogname', 'Example Site', $this->db);
+        AP_Mail::enableTestMode();
+        AP_Mail::failNextForTests('SMTP handshake failed.');
+
+        $this->assertFalse(AP_Mail::sendTestToAdmin());
+        $this->assertSame('SMTP handshake failed.', AP_Mail::lastError());
+        $this->assertSame('SMTP handshake failed.', AP_Mail::storedLastError($this->db));
+        $this->assertSame(
+            'SMTP handshake failed.',
+            (string) AP_Options::get('mail_last_error', '', $this->db)
+        );
+        $this->assertSame([], AP_Mail::getTestOutbox());
+
+        $this->assertTrue(AP_Mail::sendTestToAdmin());
+        $this->assertSame('', AP_Mail::lastError());
+        $this->assertSame('', AP_Mail::storedLastError($this->db));
+        $this->assertSame('', (string) AP_Options::get('mail_last_error', 'x', $this->db));
+        $this->assertCount(1, AP_Mail::getTestOutbox());
+        $this->assertSame('admin@example.com', AP_Mail::getTestOutbox()[0]['to']);
+    }
+
     public function testMailScreenIsOwnSettingsGroup(): void
     {
         $mail = (string) file_get_contents($this->root . '/ap-admin/options-mail.php');

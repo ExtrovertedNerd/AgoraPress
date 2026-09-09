@@ -116,6 +116,9 @@ def test_phpunit_covers_outbox_smtp_constants_and_failed_send() -> None:
         "AP_SMTP_HOST",
         "AP_SMTP_PASS",
         "testEmptyHostConstantOverridesOption",
+        "testSendTestToAdminRecordsLastErrorOnFailure",
+        "SMTP handshake failed.",
+        "failNextForTests",
     ):
         assert needle in mail, f"Expected {needle!r} in MailTest.php"
     for needle in (

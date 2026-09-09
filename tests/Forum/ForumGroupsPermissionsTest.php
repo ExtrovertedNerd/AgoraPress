@@ -4500,9 +4500,10 @@ final class ForumGroupsPermissionsTest extends TestCase
 
     /**
      * Guest and a registered non-member cannot list or open a group-only
-     * board; a group member can. The empty parent category is absent from
-     * the guest index. RSS, sitemap, and REST omit the room. ACP still lists
-     * and edits it.
+     * board; a group member can. A site-wide moderator who is not in the
+     * group cannot. An administrator can. The empty parent category is
+     * absent from outsider indexes. Search, RSS, sitemap, and REST omit
+     * the room. ACP still lists and edits it.
      */
     public function testThisGroupOnlyGuestAndNonMemberCannotListOrOpenBoard(): void
     {
@@ -4587,8 +4588,11 @@ final class ForumGroupsPermissionsTest extends TestCase
 
         $outsider = $this->createUser('zx9_cap_out', 'zx9_cap_out@example.test', 'subscriber');
         $member = $this->createUser('zx9_cap_vip', 'zx9_cap_vip@example.test', 'subscriber');
+        $moderator = $this->createUser('zx9_cap_mod', 'zx9_cap_mod@example.test', 'editor');
         $admin = $this->createUser('zx9_cap_admin', 'zx9_cap_admin@example.test', 'administrator');
         AP_Group::addMember($vip, $member, AP_Group::ROLE_MEMBER, $this->db);
+        $this->assertTrue(AP_Roles::userCan($moderator, 'moderate_forums', null, $this->db));
+        $this->assertFalse(AP_Roles::userCan($moderator, 'manage_forums', null, $this->db));
 
         $secretTopicId = AP_Forum::createTopic([
             'forum_id' => $secretId,
@@ -4618,9 +4622,11 @@ final class ForumGroupsPermissionsTest extends TestCase
             $secretSlug,
         ];
 
-        // List: guest and registered non-member cannot see the board.
+        // List: guest, registered non-member, and a site-wide moderator
+        // who is not in the group cannot see the board. Member and admin can.
         $this->assertFalse(AP_Forum::isListableToUser(0, $secretId, $this->db));
         $this->assertFalse(AP_Forum::isListableToUser($outsider, $secretId, $this->db));
+        $this->assertFalse(AP_Forum::isListableToUser($moderator, $secretId, $this->db));
         $this->assertTrue(AP_Forum::isListableToUser($member, $secretId, $this->db));
         $this->assertTrue(AP_Forum::isListableToUser($admin, $secretId, $this->db));
 
@@ -4634,13 +4640,25 @@ final class ForumGroupsPermissionsTest extends TestCase
         $this->assertContains('ZX9CapstoneSquare', $outsiderIndex);
         $this->assertSame([], $this->needlesFound($outsiderIndex, $secretNeedles));
 
+        $moderatorIndex = $this->indexVisibleText(
+            AP_Forum::getIndexData($this->db, ['user_id' => $moderator])
+        );
+        $this->assertContains('ZX9CapstoneSquare', $moderatorIndex);
+        $this->assertSame([], $this->needlesFound($moderatorIndex, $secretNeedles));
+
         $memberIndex = $this->indexVisibleText(
             AP_Forum::getIndexData($this->db, ['user_id' => $member])
         );
         $this->assertContains('ZX9CapstoneCellar', $memberIndex);
         $this->assertContains('ZX9CapstoneVault', $memberIndex);
 
-        // Open: guest and non-member get a generic denial; member sees the room.
+        $adminIndex = $this->indexVisibleText(
+            AP_Forum::getIndexData($this->db, ['user_id' => $admin])
+        );
+        $this->assertContains('ZX9CapstoneVault', $adminIndex);
+
+        // Open: guest, non-member, and outsider moderator get a generic
+        // denial; member and administrator see the room.
         $guestOpen = $this->forumViewArgsForUser(0, $secretSlug);
         $this->assertTrue(!empty($guestOpen['ap_forum_cannot_view']));
         $this->assertSame(AP_Forum_Front::CANNOT_VIEW_MESSAGE, $guestOpen['ap_forum_cannot_view_message'] ?? null);
@@ -4660,16 +4678,73 @@ final class ForumGroupsPermissionsTest extends TestCase
             $secretNeedles
         ));
 
+        $moderatorOpen = $this->forumViewArgsForUser($moderator, $secretSlug);
+        $this->assertTrue(!empty($moderatorOpen['ap_forum_cannot_view']));
+        $this->assertSame('', (string) ($moderatorOpen['forum_name'] ?? 'x'));
+        $this->assertSame([], $this->needlesFound(
+            [json_encode($moderatorOpen, JSON_UNESCAPED_SLASHES) ?: ''],
+            $secretNeedles
+        ));
+
         $memberOpen = $this->forumViewArgsForUser($member, $secretSlug);
         $this->assertTrue(empty($memberOpen['ap_forum_cannot_view']));
         $this->assertSame('ZX9CapstoneVault', $memberOpen['forum_name'] ?? null);
         $this->assertSame($secretId, (int) ($memberOpen['forum_id'] ?? 0));
 
+        $adminOpen = $this->forumViewArgsForUser($admin, $secretSlug);
+        $this->assertTrue(empty($adminOpen['ap_forum_cannot_view']));
+        $this->assertSame('ZX9CapstoneVault', $adminOpen['forum_name'] ?? null);
+
         $this->assertSame([], AP_Forum::getTopicsDisplayData($secretId, ['user_id' => 0], $this->db));
         $this->assertSame([], AP_Forum::getTopicsDisplayData($secretId, ['user_id' => $outsider], $this->db));
+        $this->assertSame([], AP_Forum::getTopicsDisplayData($secretId, ['user_id' => $moderator], $this->db));
         $memberTopics = AP_Forum::getTopicsDisplayData($secretId, ['user_id' => $member], $this->db);
         $this->assertNotSame([], $this->needlesFound(
             [json_encode($memberTopics, JSON_UNESCAPED_SLASHES) ?: ''],
+            ['ZX9CapstoneSecretToken']
+        ));
+
+        $guestSearch = AP_Forum::search('ZX9CapstoneSecretToken', [
+            'type' => 'all',
+            'check_permissions' => true,
+            'user_id' => 0,
+        ], $this->db);
+        $this->assertSame(0, (int) ($guestSearch['total'] ?? -1));
+        $this->assertSame([], $this->needlesFound($this->searchPayloadText($guestSearch), $secretNeedles));
+
+        $outsiderSearch = AP_Forum::search('ZX9CapstoneSecretToken', [
+            'type' => 'all',
+            'check_permissions' => true,
+            'user_id' => $outsider,
+        ], $this->db);
+        $this->assertSame(0, (int) ($outsiderSearch['total'] ?? -1));
+        $this->assertSame([], $this->needlesFound($this->searchPayloadText($outsiderSearch), $secretNeedles));
+
+        $moderatorSearch = AP_Forum::search('ZX9CapstoneSecretToken', [
+            'type' => 'all',
+            'check_permissions' => true,
+            'user_id' => $moderator,
+        ], $this->db);
+        $this->assertSame(0, (int) ($moderatorSearch['total'] ?? -1));
+        $this->assertSame([], $this->needlesFound($this->searchPayloadText($moderatorSearch), $secretNeedles));
+
+        $memberSearch = AP_Forum::search('ZX9CapstoneSecretToken', [
+            'type' => 'all',
+            'check_permissions' => true,
+            'user_id' => $member,
+        ], $this->db);
+        $this->assertNotSame([], $this->needlesFound(
+            $this->searchPayloadText($memberSearch),
+            ['ZX9CapstoneSecretToken']
+        ));
+
+        $adminSearch = AP_Forum::search('ZX9CapstoneSecretToken', [
+            'type' => 'all',
+            'check_permissions' => true,
+            'user_id' => $admin,
+        ], $this->db);
+        $this->assertNotSame([], $this->needlesFound(
+            $this->searchPayloadText($adminSearch),
             ['ZX9CapstoneSecretToken']
         ));
 
@@ -4677,6 +4752,11 @@ final class ForumGroupsPermissionsTest extends TestCase
         $guestFeedTopics = AP_Forum::getFeedTopics(['user_id' => 0], $this->db);
         $this->assertSame([], $this->needlesFound(
             [json_encode($guestFeedTopics, JSON_UNESCAPED_SLASHES) ?: ''],
+            $secretNeedles
+        ));
+        $moderatorFeedTopics = AP_Forum::getFeedTopics(['user_id' => $moderator], $this->db);
+        $this->assertSame([], $this->needlesFound(
+            [json_encode($moderatorFeedTopics, JSON_UNESCAPED_SLASHES) ?: ''],
             $secretNeedles
         ));
         $guestRss = $this->captureFeedServe(
@@ -4721,6 +4801,17 @@ final class ForumGroupsPermissionsTest extends TestCase
         ], $this->db);
         $this->assertSame(404, $outsiderRestGet['status']);
 
+        $moderatorRestGet = AP_Rest::dispatch([
+            'method' => 'GET',
+            'route' => '/ap/v1/forums/' . $secretId,
+            'user_id' => $moderator,
+        ], $this->db);
+        $this->assertSame(404, $moderatorRestGet['status']);
+        $this->assertSame([], $this->needlesFound(
+            [json_encode($moderatorRestGet['data'], JSON_UNESCAPED_SLASHES) ?: ''],
+            $secretNeedles
+        ));
+
         $memberRestGet = AP_Rest::dispatch([
             'method' => 'GET',
             'route' => '/ap/v1/forums/' . $secretId,
@@ -4728,6 +4819,14 @@ final class ForumGroupsPermissionsTest extends TestCase
         ], $this->db);
         $this->assertSame(200, $memberRestGet['status']);
         $this->assertSame('ZX9CapstoneVault', $memberRestGet['data']['name'] ?? null);
+
+        $adminRestGet = AP_Rest::dispatch([
+            'method' => 'GET',
+            'route' => '/ap/v1/forums/' . $secretId,
+            'user_id' => $admin,
+        ], $this->db);
+        $this->assertSame(200, $adminRestGet['status']);
+        $this->assertSame('ZX9CapstoneVault', $adminRestGet['data']['name'] ?? null);
 
         // Admin still sees the group-only room in ACP (list + edit).
         $acpTable = new AP_Forums_List_Table($this->db);

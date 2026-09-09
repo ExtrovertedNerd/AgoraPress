@@ -188,6 +188,10 @@ def test_mail_settings_screen() -> None:
     assert "registerSetting('mail', 'smtp_pass'" in settings
     smtp_block = settings.split("registerSetting('mail', 'smtp_pass'", 1)[1]
     assert "'autoload' => 'no'" in smtp_block.split("registerSetting(", 1)[0]
+    phpunit = PHPUNIT.read_text(encoding="utf-8")
+    assert "testSendTestToAdminRecordsLastErrorOnFailure" in phpunit
+    assert "SMTP handshake failed." in phpunit
+    assert "mail_last_error" in phpunit
 
 
 def test_reserved_usernames_option() -> None:

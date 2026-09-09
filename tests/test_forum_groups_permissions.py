@@ -340,20 +340,28 @@ def test_guest_and_non_member_cannot_list_or_open_group_only_board() -> None:
         "ZX9CapstoneSecretToken",
         "isListableToUser(0, $secretId",
         "isListableToUser($outsider, $secretId",
+        "isListableToUser($moderator, $secretId",
         "isListableToUser($member, $secretId",
         "getIndexData($this->db, ['user_id' => 0])",
         "getIndexData($this->db, ['user_id' => $outsider])",
+        "getIndexData($this->db, ['user_id' => $moderator])",
         "forumViewArgsForUser(0, $secretSlug)",
         "forumViewArgsForUser($outsider, $secretSlug)",
+        "forumViewArgsForUser($moderator, $secretSlug)",
         "forumViewArgsForUser($member, $secretSlug)",
+        "forumViewArgsForUser($admin, $secretSlug)",
+        "search('ZX9CapstoneSecretToken'",
         "getFeedTopics(['user_id' => 0]",
+        "getFeedTopics(['user_id' => $moderator]",
         "forums/feed",
         "buildProvider('forums'",
         "buildProvider('topics'",
         "route' => '/ap/v1/forums'",
+        "user_id' => $moderator",
         "AP_Forums_List_Table",
         "AP_Admin_Forum_Edit::renderForm",
         "value=\"group_only\" selected",
+        "moderate_forums",
     ):
         assert needle in src, f"Expected {needle} in capstone group-only test"
 
@@ -431,8 +439,13 @@ def test_guest_and_non_member_cannot_list_or_open_group_only_board() -> None:
         }};
         $outsider = $mk('cap_out', 'cap_out@example.test', 'subscriber');
         $member = $mk('cap_vip', 'cap_vip@example.test', 'subscriber');
+        $moderator = $mk('cap_mod', 'cap_mod@example.test', 'editor');
         $admin = $mk('cap_admin', 'cap_admin@example.test', 'administrator');
         AP_Group::addMember($vip, $member, AP_Group::ROLE_MEMBER, $db);
+        if (!AP_Roles::userCan($moderator, 'moderate_forums', null, $db) || AP_Roles::userCan($moderator, 'manage_forums', null, $db)) {{
+            fwrite(STDERR, "moderator fixture caps wrong\\n");
+            exit(16);
+        }}
         $topic = AP_Forum::createTopic([
             'forum_id' => $secret,
             'topic_title' => 'CapstoneSecretToken thread',
@@ -450,7 +463,7 @@ def test_guest_and_non_member_cannot_list_or_open_group_only_board() -> None:
             exit(5);
         }}
 
-        if (AP_Forum::isListableToUser(0, $secret, $db) || AP_Forum::isListableToUser($outsider, $secret, $db)) {{
+        if (AP_Forum::isListableToUser(0, $secret, $db) || AP_Forum::isListableToUser($outsider, $secret, $db) || AP_Forum::isListableToUser($moderator, $secret, $db)) {{
             fwrite(STDERR, "outsider listed secret board\\n");
             exit(6);
         }}
@@ -476,6 +489,22 @@ def test_guest_and_non_member_cannot_list_or_open_group_only_board() -> None:
         if (empty($guestOpen['ap_forum_cannot_view']) || ($guestOpen['forum_name'] ?? 'x') !== '') {{
             fwrite(STDERR, "guest opened secret board\\n");
             exit(10);
+        }}
+        $guestSearch = AP_Forum::search('CapstoneSecretToken', ['type' => 'all', 'check_permissions' => true, 'user_id' => 0], $db);
+        $modSearch = AP_Forum::search('CapstoneSecretToken', ['type' => 'all', 'check_permissions' => true, 'user_id' => $moderator], $db);
+        $memberSearch = AP_Forum::search('CapstoneSecretToken', ['type' => 'all', 'check_permissions' => true, 'user_id' => $member], $db);
+        if ((int) ($guestSearch['total'] ?? -1) !== 0 || ($guestSearch['results'] ?? ['x']) !== []) {{
+            fwrite(STDERR, "guest search leaked group-only board\\n");
+            exit(17);
+        }}
+        if ((int) ($modSearch['total'] ?? -1) !== 0 || ($modSearch['results'] ?? ['x']) !== []) {{
+            fwrite(STDERR, "moderator search leaked group-only board\\n");
+            exit(21);
+        }}
+        $memberSearchBlob = json_encode($memberSearch['results'] ?? null) ?: '';
+        if (!str_contains($memberSearchBlob, 'CapstoneSecretToken')) {{
+            fwrite(STDERR, "member search missed group-only topic\\n");
+            exit(18);
         }}
 
         AP_Rewrite::resetCache();
@@ -504,6 +533,16 @@ def test_guest_and_non_member_cannot_list_or_open_group_only_board() -> None:
         if ((int) ($restGet['status'] ?? 0) !== 404) {{
             fwrite(STDERR, "REST GET secret did not 404\\n");
             exit(13);
+        }}
+        $modRestGet = AP_Rest::dispatch(['method' => 'GET', 'route' => '/ap/v1/forums/' . $secret, 'user_id' => $moderator], $db);
+        if ((int) ($modRestGet['status'] ?? 0) !== 404) {{
+            fwrite(STDERR, "REST GET secret as moderator did not 404\\n");
+            exit(19);
+        }}
+        $adminRestGet = AP_Rest::dispatch(['method' => 'GET', 'route' => '/ap/v1/forums/' . $secret, 'user_id' => $admin], $db);
+        if ((int) ($adminRestGet['status'] ?? 0) !== 200 || ($adminRestGet['data']['name'] ?? '') !== 'CapstoneVault') {{
+            fwrite(STDERR, "REST GET secret as admin failed\\n");
+            exit(20);
         }}
 
         $acp = new AP_Forums_List_Table($db);
