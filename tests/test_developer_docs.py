@@ -174,7 +174,7 @@ def test_docs_index_as_built_surfaces(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
     lower = index.lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "AP_DB_VERSION",
         "one documentation tree",
         "docs/index.md",
@@ -266,7 +266,7 @@ def test_bot_handbook_operating_model(docs_root: Path) -> None:
         assert re.search(heading, text), f"bot_handbook.md missing heading: {heading}"
     lower = text.lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "readme.md",
         "docs/index.md",
@@ -605,7 +605,7 @@ def test_catalog_covers_mail_register_gate_and_group_only(docs_root: Path) -> No
 
 def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
-    assert "0.3.6-beta" in index
+    assert "0.3.7-beta" in index
     assert "AP_Analytics" in index or "analytics" in index.lower()
     assert "class-ap-analytics.php" in index
 
@@ -620,7 +620,7 @@ def test_vision_compliance_doc_content(docs_root: Path) -> None:
         "ap_telemetry",
         "three independent modules",
         "0.2.0-beta",
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "local analytics",
         "analytics_enabled",
@@ -641,7 +641,7 @@ def test_vision_compliance_doc_content(docs_root: Path) -> None:
 def test_editor_doc_content(docs_root: Path) -> None:
     text = (docs_root / "editor.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "ap_editor",
         "classic",
@@ -666,7 +666,7 @@ def test_editor_doc_content(docs_root: Path) -> None:
 def test_site_icon_doc_content(docs_root: Path) -> None:
     text = (docs_root / "site-icon.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "site_icon",
         "settings → general",
@@ -772,7 +772,7 @@ def _compat_hook_map_values() -> set[str]:
 def test_hooks_doc_content(docs_root: Path) -> None:
     text = (docs_root / "hooks.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "ap_add_action",
         "ap_do_action",
@@ -917,7 +917,7 @@ def test_hooks_doc_covers_mail_register_and_captcha(docs_root: Path) -> None:
 def test_themes_doc_content(docs_root: Path) -> None:
     text = (docs_root / "themes.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "style.css",
         "index.php",
@@ -945,7 +945,7 @@ def test_themes_doc_content(docs_root: Path) -> None:
 def test_plugins_doc_content(docs_root: Path) -> None:
     text = (docs_root / "plugins.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "plugin name",
         "active_plugins",
@@ -1015,7 +1015,7 @@ def test_plugin_zip_installer_and_admin_page_stay_in_plugins_doc(docs_root: Path
 def test_compatibility_doc_content(docs_root: Path) -> None:
     text = (docs_root / "compatibility.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "classic wordpress",
         "functions-shim",
@@ -1081,7 +1081,7 @@ def test_install_doc_content(docs_root: Path) -> None:
         "ap_db_version",
         "session.save_path",
         "/ap-admin/",
-        "0.3.6-beta",
+        "0.3.7-beta",
         "exit codes",
         "exit_ok",
         "exit_usage",
@@ -1134,7 +1134,7 @@ def test_rewrites_doc_content(docs_root: Path) -> None:
         "mod_rewrite",
         "ap_rewrite",
         "rewrite_rules",
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "apache vs nginx",
         "/ap-json/",
@@ -1206,7 +1206,7 @@ def test_updates_doc_content(docs_root: Path) -> None:
         "maybequeueadminnotice",
         "--force",
         "not in core",
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "ziparchive",
         "set_time_limit",
@@ -1297,7 +1297,7 @@ def test_cli_doc_content(docs_root: Path) -> None:
         "ap_user_password",
         "ap_cli_init",
         "not in core",
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "php ap-cli core update",
         "ap_cli_skip_plugins",
@@ -1406,7 +1406,7 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "not in core",
         "gutenberg",
         "marketplace",
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "user-edit.php?user_id=",
         "the requested admin page was not found.",
@@ -1496,7 +1496,7 @@ def test_forums_doc_content(docs_root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     lower = text.lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "ap_module_forum",
         "settings → modules",
@@ -1591,7 +1591,7 @@ def test_roles_doc_content(docs_root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     lower = text.lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "ap_roles",
         "ap_user_roles",
@@ -1661,7 +1661,7 @@ def test_rest_doc_content(docs_root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     lower = text.lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "/ap-json/",
         "?rest_route=",
@@ -1760,7 +1760,7 @@ def test_security_doc_content(docs_root: Path) -> None:
         "ap_nonce_salt",
         "not in core",
         "2fa",
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "view_site_health",
         "query(",
@@ -1879,7 +1879,7 @@ def test_troubleshooting_doc_content(docs_root: Path) -> None:
         "allowoverride all",
         "query-string vars only",
         "not in core",
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "activate account",
         "resend verification",
@@ -1938,7 +1938,7 @@ def test_troubleshooting_covers_verification_mail_and_group_acl(
 def test_schema_doc_content(docs_root: Path) -> None:
     text = (docs_root / "schema.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.6-beta",
+        "0.3.7-beta",
         "ap_db_version",
         "schema_migrations",
         "options",

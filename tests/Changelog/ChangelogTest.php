@@ -215,7 +215,7 @@ final class ChangelogTest extends TestCase
         );
     }
 
-    public function testUnreleasedNotesDocumentationPass(): void
+    public function testUnreleasedSectionRemains(): void
     {
         $matched = preg_match(
             '/(?ims)^##\s+\[Unreleased\]\s*\n(.*?)(?=^##\s+\[|\z)/',
@@ -226,10 +226,22 @@ final class ChangelogTest extends TestCase
         $body = $m[1];
         $this->assertMatchesRegularExpression('/(?im)^###\s+Added\s*$/', $body);
         $this->assertMatchesRegularExpression('/(?im)^###\s+Changed\s*$/', $body);
+    }
+
+    public function test037BetaDocumentsCharterAndDocsPass(): void
+    {
+        $matched = preg_match(
+            '/(?ims)^##\s+\[0\.3\.7-beta\][^\n]*\n(.*?)(?=^##\s+\[|\z)/',
+            $this->changelog,
+            $m
+        );
+        $this->assertSame(1, $matched, 'Missing ## [0.3.7-beta] body');
+        $body = $m[1];
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Added\s*$/', $body);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Changed\s*$/', $body);
         $lower = strtolower($body);
         $this->assertStringContainsString('documentation pass', $lower);
-        $this->assertStringContainsString('no version bump', $lower);
-        $this->assertStringContainsString('0.3.6-beta', $body);
+        $this->assertStringContainsString('0.3.7-beta', $body);
         $this->assertStringContainsString('docs/readme.md', $lower);
         $this->assertStringContainsString('audience index', $lower);
         $this->assertStringContainsString('docs/index.md', $lower);
@@ -252,7 +264,7 @@ final class ChangelogTest extends TestCase
             $this->assertStringContainsString(
                 strtolower($path),
                 $lower,
-                "[Unreleased] should mention {$path}"
+                "[0.3.7-beta] should mention {$path}"
             );
         }
     }
@@ -268,7 +280,7 @@ final class ChangelogTest extends TestCase
         }
     }
 
-    public function testDocsPassDoesNotBumpApVersion(): void
+    public function testCurrentApVersionIs037Beta(): void
     {
         $versionPath = $this->root . '/ap-includes/version.php';
         $this->assertFileIsReadable($versionPath);
@@ -281,9 +293,9 @@ final class ChangelogTest extends TestCase
         );
         $this->assertSame(1, $matched, 'ap-includes/version.php should define AP_VERSION');
         $this->assertSame(
-            '0.3.6-beta',
+            '0.3.7-beta',
             $m[1],
-            'Documentation pass must not bump AP_VERSION unless Ken asks'
+            'AP_VERSION must be 0.3.7-beta for this release'
         );
     }
 }

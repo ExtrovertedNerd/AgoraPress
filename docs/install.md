@@ -1,6 +1,6 @@
 # Installing AgoraPress
 
-This is the **installer depth guide** for AgoraPress **`0.3.6-beta`** (schema
+This is the **installer depth guide** for AgoraPress **`0.3.7-beta`** (schema
 `AP_DB_VERSION` **12**). It describes the four install paths **as built**: web
 installer, CLI installer, Docker Compose, and a hand-written
 `ap-config-sample.php`.

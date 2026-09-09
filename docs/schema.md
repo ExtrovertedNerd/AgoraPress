@@ -1,11 +1,11 @@
 # Database schema
 
-This is the **schema guide** for AgoraPress **`0.3.6-beta`** (schema `AP_DB_VERSION` **12**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
+This is the **schema guide** for AgoraPress **`0.3.7-beta`** (schema `AP_DB_VERSION` **12**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
 
 AgoraPress uses a **versioned migration system**. Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**. Operator apply path: [install.md](install.md) (fresh) and [updates.md](updates.md) / `php ap-cli db migrate` ([cli.md](cli.md)). Forum column semantics: [forums.md](forums.md). Local analytics options: [admin.md](admin.md).
 
 **Source:** `ap-includes/schema/migrations/`, `class-ap-migrator.php`, `class-ap-migration.php`, `class-ap-db.php`  
-**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **12**, AgoraPress `0.3.6-beta`)
+**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **12**, AgoraPress `0.3.7-beta`)
 
 Do not invent tables. If a base name is not in this file and not in `ap_all_base_tables()`, it is **not in core**.
 

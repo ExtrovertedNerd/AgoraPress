@@ -142,19 +142,33 @@ def _unreleased_body(changelog_text: str) -> str:
     return match.group(1)
 
 
-def test_unreleased_notes_documentation_pass(changelog_text: str) -> None:
+def test_unreleased_section_remains(changelog_text: str) -> None:
     body = _unreleased_body(changelog_text)
+    assert re.search(r"(?im)^###\s+Added\s*$", body)
+    assert re.search(r"(?im)^###\s+Changed\s*$", body)
+
+
+def _037_beta_body(changelog_text: str) -> str:
+    match = re.search(
+        r"(?ims)^##\s+\[0\.3\.7-beta\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
+        changelog_text,
+    )
+    assert match, "Missing ## [0.3.7-beta] body"
+    return match.group(1)
+
+
+def test_037_beta_documents_charter_and_docs_pass(changelog_text: str) -> None:
+    body = _037_beta_body(changelog_text)
     assert re.search(r"(?im)^###\s+Added\s*$", body)
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
     lower = body.lower()
     assert "documentation pass" in lower
-    assert "no version bump" in lower
-    assert "0.3.6-beta" in body
+    assert "0.3.7-beta" in body
     assert "docs/readme.md" in lower
     assert "audience index" in lower
     assert "docs/index.md" in lower
     for path in UNRELEASED_DOC_PATHS:
-        assert path.lower() in lower, f"[Unreleased] should mention {path}"
+        assert path.lower() in lower, f"[0.3.7-beta] should mention {path}"
 
 
 def test_changelog_contains_no_private_markers(changelog_text: str) -> None:
@@ -165,14 +179,14 @@ def test_changelog_contains_no_private_markers(changelog_text: str) -> None:
         )
 
 
-def test_docs_pass_does_not_bump_ap_version() -> None:
+def test_current_ap_version_is_037_beta() -> None:
     version_php = VERSION_PHP.read_text(encoding="utf-8")
     match = re.search(
         r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
         version_php,
     )
     assert match, "ap-includes/version.php should define AP_VERSION"
-    assert match.group(1) == "0.3.6-beta", (
-        "Documentation pass must not bump AP_VERSION unless Ken asks "
+    assert match.group(1) == "0.3.7-beta", (
+        "AP_VERSION must be 0.3.7-beta for this release "
         f"(found {match.group(1)})"
     )

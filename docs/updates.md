@@ -1,6 +1,6 @@
 # Updating AgoraPress
 
-This is the **core update guide** for AgoraPress **`0.3.6-beta`** (schema
+This is the **core update guide** for AgoraPress **`0.3.7-beta`** (schema
 `AP_DB_VERSION` **12**). It describes the public `version.json` endpoint,
 one-click **Tools → Update Core**, `php bin/package-release.php` artifacts,
 what an update **does not** overwrite, and the installed-site CLI verbs
@@ -111,8 +111,8 @@ field — ready to serve as-is):
 
 ```json
 {
-  "version": "0.3.6-beta",
-  "download_url": "https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.6-beta.zip",
+  "version": "0.3.7-beta",
+  "download_url": "https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.7-beta.zip",
   "changelog_url": "https://agorapress.extrovertednerd.com/changelog",
   "sha256": "64-character lowercase hex",
   "released": "YYYY-MM-DD"
@@ -275,17 +275,17 @@ php ap-cli core version
 **Check again**). Typical stdout:
 
 ```text
-current: 0.3.6-beta
-remote: 0.3.6-beta
+current: 0.3.7-beta
+remote: 0.3.7-beta
 update: none
-download: https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.6-beta.zip
+download: https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.7-beta.zip
 changelog: https://agorapress.extrovertednerd.com/changelog
 ```
 
 When the endpoint is offline, disabled, or the cache is empty:
 
 ```text
-current: 0.3.6-beta
+current: 0.3.7-beta
 remote: unavailable (offline, disabled, or cache empty)
 update: unknown
 ```
@@ -370,7 +370,7 @@ Build the zip that one-click update and fresh installs consume:
 ```bash
 php bin/package-release.php
 php bin/package-release.php --output-dir=/tmp/dist
-php bin/package-release.php --version=0.3.6-beta
+php bin/package-release.php --version=0.3.7-beta
 php bin/package-release.php --prefix=AgoraPress
 php bin/package-release.php --dry-run
 php bin/package-release.php --json

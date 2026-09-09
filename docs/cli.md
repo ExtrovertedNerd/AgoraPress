@@ -1,6 +1,6 @@
 # AgoraPress CLI (`ap-cli`)
 
-This is the **installed-site CLI cookbook** for AgoraPress **`0.3.6-beta`**
+This is the **installed-site CLI cookbook** for AgoraPress **`0.3.7-beta`**
 (schema `AP_DB_VERSION` **12**). It describes every built-in command group
 that `php ap-cli --help` lists, plus global flags and exit codes, **as
 built**.
@@ -58,7 +58,7 @@ that boots core. `--help` / `--version` are also accepted as `-h` / `-V`.
 | `--path=<path>` | AgoraPress root (directory containing `ap-includes/` and, for installed-site commands, `ap-config.php`). Relative paths resolve from the current working directory. Default: the directory that contains `ap-cli`. |
 | `--url=<url>` | Sets `AP_HOME` for this process (home URL hint for link builders). Does not rewrite the stored `home` / `siteurl` options. |
 | `--skip-plugins` | Defines `AP_CLI_SKIP_PLUGINS`. Bootstrap still loads **must-use** plugins under `ap-content/mu-plugins/`; it does **not** load active plugins. Use this when a broken plugin blocks CLI. |
-| `--skip-themes` | Defines `AP_CLI_SKIP_THEMES`. Help text: “Skip theme setup side effects where possible.” As of 0.3.6-beta, core bootstrap does **not** read this constant (only `AP_CLI_SKIP_PLUGINS` is branched on); the flag is accepted and reserved. |
+| `--skip-themes` | Defines `AP_CLI_SKIP_THEMES`. Help text: “Skip theme setup side effects where possible.” As of 0.3.7-beta, core bootstrap does **not** read this constant (only `AP_CLI_SKIP_PLUGINS` is branched on); the flag is accepted and reserved. |
 | `-h`, `--help` | Top-level help, or command help when placed after a command name (`php ap-cli plugin --help`). Help does **not** boot core, so it never lists plugin-registered verbs. |
 | `-V`, `--version` | Print `AgoraPress {AP_VERSION} (PHP {PHP_VERSION})` when used alone (or with help). Does not boot the database. |
 
@@ -174,7 +174,7 @@ php ap-cli --version
 php ap-cli -V
 ```
 
-Stdout: `AgoraPress 0.3.6-beta (PHP 8.x.x)`. Loads `ap-includes/version.php`
+Stdout: `AgoraPress 0.3.7-beta (PHP 8.x.x)`. Loads `ap-includes/version.php`
 only — no `ap-config.php`, no database. For schema versions as well, use
 `core version` on an installed site.
 
@@ -193,7 +193,7 @@ Does not need an install. Prints:
 os: …
 php: …
 sapi: …
-agorapress: 0.3.6-beta
+agorapress: 0.3.7-beta
 root: /path/to/site
 installed: yes|no
 core_loaded: yes|no
@@ -244,10 +244,10 @@ files. There is **no** `php ap-cli core update`. Apply a zip from
 Typical stdout when the endpoint answers:
 
 ```text
-current: 0.3.6-beta
-remote: 0.3.6-beta
+current: 0.3.7-beta
+remote: 0.3.7-beta
 update: none
-download: https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.6-beta.zip
+download: https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.7-beta.zip
 changelog: https://agorapress.extrovertednerd.com/changelog
 ```
 

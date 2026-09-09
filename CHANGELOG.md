@@ -3,11 +3,21 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.6-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.7-beta**).
 
 ## [Unreleased]
 
-Documentation pass for humans and Grok Bot. Core remains `AP_VERSION` **0.3.6-beta** / schema **12** (no version bump).
+### Added
+
+### Changed
+
+## [0.3.7-beta] - 2026-09-09
+
+SMTP mail, first-party register gate, reserved names, group-only forums, and the documentation pass for humans and Grok Bot. Schema stays `AP_DB_VERSION` **12**; privacy posture unchanged (no telemetry by default).
+
+### Package
+
+- Beta package `0.3.7-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
 
 ### Added
 
@@ -23,7 +33,7 @@ Documentation pass for humans and Grok Bot. Core remains `AP_VERSION` **0.3.6-be
 ### Changed
 
 - Root `README.md` Documentation table lists every topic guide
-- Integrator docs tightened against 0.3.6-beta
+- Integrator docs tightened against 0.3.7-beta
 
 ### Fixed
 
