@@ -47,7 +47,8 @@ class AP_Roles
      *
      * Administrator receives every primitive capability listed in
      * {@see self::allPrimitiveCapabilities()}. Other roles get curated subsets.
-     * Forum-specific capabilities will be layered on when the forum module lands.
+     * Forum CMS caps (`moderate_forums`, `manage_forums`) are primitives;
+     * per-forum ACL is {@see AP_Forum_Permissions}, not extra CMS roles.
      *
      * @return array<string, array{name: string, capabilities: array<string, bool>, level: int}>
      */
@@ -202,7 +203,7 @@ class AP_Roles
             'erase_others_personal_data',
             // Tools — Site Health (status checks + system info)
             'view_site_health',
-            // Forum stubs (extendable; granted only to administrator for now)
+            // Forums (CMS-side gates; per-forum ACL is AP_Forum_Permissions)
             'moderate_forums',
             'manage_forums',
         ];

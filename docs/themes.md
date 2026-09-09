@@ -191,6 +191,7 @@ Native tags live in `ap-includes/template-tags.php` (examples):
 | `ap_the_excerpt` / `ap_get_the_excerpt` | Excerpt |
 | `ap_the_permalink` / `ap_get_the_permalink` | Permalink |
 | `ap_the_date` / `ap_the_author` | Meta |
+| `ap_the_category` / `ap_get_the_category` | Category terms and linked names |
 | `ap_bloginfo` / `ap_get_bloginfo` | Site info |
 | `ap_body_class` / `ap_post_class` | Classes |
 | Loop helpers | Via query / `have_posts`-style APIs in tags + compat |
@@ -217,7 +218,7 @@ Admin: Appearance → Menus, Appearance → Widgets ([admin.md](admin.md)).
 
 ## Default theme: Agora
 
-Current stylesheet version: **0.3.6** (`AGORA_THEME_VERSION` / `style.css` header). Board index uses stable phpBB-parity hooks (`.ap-forum-cat-header`, `.ap-forum-row--{unread|read|neutral|locked}`, `.ap-forum-icon--{type}`, three-line `.ap-forum-last-post__*`) styled only in theme CSS — not core — so custom themes can restyle freely. Topic view adds `.ap-forum-first-unread` / `.ap-forum-first-unread-wrap` for the SPEC B1 jump link.
+Current stylesheet version: **0.3.9** (`AGORA_THEME_VERSION` / `style.css` header). Board index uses stable phpBB-parity hooks (`.ap-forum-cat-header`, `.ap-forum-row--{unread|read|neutral|locked}`, `.ap-forum-icon--{type}`, three-line `.ap-forum-last-post__*`) styled only in theme CSS — not core — so custom themes can restyle freely. Topic view adds `.ap-forum-first-unread` / `.ap-forum-first-unread-wrap` for the SPEC B1 jump link.
 
 | Feature | Detail |
 |---------|--------|
@@ -230,6 +231,7 @@ Current stylesheet version: **0.3.6** (`AGORA_THEME_VERSION` / `style.css` heade
 | Long strings | `overflow-wrap: anywhere` so unbroken strings (e.g. Monero addresses) wrap instead of stretching the layout |
 | Custom CSS | Appearance → Theme Options → Additional CSS (`custom_css` / `AP_Theme::printCustomCss` on `ap_head`) |
 | Templates | Blog + forum templates, landmarks, reduced-motion / contrast support |
+| Post categories | Linked names in entry meta on blog lists, archives, search, and single posts; single posts also list them after the content (`Posted in`) |
 | Nav | Primary + footer menu locations; fallbacks list published pages and useful login/register links when open |
 
 ## Theme Options (ACP)

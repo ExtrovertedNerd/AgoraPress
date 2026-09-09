@@ -134,6 +134,11 @@ def test_admin_forum_classes_define_core_api() -> None:
         "function renderList",
         "function renderForm",
         "ensureSystemGroups",
+        "TYPE_OPEN",
+        "TYPE_CLOSED",
+        "TYPE_HIDDEN",
+        "function addMember",
+        "add-group-member-",
     ):
         assert needle in groups_src, f"Expected {needle!r} in forum groups class"
 
@@ -186,6 +191,22 @@ def test_options_forums_screen_fields() -> None:
         "AP_Settings::settingsFields('forums')",
     ):
         assert needle in src, f"options-forums.php missing {needle!r}"
+
+
+def test_groups_acp_is_existing_forum_groups_screen() -> None:
+    """Groups ACP already exists at forum-groups.php. Do not invent another."""
+    screens = sorted(p.name for p in ADMIN.glob("*group*"))
+    assert screens == ["forum-groups.php"], screens
+    src = (ADMIN / "forum-groups.php").read_text(encoding="utf-8")
+    assert "AP_Admin_Forum_Groups" in src
+    assert "manage_forums" in src
+    edit = (ADMIN / "includes" / "class-ap-admin-forum-edit.php").read_text(
+        encoding="utf-8"
+    )
+    assert "This group only" not in edit
+    phpunit = PHPUNIT.read_text(encoding="utf-8")
+    assert "testForumGroupsAcpCreatesHiddenNamedGroupAndAddsMember" in phpunit
+    assert "testForumEditAccessPresetsDoNotListNamedGroups" in phpunit
 
 
 def test_structure_asserts_forum_admin_files() -> None:

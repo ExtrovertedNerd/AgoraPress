@@ -696,6 +696,87 @@ final class ForumGroupsPermissionsTest extends TestCase
         ));
     }
 
+    public function testNamedGroupTypesAndExcludeSystemQuery(): void
+    {
+        AP_Group::ensureSystemGroups($this->db);
+
+        $openId = AP_Group::create([
+            'group_name' => 'Open Club',
+            'group_type' => AP_Group::TYPE_OPEN,
+        ], $this->db);
+        $closedId = AP_Group::create([
+            'group_name' => 'Closed Circle',
+            'group_type' => AP_Group::TYPE_CLOSED,
+        ], $this->db);
+        $hiddenId = AP_Group::create([
+            'group_name' => 'Hidden Cell',
+            'group_type' => AP_Group::TYPE_HIDDEN,
+        ], $this->db);
+        $this->assertGreaterThan(0, $openId);
+        $this->assertGreaterThan(0, $closedId);
+        $this->assertGreaterThan(0, $hiddenId);
+
+        $this->assertSame(AP_Group::TYPE_OPEN, (string) AP_Group::get($openId, $this->db)?->group_type);
+        $this->assertSame(AP_Group::TYPE_CLOSED, (string) AP_Group::get($closedId, $this->db)?->group_type);
+        $this->assertSame(AP_Group::TYPE_HIDDEN, (string) AP_Group::get($hiddenId, $this->db)?->group_type);
+
+        $this->assertSame(
+            [
+                AP_Group::TYPE_OPEN,
+                AP_Group::TYPE_CLOSED,
+                AP_Group::TYPE_HIDDEN,
+                AP_Group::TYPE_SYSTEM,
+            ],
+            AP_Group::groupTypes()
+        );
+
+        $named = AP_Group::query(['exclude_system' => true, 'orderby' => 'id'], $this->db);
+        $namedIds = array_map(static fn (object $g): int => (int) $g->group_id, $named);
+        $namedTypes = array_map(static fn (object $g): string => (string) $g->group_type, $named);
+        $this->assertContains($openId, $namedIds);
+        $this->assertContains($closedId, $namedIds);
+        $this->assertContains($hiddenId, $namedIds);
+        $this->assertNotContains(AP_Group::TYPE_SYSTEM, $namedTypes);
+        $this->assertSame(3, AP_Group::count(['exclude_system' => true], $this->db));
+
+        $system = AP_Group::query(['type' => AP_Group::TYPE_SYSTEM], $this->db);
+        $this->assertCount(4, $system);
+        foreach ($system as $row) {
+            $this->assertNotContains((int) $row->group_id, $namedIds);
+        }
+    }
+
+    public function testGroupsAcpAlreadyExistsAndForumEditDoesNotInventOne(): void
+    {
+        $this->assertFileExists($this->root . '/ap-admin/forum-groups.php');
+        $this->assertFileExists($this->root . '/ap-admin/includes/class-ap-admin-forum-groups.php');
+        $this->assertFileDoesNotExist($this->root . '/ap-admin/groups.php');
+        $this->assertFileDoesNotExist($this->root . '/ap-admin/options-groups.php');
+        $this->assertFileDoesNotExist($this->root . '/ap-admin/user-groups.php');
+
+        $screen = (string) file_get_contents($this->root . '/ap-admin/forum-groups.php');
+        $this->assertStringContainsString('AP_Admin_Forum_Groups', $screen);
+        $this->assertStringContainsString('manage_forums', $screen);
+
+        $edit = (string) file_get_contents(
+            $this->root . '/ap-admin/includes/class-ap-admin-forum-edit.php'
+        );
+        $this->assertStringNotContainsString('This group only', $edit);
+        $this->assertStringNotContainsString('exclude_system', $edit);
+
+        $this->assertSame(
+            [
+                AP_Forum_Permissions::ACCESS_PUBLIC,
+                AP_Forum_Permissions::ACCESS_MEMBERS,
+                AP_Forum_Permissions::ACCESS_MEMBERS_READONLY,
+                AP_Forum_Permissions::ACCESS_MODERATORS,
+                AP_Forum_Permissions::ACCESS_ADMINISTRATORS,
+                AP_Forum_Permissions::ACCESS_CUSTOM,
+            ],
+            AP_Forum_Permissions::accessLevels()
+        );
+    }
+
     /**
      * Create a minimal user with optional role.
      */

@@ -140,12 +140,94 @@ def test_bot_handbook_states_public_safe_rule_and_do_not_invent_surfaces(
     ), "docs/bot_handbook.md should say do not invent surfaces"
     assert "never write" in lower
     assert "not in core" in lower
+    for heading in (
+        r"(?im)^##\s+How to use these docs\s*$",
+        r"(?im)^##\s+Public-safe rule\s*$",
+        r"(?im)^##\s+Do not invent surfaces\s*$",
+        r"(?im)^##\s+When to say \*\*not in core\*\*\s*$",
+        r"(?im)^##\s+Diagnose from generic symptoms\s*$",
+        r"(?im)^##\s+File a Heph bug\s*$",
+        r"(?im)^##\s+Close the customer loop\s*$",
+    ):
+        assert re.search(heading, text), f"bot_handbook.md missing heading: {heading}"
+    assert "readme.md" in lower
+    assert "troubleshooting.md" in lower
+    assert "registry name **agorapress**" in lower
+    assert "agent_api.md" in lower
+    assert "do not duplicate" in lower
+    assert "job id" in lower
+    assert "haultn" in lower
+    assert "gutenberg" in lower
+    assert "ap_telemetry" in lower
+    for banned in PRIVATE_MARKERS:
+        assert banned not in lower, (
+            f"docs/bot_handbook.md must not contain private marker: {banned}"
+        )
 
 
 def test_rewrites_doc_contains_shipped_try_files_pattern(docs_root: Path) -> None:
     text = (docs_root / "rewrites.md").read_text(encoding="utf-8")
     assert "try_files $uri $uri/ /index.php" in text
     assert "try_files $uri $uri/ /index.php?$args" in text
+
+    nginx = (ROOT / "docker" / "nginx.conf.example").read_text(encoding="utf-8")
+    htaccess = (ROOT / ".htaccess").read_text(encoding="utf-8")
+    assert "try_files $uri $uri/ /index.php?$args;" in nginx
+    assert "try_files $uri $uri/ /index.php?$args;" in text
+    assert "RewriteCond %{REQUEST_FILENAME} !-f" in htaccess
+    assert "RewriteCond %{REQUEST_FILENAME} !-f" in text
+    assert "RewriteRule . /index.php [L]" in htaccess
+    assert "RewriteRule . /index.php [L]" in text
+    assert "favicon.ico" in htaccess
+    assert "favicon.ico" in text
+    lower = text.lower()
+    assert "php ap-cli rewrite flush" in lower
+    assert "does **not** write" in lower
+    assert "?p=" in text
+    assert "?page_id=" in text
+    assert "/slug/" in text
+    assert "/yyyy/mm/dd/" in lower
+
+
+def test_updates_doc_covers_preserve_list_and_public_endpoint(docs_root: Path) -> None:
+    """SPEC: updates.md names version.json, Update Core, skip list, CLI verbs."""
+    text = (docs_root / "updates.md").read_text(encoding="utf-8")
+    lower = text.lower()
+
+    src = (ROOT / "ap-includes" / "class-ap-version-check.php").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r"public const DEFAULT_ENDPOINT = '([^']+)'", src)
+    assert match, "AP_Version_Check::DEFAULT_ENDPOINT not found"
+    assert match.group(1) in text
+
+    updater = (ROOT / "ap-includes" / "class-ap-core-updater.php").read_text(
+        encoding="utf-8"
+    )
+    preserve = re.search(
+        r"public const PRESERVE_EXACT = \[([^\]]+)\]", updater, re.MULTILINE
+    )
+    assert preserve, "AP_Core_Updater::PRESERVE_EXACT not found"
+    for path in re.findall(r"'([^']+)'", preserve.group(1)):
+        assert path in text, f"docs/updates.md must name preserve path {path}"
+
+    assert "tools → update core" in lower
+    assert "no site identity" in lower
+    assert "php bin/package-release.php" in text
+    assert "php ap-cli core check-update" in text
+    assert "php ap-cli db migrate" in text
+    assert "php ap-cli core update" in lower
+    assert "not in core" in lower
+    for path in (
+        "install/",
+        "ap-content/uploads/",
+        "ap-content/plugins/",
+        "ap-content/mu-plugins/",
+    ):
+        assert path in text, f"docs/updates.md must name skip path {path}"
+    assert "ap-content/themes/agora" in text
+    assert "VersionCheck; no-site-id" in text
+    assert "CoreUpdater; no-site-id" in text
 
 
 def test_cli_doc_names_every_builtin_command_group(docs_root: Path) -> None:
@@ -166,6 +248,285 @@ def test_cli_doc_names_every_builtin_command_group(docs_root: Path) -> None:
         assert re.search(pattern, cli, re.MULTILINE), (
             f"docs/cli.md must name ap-cli group `{group}` in the built-in table"
         )
+
+
+def test_cli_doc_cookbook_matches_ap_cli_as_built(docs_root: Path) -> None:
+    """SPEC: cli.md cookbook matches AP_Cli flags, exits, --file, defaults."""
+    cli = (docs_root / "cli.md").read_text(encoding="utf-8")
+    src = CLI_SRC.read_text(encoding="utf-8")
+    bootstrap = (ROOT / "ap-includes" / "bootstrap.php").read_text(encoding="utf-8")
+
+    assert "AP_CLI_SKIP_PLUGINS" in bootstrap
+    assert "AP_CLI_SKIP_THEMES" not in bootstrap
+    assert "AP_CLI_SKIP_THEMES" in src
+    assert "AP_CLI_SKIP_THEMES" in cli
+    assert "reserved" in cli.lower()
+    assert "AP_CLI_SKIP_PLUGINS" in cli
+
+    lower = cli.lower()
+    for needle in (
+        "exit_ok",
+        "exit_usage",
+        "exit_error",
+        "exit_not_installed",
+        "--path",
+        "--url",
+        "--skip-plugins",
+        "--skip-themes",
+        "php ap-cli core update",
+        "php install/cli.php",
+        "ap_user_password",
+        "ap_cli_init",
+        "scheme://",
+        "remote urls and stream wrappers are not allowed",
+        "draft",
+        "publish",
+        "check-update",
+        "--force",
+        "cron event list",
+        "cron event run",
+        "rewrite flush",
+        "site health",
+        "not in core",
+        "always exits `0`",
+        "usage: option get <name>",
+        "option not found",
+        "not reachable",
+        "check_update",
+        "--theme=",
+        "--key=",
+        "compact",
+    ):
+        assert needle in lower, f"docs/cli.md should mention: {needle}"
+
+    assert "`--format=json` always exits `0`" in cli
+    assert "const EXIT_OK = 0" in src
+    assert "const EXIT_USAGE = 1" in src
+    assert "const EXIT_ERROR = 2" in src
+    assert "const EXIT_NOT_INSTALLED = 3" in src
+    assert "status = $type === 'page' ? 'publish' : 'draft'" in src
+    assert "remote URLs and stream wrappers are not allowed" in src
+    assert "getenv('AP_USER_PASSWORD')" in src
+
+
+def test_admin_doc_matches_acp_as_built(docs_root: Path) -> None:
+    """SPEC: admin.md maps /ap-admin/ as built (allowlist, zip, HoF, donate)."""
+    text = (docs_root / "admin.md").read_text(encoding="utf-8")
+    admin_dir = ROOT / "ap-admin"
+    chrome = {"admin-bootstrap.php", "admin-header.php", "admin-footer.php"}
+    entry = sorted(p.name for p in admin_dir.glob("*.php") if p.name not in chrome)
+    assert entry, "ap-admin/ should contain entry scripts"
+    for basename in entry:
+        assert basename in text, f"docs/admin.md must name ACP entry script {basename}"
+
+    admin_src = (admin_dir / "includes" / "class-ap-admin.php").read_text(
+        encoding="utf-8"
+    )
+    cap_keys = re.findall(r"'([a-z0-9.-]+\.php)' => '", admin_src)
+    assert cap_keys, "AP_Admin::screenCapabilities() keys should parse"
+    for basename in cap_keys:
+        assert basename in text, (
+            f"docs/admin.md must name screenCapabilities key {basename}"
+        )
+
+    hof = (ROOT / "ap-includes" / "class-ap-hall-of-fame.php").read_text(
+        encoding="utf-8"
+    )
+    endpoint = re.search(r"public const DEFAULT_ENDPOINT = '([^']+)'", hof)
+    donate = re.search(r"public const DONATION_URL = '([^']+)'", hof)
+    public_page = re.search(r"public const PUBLIC_PAGE_URL = '([^']+)'", hof)
+    assert endpoint and donate and public_page
+    assert endpoint.group(1) in text
+    assert donate.group(1) in text
+    assert public_page.group(1) in text
+    assert "hall-of-fame-join" in text
+    assert "hall-of-fame-leave" in text
+    assert "hall-of-fame-dismiss" in text
+    assert "usesInstallerPings" in text
+    assert "return false" in hof
+
+    installer = (ROOT / "ap-includes" / "class-ap-plugin-installer.php").read_text(
+        encoding="utf-8"
+    )
+    assert "const DEFAULT_MAX_BYTES = 41943040" in installer
+    assert "40 MiB" in text
+    assert "plugin-upload" in text
+
+    analytics = (
+        admin_dir / "includes" / "class-ap-admin-analytics.php"
+    ).read_text(encoding="utf-8")
+    assert "const CAPABILITY = 'manage_options'" in analytics
+    assert "const DEFAULT_DAYS = 30" in analytics
+    assert "const ALLOWED_DAYS = [7, 14, 30, 90]" in analytics
+
+    for needle in (
+        "user-edit.php?user_id=",
+        "The requested admin page was not found.",
+        "Read only (members)",
+        "AP_ADMIN",
+        "ap_admin_menu",
+        "admin_menu",
+        "maybeQueueAdminNotice",
+        "noindex, nofollow",
+        "blog_public",
+        "sitemap_enabled",
+        "open_graph_enabled",
+        "phpbb-json",
+        "phpbb-db",
+        "paywall",
+        "not in core",
+    ):
+        assert needle in text, f"docs/admin.md should mention: {needle}"
+
+
+PHP_STRING_CONST = re.compile(r"public const ([A-Z0-9_]+) = '([^']+)'")
+PHP_INT_CONST = re.compile(r"public const ([A-Z0-9_]+) = (\d+)")
+
+
+def _php_string_consts(path: Path) -> dict[str, str]:
+    src = path.read_text(encoding="utf-8")
+    names = dict(PHP_STRING_CONST.findall(src))
+    assert names, f"No string constants in {path.name}"
+    return names
+
+
+def _php_int_consts(path: Path) -> dict[str, int]:
+    src = path.read_text(encoding="utf-8")
+    return {name: int(value) for name, value in PHP_INT_CONST.findall(src)}
+
+
+def _php_action_allowlist(path: Path) -> list[str]:
+    src = path.read_text(encoding="utf-8")
+    match = re.search(
+        r"in_array\(\$rowAction, \[(.*?)\], true\)",
+        src,
+        re.DOTALL,
+    )
+    assert match, f"row-action allowlist not found in {path.name}"
+    names = re.findall(r"'([a-z_]+)'", match.group(1))
+    assert names, f"No row actions in {path.name}"
+    return names
+
+
+def test_forums_doc_matches_module_as_built(docs_root: Path) -> None:
+    """SPEC: forums.md describes the first-class forum module as built."""
+    text = (docs_root / "forums.md").read_text(encoding="utf-8")
+    includes = ROOT / "ap-includes"
+
+    front = _php_string_consts(includes / "class-ap-forum-front.php")
+    for name, value in front.items():
+        if name.startswith("ACTION_"):
+            assert value in text, (
+                f"docs/forums.md must name AP_Forum_Front::{name} ({value})"
+            )
+
+    perms = _php_string_consts(includes / "class-ap-forum-permissions.php")
+    for name, value in perms.items():
+        if name.startswith("PERM_") or name.startswith("ACCESS_"):
+            assert value in text, (
+                f"docs/forums.md must name AP_Forum_Permissions::{name} ({value})"
+            )
+
+    forum = _php_string_consts(includes / "class-ap-forum.php")
+    for name, value in forum.items():
+        if name.startswith(("FORUM_TYPE_", "FORUM_STATUS_", "TOPIC_TYPE_")):
+            if name in ("TOPIC_TYPE_NORMAL", "TOPIC_TYPE_ANNOUNCE", "TOPIC_TYPE_GLOBAL"):
+                continue
+            assert value in text, (
+                f"docs/forums.md must name AP_Forum::{name} ({value})"
+            )
+
+    group = _php_string_consts(includes / "class-ap-group.php")
+    for name, value in group.items():
+        if name.startswith("SLUG_"):
+            assert value in text, (
+                f"docs/forums.md must name AP_Group::{name} ({value})"
+            )
+
+    online = _php_string_consts(includes / "class-ap-online.php")
+    assert online["GUEST_COOKIE"] in text
+    online_ints = _php_int_consts(includes / "class-ap-online.php")
+    assert str(online_ints["DEFAULT_WINDOW"]) in text
+    assert str(online_ints["MIN_WINDOW"]) in text
+    assert str(online_ints["MAX_WINDOW"]) in text
+
+    read_meta = _php_string_consts(includes / "class-ap-forum-read.php")
+    assert read_meta["META_LAST_MARK"] in text
+    assert read_meta["OPTION_ENABLED"] in text
+
+    guard_ints = _php_int_consts(includes / "class-ap-forum-guard.php")
+    assert str(guard_ints["DEFAULT_FLOOD_INTERVAL"]) in text
+    assert str(guard_ints["DEFAULT_SPAM_MAX_LINKS"]) in text
+
+    attach_ints = _php_int_consts(includes / "class-ap-forum-attachment.php")
+    assert str(attach_ints["DEFAULT_MAX_SIZE"]) in text
+    assert str(attach_ints["DEFAULT_MAX_PER_POST"]) in text
+    assert str(attach_ints["DEFAULT_USER_QUOTA"]) in text
+
+    rest_src = (includes / "class-ap-rest.php").read_text(encoding="utf-8")
+    forum_payload = re.search(
+        r"public static function prepareForum\(.*?\n        return \[(.*?)\n        \];",
+        rest_src,
+        re.DOTALL,
+    )
+    topic_payload = re.search(
+        r"public static function prepareTopic\(.*?\n        return \[(.*?)\n        \];",
+        rest_src,
+        re.DOTALL,
+    )
+    assert forum_payload and topic_payload
+    for key in re.findall(r"'([a-z_]+)'\s*=>", forum_payload.group(1)):
+        assert f"`{key}`" in text, (
+            f"docs/forums.md must name REST forum payload key {key}"
+        )
+    for key in re.findall(r"'([a-z_]+)'\s*=>", topic_payload.group(1)):
+        assert f"`{key}`" in text, (
+            f"docs/forums.md must name REST topic payload key {key}"
+        )
+
+    admin = ROOT / "ap-admin"
+    for action in _php_action_allowlist(admin / "forum-topics.php"):
+        assert f"`{action}`" in text, (
+            f"docs/forums.md must name Topics row action {action}"
+        )
+    for action in _php_action_allowlist(admin / "forum-moderation.php"):
+        assert f"`{action}`" in text, (
+            f"docs/forums.md must name Moderation row action {action}"
+        )
+
+    deny = "The Forum module is disabled. Enable it under Settings → Modules."
+    assert deny in text
+    assert deny in (admin / "forums.php").read_text(encoding="utf-8")
+    assert deny in (admin / "forum-topics.php").read_text(encoding="utf-8")
+    assert deny in (admin / "forum-moderation.php").read_text(encoding="utf-8")
+    assert deny in (admin / "forum-groups.php").read_text(encoding="utf-8")
+    assert deny in (admin / "options-forums.php").read_text(encoding="utf-8")
+
+    empty_src = (includes / "functions.php").read_text(encoding="utf-8")
+    empty_match = re.search(
+        r"function ap_forum_empty_state_html.*?\n    \$allowed = \[(.*?)\];",
+        empty_src,
+        re.DOTALL,
+    )
+    assert empty_match, "ap_forum_empty_state_html allowlist not found"
+    for kind in re.findall(r"'([a-z_]+)'", empty_match.group(1)):
+        assert f"`{kind}`" in text, (
+            f"docs/forums.md must name empty-state kind {kind}"
+        )
+
+    for needle in (
+        "forum_access_level",
+        "rest_forum_invalid_id",
+        "rest_topic_invalid_id",
+        "Forum module is disabled.",
+        "ap_forum_notice",
+        "ap_mark_all_forums_read",
+        "does **not** read",
+        "Mark all as read",
+        "status=open",
+        "not in core",
+    ):
+        assert needle in text, f"docs/forums.md should mention: {needle}"
 
 
 def test_catalog_or_linked_guides_mention_required_tokens(docs_root: Path) -> None:
@@ -329,6 +690,9 @@ def test_spec_success_bot_can_answer_charter_questions(docs_root: Path) -> None:
     assert "AP_TELEMETRY" in security
     assert "no telemetry" in security.lower()
     assert "no-site-id" in security
+    assert "view_site_health" in security
+    assert "session.save_path" in security
+    assert "php-fpm" in security.lower()
 
     editor = (docs_root / "editor.md").read_text(encoding="utf-8")
     assert "gutenberg" in editor.lower()

@@ -244,12 +244,165 @@ def test_bot_handbook_states_public_safe_rule(docs_root: Path) -> None:
     assert "do not invent surfaces" in lower or "do **not invent**" in lower
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/bot_handbook.md must not contain private marker: {banned}"
+    assert "stallboy" not in lower, "docs/bot_handbook.md must not name private accounts"
+
+
+def test_bot_handbook_operating_model(docs_root: Path) -> None:
+    """SPEC §11: operating model for this product (not a copy of Heph Agent API)."""
+    path = docs_root / "bot_handbook.md"
+    assert path.is_file(), "Missing docs/bot_handbook.md"
+    text = path.read_text(encoding="utf-8")
+    for heading in (
+        r"(?im)^##\s+How to use these docs\s*$",
+        r"(?im)^##\s+Public-safe rule\s*$",
+        r"(?im)^##\s+Do not invent surfaces\s*$",
+        r"(?im)^##\s+When to say \*\*not in core\*\*\s*$",
+        r"(?im)^##\s+Diagnose from generic symptoms\s*$",
+        r"(?im)^##\s+File a Heph bug\s*$",
+        r"(?im)^##\s+Close the customer loop\s*$",
+    ):
+        assert re.search(heading, text), f"bot_handbook.md missing heading: {heading}"
+    lower = text.lower()
+    for phrase in (
+        "0.3.6-beta",
+        "ap_db_version",
+        "readme.md",
+        "docs/index.md",
+        "one documentation tree",
+        "features_and_functions.md",
+        "do not invent",
+        "not in core",
+        "public-safe",
+        "never write",
+        "agorapress.extrovertednerd.com",
+        "version.json",
+        "example.com",
+        "admin@example.com",
+        "/var/www/agorapress",
+        "session.save_path",
+        "php-fpm",
+        "mechanism",
+        "troubleshooting.md",
+        "view_site_health",
+        "php ap-cli site health",
+        "php ap-cli option",
+        "ap_module_forum",
+        "php ap-cli module",
+        "php ap-cli forum",
+        "php ap-cli core update",
+        "php ap-cli plugin install",
+        "how do i turn forums on",
+        "/2026/09/03/hello-world/",
+        "try_files $uri $uri/ /index.php?$args",
+        "does core send telemetry",
+        "ap_telemetry",
+        "is gutenberg coming",
+        "full site editing",
+        "saas",
+        "marketplace",
+        "php 8.2",
+        "theme.json",
+        "haultn",
+        "logos",
+        "themis",
+        "rest_api_enabled",
+        "rest_disabled",
+        "?rest_route=",
+        "analytics_enabled",
+        "agorapress",
+        "agent_api.md",
+        "do not duplicate",
+        "job id",
+        "cited: docs/",
+        "ap_do_action",
+        "ap_apply_filters",
+        "ap_cli_init",
+        "editor.md",
+        "compatibility.md",
+        "plugins.md",
+        "themes.md",
+        "site-icon.md",
+    ):
+        assert phrase in lower, f"bot_handbook.md missing: {phrase}"
+    for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/bot_handbook.md must not contain private marker: {banned}"
+    assert "stallboy" not in lower, "docs/bot_handbook.md must not name private accounts"
 
 
 def test_no_parallel_docs_index(docs_root: Path) -> None:
     assert not (docs_root / "index.md").exists(), (
         "One public index only: docs/README.md (do not also create docs/index.md)"
     )
+
+
+def _php_string_list_function(path: Path, func: str) -> list[str]:
+    src = path.read_text(encoding="utf-8")
+    match = re.search(
+        rf"function {re.escape(func)}\(\): array\s*\{{(.*?)\n\}}",
+        src,
+        re.DOTALL,
+    )
+    assert match, f"{func}() not found in {path.name}"
+    names = re.findall(r"'([a-z0-9_]+)'", match.group(1))
+    assert names, f"{func}() listed no string names"
+    return names
+
+
+def _catalog_cli_groups() -> list[str]:
+    src = (ROOT / "ap-includes" / "class-ap-cli.php").read_text(encoding="utf-8")
+    start = src.find("public static function ensureBuiltins()")
+    assert start != -1, "AP_Cli::ensureBuiltins() not found"
+    names = re.findall(r"self::addCommand\(\s*'([a-z0-9-]+)'", src[start:])
+    assert names, "No addCommand() names found in ensureBuiltins()"
+    return sorted(set(names))
+
+
+def _acp_screen_files() -> list[str]:
+    skip = {"admin-bootstrap.php", "admin-header.php", "admin-footer.php"}
+    names = sorted(
+        path.name
+        for path in (ROOT / "ap-admin").glob("*.php")
+        if path.name not in skip
+    )
+    assert names, "no ap-admin/*.php screens found"
+    return names
+
+
+def _settings_api_option_names() -> list[str]:
+    src = (ROOT / "ap-includes" / "class-ap-settings.php").read_text(encoding="utf-8")
+    names = re.findall(
+        r"self::registerSetting\(\s*'[^']+',\s*'([A-Za-z][A-Za-z0-9_]*)'",
+        src,
+    )
+    for block in re.findall(
+        r"foreach\s*\(\s*\[(.*?)\]\s*as\s+\$\w+(?:\s*=>\s*\$\w+)?\s*\)\s*\{\s*self::registerSetting",
+        src,
+        re.DOTALL,
+    ):
+        names.extend(re.findall(r"'([A-Za-z][A-Za-z0-9_]*)'", block))
+    names = sorted(set(names))
+    assert names, "No Settings API option names found in AP_Settings::registerCore()"
+    return names
+
+
+def _rest_builtin_resources() -> list[str]:
+    src = (ROOT / "ap-includes" / "class-ap-rest.php").read_text(encoding="utf-8")
+    start = src.find("private static function registerBuiltins()")
+    assert start != -1, "AP_Rest::registerBuiltins() not found"
+    paths = re.findall(
+        r"self::registerRoute\(\s*(?:self::NAMESPACE|'')\s*,\s*'([^']+)'",
+        src[start:],
+    )
+    resources = sorted({p.strip("/").split("/")[0] for p in paths if p.strip("/")})
+    assert resources, "No REST resources found in registerBuiltins()"
+    return resources
+
+
+def _permalink_structures() -> list[str]:
+    src = (ROOT / "ap-includes" / "class-ap-rewrite.php").read_text(encoding="utf-8")
+    values = re.findall(r"public const STRUCTURE_\w+ = '([^']*)';", src)
+    assert values, "AP_Rewrite STRUCTURE_* constants not found"
+    return [value for value in values if value]
 
 
 def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> None:
@@ -262,12 +415,17 @@ def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> Non
     for heading in (
         r"(?im)^##\s+Modules\s*$",
         r"(?im)^##\s+Operator-facing options\s*$",
+        r"(?im)^##\s+Schema\s*$",
         r"(?im)^##\s+Roles and capabilities\s*$",
+        r"(?im)^##\s+Forum topic types\s*$",
         r"(?im)^##\s+`ap-cli` verbs\s*$",
         r"(?im)^##\s+REST resources",
         r"(?im)^##\s+Admin screens",
         r"(?im)^##\s+Default Agora schemes\s*$",
+        r"(?im)^##\s+Install and updates\s*$",
+        r"(?im)^##\s+Rewrites\s*$",
         r"(?im)^##\s+Hooks\s*$",
+        r"(?im)^##\s+Not in core\s*$",
     ):
         assert re.search(heading, text), f"features_and_functions.md missing heading: {heading}"
 
@@ -311,73 +469,64 @@ def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> Non
         "GET only",
         "No install/zip",
         "encyclopedia",
+        "schema_migrations",
+        "0012_topic_type_enum.php",
+        "hall_of_fame_status",
+        "rate_limit_login_max",
+        "forum_topics_per_page",
+        "forum_attachment_max_per_post",
+        "AP_TELEMETRY",
+        "rest_disabled",
+        "core update",
+        "AP_CLI_SKIP_THEMES",
+        "ap_user_roles",
+        "forum_access_level",
+        "php ap-cli module",
+        "php ap-cli forum",
+        "php ap-cli role",
+        "Users → Ban",
+        "try_files $uri $uri/ /index.php?$args",
+        "EXIT_NOT_INSTALLED",
+        "DONATION_URL",
+        "ap_core_base_tables",
+        "ap_forum_base_tables",
+        "no site identity",
+        "/%year%/%monthnum%/%day%/%postname%/",
+        "/%year%/%monthnum%/%postname%/",
+        "/archives/%post_id%",
+        "/%postname%/",
+        "Month and name",
+        "Post name",
     ):
         assert phrase in text, f"features_and_functions.md missing: {phrase}"
 
-    for group in (
-        "help",
-        "version",
-        "cli",
-        "core",
-        "db",
-        "option",
-        "plugin",
-        "theme",
-        "user",
-        "post",
-        "cache",
-        "cron",
-        "rewrite",
-        "site",
-    ):
+    for group in _catalog_cli_groups():
         assert group in text, f"features_and_functions.md should name ap-cli group: {group}"
 
-    for screen in (
-        "login.php",
-        "index.php",
-        "edit.php",
-        "post.php",
-        "post-new.php",
-        "revision.php",
-        "edit-comments.php",
-        "comment.php",
-        "edit-tags.php",
-        "media.php",
-        "media-new.php",
-        "upload.php",
-        "nav-menus.php",
-        "widgets.php",
-        "themes.php",
-        "theme-options.php",
-        "plugins.php",
-        "users.php",
-        "user-new.php",
-        "user-edit.php",
-        "profile.php",
-        "forums.php",
-        "forum-edit.php",
-        "forum-groups.php",
-        "forum-moderation.php",
-        "forum-topics.php",
-        "options-general.php",
-        "options-writing.php",
-        "options-reading.php",
-        "options-discussion.php",
-        "options-media.php",
-        "options-permalink.php",
-        "options-privacy.php",
-        "options-modules.php",
-        "options-forums.php",
-        "options-hall-of-fame.php",
-        "analytics.php",
-        "site-health.php",
-        "update-core.php",
-        "import.php",
-        "export-personal-data.php",
-        "erase-personal-data.php",
-        "admin.php",
-    ):
+    for screen in _acp_screen_files():
         assert screen in text, f"features_and_functions.md should name ACP screen: {screen}"
+
+    for option in _settings_api_option_names():
+        assert option in text, (
+            f"features_and_functions.md should name Settings API option: {option}"
+        )
+
+    for resource in _rest_builtin_resources():
+        assert f"/ap/v1/{resource}" in text, (
+            f"features_and_functions.md should name REST resource /ap/v1/{resource}"
+        )
+
+    for structure in _permalink_structures():
+        assert structure in text, (
+            f"features_and_functions.md should name permalink structure {structure}"
+        )
+
+    load_config = ROOT / "ap-includes" / "load-config.php"
+    for func in ("ap_core_base_tables", "ap_forum_base_tables"):
+        for table in _php_string_list_function(load_config, func):
+            assert f"`{table}`" in text, (
+                f"features_and_functions.md should name schema table: {table}"
+            )
 
     for line in text.splitlines():
         stripped = line.lstrip()
@@ -785,6 +934,22 @@ def test_compatibility_doc_content(docs_root: Path) -> None:
         assert banned not in text, f"docs/compatibility.md must not contain private marker: {banned}"
 
 
+CLI_INSTALL_SRC = ROOT / "ap-includes" / "class-ap-cli-install.php"
+CLI_INSTALL_KNOWN_OPTIONS = re.compile(
+    r"public const KNOWN_OPTIONS = \[([^\]]+)\]",
+    re.MULTILINE,
+)
+
+
+def _cli_install_known_options() -> list[str]:
+    src = CLI_INSTALL_SRC.read_text(encoding="utf-8")
+    match = CLI_INSTALL_KNOWN_OPTIONS.search(src)
+    assert match, "AP_Cli_Install::KNOWN_OPTIONS not found"
+    names = re.findall(r"'([a-z0-9-]+)'", match.group(1))
+    assert names, "No option names in AP_Cli_Install::KNOWN_OPTIONS"
+    return names
+
+
 def test_install_doc_content(docs_root: Path) -> None:
     path = docs_root / "install.md"
     assert path.is_file(), "Missing docs/install.md"
@@ -793,20 +958,10 @@ def test_install_doc_content(docs_root: Path) -> None:
     for phrase in (
         "/install/",
         "php install/cli.php",
-        "--db-driver",
-        "--site-title",
-        "--site-url",
-        "--admin-user",
-        "--admin-email",
-        "--admin-password",
-        "--table-prefix",
-        "--config-path",
-        "--skip-requirements",
-        "--sample-content",
-        "--no-sample-content",
         "ap_admin_password",
         "ap_db_password",
         "docker compose",
+        "docker compose exec",
         "ap-config-sample.php",
         "ap-config.php",
         "ap-content/",
@@ -815,13 +970,34 @@ def test_install_doc_content(docs_root: Path) -> None:
         "permalinks",
         "site health",
         "analytics_enabled",
+        "require_email_verification",
+        "version_check_enabled",
         "ap_db_version",
         "session.save_path",
         "/ap-admin/",
         "0.3.6-beta",
         "exit codes",
+        "exit_ok",
+        "exit_usage",
+        "exit_requirements",
+        "exit_install",
+        "http 403",
+        "http 503",
+        "-----begin ap-config-----",
+        "pdo_mysql",
+        "?step=requirements",
+        "?step=database",
+        "?step=site",
+        "?step=run",
+        "?step=done",
     ):
         assert phrase in lower, f"install.md missing: {phrase}"
+    for option in _cli_install_known_options():
+        flag = f"--{option}"
+        assert flag in text, (
+            f"install.md must name CLI installer flag {flag} "
+            "(AP_Cli_Install::KNOWN_OPTIONS)"
+        )
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/install.md must not contain private marker: {banned}"
 
@@ -836,6 +1012,7 @@ def test_rewrites_doc_content(docs_root: Path) -> None:
         "try_files $uri $uri/ /index.php?$args",
         ".htaccess",
         "docker/nginx.conf.example",
+        "docker/apache-vhost.conf",
         "index.php",
         "front controller",
         "?p=",
@@ -853,10 +1030,47 @@ def test_rewrites_doc_content(docs_root: Path) -> None:
         "rewrite_rules",
         "0.3.6-beta",
         "ap_db_version",
+        "apache vs nginx",
+        "/ap-json/",
+        "/forums/search/",
+        "query-string vars only",
+        "does **not** write",
+        "rewritecond %{request_filename} !-f",
+        "rewriterule . /index.php",
+        "0 rule(s)",
+        "not in core",
     ):
         assert phrase in lower, f"rewrites.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/rewrites.md must not contain private marker: {banned}"
+
+
+VERSION_CHECK_SRC = ROOT / "ap-includes" / "class-ap-version-check.php"
+CORE_UPDATER_SRC = ROOT / "ap-includes" / "class-ap-core-updater.php"
+PACKAGE_RELEASE_SRC = ROOT / "bin" / "package-release.php"
+DEFAULT_ENDPOINT_RE = re.compile(
+    r"public const DEFAULT_ENDPOINT = '([^']+)'",
+)
+PRESERVE_EXACT_RE = re.compile(
+    r"public const PRESERVE_EXACT = \[([^\]]+)\]",
+    re.MULTILINE,
+)
+
+
+def _version_check_default_endpoint() -> str:
+    src = VERSION_CHECK_SRC.read_text(encoding="utf-8")
+    match = DEFAULT_ENDPOINT_RE.search(src)
+    assert match, "AP_Version_Check::DEFAULT_ENDPOINT not found"
+    return match.group(1)
+
+
+def _core_updater_preserve_exact() -> list[str]:
+    src = CORE_UPDATER_SRC.read_text(encoding="utf-8")
+    match = PRESERVE_EXACT_RE.search(src)
+    assert match, "AP_Core_Updater::PRESERVE_EXACT not found"
+    names = re.findall(r"'([^']+)'", match.group(1))
+    assert names, "No paths in AP_Core_Updater::PRESERVE_EXACT"
+    return names
 
 
 def test_updates_doc_content(docs_root: Path) -> None:
@@ -866,16 +1080,14 @@ def test_updates_doc_content(docs_root: Path) -> None:
     lower = text.lower()
     for phrase in (
         "version.json",
-        "https://agorapress.extrovertednerd.com/version.json",
         "tools → update core",
         "php bin/package-release.php",
         "php ap-cli core check-update",
+        "php ap-cli core version",
         "php ap-cli db migrate",
-        "ap-config.php",
-        "ap-config-sample.php",
-        "install/",
         "ap-content/uploads/",
         "ap-content/plugins/",
+        "ap-content/mu-plugins/",
         "custom themes",
         "no site identity",
         "sha256",
@@ -884,15 +1096,47 @@ def test_updates_doc_content(docs_root: Path) -> None:
         "update_core",
         "ap_core_updater",
         "ap_version_check",
+        "sendssiteidentity",
+        "maybequeueadminnotice",
         "--force",
         "not in core",
         "0.3.6-beta",
         "ap_db_version",
         "ziparchive",
-        ".maintenance",
+        "set_time_limit",
+        "versioncheck; no-site-id",
+        "coreupdater; no-site-id",
+        "ap-content/themes/agora",
+        "files were updated but database migration failed",
+        "**not** a cron event",
+        "**not** followed",
     ):
         assert phrase in lower, f"updates.md missing: {phrase}"
-    assert "php ap-cli core update" in lower or "core update" in lower
+    assert "php ap-cli core update" in lower
+    endpoint = _version_check_default_endpoint()
+    assert endpoint in text, (
+        "updates.md must quote AP_Version_Check::DEFAULT_ENDPOINT"
+    )
+    for preserved in _core_updater_preserve_exact():
+        assert preserved in text, (
+            f"updates.md must name preserve path {preserved} "
+            "(AP_Core_Updater::PRESERVE_EXACT)"
+        )
+    assert "install/" in text
+    packager = PACKAGE_RELEASE_SRC.read_text(encoding="utf-8")
+    for flag in (
+        "--output-dir=",
+        "--version=",
+        "--prefix=",
+        "--dry-run",
+        "--json",
+        "--help",
+    ):
+        assert flag in packager, f"bin/package-release.php should parse {flag}"
+        doc_flag = flag.rstrip("=")
+        assert doc_flag in text, (
+            f"updates.md must name package-release flag {doc_flag}"
+        )
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/updates.md must not contain private marker: {banned}"
 
@@ -950,6 +1194,20 @@ def test_cli_doc_content(docs_root: Path) -> None:
         "0.3.6-beta",
         "ap_db_version",
         "php ap-cli core update",
+        "ap_cli_skip_plugins",
+        "ap_cli_skip_themes",
+        "scheme://",
+        "always exits `0`",
+        "usage: option get <name>",
+        "option not found",
+        "not reachable",
+        "check_update",
+        "--theme=",
+        "--key=",
+        "topublicarray",
+        "compact",
+        "php 8.2",
+        "`--format=json` always exits `0`",
     ):
         assert phrase in lower, f"cli.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1041,6 +1299,24 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "marketplace",
         "0.3.6-beta",
         "ap_db_version",
+        "user-edit.php?user_id=",
+        "the requested admin page was not found.",
+        "read only (members)",
+        "ap_admin",
+        "maybequeueadminnotice",
+        "40 mib",
+        "plugin-upload",
+        "theme-upload",
+        "hall-of-fame-dismiss",
+        "usesinstallerpings",
+        "phpbb-json",
+        "phpbb-db",
+        "blog_public",
+        "sitemap_enabled",
+        "open_graph_enabled",
+        "noindex, nofollow",
+        "default_max_bytes",
+        "ap_admin::color_mode_meta",
     ):
         assert phrase in lower, f"admin.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1106,6 +1382,26 @@ def test_forums_doc_content(docs_root: Path) -> None:
         "options-forums.php",
         "forum-moderation.php",
         "forum-groups.php",
+        "forum_access_level",
+        "rest_forum_invalid_id",
+        "rest_topic_invalid_id",
+        "forum module is disabled.",
+        "the forum module is disabled. enable it under settings → modules.",
+        "ap_forum_notice",
+        "ap_forum_empty_state_html",
+        "ap_mark_all_forums_read",
+        "forum_last_mark",
+        "members_readonly",
+        "forum_slug",
+        "topic_slug",
+        "approve_topic",
+        "movetopic",
+        "status=open",
+        "does **not** read",
+        "mark all as read",
+        "log in to like posts.",
+        "10485760",
+        "ap_forum_session",
     ):
         assert phrase in lower, f"forums.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1165,6 +1461,13 @@ def test_roles_doc_content(docs_root: Path) -> None:
         "users.php",
         "user-edit.php",
         "php ap-cli user create",
+        "php ap-cli user get",
+        "status_pending",
+        "requirelogin",
+        "forum_access_level",
+        "addusercap",
+        "ap_add_user_cap",
+        "ap_user_can_post_reply",
         "example.com",
     ):
         assert phrase in lower, f"roles.md missing: {phrase}"
@@ -1222,6 +1525,17 @@ def test_rest_doc_content(docs_root: Path) -> None:
         "jwt",
         "example.com",
         "admin@example.com",
+        "untitled",
+        "ap_module_static_pages",
+        "ap_module_forum",
+        "x-ap-total",
+        "x-wp-nonce",
+        "ap_rest_namespaces",
+        "ap_rest_prepare_post",
+        "no forum acl",
+        "namespace index",
+        "user_status",
+        "this page only",
     ):
         assert phrase in lower, f"rest.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1268,6 +1582,12 @@ def test_security_doc_content(docs_root: Path) -> None:
         "2fa",
         "0.3.6-beta",
         "ap_db_version",
+        "view_site_health",
+        "query(",
+        "http_client_ip",
+        "x-wp-nonce",
+        "last 12 hex",
+        "ap_trust_proxy",
     ):
         assert phrase in lower, f"security.md missing: {phrase}"
     for banned in ("roland", "stallboy@", "mail.0shits.com", "keepass", "stalwart"):
@@ -1288,25 +1608,48 @@ def test_troubleshooting_doc_content(docs_root: Path) -> None:
         "session.save_path",
         "php-fpm",
         "security token",
+        "invalid security token",
         "ap-content/uploads/",
         "site icon",
+        "site icon must be a raster image",
         "settings → modules",
         "ap_module_static_pages",
         "ap_module_blog",
         "ap_module_forum",
+        "the forum module is currently disabled",
+        "the forum module is disabled. enable it under settings → modules",
         "compatibility.md",
         "block",
         "fse",
         "rest_api_enabled",
+        "php ap-cli option set rest_api_enabled",
         "/ap-json/",
         "?rest_route=",
         "rest_disabled",
+        "rest_no_route",
+        "rest_module_disabled",
+        "rest_cookie_invalid_nonce",
+        "rest_not_logged_in",
+        "x-wp-nonce",
         "0.3.2",
         "0.3.6",
         "edit user",
         "getbyid",
         "comment_ok",
+        "comment_error",
         "site health",
+        "view_site_health",
+        "rate_limited",
+        "require_email_verification",
+        "admin-login",
+        "ap_session",
+        "too many failed login attempts",
+        "ap-content/debug.log",
+        "files were updated but database migration failed",
+        ".maintenance",
+        "docker/apache-vhost.conf",
+        "allowoverride all",
+        "query-string vars only",
         "not in core",
         "0.3.6-beta",
         "ap_db_version",

@@ -69,12 +69,15 @@ Pretty permalinks (Settings → Permalinks, then
 | Pretty | Plain query | View |
 |--------|-------------|------|
 | `/forums/` | `?ap_forum_view=index` | Board index |
-| `/forums/{slug}/` | `?ap_forum_view=forum&forum_id=` | Single forum (topic list) |
-| `/topic/{slug}/` | `?ap_forum_view=topic&topic_id=` | Topic + replies |
+| `/forums/{slug}/` | `?ap_forum_view=forum&forum_slug=` (resolved to `forum_id`) | Single forum (topic list) |
+| `/topic/{slug}/` | `?ap_forum_view=topic&topic_slug=` (resolved to `topic_id`) | Topic + replies |
 | `/forums/search/` and `/forums/search/{term}/` | `?ap_forum_view=search&forum_s=` | Forum search |
 
-Paged variants exist (`/forums/page/2/`, `/topic/{slug}/page/2/`, …). Static
-root `favicon.ico` is left alone.
+Paged variants exist (`/forums/page/2/`, `/forums/{slug}/page/2/`,
+`/topic/{slug}/page/2/`, `/forums/search/{term}/page/2/`, …). Query vars
+`forum_slug`, `topic_slug`, `forum_s`, `paged` are registered with the
+rewrite map. Static root `favicon.ico` is left alone. After a POST, Agora
+redirects with `?ap_forum_notice={code}` (see [Front notices](#front-notices)).
 
 Default **Agora** prepends forum templates via
 `agora_forum_template_hierarchy` on `ap_template_hierarchy`:
@@ -95,8 +98,40 @@ Custom themes override the same filenames in the child/parent stack
 `ap_forum_unlock_topic`, `ap_forum_set_topic_type`.
 
 Sitemaps include the board index, forums, and topics when the module is on
-(`AP_Sitemap` provider `forums`). Hidden forums are not listed as public
-forum URLs.
+(`AP_Sitemap` provider `forums`). `AP_Forum::getForums()` default excludes
+`forum_status=hidden` (open + closed public listings). Hidden forums are
+not listed as public forum URLs.
+
+### Front notices
+
+Query var `ap_forum_notice` (and same-request flash via
+`AP_Forum_Front::getNotice()`). Codes as built:
+
+| Code | Message |
+|------|---------|
+| `topic_created` | Topic created. |
+| `topic_pending` | Your topic was submitted and is awaiting moderation. |
+| `reply_posted` | Reply posted. |
+| `reply_pending` | Your reply was submitted and is awaiting moderation. |
+| `flood` | You are posting too quickly. Please wait a moment and try again. |
+| `spam` | Your post was rejected by the spam filter. |
+| `login_required` | You must be logged in to post. |
+| `permission` | You do not have permission to do that. |
+| `locked` | This topic is locked. |
+| `invalid` | Please check your input and try again. |
+| `nonce` | Security check failed. Please try again. |
+| `post_edited` | Post updated. |
+| `post_deleted` / `topic_deleted` | Post deleted. / Topic deleted. |
+| `post_liked` / `post_unliked` | Thanks for the like. / Like removed. |
+| `topic_locked` / `topic_unlocked` | Topic locked. / Topic unlocked. |
+| `topic_type_updated` | Topic type updated. |
+
+Like failures that stay on the page: `login_required` → “Log in to like posts.”;
+`forbidden` → “You do not have permission to like this post.”
+
+Empty-state copy (Agora / `ap_forum_empty_state_html`): `board_empty`,
+`category_empty`, `forum_empty`, `forum_empty_closed`, `forum_closed`,
+`forum_disabled`, `forum_not_found`, `topic_empty`, `topic_locked`.
 
 ---
 
@@ -124,8 +159,11 @@ pointers. **Posts** on a forum row = approved opening posts **plus** replies
 
 ACP: **Forums** (`forums.php`, cap `manage_forums`) is the tree + bulk
 delete. **Create / Edit** (`forum-edit.php`) sets type, status, parent,
-order, and the [access level](#groups-and-per-forum-acl). Deleting a forum
-that still has children or topics fails unless force-deleted.
+order, and `forum_access_level` (the [access-level](#groups-and-per-forum-acl)
+preset). Deleting a forum that still has children or topics fails unless
+`AP_Forum::deleteForum($id, true)` force-deletes (recursive children +
+permanent topic/post removal). There is **no** destination-URL field for
+`forum_type=link`.
 
 Menus can link to forums (Appearance → Menus). That is a nav item, not a
 second forum tree.
@@ -228,8 +266,11 @@ replies (`ap_forum_notice=locked`).
 
 | Screen | Cap | What it does |
 |--------|-----|----------------|
-| Topics (`forum-topics.php`) | `moderate_forums` | Lock, unlock, sticky, unsticky, approve, unapprove, trash / soft-delete, restore, delete. Filter by status and forum. |
-| Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and **reports**. Approve / trash / reject; resolve / dismiss / reopen reports. |
+| Topics (`forum-topics.php`) | `moderate_forums` | Row/bulk allowlist: `lock`, `unlock`, `sticky`, `unsticky`, `approve`, `unapprove`, `trash`, `soft_delete`, `restore`, `delete`. Filter by `topic_status` and `forum_id`. **No** move / merge / split controls on this screen. |
+| Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and **reports**. Row actions: `approve_topic`, `trash_topic`, `reject_topic`, `approve_post`, `trash_post`, `reject_post`, `resolve_report`, `dismiss_report`, `reopen_report`. |
+
+Module-off on these ACP screens is HTTP **403**:
+“The Forum module is disabled. Enable it under Settings → Modules.”
 
 ### API (`AP_Forum_Moderation`)
 
@@ -238,7 +279,8 @@ skips ACL — installers / CLI / tests only).
 
 - Lock / unlock, set topic type
 - Soft-delete / restore / force-delete topics and posts
-- Move, merge, split topics
+- **Move, merge, split topics** — API only (`moveTopic` / `mergeTopics` /
+  `splitTopic`). Default Agora and the Topics screen do **not** expose these.
 - Reports (`reports` table): types `post` / `topic` / `user` / `message`;
   statuses `open` / `closed` / `dismissed`
 - Warnings (`warnings`): `active` / `expired` / `revoked`
@@ -289,17 +331,18 @@ ordinary groups.
 
 ### Access-level presets (Forums → Edit)
 
-ACP stores a preset plus an optional custom Guest / Registered / Moderator /
-Administrator matrix. Labels as built:
+Field `forum_access_level` on `forum-edit.php`. ACP stores a preset plus an
+optional custom Guest / Registered / Moderator / Administrator matrix.
+Labels as built (`AP_Forum_Permissions`):
 
-| Preset | Effect |
+| Preset (stored `forum_access_level`) | Effect |
 |--------|--------|
-| Public | Guests view/read; registered post/edit-own/attach; staff moderate |
-| Members only | Hidden from guests; registered post; staff moderate |
-| Read only (members) | Guests and members view/read only; only staff post |
-| Moderators only | Hidden from guests and ordinary members |
-| Administrators only | Administrators only |
-| Custom | Per-level checkboxes for every permission |
+| Public (`public`) | Guests view/read; registered post/edit-own/attach; staff moderate |
+| Members only (`members`) | Hidden from guests; registered post; staff moderate |
+| Read only (members) (`members_readonly`) | Guests and members view/read only; only staff post |
+| Moderators only (`moderators`) | Hidden from guests and ordinary members |
+| Administrators only (`administrators`) | Administrators only |
+| Custom (`custom`) | Per-level checkboxes for every permission |
 
 ### Resolution
 
@@ -317,10 +360,11 @@ need `view_forum`.
 
 Site-wide checkboxes on Settings → Forums
 (`forum_allow_guest_viewing` default **on**,
-`forum_allow_guest_posting` default **off**) are stored with the other
-forum options. Front create/reply and “can this visitor see this forum?”
-are resolved by the per-forum matrix above, not by a second permission
-system.
+`forum_allow_guest_posting` default **off**) are **stored**
+(`AP_Options::updateForumSettings()`). `AP_Forum_Permissions::userCan()`
+does **not** read them. Front create/reply and “can this visitor see this
+forum?” use the per-forum matrix above. Toggling those two checkboxes
+alone does not hide the board from guests or allow guest posting.
 
 Core roles that matter here: Administrator has `manage_forums` +
 `moderate_forums`; Editor has `moderate_forums`. Subscriber / Author /
@@ -344,9 +388,11 @@ Settings → Forums (and class defaults):
 | `forum_attachment_allowed_types` | `jpg,jpeg,png,gif,webp,pdf,txt,zip` |
 
 Class defaults **not** on that settings form: max **5** attachments per
-post (`forum_attachment_max_per_post`), per-user quota **10 MiB**
-(`forum_attachment_user_quota`, `0` = unlimited). Upload also needs
-`attach_files` on the forum and the Media allow-list / PHP size limits.
+post (`forum_attachment_max_per_post`,
+`AP_Forum_Attachment::DEFAULT_MAX_PER_POST`), per-user quota **10 MiB**
+(`forum_attachment_user_quota` = `10485760`, `0` = unlimited). Upload also
+needs `attach_files` on the forum and the Media allow-list / PHP size
+limits.
 
 Default Agora **new-topic / reply forms do not include a file input**.
 Attachments are an API (`ap_assign_forum_attachments`, …) plus the media
@@ -454,6 +500,12 @@ marked. Marks only move forward.
 Board-index rows expose `is_unread` for logged-in users (bulk
 `AP_Forum_Read::annotateForums()`, not per-forum queries).
 
+API also has `AP_Forum_Read::markForumRead()` /
+`markAllRead()` (helpers `ap_mark_forum_read()`,
+`ap_mark_all_forums_read()`). `markAllRead()` writes usermeta
+`forum_last_mark`. Default Agora **does not** ship a “Mark all as read”
+or “Mark forum read” control.
+
 ---
 
 ## Board stats
@@ -478,34 +530,44 @@ authored”, not the board total.
 ## Settings → Forums
 
 **URL:** `/ap-admin/options-forums.php` · **Cap:** `manage_options` ·
-**Module:** Forum must be on (otherwise the screen is denied).
+**Module:** Forum must be on (otherwise HTTP 403:
+“The Forum module is disabled. Enable it under Settings → Modules.”).
 
 Fieldsets as built: Display (topics/posts per page options), Guests,
 Features (PMs, search, who’s online, unread, signatures), Attachments,
 Moderation & anti-spam. Per-forum visibility is **not** on this screen —
-it is Forums → Edit.
+it is Forums → Edit (`forum_access_level`).
 
-Agora listing currently pages topic lists and topic views at **20** items
-(`AP_Forum_Front` and theme helpers). Plugins may change that with filters
-`ap_forum_topics_per_page` and `ap_forum_posts_per_page` (clamped 1–100).
-The Display options are stored (`forum_topics_per_page` default 20,
-`forum_posts_per_page` default 15).
+Agora’s front (`AP_Forum_Front::topicsForQuery()` /
+`postsForQuery()`, unread mark-on-view) pages at **20** regardless of the
+stored Display options. Changing **Topics per page** /
+**Posts per page** on this screen does **not** change default Agora
+listing. Plugins may hook `ap_forum_topics_per_page` and
+`ap_forum_posts_per_page` (clamped 1–100). The options are still stored
+(`forum_topics_per_page` default 20, `forum_posts_per_page` default 15).
 
 ---
 
 ## REST and CLI
 
-When `rest_api_enabled` is on ([rest.md](rest.md)):
+When `rest_api_enabled` is on ([rest.md](rest.md)). Routes are always
+registered; handlers 404 when the module is off.
 
-| Method | Route | When the Forum module is off |
-|--------|-------|------------------------------|
-| `GET` | `/ap-json/ap/v1/forums` and `/forums/{id}` | JSON **404** `rest_module_disabled` |
-| `GET` | `/ap-json/ap/v1/topics` and `/topics/{id}` | same |
+| Method | Route | As built |
+|--------|-------|----------|
+| `GET` | `/ap-json/ap/v1/forums` | Open rows only (`AP_Forum::getForums(['status' => 'open'])`) — categories, forums, and links with `forum_status=open`. Closed and hidden omitted. |
+| `GET` | `/ap-json/ap/v1/forums/{id}` | One forum by id. **No** ACL. Missing → `rest_forum_invalid_id`. Hidden/closed still returned if the row exists. |
+| `GET` | `/ap-json/ap/v1/topics` | `forum` / `forum_id` lists that forum’s **open** topics; without it, approved topics via `AP_Forum::queryTopics`. `page` default 1, `per_page` default **20** (max 100). |
+| `GET` | `/ap-json/ap/v1/topics/{id}` | One topic by id (`AP_Forum::getTopic` — no status filter). Missing → `rest_topic_invalid_id`. |
 
-List handlers are public (`permission_callback` always true). Payload is
-id / name / slug / counts / link (forums) and id / forum / title / status /
-type / author / views / link (topics). There is **no** REST create/reply/
-like/moderate.
+When the Forum module is off, those handlers return JSON **404**
+`rest_module_disabled` with message `Forum module is disabled.`
+
+`permission_callback` is always true (public). Forum payload:
+`id`, `name`, `slug`, `description`, `parent`, `type`, `status`,
+`topic_count`, `post_count`, `link`. Topic payload: `id`, `forum`,
+`title`, `slug`, `status`, `type`, `author`, `post_count`, `views`,
+`link`, `date`. There is **no** REST create/reply/like/moderate/PM.
 
 There is **no** `php ap-cli forum` (or topic/post-in-forum) command group.
 Toggle the module with `php ap-cli option get|set ap_module_forum`.
@@ -519,11 +581,11 @@ Option `ap_module_forum` = `0`:
 | Surface | Behavior |
 |---------|----------|
 | ACP sidebar | Forums, Topics, Moderation, Groups, Settings → Forums **hidden** |
-| ACP entry scripts | `AP_Admin::denyAccess('The Forum module is disabled…')` |
-| Front `/forums/` (and other forum views) | Query flag `ap_forum_disabled`. Agora renders the forum template with empty state “The forum module is currently disabled.” — **not** a hard 404 on the index |
+| ACP entry scripts | HTTP **403** `AP_Admin::denyAccess('The Forum module is disabled. Enable it under Settings → Modules.')` |
+| Front `/forums/` (and other forum views) | Query flag `ap_forum_disabled`. Agora empty state “The forum module is currently disabled.” — **not** a hard 404 on the index |
 | Unknown forum/topic slug | `ap_forum_not_found` + `is_404` (same as when the module is on) |
 | POST create/reply/like/… | Notice “The forum module is disabled.” |
-| REST forum/topic handlers | **404** `rest_module_disabled` (route still registered) |
+| REST forum/topic handlers | **404** `rest_module_disabled` (`Forum module is disabled.`; route still registered) |
 | PMs, unread, online | `isAvailable()` is false |
 | Sitemap `forums` provider | Omitted |
 
@@ -567,10 +629,17 @@ Do not tell operators these exist in AgoraPress core:
 
 - A `php ap-cli forum` (or PM / like / moderate) verb
 - REST write endpoints for topics, replies, likes, or PMs
+- REST list of closed or hidden forums (`GET /forums` is `status=open` only)
 - A shipped Agora inbox / compose page or `/messages/` rewrite
 - A “Who’s online” block on the default board index (tracking API only)
+- A “Mark all as read” / “Mark forum read” button on default Agora
 - A file picker on the default new-topic / reply composer
 - A front-end “Report post” button (ACP reports queue exists)
+- ACP move / merge / split (those exist on `AP_Forum_Moderation` only)
+- A Settings → Forums guest checkbox that bypasses per-forum ACL (the
+  two guest options are stored; `userCan()` does not read them)
+- Display options on Settings → Forums driving Agora’s 20-item paging
+  (filters `ap_forum_topics_per_page` / `ap_forum_posts_per_page` do)
 - Ranks UI, polls, bookmarks, custom BBCode packs, or phpBB style
   download
 - Forum ACL applied to blog posts or static pages

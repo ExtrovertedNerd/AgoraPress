@@ -169,6 +169,29 @@ final class DocsPresenceTest extends TestCase
         );
         $this->assertStringContainsStringIgnoringCase('never write', $text);
         $this->assertStringContainsStringIgnoringCase('not in core', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+How to use these docs\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Public-safe rule\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Do not invent surfaces\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+When to say \*\*not in core\*\*\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Diagnose from generic symptoms\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+File a Heph bug\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\s+Close the customer loop\s*$/', $text);
+        $this->assertStringContainsStringIgnoringCase('README.md', $text);
+        $this->assertStringContainsString('troubleshooting.md', $text);
+        $this->assertStringContainsStringIgnoringCase('registry name **AgoraPress**', $text);
+        $this->assertStringContainsString('agent_api.md', $text);
+        $this->assertStringContainsStringIgnoringCase('do not duplicate', $text);
+        $this->assertStringContainsStringIgnoringCase('job id', $text);
+        $this->assertStringContainsStringIgnoringCase('HaulTN', $text);
+        $this->assertStringContainsStringIgnoringCase('Gutenberg', $text);
+        $this->assertStringContainsStringIgnoringCase('AP_TELEMETRY', $text);
+        foreach (self::PRIVATE_MARKERS as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/bot_handbook.md must not contain private marker: {$banned}"
+            );
+        }
     }
 
     public function testRewritesDocContainsShippedTryFilesPattern(): void
@@ -184,6 +207,74 @@ final class DocsPresenceTest extends TestCase
             $text,
             'docs/rewrites.md should quote docker/nginx.conf.example including $args'
         );
+
+        $nginxPath = $this->root . '/docker/nginx.conf.example';
+        $htPath = $this->root . '/.htaccess';
+        $this->assertFileIsReadable($nginxPath);
+        $this->assertFileIsReadable($htPath);
+        $nginx = (string) file_get_contents($nginxPath);
+        $htaccess = (string) file_get_contents($htPath);
+
+        $this->assertStringContainsString('try_files $uri $uri/ /index.php?$args;', $nginx);
+        $this->assertStringContainsString('try_files $uri $uri/ /index.php?$args;', $text);
+        $this->assertStringContainsString('RewriteCond %{REQUEST_FILENAME} !-f', $htaccess);
+        $this->assertStringContainsString('RewriteCond %{REQUEST_FILENAME} !-f', $text);
+        $this->assertStringContainsString('RewriteRule . /index.php [L]', $htaccess);
+        $this->assertStringContainsString('RewriteRule . /index.php [L]', $text);
+        $this->assertStringContainsString('favicon.ico', $htaccess);
+        $this->assertStringContainsString('favicon.ico', $text);
+        $this->assertStringContainsStringIgnoringCase('php ap-cli rewrite flush', $text);
+        $this->assertStringContainsStringIgnoringCase('does **not** write', $text);
+        $this->assertStringContainsString('?p=', $text);
+        $this->assertStringContainsString('?page_id=', $text);
+        $this->assertStringContainsString('/slug/', $text);
+        $this->assertStringContainsStringIgnoringCase('/YYYY/MM/DD/', $text);
+    }
+
+    /**
+     * SPEC: updates.md names version.json, one-click Update Core (no site
+     * identity), package-release.php, check-update / db migrate, and the
+     * skip list from AP_Core_Updater.
+     */
+    public function testUpdatesDocCoversPreserveListAndPublicEndpoint(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-version-check.php';
+        require_once $this->root . '/ap-includes/class-ap-core-updater.php';
+
+        $text = $this->readDoc('updates.md');
+        $this->assertStringContainsString(\AP_Version_Check::DEFAULT_ENDPOINT, $text);
+        $this->assertStringContainsStringIgnoringCase('Tools → Update Core', $text);
+        $this->assertStringContainsStringIgnoringCase('no site identity', $text);
+        $this->assertStringContainsString('php bin/package-release.php', $text);
+        $this->assertStringContainsString('php ap-cli core check-update', $text);
+        $this->assertStringContainsString('php ap-cli db migrate', $text);
+        $this->assertStringContainsStringIgnoringCase('php ap-cli core update', $text);
+        $this->assertStringContainsStringIgnoringCase('not in core', $text);
+
+        foreach (\AP_Core_Updater::PRESERVE_EXACT as $path) {
+            $this->assertStringContainsString(
+                $path,
+                $text,
+                "docs/updates.md must name preserve path {$path}"
+            );
+        }
+        foreach (
+            [
+                'install/',
+                'ap-content/uploads/',
+                'ap-content/plugins/',
+                'ap-content/mu-plugins/',
+            ] as $path
+        ) {
+            $this->assertStringContainsString(
+                $path,
+                $text,
+                "docs/updates.md must name skip path {$path}"
+            );
+        }
+        $this->assertStringContainsString('ap-content/themes/agora', $text);
+        $this->assertStringContainsString('VersionCheck; no-site-id', $text);
+        $this->assertStringContainsString('CoreUpdater; no-site-id', $text);
     }
 
     public function testCliDocNamesEveryBuiltinCommandGroup(): void
@@ -200,6 +291,414 @@ final class DocsPresenceTest extends TestCase
                 "docs/cli.md must name ap-cli group `{$group}` in the built-in table"
             );
         }
+    }
+
+    /**
+     * SPEC: cli.md is the cookbook for every built-in group, global flags,
+     * exit codes, local-file-only post --file, and create defaults.
+     */
+    public function testCliDocCookbookMatchesApCliAsBuilt(): void
+    {
+        $cli = $this->readDoc('cli.md');
+        $src = (string) file_get_contents($this->root . '/ap-includes/class-ap-cli.php');
+        $bootstrap = (string) file_get_contents($this->root . '/ap-includes/bootstrap.php');
+        $this->assertNotSame('', $src);
+        $this->assertNotSame('', $bootstrap);
+
+        $this->assertStringContainsString('AP_CLI_SKIP_PLUGINS', $bootstrap);
+        $this->assertStringNotContainsString('AP_CLI_SKIP_THEMES', $bootstrap);
+        $this->assertStringContainsString('AP_CLI_SKIP_THEMES', $src);
+        $this->assertStringContainsString('AP_CLI_SKIP_THEMES', $cli);
+        $this->assertStringContainsStringIgnoringCase('reserved', $cli);
+        $this->assertStringContainsString('AP_CLI_SKIP_PLUGINS', $cli);
+
+        foreach (
+            [
+                'EXIT_OK',
+                'EXIT_USAGE',
+                'EXIT_ERROR',
+                'EXIT_NOT_INSTALLED',
+                '--path',
+                '--url',
+                '--skip-plugins',
+                '--skip-themes',
+                'php ap-cli core update',
+                'php install/cli.php',
+                'AP_USER_PASSWORD',
+                'ap_cli_init',
+                'scheme://',
+                'remote URLs and stream wrappers are not allowed',
+                'draft',
+                'publish',
+                'check-update',
+                '--force',
+                'cron event list',
+                'cron event run',
+                'rewrite flush',
+                'site health',
+                'not in core',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $cli,
+                "docs/cli.md should mention: {$needle}"
+            );
+        }
+
+        $this->assertStringContainsString('always exits `0`', $cli);
+        $this->assertStringContainsString('Usage: option get <name>', $cli);
+        $this->assertStringContainsString('Option not found', $cli);
+        $this->assertStringContainsString('not reachable', $cli);
+        $this->assertStringContainsString('does **not** boot', $cli);
+        $this->assertStringContainsString('`--format=json` always exits `0`', $cli);
+        $this->assertStringContainsStringIgnoringCase('compact', $cli);
+        $this->assertStringContainsString('--theme=', $cli);
+        $this->assertStringContainsString('--key=', $cli);
+        $this->assertStringContainsString('check_update', $cli);
+
+        $this->assertStringContainsString('const EXIT_OK = 0', $src);
+        $this->assertStringContainsString('const EXIT_USAGE = 1', $src);
+        $this->assertStringContainsString('const EXIT_ERROR = 2', $src);
+        $this->assertStringContainsString('const EXIT_NOT_INSTALLED = 3', $src);
+        $this->assertStringContainsString("status = \$type === 'page' ? 'publish' : 'draft'", $src);
+        $this->assertStringContainsString('remote URLs and stream wrappers are not allowed', $src);
+        $this->assertStringContainsString('getenv(\'AP_USER_PASSWORD\')', $src);
+        $this->assertStringContainsString("return self::EXIT_OK;", $src);
+        $this->assertStringContainsString('JSON_PRETTY_PRINT', $src);
+    }
+
+    /**
+     * SPEC: admin.md maps /ap-admin/ as built (Phase 0 allowlist, zip
+     * installer pointer, Hall of Fame handshake, donation never a paywall).
+     */
+    public function testAdminDocMatchesAcpAsBuilt(): void
+    {
+        $text = $this->readDoc('admin.md');
+        $adminDir = $this->root . '/ap-admin';
+        $this->assertDirectoryExists($adminDir);
+
+        $chrome = [
+            'admin-bootstrap.php',
+            'admin-header.php',
+            'admin-footer.php',
+        ];
+        $entryScripts = glob($adminDir . '/*.php') ?: [];
+        $this->assertNotSame([], $entryScripts, 'ap-admin/ should contain entry scripts');
+        foreach ($entryScripts as $path) {
+            $basename = basename($path);
+            if (in_array($basename, $chrome, true)) {
+                continue;
+            }
+            $this->assertStringContainsString(
+                $basename,
+                $text,
+                "docs/admin.md must name ACP entry script {$basename}"
+            );
+        }
+
+        $adminSrc = (string) file_get_contents($adminDir . '/includes/class-ap-admin.php');
+        $this->assertNotSame('', $adminSrc);
+        $this->assertStringContainsString("'index.php' => 'read'", $adminSrc);
+        preg_match_all("/'([a-z0-9.-]+\\.php)' => '/", $adminSrc, $capMatches);
+        $this->assertNotSame([], $capMatches[1], 'AP_Admin::screenCapabilities() keys should parse');
+        foreach ($capMatches[1] as $basename) {
+            $this->assertStringContainsString(
+                $basename,
+                $text,
+                "docs/admin.md must name screenCapabilities key {$basename}"
+            );
+        }
+
+        require_once $this->root . '/ap-includes/class-ap-hall-of-fame.php';
+        require_once $this->root . '/ap-includes/class-ap-plugin-installer.php';
+        require_once $this->root . '/ap-includes/class-ap-admin-menu.php';
+        require_once $this->root . '/ap-admin/includes/class-ap-admin-analytics.php';
+
+        $this->assertStringContainsString(\AP_Hall_Of_Fame::DEFAULT_ENDPOINT, $text);
+        $this->assertStringContainsString(\AP_Hall_Of_Fame::DONATION_URL, $text);
+        $this->assertStringContainsString(\AP_Hall_Of_Fame::PUBLIC_PAGE_URL, $text);
+        $this->assertStringContainsString(\AP_Hall_Of_Fame::OPTION_STATUS, $text);
+        $this->assertStringContainsString(\AP_Hall_Of_Fame::NONCE_JOIN, $text);
+        $this->assertStringContainsString(\AP_Hall_Of_Fame::NONCE_LEAVE, $text);
+        $this->assertStringContainsString(\AP_Hall_Of_Fame::NONCE_DISMISS, $text);
+        $this->assertFalse(\AP_Hall_Of_Fame::usesInstallerPings());
+        $this->assertStringContainsString('usesInstallerPings', $text);
+
+        $this->assertSame(41943040, \AP_Plugin_Installer::DEFAULT_MAX_BYTES);
+        $this->assertStringContainsString('40 MiB', $text);
+        $this->assertStringContainsString('plugin-upload', $text);
+        $this->assertSame('manage_options', \AP_Admin_Menu::DEFAULT_CAPABILITY);
+        $this->assertContains('settings', \AP_Admin_Menu::allowedParents());
+        $this->assertContains('plugins', \AP_Admin_Menu::allowedParents());
+        $this->assertContains('tools', \AP_Admin_Menu::allowedParents());
+        $this->assertSame('manage_options', \AP_Admin_Analytics::CAPABILITY);
+        $this->assertSame(30, \AP_Admin_Analytics::DEFAULT_DAYS);
+        $this->assertSame([7, 14, 30, 90], \AP_Admin_Analytics::ALLOWED_DAYS);
+
+        foreach (
+            [
+                'user-edit.php?user_id=',
+                'The requested admin page was not found.',
+                'Read only (members)',
+                'AP_ADMIN',
+                'ap_admin_menu',
+                'admin_menu',
+                'maybeQueueAdminNotice',
+                'noindex, nofollow',
+                'blog_public',
+                'sitemap_enabled',
+                'open_graph_enabled',
+                'phpbb-json',
+                'phpbb-db',
+                'paywall',
+                'not in core',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/admin.md should mention: {$needle}"
+            );
+        }
+    }
+
+    /**
+     * SPEC: forums.md is the operator + integrator guide for the first-class
+     * forum module as built (hierarchy, types, ACL, PMs, module-off).
+     */
+    public function testForumsDocMatchesModuleAsBuilt(): void
+    {
+        $text = $this->readDoc('forums.md');
+        $includes = $this->root . '/ap-includes';
+
+        $frontConsts = $this->phpStringConsts($includes . '/class-ap-forum-front.php');
+        foreach ($frontConsts as $name => $value) {
+            if (str_starts_with($name, 'ACTION_')) {
+                $this->assertStringContainsString(
+                    $value,
+                    $text,
+                    "docs/forums.md must name AP_Forum_Front::{$name} ({$value})"
+                );
+            }
+        }
+
+        $permConsts = $this->phpStringConsts($includes . '/class-ap-forum-permissions.php');
+        foreach ($permConsts as $name => $value) {
+            if (str_starts_with($name, 'PERM_') || str_starts_with($name, 'ACCESS_')) {
+                $this->assertStringContainsString(
+                    $value,
+                    $text,
+                    "docs/forums.md must name AP_Forum_Permissions::{$name} ({$value})"
+                );
+            }
+        }
+
+        $forumConsts = $this->phpStringConsts($includes . '/class-ap-forum.php');
+        $skipTopicAliases = [
+            'TOPIC_TYPE_NORMAL' => true,
+            'TOPIC_TYPE_ANNOUNCE' => true,
+            'TOPIC_TYPE_GLOBAL' => true,
+        ];
+        foreach ($forumConsts as $name => $value) {
+            if (
+                str_starts_with($name, 'FORUM_TYPE_')
+                || str_starts_with($name, 'FORUM_STATUS_')
+                || str_starts_with($name, 'TOPIC_TYPE_')
+            ) {
+                if (isset($skipTopicAliases[$name])) {
+                    continue;
+                }
+                $this->assertStringContainsString(
+                    $value,
+                    $text,
+                    "docs/forums.md must name AP_Forum::{$name} ({$value})"
+                );
+            }
+        }
+
+        $groupConsts = $this->phpStringConsts($includes . '/class-ap-group.php');
+        foreach ($groupConsts as $name => $value) {
+            if (str_starts_with($name, 'SLUG_')) {
+                $this->assertStringContainsString(
+                    $value,
+                    $text,
+                    "docs/forums.md must name AP_Group::{$name} ({$value})"
+                );
+            }
+        }
+
+        $onlineConsts = $this->phpStringConsts($includes . '/class-ap-online.php');
+        $this->assertArrayHasKey('GUEST_COOKIE', $onlineConsts);
+        $this->assertStringContainsString($onlineConsts['GUEST_COOKIE'], $text);
+        $onlineInts = $this->phpIntConsts($includes . '/class-ap-online.php');
+        $this->assertStringContainsString((string) $onlineInts['DEFAULT_WINDOW'], $text);
+        $this->assertStringContainsString((string) $onlineInts['MIN_WINDOW'], $text);
+        $this->assertStringContainsString((string) $onlineInts['MAX_WINDOW'], $text);
+
+        $readConsts = $this->phpStringConsts($includes . '/class-ap-forum-read.php');
+        $this->assertStringContainsString($readConsts['META_LAST_MARK'], $text);
+        $this->assertStringContainsString($readConsts['OPTION_ENABLED'], $text);
+
+        $guardInts = $this->phpIntConsts($includes . '/class-ap-forum-guard.php');
+        $this->assertStringContainsString((string) $guardInts['DEFAULT_FLOOD_INTERVAL'], $text);
+        $this->assertStringContainsString((string) $guardInts['DEFAULT_SPAM_MAX_LINKS'], $text);
+
+        $attachInts = $this->phpIntConsts($includes . '/class-ap-forum-attachment.php');
+        $this->assertStringContainsString((string) $attachInts['DEFAULT_MAX_SIZE'], $text);
+        $this->assertStringContainsString((string) $attachInts['DEFAULT_MAX_PER_POST'], $text);
+        $this->assertStringContainsString((string) $attachInts['DEFAULT_USER_QUOTA'], $text);
+
+        $restSrc = (string) file_get_contents($includes . '/class-ap-rest.php');
+        $this->assertNotSame('', $restSrc);
+        $this->assertSame(1, preg_match(
+            '/public static function prepareForum\(.*?\n        return \[(.*?)\n        \];/s',
+            $restSrc,
+            $forumPayload
+        ));
+        $this->assertSame(1, preg_match(
+            '/public static function prepareTopic\(.*?\n        return \[(.*?)\n        \];/s',
+            $restSrc,
+            $topicPayload
+        ));
+        preg_match_all("/'([a-z_]+)'\s*=>/", $forumPayload[1], $forumKeys);
+        preg_match_all("/'([a-z_]+)'\s*=>/", $topicPayload[1], $topicKeys);
+        foreach ($forumKeys[1] as $key) {
+            $this->assertStringContainsString(
+                '`' . $key . '`',
+                $text,
+                "docs/forums.md must name REST forum payload key {$key}"
+            );
+        }
+        foreach ($topicKeys[1] as $key) {
+            $this->assertStringContainsString(
+                '`' . $key . '`',
+                $text,
+                "docs/forums.md must name REST topic payload key {$key}"
+            );
+        }
+
+        $admin = $this->root . '/ap-admin';
+        foreach ($this->phpActionAllowlist($admin . '/forum-topics.php') as $action) {
+            $this->assertStringContainsString(
+                '`' . $action . '`',
+                $text,
+                "docs/forums.md must name Topics row action {$action}"
+            );
+        }
+        foreach ($this->phpActionAllowlist($admin . '/forum-moderation.php') as $action) {
+            $this->assertStringContainsString(
+                '`' . $action . '`',
+                $text,
+                "docs/forums.md must name Moderation row action {$action}"
+            );
+        }
+
+        $deny = 'The Forum module is disabled. Enable it under Settings → Modules.';
+        $this->assertStringContainsString($deny, $text);
+        foreach (
+            [
+                'forums.php',
+                'forum-topics.php',
+                'forum-moderation.php',
+                'forum-groups.php',
+                'options-forums.php',
+            ] as $script
+        ) {
+            $src = (string) file_get_contents($admin . '/' . $script);
+            $this->assertStringContainsString(
+                $deny,
+                $src,
+                "{$script} should deny with the documented Forum-module-off message"
+            );
+        }
+
+        $functions = (string) file_get_contents($includes . '/functions.php');
+        $this->assertSame(1, preg_match(
+            '/function ap_forum_empty_state_html.*?\n    \$allowed = \[(.*?)\];/s',
+            $functions,
+            $emptyMatch
+        ));
+        preg_match_all("/'([a-z_]+)'/", $emptyMatch[1], $kinds);
+        foreach ($kinds[1] as $kind) {
+            $this->assertStringContainsString(
+                '`' . $kind . '`',
+                $text,
+                "docs/forums.md must name empty-state kind {$kind}"
+            );
+        }
+
+        foreach (
+            [
+                'forum_access_level',
+                'rest_forum_invalid_id',
+                'rest_topic_invalid_id',
+                'Forum module is disabled.',
+                'ap_forum_notice',
+                'ap_mark_all_forums_read',
+                'does **not** read',
+                'Mark all as read',
+                'status=open',
+                'not in core',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/forums.md should mention: {$needle}"
+            );
+        }
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function phpStringConsts(string $path): array
+    {
+        $this->assertFileIsReadable($path);
+        $src = (string) file_get_contents($path);
+        preg_match_all("/public const ([A-Z0-9_]+) = '([^']+)'/", $src, $matches, PREG_SET_ORDER);
+        $out = [];
+        foreach ($matches as $row) {
+            $out[$row[1]] = $row[2];
+        }
+        $this->assertNotSame([], $out, 'No string constants in ' . basename($path));
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function phpIntConsts(string $path): array
+    {
+        $this->assertFileIsReadable($path);
+        $src = (string) file_get_contents($path);
+        preg_match_all('/public const ([A-Z0-9_]+) = (\d+)/', $src, $matches, PREG_SET_ORDER);
+        $out = [];
+        foreach ($matches as $row) {
+            $out[$row[1]] = (int) $row[2];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function phpActionAllowlist(string $path): array
+    {
+        $this->assertFileIsReadable($path);
+        $src = (string) file_get_contents($path);
+        $this->assertSame(
+            1,
+            preg_match('/in_array\(\$rowAction, \[(.*?)\], true\)/s', $src, $match),
+            'row-action allowlist not found in ' . basename($path)
+        );
+        preg_match_all("/'([a-z_]+)'/", $match[1], $names);
+        $this->assertNotSame([], $names[1], 'No row actions in ' . basename($path));
+
+        return $names[1];
     }
 
     public function testCatalogOrLinkedGuidesMentionRequiredTokens(): void
@@ -425,6 +924,9 @@ final class DocsPresenceTest extends TestCase
         $this->assertStringContainsString('AP_TELEMETRY', $security);
         $this->assertStringContainsStringIgnoringCase('no telemetry', $security);
         $this->assertStringContainsString('no-site-id', $security);
+        $this->assertStringContainsString('view_site_health', $security);
+        $this->assertStringContainsString('session.save_path', $security);
+        $this->assertStringContainsStringIgnoringCase('php-fpm', $security);
 
         $editor = $this->readDoc('editor.md');
         $this->assertStringContainsStringIgnoringCase('Gutenberg', $editor);

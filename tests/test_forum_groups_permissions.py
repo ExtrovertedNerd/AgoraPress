@@ -75,8 +75,49 @@ def test_group_class_api() -> None:
         "SLUG_REGISTERED",
         "SLUG_ADMINISTRATORS",
         "SLUG_GLOBAL_MODERATORS",
+        "TYPE_OPEN",
+        "TYPE_CLOSED",
+        "TYPE_HIDDEN",
+        "TYPE_SYSTEM",
+        "exclude_system",
+        "function query",
+        "function count",
     ):
         assert needle in src, f"Expected {needle} in AP_Group"
+
+
+def test_named_groups_already_exist_groups_acp_is_forum_groups() -> None:
+    """Named groups + Groups ACP already ship. Do not invent a second Groups ACP."""
+    admin = ROOT / "ap-admin"
+    assert (admin / "forum-groups.php").is_file()
+    assert (admin / "includes" / "class-ap-admin-forum-groups.php").is_file()
+    group_screens = sorted(p.name for p in admin.glob("*group*"))
+    assert group_screens == ["forum-groups.php"], group_screens
+    assert not (admin / "groups.php").exists()
+    assert not (admin / "options-groups.php").exists()
+    assert not (admin / "user-groups.php").exists()
+
+    groups_src = (admin / "includes" / "class-ap-admin-forum-groups.php").read_text(
+        encoding="utf-8"
+    )
+    for needle in ("TYPE_OPEN", "TYPE_CLOSED", "TYPE_HIDDEN", "addMember"):
+        assert needle in groups_src, f"Expected {needle} in Groups ACP"
+
+    edit_src = (admin / "includes" / "class-ap-admin-forum-edit.php").read_text(
+        encoding="utf-8"
+    )
+    assert "This group only" not in edit_src
+    assert "exclude_system" not in edit_src
+
+    perm_src = PERM_CLASS.read_text(encoding="utf-8")
+    assert "ACCESS_PUBLIC" in perm_src
+    assert "ACCESS_MEMBERS" in perm_src
+    assert "ACCESS_GROUP" not in perm_src
+
+    phpunit = ROOT / "tests" / "Forum" / "ForumGroupsPermissionsTest.php"
+    phpunit_src = phpunit.read_text(encoding="utf-8")
+    assert "testNamedGroupTypesAndExcludeSystemQuery" in phpunit_src
+    assert "testGroupsAcpAlreadyExistsAndForumEditDoesNotInventOne" in phpunit_src
 
 
 def test_permissions_class_api() -> None:

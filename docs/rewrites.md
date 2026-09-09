@@ -72,6 +72,13 @@ no extra path) they are the whole request. On a pretty path they overlay only
 when the path did not already set the same var. Bookmarks and plugins that
 link `?p=123` keep working.
 
+Plain mode **ignores the path** except for `/ap-json/…`, `/sitemap.xml`, and
+`/robots.txt` (those three are matched even when `permalink_structure` is
+empty). With a working front controller and Plain permalinks, `/about/` still
+reaches `index.php` but AgoraPress treats it as the front page — query-string
+vars only. Turn a pretty structure on (and flush) before you expect `/slug/`
+or `/YYYY/MM/DD/slug/` to resolve.
+
 Plain-mode equivalents (when the structure is empty):
 
 | Resource | Query |
@@ -135,7 +142,27 @@ Optional bases (empty → defaults):
 | `category_base` | `category` | `/category/{slug}/` |
 | `tag_base` | `tag` | `/tag/{slug}/` |
 
-Other pretty paths `AP_Rewrite` generates when the structure is non-empty:
+`AP_Rewrite::generateRules()` covers **category** and **post_tag** archives
+only. Custom-taxonomy term links may be built as `/{taxonomy}/{slug}/`, but
+there is no matching parse rule in core — that path is treated as a
+hierarchical page (`pagename`), not a term archive.
+
+### Paths matched even when pretty permalinks are off
+
+PHP still recognizes these **even when `permalink_structure` is empty**, but
+the web server still has to hand them to `index.php`. Without a front
+controller they 404 like any other pretty URL.
+
+| Path | Query-string equivalent | Meaning |
+|------|-------------------------|---------|
+| `/ap-json/` · `/ap-json/ap/v1/…` | `?rest_route=/` · `?rest_route=/ap/v1/…` | REST ([rest.md](rest.md)). Generated links use `/ap-json/` only after pretty permalinks are on. |
+| `/sitemap.xml` · `/sitemap-{type}.xml` | `?sitemap=index` | XML sitemap |
+| `/robots.txt` | `?robots=1` | robots.txt |
+
+### Paths that need a non-empty structure
+
+`AP_Rewrite` generates these rules only when `permalink_structure` is
+non-empty (after a flush). On Plain they do **not** resolve from the path.
 
 | Path | Meaning |
 |------|---------|
@@ -143,14 +170,19 @@ Other pretty paths `AP_Rewrite` generates when the structure is non-empty:
 | `/search/{query}/` | Search |
 | `/feed/` · `/feed/atom/` | Site feeds |
 | `/page/2/` | Blog index pagination |
-| `/forums/` · `/forums/{slug}/` · `/topic/{slug}/` | Forum front (see [forums.md](forums.md)) |
-| `/ap-json/` · `/ap-json/ap/v1/…` | REST (see [rest.md](rest.md)) |
+| `/forums/` · `/forums/{slug}/` · `/topic/{slug}/` · `/forums/search/` | Forum front ([forums.md](forums.md)) |
 
-`/sitemap.xml` and `/robots.txt` are recognized **even when pretty
-permalinks are off** — crawlers expect those paths — but the web server still
-has to hand them to `index.php`. Without a front controller they 404 like any
-other pretty URL. Query-string forms `?sitemap=index` and `?robots=1` also
-work.
+---
+
+## Apache vs Nginx
+
+| | Apache | Nginx |
+|--|--------|-------|
+| Shipped file | [`.htaccess`](../.htaccess) (keep it in the document root) | [`docker/nginx.conf.example`](../docker/nginx.conf.example) (example only) |
+| Front controller | `RewriteCond %{REQUEST_FILENAME} !-f` / `!-d`, then `RewriteRule . /index.php [L]` | `try_files $uri $uri/ /index.php?$args;` |
+| Reads `.htaccess` | Yes, when the vhost allows it (`AllowOverride All`) | **No** — put `try_files` in the server block |
+| Docker Compose in this repo | Yes — [`docker/apache-vhost.conf`](../docker/apache-vhost.conf) | No (Compose is Apache) |
+| Static root `favicon.ico` | Left alone (`!-f`) | Left alone (`$uri` first) |
 
 ---
 
@@ -245,7 +277,10 @@ reads `REQUEST_URI` (for example `/2026/08/03/hello-world/`) and
 ### Why missing `try_files` 404s pretty URLs
 
 Nginx does not read `.htaccess`. If the server block only has
-`index index.php` and no `try_files` (or equivalent) fall-through:
+`index index.php` and no `try_files` (or equivalent) fall-through, pretty
+paths never reach `index.php`. The table below assumes a pretty
+`permalink_structure` is already saved. On Plain, `/about/` with `try_files`
+still reaches PHP but does **not** resolve the page (query-string vars only).
 
 | Request | Result without `try_files` | Result with shipped `try_files` |
 |---------|----------------------------|----------------------------------|
@@ -295,6 +330,10 @@ also flushes). Prints `Rewrite rules flushed (N rule(s)).` Exit `0` on
 success. Unknown subcommand: usage text, exit `1`. Needs an installed site
 (`ap-config.php`); otherwise `ap-cli` exits `3`.
 
+On Plain permalinks, `generateRules()` returns an empty list and CLI prints
+`Rewrite rules flushed (0 rule(s)).` That is expected: there is nothing to
+store until the structure is non-empty.
+
 `php ap-cli rewrite flush` does **not** reload Apache or Nginx. If pretty
 URLs 404, fix the vhost / `.htaccess` / `try_files` first.
 
@@ -322,6 +361,8 @@ default. Details: [site-icon.md](site-icon.md).
 - Trailing-slash canonical redirects as a separate feature (pretty
   structures are stored and generated **with** a trailing slash)
 - A Site Health check that probes `mod_rewrite` or `try_files`
+- Custom-taxonomy pretty archives (`generateRules()` has category and
+  `post_tag` only)
 
 If those surfaces are not in this guide and not in the shipped files, they
 are **not in core**.

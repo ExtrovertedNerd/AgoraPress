@@ -13,12 +13,15 @@ the shipped code, say it is **not in core**.
 `ap-includes/class-ap-rewrite.php`, `ap-includes/class-ap-rest.php`,
 `ap-includes/class-ap-options.php`, `ap-includes/class-ap-media.php`,
 `ap-includes/class-ap-session.php`, `ap-includes/class-ap-site-health.php`,
-`ap-includes/class-ap-user.php`, `ap-includes/functions.php`
+`ap-includes/class-ap-user.php`, `ap-includes/class-ap-core-updater.php`,
+`ap-includes/class-ap-rate-limit.php`, `ap-includes/functions.php`
 (`ap_handle_comment_form_post`), `ap-admin/user-edit.php`,
-`ap-admin/admin-header.php`, `ap-admin/options-modules.php`,
-`ap-admin/options-permalink.php`, `ap-includes/compatibility/`,
+`ap-admin/admin-header.php`, `ap-admin/login.php`,
+`ap-admin/options-modules.php`, `ap-admin/options-permalink.php`,
+`ap-admin/site-health.php`, `ap-includes/compatibility/`,
 [`.htaccess`](../.htaccess),
-[`docker/nginx.conf.example`](../docker/nginx.conf.example).
+[`docker/nginx.conf.example`](../docker/nginx.conf.example),
+[`docker/apache-vhost.conf`](../docker/apache-vhost.conf).
 
 Generic examples only (`example.com`, `localhost`, `admin@example.com`,
 `/var/www/agorapress`). Document **mechanisms**, not a private install.
@@ -27,18 +30,20 @@ Generic examples only (`example.com`, `localhost`, `admin@example.com`,
 
 ## First: Tools → Site Health
 
-Before guessing, run **Tools → Site Health** (`/ap-admin/site-health.php`)
-or:
+Before guessing, run **Tools → Site Health** (`/ap-admin/site-health.php`,
+cap `view_site_health`; `manage_options` is accepted as a fallback) or:
 
 ```bash
 php ap-cli site health
 ```
 
-That surface already checks PHP/extensions, writable paths (including
-`ap-content/uploads/`), the database, schema vs `AP_DB_VERSION`, salts,
-`AP_DEBUG`, HTTPS, admin email, privacy policy, modules, pending
-migrations, and a cached core-update notice. It does **not** probe
-`mod_rewrite` or nginx `try_files` — those are host configuration.
+That surface already checks PHP/extensions and writable paths (including
+`ap-content/uploads/`), the database, schema vs `AP_DB_VERSION` (pending
+migrations are **critical**), salts, `AP_DEBUG`, telemetry absence, HTTPS,
+admin email, privacy policy, modules, a cached core-update notice, object
+and page cache drop-ins, autoloaded options, PHP memory, and disk space.
+It does **not** probe `mod_rewrite` or nginx `try_files` — those are host
+configuration.
 
 ---
 
@@ -46,13 +51,15 @@ migrations, and a cached core-update notice. It does **not** probe
 
 | Symptom | First check | Then |
 |---------|-------------|------|
-| Pretty URL 404 (`/slug/`, `/YYYY/MM/DD/slug/`) while `?p=` still works | Front controller missing: Apache `mod_rewrite` + shipped [`.htaccess`](../.htaccess), or nginx `try_files $uri $uri/ /index.php?$args` | [rewrites.md](rewrites.md). Flush only after the web server reaches `index.php`. |
-| Web installer “security token” / CSRF failure, or the database step is forgotten after POST | PHP `session.save_path` not writable by the **php-fpm** (or Apache PHP) user | [security.md](security.md#php-sessionsave_path), [install.md](install.md#permissions) |
+| Pretty URL 404 (`/slug/`, `/YYYY/MM/DD/slug/`) while `?p=` still works | Front controller missing: Apache `mod_rewrite` + shipped [`.htaccess`](../.htaccess), or nginx `try_files $uri $uri/ /index.php?$args` | [rewrites.md](rewrites.md). Flush only after the web server reaches `index.php`. If `/about/` shows the **home page**, permalinks are still **Plain**. |
+| Web installer “Invalid security token”, or you bounce back to requirements after POST | PHP `session.save_path` not writable by the **php-fpm** (or Apache PHP) user | [security.md](security.md#php-sessionsave_path), [install.md](install.md#web-installer) |
 | Media upload or Site Icon fails | `ap-content/uploads/` (and year/month subdirs) must be writable by PHP; Site Icon also needs **GD or Imagick** and a raster image | [install.md](install.md#permissions), [site-icon.md](site-icon.md) |
-| Forum / blog / pages “missing” from menus or the front | **Settings → Modules** (`options-modules.php`). Options `ap_module_static_pages`, `ap_module_blog`, `ap_module_forum` | At least one module must stay on. |
+| Forum / blog / pages “missing” from menus or ACP | **Settings → Modules** (`options-modules.php`). Options `ap_module_static_pages`, `ap_module_blog`, `ap_module_forum` | At least one module must stay on. Front `/forums/` is an empty state, not a web-server 404. |
 | Classic WP theme looks broken | Compat layer is for **classic PHP** themes. Block / FSE (`theme.json`, HTML under `templates/`) is out of scope | [compatibility.md](compatibility.md) |
 | REST 404 on `/ap-json/` or `?rest_route=` | Front controller (pretty `/ap-json/…`) **and** option `rest_api_enabled` | Distinguish a web-server HTML 404 from JSON `rest_disabled` / `rest_no_route` / `rest_module_disabled`. [rest.md](rest.md) |
 | Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.6-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
+| Login rejected / “too many attempts” / “verify your email” | Rate limit (`rate_limited`) or `require_email_verification` — not a broken `session.save_path` | [Login fails](#login-fails), [security.md](security.md), [roles.md](roles.md) |
+| Admin screens look “old schema” after a zip/rsync, or Update Core is greyed | `php ap-cli db check` then `php ap-cli db migrate`. Pre-flight: `version_check_enabled`, ZipArchive, writable root | [updates.md](updates.md) |
 
 Each row is expanded below.
 
@@ -71,7 +78,7 @@ Flushing rewrite rules does **not** fix a missing `try_files` /
 
 | Host | What must be true |
 |------|-------------------|
-| **Apache** | Shipped [`.htaccess`](../.htaccess) in the document root, `mod_rewrite` enabled, vhost `AllowOverride All`. |
+| **Apache** | Shipped [`.htaccess`](../.htaccess) in the document root, `mod_rewrite` enabled, vhost `AllowOverride All` (Compose image: [`docker/apache-vhost.conf`](../docker/apache-vhost.conf)). |
 | **Nginx** | `try_files $uri $uri/ /index.php?$args;` in `location /` as in [`docker/nginx.conf.example`](../docker/nginx.conf.example). Nginx does **not** read `.htaccess`. |
 
 Confirm:
@@ -86,12 +93,22 @@ Confirm:
    `rewrite_rules`. It does **not** write `.htaccess` or nginx config.
 
 Fresh installs seed **Plain** permalinks (empty `permalink_structure`).
-Stay on Plain until the front controller is confirmed. Details and the
-day-and-name vs `/slug/` page split: [rewrites.md](rewrites.md).
+Stay on Plain until the front controller is confirmed. With a working
+front controller and Plain still on, `/about/` reaches `index.php` but
+AgoraPress treats it as the **front page** (query-string vars only) — that
+is **not** a 404. Turn a pretty structure on (and flush) before you expect
+`/slug/` or `/YYYY/MM/DD/slug/` to resolve.
+
+Details and the day-and-name vs `/slug/` page split:
+[rewrites.md](rewrites.md).
 
 `/sitemap.xml` and `/robots.txt` also need the front controller even when
 pretty permalinks are off. Query-string forms `?sitemap=index` and
 `?robots=1` still work.
+
+One-click **Tools → Update Core** **does** copy root `.htaccess` from the
+package. Custom rewrite edits there are overwritten; nginx config is
+never written by core. [updates.md](updates.md).
 
 There is **no** IIS `web.config`, Caddyfile, or Site Health check for
 `try_files` in core.
@@ -100,14 +117,16 @@ There is **no** IIS `web.config`, Caddyfile, or Site Health check for
 
 ## Installer CSRF / session will not persist
 
-**Symptom:** the web installer (`/install/`) rejects the security token, or
-the database step is blank after POST. CLI install (`php install/cli.php`)
-is unaffected.
+**Symptom:** the web installer (`/install/`) shows **“Invalid security
+token. Please reload the page and try again.”** and **returns you to the
+requirements step**, or the database step is blank after POST. CLI
+install (`php install/cli.php`) is unaffected.
 
-**Cause:** the wizard stores CSRF (`$_SESSION['ap_install_csrf']`) and step
-state in **PHP sessions**. PHP writes those files under `session.save_path`
-(php.ini / pool config). That directory must be writable by the **same
-user that runs PHP** (php-fpm or Apache).
+**Cause:** only `install/index.php` calls PHP `session_start()`. The wizard
+stores CSRF (`$_SESSION['ap_install_csrf']`) and step state in **PHP
+sessions**. PHP writes those files under `session.save_path` (php.ini /
+pool config). That directory must be writable by the **same user that
+runs PHP** (php-fpm or Apache).
 
 A common host failure: the save path is a **`770` directory** whose group
 does not include the php-fpm user. `session_start()` cannot persist.
@@ -124,8 +143,9 @@ Fix:
 3. Retry `/install/`.
 
 `/ap-admin/` after install does **not** use PHP `$_SESSION` for CSRF
-(HMAC `AP_Nonce` + signed cookies). Fix the save path anyway for the
-installer and for any plugin that uses native PHP sessions.
+(HMAC `AP_Nonce` + signed cookies via `AP_Session`). Login nonce action is
+`admin-login`. Fix the save path anyway for the installer and for any
+plugin that uses native PHP sessions.
 
 Depth: [security.md](security.md#php-sessionsave_path),
 [install.md](install.md#web-installer).
@@ -158,7 +178,8 @@ write. The installer does not chown the tree for you.
 - Image editing needs **GD or Imagick**. Missing both:
   `Image editing requires the PHP GD or Imagick extension.`
 - Source must be a **raster** image. SVG is rejected for the favicon pack
-  (it is allowed as ordinary media under a strict scan).
+  (`Site icon must be a raster image.`). Ordinary media may still accept
+  SVG after a strict scan.
 - Option `site_icon` is an attachment ID (`0` = none). Derivatives live
   next to the original under `ap-content/uploads/`.
 
@@ -173,19 +194,34 @@ Depth: [install.md](install.md#permissions), [site-icon.md](site-icon.md).
 
 ## Forum / blog / pages missing
 
-**Symptom:** no Forums menu, no Posts, no Pages, or public `/forums/` /
-blog / page routes 404 even though `?p=` works and the front controller is
-fine.
+**Symptom:** no Forums / Posts / Pages menu in ACP, forum screens 403, or
+the public forum looks empty even though `?p=` works and the front
+controller is fine.
 
 **Cause:** the matching **module is off**. AgoraPress treats Static Pages,
-Blog, and Forum as independent modules. Front routes, admin menus, and
-REST resources for a module follow the toggle.
+Blog, and Forum as independent modules. ACP menus, some ACP screens, REST
+resources, and fallback navigation follow the toggle. Pretty post/page
+URLs are **not** rewritten away when a module is off — do not treat a
+web-server 404 as a module problem until the front controller works
+([Pretty permalink 404](#pretty-permalink-404-p-still-works)).
 
 | Module | Option | Admin |
 |--------|--------|--------|
 | Static Pages | `ap_module_static_pages` | Settings → Modules (`options-modules.php`) |
 | Blog | `ap_module_blog` | same |
 | Forum | `ap_module_forum` | same |
+
+What “off” looks like **as built**:
+
+| Surface | Behaviour |
+|---------|-----------|
+| ACP sidebar | Matching items hidden (`AP_Admin::menuItems()`). |
+| Forum ACP screens, Writing / Discussion, Settings → Forums | HTTP **403** `The Forum module is disabled. Enable it under Settings → Modules.` (Blog: `The Blog module is disabled…`). |
+| Front `/forums/` (and other forum views) | Query flag `ap_forum_disabled`. Agora empty state **“The forum module is currently disabled.”** — **not** a hard 404 on the index. |
+| Forum POST create/reply/like | Notice `The forum module is disabled.` |
+| REST blog / pages / forums / topics | JSON **404** `rest_module_disabled` (route still registered). |
+| Fallback primary nav | Published pages omitted when Static Pages is off; Forums link omitted when Forum is off. |
+| Tables / topics / posts | **Not** dropped. Turn the module back on. |
 
 Fresh install seeds all three **on**. `AP_Options::updateModules()`
 refuses to turn **all** of them off — at least one must stay on.
@@ -194,13 +230,12 @@ refuses to turn **all** of them off — at least one must stay on.
 php ap-cli option get ap_module_forum
 php ap-cli option get ap_module_blog
 php ap-cli option get ap_module_static_pages
+php ap-cli option set ap_module_forum 1
 ```
 
-REST for a disabled module returns JSON 404 `rest_module_disabled` (the
-route exists; the handler refuses). That is not a permalink problem.
-
 There is **no** `php ap-cli module` verb. Use **Settings → Modules** or
-`option get` / `option set`.
+`option get` / `option set`. Depth: [forums.md](forums.md#module-off),
+[admin.md](admin.md).
 
 ---
 
@@ -240,10 +275,11 @@ Split the 404 **kind** before changing permalinks.
 | What you see | Meaning | Check |
 |--------------|---------|--------|
 | Web server HTML 404 (nginx/Apache default page) on `/ap-json/…` | Request never reached `index.php` | Same front-controller fix as pretty permalinks. `?rest_route=/ap/v1/posts` still works when `/` runs `index.php`. |
-| JSON `{"code":"rest_disabled","message":"REST API is disabled.",…}` status **404** | Option `rest_api_enabled` is `0` (or filter `ap_rest_enabled` forced off) | `php ap-cli option get rest_api_enabled` — set `1` to enable. Fresh install default is **on**. |
+| JSON `{"code":"rest_disabled","message":"REST API is disabled.",…}` status **404** | Option `rest_api_enabled` is `0` (or filter `ap_rest_enabled` forced off) | `php ap-cli option get rest_api_enabled` — `php ap-cli option set rest_api_enabled 1` to enable. Fresh install default is **on**. |
 | JSON `rest_no_route` | Path/method is not registered | Built-in namespace is `ap/v1`. Do not invent routes. |
 | JSON `rest_module_disabled` | That resource’s module is off | Settings → Modules (see above). |
-| JSON 403 on a cookie **write** | Missing / bad nonce | Header `X-AP-Nonce` (or body `_ap_nonce`) for action `ap_rest`. HTTP Basic skips the nonce. |
+| JSON `rest_not_logged_in` status **401** | Write without credentials | Cookie session or HTTP Basic. |
+| JSON `rest_cookie_invalid_nonce` status **403** | Cookie write missing/bad nonce | Header `X-AP-Nonce` (aliases `X-WP-Nonce`, body `_ap_nonce`) for action `ap_rest`. HTTP Basic skips the nonce. |
 
 Pretty prefix: `/ap-json/` (`AP_Rest::URL_PREFIX`). PHP recognizes
 `/ap-json/…` **even when pretty permalinks are off**, but the web server
@@ -277,7 +313,14 @@ that path.
 |-------------------|---------|
 | `comment_ok=1` | Saved and approved |
 | `comment_ok=pending` | Saved; waiting on `comment_moderation` |
+| `comment_ok=edited` / `comment_ok=deleted` | Own-comment edit / delete succeeded |
 | `comment_error=server` | Handler threw; `index.php` redirects instead of failing silently |
+| `comment_error=nonce` | HMAC failed (`ap-comment-post-{postId}`) |
+| `comment_error=empty` | Empty body |
+| `comment_error=identity` | Guest name/email required (`require_name_email`) |
+| `comment_error=login` | `comment_registration` is on and the visitor is a guest |
+| `comment_error=closed` | Comments closed / insert refused |
+| `comment_error=forbidden` | Cap check failed on edit/delete |
 
 `comment_moderation` is honored for logged-in users as well as guests.
 Settings → Discussion. Ownership caps (since 0.3.3-beta):
@@ -302,16 +345,59 @@ Do not treat older war stories as current product behaviour.
 
 ---
 
+## Login fails
+
+**Symptom:** `/ap-admin/login.php` rejects a known password, or the form
+says too many attempts.
+
+Login after install does **not** use PHP `$_SESSION`. The form nonce
+action is `admin-login` (`AP_Nonce`). Success sets a signed auth cookie
+(`AP_Session`: HMAC-SHA256, usermeta session tokens). A broken
+`session.save_path` is the **installer** failure, not this one.
+
+| What you see | Meaning | Check |
+|--------------|---------|--------|
+| `Too many failed login attempts. Please try again later.` (code `rate_limited`) | Transient-backed IP + identity lockout (`AP_Rate_Limit::checkLogin`) | Wait; there is **no** core unlock CLI. [security.md](security.md) |
+| `Please verify your email address before logging in.` | Account `user_status` is pending and `require_email_verification` is on | Settings → General; confirmation mail. Fresh install seeds that option **on**. |
+| `Invalid username or password.` | Credentials, or the account does not exist | Caps / roles: [roles.md](roles.md). |
+| `Could not establish a session. Please try again.` | Signed cookie could not be set (`AP_Session::setAuthCookie` failed) | Browser cookies; `AP_LOGGED_IN_KEY` / `AP_LOGGED_IN_SALT` in `ap-config.php`. |
+| `Security check failed. Please try again.` | Login form nonce failed | Reload the form; do not cache `login.php`. |
+
+---
+
+## Update Core / pending schema
+
+**Symptom:** ACP looks like an older schema after a zip extract, git pull,
+or rsync; Site Health flags pending migrations as **critical**; or
+**Tools → Update Core** is greyed / pre-flight fails.
+
+```bash
+php ap-cli db check
+php ap-cli db migrate
+php ap-cli core check-update
+```
+
+One-click apply is **Tools → Update Core** only. There is **no**
+`php ap-cli core update` (apply) verb.
+
+| What you see | Check |
+|--------------|--------|
+| Site Health “pending migration(s)” | `php ap-cli db migrate`. Target is `AP_DB_VERSION` **12**. [schema.md](schema.md) |
+| `Files were updated but database migration failed: …` | Files already on the new tree; finish with `db migrate` (no automatic file rollback). |
+| Front-end 503 “Site briefly unavailable” / “AgoraPress is installing an update.” | Live `.maintenance` lock. Older than **30 minutes** is ignored. |
+| Pre-flight greyed | `version_check_enabled` (default on), outbound HTTP GET of public `version.json` (**no site identity**), writable site root, PHP `ZipArchive`, cURL or `allow_url_fopen`, writable temp dir. |
+
+Depth: [updates.md](updates.md).
+
+---
+
 ## Also useful
 
 | Symptom | Check |
 |---------|--------|
-| White screen / PHP fatals on a public host | `AP_DEBUG` / `AP_DEBUG_DISPLAY` / `AP_DEBUG_LOG` in `ap-config.php` must stay **false** in production. Site Health flags debug on. Staging only. |
+| White screen / PHP fatals on a public host | `AP_DEBUG` / `AP_DEBUG_DISPLAY` / `AP_DEBUG_LOG` in `ap-config.php` must stay **false** in production. Site Health flags debug on. Staging only. With `AP_DEBUG` + `AP_DEBUG_LOG`, PHP logs to `ap-content/debug.log`. |
 | Installer cannot write config | Site root must be writable so PHP can **create** `ap-config.php`. [install.md](install.md#permissions) |
-| Login form says too many attempts | Transient-backed rate limit (`rate_limited`). Wait; do not invent a core unlock CLI. [security.md](security.md) |
-| Admin screens after a zip/rsync update look “old schema” | `php ap-cli db check` then `php ap-cli db migrate`. Site Health flags pending migrations as critical. [updates.md](updates.md) |
-| One-click Update Core greyed / pre-flight fails | `version_check_enabled`, outbound HTTP GET of public `version.json`, writable root, PHP `ZipArchive`. Checks send **no site identity**. |
-| REST cookie POST/PUT/DELETE 403 | `X-AP-Nonce` for action `ap_rest`. |
+| REST cookie POST/PUT/DELETE 403 | `rest_cookie_invalid_nonce` — `X-AP-Nonce` for action `ap_rest`. |
 
 ---
 

@@ -14,7 +14,7 @@ without repeating the whole README.
 `ap-includes/class-ap-cli-install.php`, `ap-includes/class-ap-installer.php`,
 `ap-includes/class-ap-requirements.php`, `ap-config-sample.php`,
 `docker-compose.yml`, `docker/Dockerfile`, `docker/apache-vhost.conf`,
-`docker/nginx.conf.example`.
+`docker/php-agorapress.ini`, `docker/nginx.conf.example`.
 
 Admin after a successful install is **`/ap-admin/`**. Fresh install is **not**
 `php ap-cli …` — that tool manages an already-installed site (see
@@ -107,12 +107,23 @@ Notes (as built in `docker-compose.yml`):
 - The project tree is bind-mounted at `/var/www/html`. Apache
   (`docker/apache-vhost.conf`) sets `AllowOverride All` so shipped `.htaccess`
   rewrites work.
-- Compose sets `AP_DB_*` environment variables on `web` so they match the MySQL
+- Compose sets `AP_DB_*` and `AP_TABLE_PREFIX` on `web` so they match the MySQL
   service. The **installer form does not auto-fill from those env vars** — type
-  the table values above (or pass the same values to `php install/cli.php`).
+  the table values above (or pass `--db-*` / `--table-prefix` to
+  `php install/cli.php`). The CLI installer also does **not** read
+  `AP_DB_HOST` / `AP_DB_NAME` / `AP_DB_USER` / `AP_TABLE_PREFIX`.
 - Optional Compose overrides via `.env`: `AP_DB_NAME`, `AP_DB_USER`,
   `AP_DB_PASSWORD`, `AP_DB_ROOT_PASSWORD`, `AP_TABLE_PREFIX`, `AP_DB_PORT`.
   Demo defaults (`agorapress` / `root`) are for local try-out only.
+- CLI installer inside the stack, from the project directory on the host:
+  `docker compose exec web php install/cli.php …` (same flags as
+  [CLI installer](#cli-installer)). From the host PHP talking to published
+  MySQL, use `--db-host=127.0.0.1:3307` instead of `db`.
+- The shipped `docker/Dockerfile` is PHP 8.3 + Apache with **`pdo_mysql`**
+  (plus gd, intl, mbstring, opcache, zip). It does **not** install
+  `pdo_pgsql`. `docker/php-agorapress.ini` is a **dev** overlay
+  (`display_errors On`, `memory_limit 128M`, `upload_max_filesize` /
+  `post_max_size` 64M).
 - Stop: `docker compose down`. The MySQL volume `ap_db_data` persists until you
   remove it (`docker compose down -v`).
 
@@ -148,7 +159,8 @@ Best for a real server when you have a browser and FTP/SFTP or a control panel.
 5. Confirm PHP can write its **session save path**. The web installer uses PHP
    sessions (CSRF token + step state). If `session.save_path` is not writable
    by the php-fpm (or Apache PHP) user, the installer may fail the security
-   token check or lose the database step.
+   token check or lose the database step. A failed CSRF check shows
+   “Invalid security token” and **returns you to the requirements step**.
 
 ### Steps (as built)
 
@@ -171,8 +183,11 @@ failed **required** requirements check.
 - Table prefix: `ap_`.
 - Charset / collation (not shown as extra fields): `utf8mb4` /
   `utf8mb4_unicode_ci`.
-- SQLite with an empty name uses `ap-content/database.sqlite`. Shipped Apache
-  and Nginx examples deny direct download of `.sqlite` / `.db` files.
+- SQLite with an empty name: the web POST handler and the CLI both fill
+  `AP_Installer::defaultSqlitePath()` — an **absolute**
+  `{site-root}ap-content/database.sqlite` written into `ap-config.php`.
+  Shipped Apache and Nginx examples deny direct download of `.sqlite` / `.db`
+  files.
 
 **Site & admin validation** (`AP_Installer::validateSiteAndAdmin`)
 
@@ -208,9 +223,14 @@ manually.
 ### Already installed
 
 If `ap-config.php` is already present, `/install/` returns **HTTP 403** and
-will not overwrite the site. Removing `ap-config.php` does **not** drop
-database tables — only do that if you intentionally want a fresh config (you
-may then collide with existing tables). There is no uninstall wizard in core.
+will not overwrite the site. The browser session that **just finished**
+install can still open `?step=done`; every other client gets 403.
+
+Removing `ap-config.php` does **not** drop database tables — only do that if
+you intentionally want a fresh config. A second run against existing tables
+does **not** wipe data: versioned migrations skip already-applied versions,
+`seedAdminUser` creates an administrator only when the users table is empty,
+and options are upserted. There is no uninstall wizard in core.
 
 The “not installed” home page (no `ap-config.php`) is HTTP 503 with a button
 to **Run the web installer**.
@@ -249,8 +269,8 @@ file is `ap-content/database.sqlite`).
 | `--db-user=USER` | empty | Ignored for SQLite |
 | `--db-password=PASS` | env `AP_DB_PASSWORD` or empty | Or set `AP_DB_PASSWORD` |
 | `--db-host=HOST` | `localhost` | Use `db` inside Compose; may include a port (`127.0.0.1:3307`) |
-| `--db-charset=CHARSET` | `utf8mb4` | |
-| `--table-prefix=PREFIX` | `ap_` | Normalized to letters, numbers, underscore |
+| `--db-charset=CHARSET` | `utf8mb4` | There is **no** `--db-collate` flag; collation is always `utf8mb4_unicode_ci` |
+| `--table-prefix=PREFIX` | `ap_` | Letters, numbers, underscore; a leading digit gets `ap_` prepended; empty becomes `ap_` |
 
 ### Other flags
 
@@ -270,9 +290,9 @@ Passwords via environment (optional, so they stay out of process lists):
 - `AP_ADMIN_PASSWORD`
 - `AP_DB_PASSWORD`
 
-The CLI does **not** read `AP_DB_HOST` / `AP_DB_NAME` / `AP_DB_USER` from the
-environment — those are Compose labels, not installer flags. Pass `--db-*`
-explicitly.
+The CLI does **not** read `AP_DB_HOST` / `AP_DB_NAME` / `AP_DB_USER` /
+`AP_TABLE_PREFIX` from the environment — those are Compose labels, not
+installer flags. Pass `--db-*` / `--table-prefix` explicitly.
 
 ### Examples
 
@@ -300,13 +320,21 @@ php install/cli.php \
   --admin-password='choose-a-strong-password'
 
 # Same MySQL values as Docker Compose, from inside the web container
-php install/cli.php \
+docker compose exec web php install/cli.php \
   --db-driver=mysql --db-host=db --db-name=agorapress \
   --db-user=agorapress --db-password=agorapress \
   --site-title="My Site" --site-url=http://localhost:8080 \
   --admin-user=admin --admin-email=admin@example.com \
   --admin-password='choose-a-strong-password' \
   --sample-content
+
+# Same stack, but PHP on the host talking to published MySQL
+php install/cli.php \
+  --db-driver=mysql --db-host=127.0.0.1:3307 --db-name=agorapress \
+  --db-user=agorapress --db-password=agorapress \
+  --site-title="My Site" --site-url=http://localhost:8080 \
+  --admin-user=admin --admin-email=admin@example.com \
+  --admin-password='choose-a-strong-password'
 ```
 
 ### Exit codes
@@ -351,7 +379,10 @@ cp ap-config-sample.php ap-config.php
 Leave `AP_DEBUG`, `AP_DEBUG_DISPLAY`, and `AP_DEBUG_LOG` **false** on
 production. `AP_CACHE` stays false unless you install a compatible
 `ap-content/advanced-cache.php` drop-in (core does not ship a disk page-cache
-engine).
+engine). The sample also documents `AP_SAVEQUERIES` / `AP_DEBUG_QUERIES`
+(leave false) and optional `AP_CONTENT_DIR` / `AP_CONTENT_URL` overrides;
+the **generated** installer config omits those extra knobs (runtime defaults
+stay off / unset).
 
 Copying the sample is **not** a full install. Schema migrations still need to
 run. Because a readable `ap-config.php` is the “installed” signal, the web and
@@ -417,10 +448,11 @@ Installer-seeded options (not a complete dump — see
 | `analytics_enabled` | **`0`** (opt-in; data stays in the site DB) |
 | `rest_api_enabled` | `1` |
 | `users_can_register` | `0` |
+| `require_email_verification` | `1` |
 | `stylesheet` / `template` | `agora` |
 | `AP_DEBUG` / `AP_DEBUG_DISPLAY` / `AP_DEBUG_LOG` in generated config | `false` |
 | `hall_of_fame_*` | Empty — installer does **not** ping or register a domain |
-| Version check | Cached GET of public `version.json` only; **no site identity** |
+| `version_check_enabled` | `1` — cached GET of public `version.json` only; **no site identity** |
 
 There is **no telemetry** constant or option. Core never phones home with
 site-identifying data.

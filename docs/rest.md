@@ -107,7 +107,9 @@ search filter), not a site-wide match total.
 Two methods, in this order:
 
 1. **HTTP Basic** — `Authorization: Basic …` (username **or** email +
-   password). PHP CGI fallbacks: `HTTP_AUTHORIZATION`,
+   password, via `AP_User::authenticate`). Accounts with non-zero
+   `user_status` (disabled / not activated) fail the same as a bad
+   password. PHP CGI fallbacks: `HTTP_AUTHORIZATION`,
    `REDIRECT_HTTP_AUTHORIZATION`, `PHP_AUTH_USER` / `PHP_AUTH_PW`.
 2. **Session cookie** — the same logged-in browser cookie as `/ap-admin/`
    (`AP_Session::getCurrentUser()` / `ap_get_current_user_id()`).
@@ -190,12 +192,12 @@ are off.
 | `GET` | `/ap/v1/pages/{id}` | public for published | Single page. **GET only** |
 | `GET` | `/ap/v1/comments` | public | Approved comments |
 | `GET` | `/ap/v1/comments/{id}` | public if approved | Unapproved: `moderate_comments` |
-| `GET` | `/ap/v1/users` | public | Public profile fields (no email) |
+| `GET` | `/ap/v1/users` | public | Public directory of **every** user (no email) |
 | `GET` | `/ap/v1/users/{id}` | public | Email only for self or `list_users` |
 | `GET` | `/ap/v1/categories` `[/{id}]` | public | Taxonomy `category` |
 | `GET` | `/ap/v1/tags` `[/{id}]` | public | Taxonomy `post_tag` |
-| `GET` | `/ap/v1/forums` `[/{id}]` | public | Forum module; else `rest_module_disabled` |
-| `GET` | `/ap/v1/topics` `[/{id}]` | public | Same |
+| `GET` | `/ap/v1/forums` `[/{id}]` | public | Forum module; else `rest_module_disabled`. **No forum ACL** |
+| `GET` | `/ap/v1/topics` `[/{id}]` | public | Same. GET by id has no status filter |
 
 Unknown path/method → **404** `rest_no_route`. Do not invent extra core
 routes (media, menus, plugins, settings write, comment create, forum
@@ -211,6 +213,10 @@ reply, …).
 `agorapress_version` (`AP_VERSION`), `site_logo` (always `null` in core),
 and `_links`.
 
+`GET /ap/v1` is the **namespace index**: `namespace` (`ap/v1`), a `routes`
+map limited to paths under that namespace, and `_links.self`. It does not
+repeat site name or settings.
+
 `GET /ap/v1/settings` returns `title`, `description`, `url`, empty
 `email`, `timezone`, `date_format`, `time_format`, `language` (`WPLANG`),
 `users_can_register`, and `modules` (`static_pages`, `blog`, `forum`
@@ -221,12 +227,15 @@ booleans). Admin email is **never** exposed on this public endpoint.
 ## Posts (the only built-in writes)
 
 Requires option `ap_module_blog` on. Otherwise **404**
-`rest_module_disabled` (`Blog module is disabled.`).
+`rest_module_disabled` (`Blog module is disabled.`). List, single GET, and
+create check this. **Update and delete do not** — `PUT` / `PATCH` /
+`DELETE` on an existing post id still run when the Blog module is off.
 
 ### List / get
 
 Anonymous list is **published** posts. A logged-in user with `edit_posts`
-also sees `draft`, `pending`, `private`, and `future` in the list.
+also sees `draft`, `pending`, `private`, and `future` for **all authors**
+(the query does not default to “mine only”).
 
 Query params (list):
 
@@ -234,17 +243,23 @@ Query params (list):
 |-------|----------|
 | `page` | ≥ 1, default `1` |
 | `per_page` | 1–100, default `10` |
-| `search` | Case-insensitive substring on title, content, excerpt (in-memory after the query) |
+| `search` | Case-insensitive substring on title, content, excerpt. Applied **in memory after** `AP_Post::query` already applied `limit`/`offset`, so it filters **this page only** — not a site-wide search |
 | `author` | Author user id |
 | `order` | `ASC` or `DESC` (default `DESC`) |
 | `orderby` | `date` (default), `title`, `id`, `modified`, `slug` |
 
-Single get: published + no password is public. Password-protected or
-non-public posts need to be the author or have the matching edit/read-private
-caps; otherwise **403** `rest_forbidden`. Invalid id → **404**
-`rest_post_invalid_id`.
+Single get (`canViewPost`):
 
-Password-protected content is stripped in the payload
+- `publish` and empty password → public
+- Anonymous otherwise → **403** `rest_forbidden` (including password-protected publish)
+- Author may view
+- `edit_others_posts` (pages: `edit_others_pages`) may view
+- `edit_posts` may view any **non-`private`** post (including others’ drafts)
+- else **403** `rest_forbidden`
+
+Invalid id or wrong type → **404** `rest_post_invalid_id`.
+
+When the viewer *is* allowed, password-protected content is still stripped
 (`password_protected: true`, empty `content` / `excerpt`). The password
 value is never serialized.
 
@@ -264,9 +279,9 @@ Body is JSON (`Content-Type: application/json`) or
 
 | Write | As built |
 |-------|----------|
-| Create | Title **or** content required (else **400** `rest_missing_callback_param`). Default `status` is `draft`. Status `publish` / `future` / `private` without `publish_posts` is stored as `pending`. Author is the authenticated user. **201**. |
-| Update | `PUT` or `PATCH`. Same field aliases. Empty body is a no-op **200**. |
-| Delete | Default **trash**. `force` (query, body, or params) permanently deletes. Response `{ "deleted": true, "previous": {…} }`. |
+| Create | Title **or** content required (else **400** `rest_missing_callback_param`). Empty title with non-empty content stores title **Untitled**. Default `status` is `draft`. Status `publish` / `future` / `private` without `publish_posts` is stored as `pending`. Author is the authenticated user. **201**. |
+| Update | `PUT` or `PATCH`. Same field aliases. Empty body is a no-op **200**. Does **not** re-check `ap_module_blog`. |
+| Delete | Default **trash**. `force` (query, body, or params) permanently deletes. Response `{ "deleted": true, "previous": {…} }`. Does **not** re-check `ap_module_blog`. |
 
 Caps: create needs `edit_posts`; update uses `edit_post` / `edit_posts` /
 `edit_others_posts`; delete uses `delete_posts` / `delete_others_posts`.
@@ -307,8 +322,9 @@ There is **no** REST comment create, edit, spam, or delete.
 
 ## Users
 
-**GET only.** List: `page` / `per_page` (default 10, max 100), `orderby=ID`
-`ASC`. Invalid id → `rest_user_invalid_id`.
+**GET only.** The list is a **public directory of every user**
+(`orderby=ID` `ASC`) — no role filter, no “authors only”. Params: `page` /
+`per_page` (default 10, max 100). Invalid id → `rest_user_invalid_id`.
 
 Public fields: `id`, `name` (display name, else login), `url`,
 `description` (profile meta), `slug` (`user_nicename`), `avatar_urls`
@@ -337,17 +353,18 @@ Payload: `id`, `count`, `description`, `link`, `name`, `slug`,
 
 Requires `ap_module_forum` ([forums.md](forums.md)). When the module is
 off, these handlers return **404** `rest_module_disabled`
-(`Forum module is disabled.`).
+(`Forum module is disabled.`). Built-in GET `permission_callback` is
+always `true` — **no forum ACL** on REST reads.
 
 | Route | As built |
 |-------|----------|
-| `GET /ap/v1/forums` | Open forums (`status=open`) |
-| `GET /ap/v1/forums/{id}` | One forum; missing → `rest_forum_invalid_id` |
-| `GET /ap/v1/topics` | `forum` / `forum_id` lists that forum’s open topics; without it, approved topics if `AP_Forum::queryTopics` exists |
-| `GET /ap/v1/topics/{id}` | One topic; missing → `rest_topic_invalid_id` |
+| `GET /ap/v1/forums` | Open rows only (`status=open`) — categories, forums, and links. **No pagination.** Closed and hidden omitted. |
+| `GET /ap/v1/forums/{id}` | One forum by id. **No forum ACL.** Hidden/closed still returned if the row exists. Missing → `rest_forum_invalid_id` |
+| `GET /ap/v1/topics` | `forum` / `forum_id` lists that forum’s **open** topics; without it, approved topics if `AP_Forum::queryTopics` exists |
+| `GET /ap/v1/topics/{id}` | One topic by id (`AP_Forum::getTopic` — no status filter, **no forum ACL**). Missing → `rest_topic_invalid_id` |
 
 Topic list params: `page` (default 1), `per_page` (default **20**, max
-100).
+100). Forum list has **no** `page` / `per_page`.
 
 Forum payload: `id`, `name`, `slug`, `description`, `parent`, `type`,
 `status`, `topic_count`, `post_count`, `link`. Topic payload: `id`,

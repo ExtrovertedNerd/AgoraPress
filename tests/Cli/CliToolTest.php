@@ -393,6 +393,32 @@ final class CliToolTest extends TestCase
         $this->assertStringContainsString('not found', implode("\n", $this->stderr));
     }
 
+    public function testOptionGetMissingNameIsUsage(): void
+    {
+        $this->bootSqliteCore();
+        $code = AP_Cli::cmdOption(
+            ['get'],
+            [],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_USAGE, $code);
+        $this->assertStringContainsString('Usage: option get', implode("\n", $this->stderr));
+    }
+
+    public function testPluginListEmptyIgnoresJsonFormat(): void
+    {
+        $this->bootSqliteCore();
+        $code = AP_Cli::cmdPlugin(
+            ['list'],
+            ['format' => 'json'],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code);
+        $this->assertSame(['(no plugins installed)'], $this->stdout);
+    }
+
     public function testOptionList(): void
     {
         $this->bootSqliteCore();

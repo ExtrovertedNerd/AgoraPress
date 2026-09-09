@@ -11,7 +11,8 @@ The compact landing-page examples are in
 different exit codes). Do not run `ap-cli` until `ap-config.php` exists.
 
 **Source (as built):** `ap-cli`, `ap-includes/class-ap-cli.php` (`AP_Cli`),
-`ap-includes/bootstrap.php` (`AP_CLI`, `AP_CLI_SKIP_PLUGINS`).
+`ap-includes/bootstrap.php` (`AP_CLI`, `AP_CLI_SKIP_PLUGINS`;
+`AP_CLI_SKIP_THEMES` is defined by the CLI and unused by bootstrap).
 
 `ap-cli` is a **local shell tool**. It is not a remote API and not REST
 ([rest.md](rest.md)). There is **no** `php ap-cli core update` apply verb
@@ -39,6 +40,11 @@ Default site root is the directory that contains the `ap-cli` script.
 Override with `--path` when the current working directory is elsewhere.
 
 Bare `php ap-cli` (no command) prints top-level help and exits `0`.
+`php ap-cli help <unknown>` and an unknown group name both exit `1`.
+
+Installed-site commands boot `ap_bootstrap()`. That path requires
+**PHP 8.2+**; an older SAPI returns `2`. `--path` pointing at a tree
+without `ap-includes/bootstrap.php` also returns `2` (not `3`).
 
 ---
 
@@ -52,16 +58,17 @@ that boots core. `--help` / `--version` are also accepted as `-h` / `-V`.
 | `--path=<path>` | AgoraPress root (directory containing `ap-includes/` and, for installed-site commands, `ap-config.php`). Relative paths resolve from the current working directory. Default: the directory that contains `ap-cli`. |
 | `--url=<url>` | Sets `AP_HOME` for this process (home URL hint for link builders). Does not rewrite the stored `home` / `siteurl` options. |
 | `--skip-plugins` | Defines `AP_CLI_SKIP_PLUGINS`. Bootstrap still loads **must-use** plugins under `ap-content/mu-plugins/`; it does **not** load active plugins. Use this when a broken plugin blocks CLI. |
-| `--skip-themes` | Defines `AP_CLI_SKIP_THEMES`. Help text: “Skip theme setup side effects where possible.” As of 0.3.6-beta, core bootstrap does **not** branch on this constant; the flag is accepted and reserved. |
-| `-h`, `--help` | Top-level help, or command help when placed after a command name (`php ap-cli plugin --help`). |
+| `--skip-themes` | Defines `AP_CLI_SKIP_THEMES`. Help text: “Skip theme setup side effects where possible.” As of 0.3.6-beta, core bootstrap does **not** read this constant (only `AP_CLI_SKIP_PLUGINS` is branched on); the flag is accepted and reserved. |
+| `-h`, `--help` | Top-level help, or command help when placed after a command name (`php ap-cli plugin --help`). Help does **not** boot core, so it never lists plugin-registered verbs. |
 | `-V`, `--version` | Print `AgoraPress {AP_VERSION} (PHP {PHP_VERSION})` when used alone (or with help). Does not boot the database. |
 
 Valued flags accept `--name=value` or `--name value`. A bare `--name` is
-treated as a boolean `true` for command-level flags.
+treated as a boolean `true` for command-level flags. A lone `--` ends
+flag parsing; everything after it is a positional argument.
 
-`--skip-plugins` also means commands registered by **active** plugins on
-`ap_cli_init` will not appear. MU-plugins still load and may still
-register commands.
+`--skip-plugins` skips **active** plugins. MU-plugins still load. See
+[Plugin-registered commands](#plugin-registered-commands) for what
+`ap_cli_init` can and cannot do.
 
 ---
 
@@ -73,7 +80,7 @@ Constants on `AP_Cli`:
 |------|----------|---------|
 | `0` | `EXIT_OK` | Success, help, or version |
 | `1` | `EXIT_USAGE` | Unknown command, missing required args, invalid flags, or not CLI SAPI |
-| `2` | `EXIT_ERROR` | Runtime failure (DB, migrate, plugin activate, missing option, critical Site Health, uncaught exception) |
+| `2` | `EXIT_ERROR` | Runtime failure (DB, migrate, plugin activate, missing option, PHP older than 8.2, missing `bootstrap.php`, uncaught exception, **text** Site Health with a critical check) |
 | `3` | `EXIT_NOT_INSTALLED` | Missing or unreadable `ap-config.php` on a command that needs an installed site |
 
 These codes are **not** the installer codes (`php install/cli.php` uses
@@ -81,18 +88,22 @@ These codes are **not** the installer codes (`php install/cli.php` uses
 [install.md](install.md)).
 
 Commands that **do not** require an install: `help`, `version`, `cli`.
-Everything else returns `3` if `ap-config.php` is missing.
+Everything else returns `3` if `ap-config.php` is missing (and the tree
+still has `ap-includes/bootstrap.php`). A `--path` with no bootstrap file
+returns `2`.
 
-`php ap-cli site health` returns `2` when any check is **critical**, even
-if the command itself ran. `0` means no critical checks (recommended
-findings still exit `0`).
+`php ap-cli site health` (default **text** format) returns `2` when any
+check is **critical**. Recommended-only findings still exit `0`.
+`--format=json` always exits `0` even when the payload contains critical
+checks — inspect the JSON; do not rely on the process status.
 
 ---
 
 ## Built-in command groups
 
-`php ap-cli --help` lists these groups (sorted). Subcommands in
-parentheses are the verbs each group actually implements.
+`php ap-cli --help` lists these groups **alphabetically**. The table below
+is the same set, grouped by theme. Subcommands in parentheses are the
+verbs each group actually implements.
 
 | Group | Needs install | Subcommands as built |
 |-------|---------------|----------------------|
@@ -131,9 +142,13 @@ Default subcommand when you omit it:
 | `php ap-cli site` | `site health` |
 | `php ap-cli cron event` | `cron event list` |
 
+Omitting a subcommand is **usage** (`1`) for `option` and for bare
+`php ap-cli cron` (you need `cron event`, `cron list`, or `cron run`).
+`help` with no topic is top-level help, not usage.
+
 Bootstrap for installed-site commands calls `ap_bootstrap()`. Pseudo-cron
-does **not** fire during `ap-cli` (`AP_CLI` is defined). To run due
-events, use `php ap-cli cron event run`.
+does **not** fire during `ap-cli` (`AP_CLI` is defined; bootstrap skips
+`AP_Cron::spawn()`). To run due events, use `php ap-cli cron event run`.
 
 ---
 
@@ -224,6 +239,7 @@ files. There is **no** `php ap-cli core update`. Apply a zip from
 [updates.md](updates.md).
 
 `--force` bypasses the `ap_version_check` cache (`AP_Version_Check::forceCheck()`).
+`check_update` (underscore) is an alias of `check-update`.
 
 Typical stdout when the endpoint answers:
 
@@ -301,8 +317,14 @@ php ap-cli option get --option=blogname
 ```
 
 Prints the stored value. Strings print as-is. Arrays / objects print
-pretty JSON. Missing name → exit `2` (`Option not found`). Empty stored
-string is success with an empty line (not “not found”).
+pretty JSON. Booleans print `1` or an empty line. `--key=` is an alias
+of `--option=`.
+
+| Situation | Exit | Stderr |
+|-----------|------|--------|
+| No name (no positional and no `--option`/`--key`) | `1` | `Usage: option get <name>` |
+| Named option does not exist | `2` | `Option not found: {name}` |
+| Empty stored string | `0` | (empty stdout line — not “not found”) |
 
 ### `option set`
 
@@ -312,8 +334,10 @@ php ap-cli option set rest_api_enabled 0
 php ap-cli option set --option=blogdescription --value="A forum-first CMS"
 ```
 
-If `<value>` decodes as a JSON object or array, that structure is stored;
-otherwise the string is stored. Booleans passed as flags become `1` / `0`.
+If `<value>` decodes as a JSON **object or array**, that structure is
+stored; JSON scalars (`true`, `10`, `"x"`) stay strings. Booleans passed
+as flags become `1` / `0`. `--key=` aliases `--option=` for the name.
+Success stdout: `Updated option '{name}'.`
 
 ```bash
 php ap-cli option set my_plugin_settings '{"enabled":true,"limit":10}'
@@ -323,9 +347,11 @@ php ap-cli option set my_plugin_settings '{"enabled":true,"limit":10}'
 
 ```bash
 php ap-cli option delete my_plugin_settings
+php ap-cli option delete --option=my_plugin_settings
 ```
 
-Missing or undeletable → exit `2`.
+No name → exit `1`. Missing or undeletable → exit `2`. Success stdout:
+`Deleted option '{name}'.`
 
 ### `option list`
 
@@ -356,12 +382,11 @@ php ap-cli plugin list --format=json
 ```
 
 Default table: `* basename  Plugin Name  vX.Y` (`*` = active), then
-`Legend: * = active`. `--format=json` prints an array of
-`file`, `name`, `version`, `status` (`active`|`inactive`). Empty:
+`Legend: * = active`. `--format=json` prints a **compact** (not pretty)
+array of `file`, `name`, `version`, `status` (`active`|`inactive`).
 
-```text
-(no plugins installed)
-```
+Empty list — including `--format=json` — always prints the text line
+`(no plugins installed)` (not `[]`).
 
 The basename is the path under `ap-content/plugins/` used by `activate` /
 `deactivate` (for example `sample-plugin/sample-plugin.php`).
@@ -375,7 +400,8 @@ php ap-cli plugin activate --plugin=sample-plugin/sample-plugin.php
 ```
 
 Uses `AP_Plugin::activate` / `deactivate`. Failure messages on stderr,
-exit `2`. Missing basename → exit `1`.
+exit `2`. Missing basename → exit `1`. Success stdout:
+`Plugin activated: {basename}` / `Plugin deactivated: {basename}`.
 
 ---
 
@@ -392,17 +418,21 @@ php ap-cli theme list
 php ap-cli theme
 ```
 
-`* stylesheet  Theme Name` (`*` = active stylesheet). Empty:
-`(no themes installed)`.
+`* stylesheet  Theme Name` (`*` = active stylesheet), then
+`Legend: * = active stylesheet`. Empty: `(no themes installed)`. There is
+**no** `--format=json` for themes.
 
 ### `theme activate`
 
 ```bash
 php ap-cli theme activate agora
 php ap-cli theme activate --stylesheet=agora
+php ap-cli theme activate --theme=agora
 ```
 
-Invalid / missing theme → exit `2`. Default shipped theme slug: `agora`.
+`--theme=` is an alias of `--stylesheet=`. Missing stylesheet → exit `1`.
+Invalid / not a theme → exit `2`. Success stdout: `Theme activated: {slug}`.
+Default shipped theme slug: `agora`.
 
 ---
 
@@ -421,7 +451,8 @@ php ap-cli user list --search=admin
 ```
 
 Tab-separated `ID`, login, email, roles. Defaults: `--number=50`, order by
-`ID` ascending. `--number` less than 1 falls back to 50.
+`ID` ascending. `--number` less than 1 falls back to 50. Empty:
+`(no users)`.
 
 ### `user get`
 
@@ -429,10 +460,16 @@ Tab-separated `ID`, login, email, roles. Defaults: `--number=50`, order by
 php ap-cli user get 1
 php ap-cli user get admin
 php ap-cli user get admin@example.com
+php ap-cli user get --id=1
+php ap-cli user get --user=admin
 ```
 
-Looks up by numeric ID, then login, then email. Prints public fields plus
-`roles: …`. Not found → exit `2`.
+Looks up by numeric ID, then login, then email (`--user=` / `--id=` are
+aliases for the selector). Prints `AP_User::toPublicArray()` fields
+(`ID`, `user_login`, `user_nicename`, `user_email`, `user_url`,
+`user_registered`, `user_status`, `display_name`) plus `roles: …`.
+No selector → exit `1`. Not found → exit `2`. The password hash is **not**
+printed.
 
 ### `user create`
 
@@ -456,7 +493,8 @@ AP_USER_PASSWORD='choose-a-strong-password' php ap-cli user create \
 ```
 
 Default `--role` is `subscriber`. Missing login, email, or password →
-exit `1`. `AP_User::create` validation errors → exit `2`.
+exit `1`. `AP_User::create` validation errors → exit `2`. Success stdout:
+`User created: ID {id} ({login})`.
 
 Do not commit passwords. Prefer `AP_USER_PASSWORD` in a local shell so the
 secret does not land in process lists or shell history as a `--user_pass=`
@@ -468,8 +506,12 @@ argument.
 
 Needs an installed site. Manages **posts and pages only** (`post` / `page`).
 Other types are **not in core** for this command. Body files are
-**local-filesystem only** — `--file` rejects remote URLs and stream wrappers
-(`http://`, `https://`, `ftp://`, `php://`, `data:`, …).
+**local-filesystem only**. `--file` rejects any path that matches
+`scheme://` (examples: `http://`, `https://`, `ftp://`, `php://`,
+`file://`) with
+`Invalid --file: remote URLs and stream wrappers are not allowed.`
+A bare `data:` string (no `://`) is **not** that check; it fails later as
+“not a readable regular file” unless such a local path exists.
 
 **Create defaults:** posts → **`draft`**, pages → **`publish`**. Pass
 `--status=` to override.
@@ -488,9 +530,11 @@ php ap-cli post list --type=post,page --status=publish --number=20
 Columns: `ID`, type, slug, title (one line), status. Defaults:
 `--type` omitted = both `post` and `page`; `--status=any`; `--number=100`
 (`--limit` is an alias). `--type=any` is the same as omitting `--type`.
+`--number` less than `0` falls back to 100 (`0` is allowed and lists
+nothing).
 
 Invalid `--type` (anything other than `post`, `page`, `any`, or a
-comma-separated pair) → exit `1`. Empty: `(no posts)`.
+comma-separated pair of those) → exit `1`. Empty: `(no posts)`.
 
 ### `post get`
 
@@ -501,7 +545,9 @@ php ap-cli post get --slug=about --type=page
 
 Requires `--id` (positive integer) **or** `--slug`. `--type` is optional
 with `--id` (mismatch → exit `2`) and recommended with `--slug` when the
-same slug could exist as both a post and a page. Prints metadata, a `---`
+same slug could exist as both a post and a page. No selector → exit `1`.
+Prints `ID`, `post_type`, `post_name`, `post_title`, `post_status`,
+`post_date`, `post_modified`, `post_author`, `post_parent`, a `---`
 separator, then `post_content`.
 
 ### `post create`
@@ -517,9 +563,15 @@ php ap-cli post create --title="Draft only"
 
 Stdout: `Created post ID 15 (hello)` / `Created page ID 4 (about)`.
 
-`--file` must be a readable regular file on disk. Directory, missing file,
-unreadable file, empty `--file`, or a remote URL / stream wrapper → exit
-`2` (`Invalid --file: remote URLs and stream wrappers are not allowed.`).
+`--file` must be a readable regular file on disk. All of these exit `2`,
+with **different** stderr lines:
+
+| `--file` value | Stderr (prefix) |
+|----------------|-----------------|
+| `scheme://…` (http/https/ftp/php/file/…) | `Invalid --file: remote URLs and stream wrappers are not allowed.` |
+| empty / bare `--file` | `Invalid --file: provide a local filesystem path to a regular file.` |
+| directory | `Invalid --file: path is a directory, not a file` |
+| missing / not a regular file | `Invalid --file: not a readable regular file` |
 
 ### `post update`
 
@@ -535,7 +587,8 @@ of: `--title`, `--file`, `--status`, `--name` / `--post_name` (rename).
 `--slug` is **only** a locator here; it does not rename.
 
 No fields to change, empty `--title`/`--status`/`--name` when passed, or
-no selector → exit `1`. Not found → exit `2`.
+no selector → exit `1`. Not found → exit `2`. Success stdout:
+`Updated {post|page} ID {id} ({slug})`.
 
 ---
 
@@ -623,8 +676,10 @@ Runs `AP_Site_Health::getChecks()` — the same checks as
 Summary: N good, N recommended, N critical
 ```
 
-`--format=json` prints the checks array (pretty JSON). Any **critical**
-check → exit `2`. Recommended-only findings still exit `0`.
+`--format=json` prints the checks array (**pretty** JSON) and **always
+exits `0`**, even when a check is critical. Inspect `status` in the
+payload. Default **text** format: any **critical** check → exit `2`.
+Recommended-only findings still exit `0`.
 
 Unknown site subcommand → exit `1`. There is **no** `site option` or
 `site switch` — AgoraPress is not multisite (multisite is **not in core**).
@@ -638,8 +693,24 @@ Plugins (and MU-plugins) may call `AP_Cli::addCommand()` there. Those
 names are **not** listed in this cookbook and are **not** core. See
 [plugins.md](plugins.md) and [hooks.md](hooks.md).
 
-`--skip-plugins` prevents active plugins from loading, so their CLI verbs
-will be missing. Built-ins remain.
+Dispatch order as built (`AP_Cli::runFromArgv`):
+
+1. Parse argv and register **built-ins**.
+2. Unknown group name → exit `1` **before** bootstrap.
+3. Only then load core (for `needs_install` commands) and fire
+   `ap_cli_init`.
+
+A plugin can **replace** a built-in callback that way. A **new**
+top-level group registered only on `ap_cli_init` is **not reachable**:
+`php ap-cli newname` is already `Unknown command`. `php ap-cli --help`
+does not boot, so it never lists plugin verbs.
+
+Command names are a single token after normalize (`[a-z0-9_-]` only;
+spaces are stripped). `php ap-cli foo bar` is group `foo` with
+subcommand `bar`.
+
+`--skip-plugins` skips active plugins (MU-plugins still load). Built-ins
+remain.
 
 ---
 
@@ -653,7 +724,8 @@ will be missing. Built-ins remain.
 | Classic theme conversion helper | `ap-includes/compatibility/cli-convert.php` — [compatibility.md](compatibility.md) (not an `ap-cli` group) |
 | User delete / password reset / role change after create | ACP **Users** — [admin.md](admin.md), [roles.md](roles.md) |
 | Post/page delete, media, comments, forums | ACP / front-end — **not** `ap-cli post` |
-| `--file=https://…` | Rejected. Local path only. |
+| `--file=https://…` | Rejected (`scheme://`). Local path only. |
+| New `ap-cli` group from `ap_cli_init` only | Not dispatched (unknown before boot). Replace a built-in, or it is **not in core** as a reachable verb. |
 | Multisite, Gutenberg/FSE, SaaS, telemetry | **Not in core** |
 
 If `php ap-cli --help` does not list a group, do not invent it.
@@ -682,6 +754,9 @@ php ap-cli option set rest_api_enabled 0
 
 # Create a published page from a local HTML file
 php ap-cli post create --type=page --title="About" --slug=about --file=./about.html
+
+# Site Health as JSON (exit 0 even if a check is critical)
+php ap-cli site health --format=json
 ```
 
 Generic paths only: `example.com`, `https://your-domain.example`,

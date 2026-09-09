@@ -69,6 +69,12 @@ The `ap_version_check_enabled` filter can also force the check off. With
 checks disabled, one-click update pre-flight fails until you turn them back
 on. This path is **not** Hall of Fame and **not** local analytics.
 
+The checker is **not** a cron event. `ap-admin/admin-bootstrap.php` calls
+`AP_Version_Check::maybeQueueAdminNotice()` on ACP requests so
+administrators see an **Update available** banner. Front-end visitors never
+see it. Both `AP_Version_Check::sendsSiteIdentity()` and
+`AP_Core_Updater::sendsSiteIdentity()` return **false**.
+
 ---
 
 ## Public `version.json`
@@ -80,6 +86,19 @@ the options-backed transient `ap_version_check`:
 |---------|-----------|
 | Successful parse | 12 hours (`CACHE_TTL_SUCCESS`) |
 | Soft failure (network / empty / bad JSON) | 1 hour (`CACHE_TTL_FAILURE`) |
+
+Fetch mechanics (as built):
+
+| Rule | As built |
+|------|----------|
+| Transport | cURL when `curl_init` exists, otherwise `allow_url_fopen` |
+| Timeouts | **8 seconds** total · **5 seconds** connect |
+| Redirects | **Not** followed (`CURLOPT_FOLLOWLOCATION` false) |
+| Success | HTTP **2xx** and a non-empty body that parses |
+
+A `version.json` URL that **301/302s** therefore fails the check (soft-fail
+cache). The **zip** download is different: it **does** follow up to **3**
+HTTP redirects.
 
 Network and parse failures **fail silently** in admin (no error banner from
 the checker itself). Tools → Update Core **Check again** and
@@ -129,8 +148,14 @@ What the screen shows:
 - Optional package SHA-256 from `version.json`
 - **Check again** (POST, nonce `update-core-check`)
 - **Update to {remote}** when pre-flight says a newer zip is ready (POST,
-  nonce `update-core-run`, confirm dialog)
-- Manual **Download** / **Changelog** links when published
+  nonce `update-core-run`). Confirm dialog as built:
+  `Update AgoraPress core to {remote}? Visitors will see a short
+  maintenance page.`
+- Manual **download** / **Changelog** links when published
+- On-screen “What is preserved” is a **subset** (`ap-config.php`,
+  uploads, plugins, mu-plugins, custom themes). The full skip list is
+  [below](#what-an-update-does-not-overwrite) (`install/` and
+  `ap-config-sample.php` are also skipped).
 
 ### Pre-flight (`AP_Core_Updater::canUpdate`)
 
@@ -152,30 +177,38 @@ warning, not a hard error.
 ### What the updater does
 
 1. Read cached (or forced) remote info.
-2. GET `download_url` into a temp file (default max **100 MiB**).
+2. GET `download_url` into a temp file (default max **100 MiB**;
+   **120 seconds** total / **15 seconds** connect; up to **3** redirects).
 3. If `version.json` provided a SHA-256, `hash_file('sha256')` must match
    (`hash_equals`). Empty checksum → skip verify.
 4. Extract with zip-bomb soft limits: **50 000** files, **250 MiB** total
    uncompressed, **80 MiB** per entry. Path traversal is rejected.
 5. Detect a single package root (must contain `ap-includes/version.php`,
    `index.php`, and `ap-admin/`). Multiple candidate roots → refuse.
-6. Refuse a **downgrade** (package `AP_VERSION` older than installed).
-7. Write `.maintenance` (front-end 503 HTML for about 30 minutes if the
-   process crashes; stale files are ignored).
+6. Refuse a **downgrade** (package `AP_VERSION` older than installed). A
+   package version that **differs** from the announced `version.json`
+   version is a **warning**, not a refuse.
+7. Write `.maintenance` (front-end 503 HTML
+   “Site briefly unavailable” / “AgoraPress is installing an update.”).
+   If the process crashes, a `.maintenance` file older than **30 minutes**
+   is ignored so the site is not stuck.
 8. Copy allowed relative paths onto the site ([what is not overwritten](#what-an-update-does-not-overwrite)).
 9. Run `AP_Migrator::migrate()` for pending schema files (unless the
    internal `skip_migrate` test flag is set).
-10. Store `ap_version` and `ap_last_core_update`, delete the version-check
-    transient, fire action `ap_core_updated`.
-11. Remove `.maintenance` and the temp directory.
+10. **On success only:** store `ap_version` and `ap_last_core_update`,
+    delete the `ap_version_check` transient, fire action `ap_core_updated`
+    (`$from`, `$to`, full run-result array).
+11. **Always** after maintenance started (success or fail): remove
+    `.maintenance` and the temp directory.
 
-If migrations fail **after** files were applied, the error says so: the
-tree may already be on the new code. Finish with
-`php ap-cli db migrate` (or restore from backup). That split is as built;
-there is **no** automatic file rollback in core.
+If migrations fail **after** files were applied, the error is
+`Files were updated but database migration failed: …`. The tree is already
+on the new code. Options / `ap_core_updated` / transient delete do **not**
+run. Finish with `php ap-cli db migrate` (or restore from backup). There
+is **no** automatic file rollback in core.
 
-PHP time/memory on the admin POST: the screen raises `max_execution_time`
-toward 300 seconds and `memory_limit` toward 256M when `ini_set` allows it.
+PHP time/memory on the admin POST: `set_time_limit(300)` and
+`ini_set('memory_limit', '256M')` when those calls are allowed.
 
 ---
 
@@ -200,6 +233,15 @@ these paths even if they exist inside the zip:
 (`ap-content/themes/agora/…`). If you edited Agora in place, those edits
 are overwritten. Put customizations in a [child theme](themes.md).
 
+**Root `.htaccess` is overwritten** when the package contains one. Custom
+Apache rules in that file are lost on one-click apply — keep a copy, or
+put extra rules in the vhost. Nginx `try_files` lives in the server block,
+not in `.htaccess` ([rewrites.md](rewrites.md)).
+
+The ACP screen’s “What is preserved” blurb omits `install/` and
+`ap-config-sample.php`; the updater still skips them. Trust this table,
+not only the on-screen subset.
+
 The release zip **does** contain `install/` and `ap-config-sample.php` so a
 **fresh** extract can run the installer. The updater simply does not copy
 those onto a live site. `bin/` (the packager itself) is **not** in the
@@ -207,8 +249,9 @@ release zip.
 
 Also applied when present in the package: `index.php`, `ap-cli`,
 `ap-admin/`, `ap-includes/`, root `.htaccess`, `LICENSE`, `CHANGELOG.md`,
-docs, Docker examples, `ap-content/themes/index.php`, and language
-placeholders. User SQLite files and `.env` are not in the zip.
+`composer.json` (lockfile is **not** shipped), docs, Docker examples,
+`ap-content/themes/index.php`, and language placeholders. User SQLite
+files and `.env` are not in the zip.
 
 ---
 
@@ -247,9 +290,12 @@ remote: unavailable (offline, disabled, or cache empty)
 update: unknown
 ```
 
-That still exits `0`. `core version` prints `AP_VERSION`,
-`db_version_target` (`AP_DB_VERSION`), and `db_version_applied` from
-`schema_migrations` when the migrator can read it.
+That still exits `0`. Two different version verbs:
+
+| Command | Prints |
+|---------|--------|
+| `php ap-cli version` | `AgoraPress {AP_VERSION} (PHP {php})` only |
+| `php ap-cli core version` | That line, plus `db_version_target` (`AP_DB_VERSION`) and `db_version_applied` from `schema_migrations` when the migrator can read it |
 
 ### `php ap-cli db migrate`
 
@@ -269,8 +315,21 @@ php ap-cli db migrate
 pending prints `No pending migrations (schema at N).` and exits `0`.
 Target version and table map: [schema.md](schema.md).
 
-**Tools → Site Health** also flags pending migrations (critical) and a
-pending core package (from the cached `version.json` only).
+### Site Health (cache only)
+
+**Tools → Site Health** / `php ap-cli site health` never GETs
+`version.json`. It reads the `ap_version_check` transient if one already
+exists.
+
+| Check | Status | When |
+|-------|--------|------|
+| Database schema | **critical** | Pending files under `ap-includes/schema/migrations/` |
+| Core updates | **recommended** | Cached remote version is strictly newer than `AP_VERSION` |
+| Core updates | good | Cache empty, already current, checker not loaded, or `version_check_enabled` is off |
+
+Turning checks off does **not** fail Site Health (it reports that
+automatic version checks are disabled). Use **Check again** or
+`php ap-cli core check-update --force` when you want a fresh fetch.
 
 ---
 
@@ -319,14 +378,24 @@ php bin/package-release.php --help
 # or: composer package
 ```
 
+| Flag | As built |
+|------|----------|
+| `--output-dir=DIR` | Destination (default: `<repo>/dist`) |
+| `--version=VER` | Override `AP_VERSION` in filenames / `version.json` |
+| `--prefix=NAME` | Top-level folder inside the zip (default `AgoraPress`) |
+| `--dry-run` | Report file count / paths; write nothing |
+| `--json` | Machine-readable summary on stdout |
+| `--help` / `-h` | Usage |
+
+Unknown arguments print help and exit `1`. The packager itself is CLI-only
+and requires `ZipArchive` (ext-zip). `dist/` is gitignored. Version
+label defaults to `AP_VERSION` in `ap-includes/version.php`.
+
 | Artifact (default under `dist/`) | Purpose |
 |----------------------------------|---------|
 | `AgoraPress-{version}.zip` | Production tree under a top-level `AgoraPress/` folder |
 | `AgoraPress-{version}.sha256` | Checksum line consumed by `version.json` |
 | `version.json` | Public endpoint payload (`version`, URLs, `sha256`, `released`) |
-
-`dist/` is gitignored. The packager requires CLI + `ZipArchive`. Version
-label defaults to `AP_VERSION` in `ap-includes/version.php`.
 
 **Not shipped:** `tests/`, `vendor/`, `bin/`, `.git/`, `.github/`,
 `.hephaestus/`, Composer lock / PHPCS / PHPStan / PHPUnit configs,
@@ -349,15 +418,18 @@ you host a private mirror, change those fields before serving the JSON
 
 ## After an update
 
-1. Confirm `php ap-cli version` / Tools → Update Core shows the new
-   `AP_VERSION`.
-2. Confirm `php ap-cli db check` has `needs_migration: no` and
-   `schema_current` equal to `AP_DB_VERSION` (**12** on this tree).
+1. Confirm `php ap-cli version` prints `AgoraPress {new} (PHP …)` and
+   Tools → Update Core shows the new `AP_VERSION`.
+2. Confirm `php ap-cli core version` has `db_version_applied` equal to
+   `db_version_target`, and `php ap-cli db check` has `needs_migration: no`
+   with `schema_current` equal to `AP_DB_VERSION` (**12** on this tree).
 3. **Tools → Site Health** (or `php ap-cli site health`).
 4. If the admin shell changed, refresh or log in again (the success notice
    says so).
 5. If pretty permalinks 404, the front controller is a server issue, not
-   the updater — see [rewrites.md](rewrites.md).
+   the updater — see [rewrites.md](rewrites.md). If you had customized
+   root `.htaccess`, restore those extra rules (the package copy just
+   replaced it).
 
 ---
 
@@ -367,7 +439,10 @@ Say **not in core** rather than inventing these:
 
 - `php ap-cli core update` / unattended apply of the zip
 - Cron that downloads and installs core by itself (the checker only
-  queues an admin notice)
+  queues an admin notice from `admin-bootstrap.php`; it is **not** a
+  cron event)
+- Following HTTP redirects on the `version.json` GET (the zip download
+  may follow up to 3; the checker does not)
 - One-click **plugin** or **theme** updates from this `version.json`
   (plugin/theme zip installers are a different admin surface —
   [plugins.md](plugins.md), [themes.md](themes.md))

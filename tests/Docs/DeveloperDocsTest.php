@@ -332,6 +332,105 @@ final class DeveloperDocsTest extends TestCase
                 "docs/bot_handbook.md must not contain private marker: {$banned}"
             );
         }
+        $this->assertStringNotContainsStringIgnoringCase(
+            'stallboy',
+            $text,
+            'docs/bot_handbook.md must not name private accounts'
+        );
+    }
+
+    /**
+     * SPEC §11: operating model for this product (not a copy of Heph Agent API).
+     */
+    public function testBotHandbookCoversOperatingModel(): void
+    {
+        $text = $this->readDoc('bot_handbook.md');
+        foreach (
+            [
+                '/(?im)^##\s+How to use these docs\s*$/',
+                '/(?im)^##\s+Public-safe rule\s*$/',
+                '/(?im)^##\s+Do not invent surfaces\s*$/',
+                '/(?im)^##\s+When to say \*\*not in core\*\*\s*$/',
+                '/(?im)^##\s+Diagnose from generic symptoms\s*$/',
+                '/(?im)^##\s+File a Heph bug\s*$/',
+                '/(?im)^##\s+Close the customer loop\s*$/',
+            ] as $pattern
+        ) {
+            $this->assertMatchesRegularExpression(
+                $pattern,
+                $text,
+                "docs/bot_handbook.md missing heading matching: {$pattern}"
+            );
+        }
+
+        foreach (
+            [
+                '0.3.6-beta',
+                'AP_DB_VERSION',
+                'README.md',
+                'docs/index.md',
+                'one documentation tree',
+                'features_and_functions.md',
+                'do not invent',
+                'not in core',
+                'public-safe',
+                'never write',
+                'agorapress.extrovertednerd.com',
+                'version.json',
+                'example.com',
+                'admin@example.com',
+                '/var/www/agorapress',
+                'session.save_path',
+                'php-fpm',
+                'mechanism',
+                'troubleshooting.md',
+                'view_site_health',
+                'php ap-cli site health',
+                'php ap-cli option',
+                'ap_module_forum',
+                'php ap-cli module',
+                'php ap-cli forum',
+                'php ap-cli core update',
+                'php ap-cli plugin install',
+                'how do I turn forums on',
+                '/2026/09/03/hello-world/',
+                'try_files $uri $uri/ /index.php?$args',
+                'does core send telemetry',
+                'AP_TELEMETRY',
+                'is Gutenberg coming',
+                'Full Site Editing',
+                'SaaS',
+                'marketplace',
+                'PHP 8.2',
+                'theme.json',
+                'HaulTN',
+                'Logos',
+                'Themis',
+                'rest_api_enabled',
+                'rest_disabled',
+                '?rest_route=',
+                'analytics_enabled',
+                'AgoraPress',
+                'agent_api.md',
+                'do not duplicate',
+                'job id',
+                'Cited: docs/',
+                'ap_do_action',
+                'ap_apply_filters',
+                'ap_cli_init',
+                'editor.md',
+                'compatibility.md',
+                'plugins.md',
+                'themes.md',
+                'site-icon.md',
+            ] as $needle
+        ) {
+            $this->assertStringContainsStringIgnoringCase(
+                $needle,
+                $text,
+                "docs/bot_handbook.md should mention: {$needle}"
+            );
+        }
     }
 
     public function testNoParallelDocsIndex(): void
@@ -355,12 +454,17 @@ final class DeveloperDocsTest extends TestCase
             [
                 '/(?im)^##\s+Modules\s*$/',
                 '/(?im)^##\s+Operator-facing options\s*$/',
+                '/(?im)^##\s+Schema\s*$/',
                 '/(?im)^##\s+Roles and capabilities\s*$/',
+                '/(?im)^##\s+Forum topic types\s*$/',
                 '/(?im)^##\s+`ap-cli` verbs\s*$/',
                 '/(?im)^##\s+REST resources/',
                 '/(?im)^##\s+Admin screens/',
                 '/(?im)^##\s+Default Agora schemes\s*$/',
+                '/(?im)^##\s+Install and updates\s*$/',
+                '/(?im)^##\s+Rewrites\s*$/',
                 '/(?im)^##\s+Hooks\s*$/',
+                '/(?im)^##\s+Not in core\s*$/',
             ] as $pattern
         ) {
             $this->assertMatchesRegularExpression(
@@ -408,6 +512,34 @@ final class DeveloperDocsTest extends TestCase
                 'themes.md',
                 'plugins.md',
                 'forums.md',
+                'schema_migrations',
+                '0012_topic_type_enum.php',
+                'hall_of_fame_status',
+                'rate_limit_login_max',
+                'forum_topics_per_page',
+                'forum_attachment_max_per_post',
+                'AP_TELEMETRY',
+                'rest_disabled',
+                'core update',
+                'AP_CLI_SKIP_THEMES',
+                'ap_user_roles',
+                'forum_access_level',
+                'php ap-cli module',
+                'php ap-cli forum',
+                'php ap-cli role',
+                'Users → Ban',
+                'try_files $uri $uri/ /index.php?$args',
+                'EXIT_NOT_INSTALLED',
+                'DONATION_URL',
+                'ap_core_base_tables',
+                'ap_forum_base_tables',
+                'no site identity',
+                '/%year%/%monthnum%/%day%/%postname%/',
+                '/%year%/%monthnum%/%postname%/',
+                '/archives/%post_id%',
+                '/%postname%/',
+                'Month and name',
+                'Post name',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -417,12 +549,13 @@ final class DeveloperDocsTest extends TestCase
             );
         }
 
-        foreach (
-            [
-                'help', 'version', 'cli', 'core', 'db', 'option', 'plugin',
-                'theme', 'user', 'post', 'cache', 'cron', 'rewrite', 'site',
-            ] as $group
-        ) {
+        $cliSrc = (string) file_get_contents(dirname(__DIR__, 2) . '/ap-includes/class-ap-cli.php');
+        $this->assertNotFalse($cliSrc);
+        $start = strpos($cliSrc, 'public static function ensureBuiltins()');
+        $this->assertNotFalse($start, 'AP_Cli::ensureBuiltins() not found');
+        preg_match_all("/self::addCommand\(\s*'([a-z0-9-]+)'/", substr($cliSrc, $start), $cliGroups);
+        $this->assertNotSame([], $cliGroups[1], 'No addCommand() names found in ensureBuiltins()');
+        foreach (array_unique($cliGroups[1]) as $group) {
             $this->assertMatchesRegularExpression(
                 '/`?' . preg_quote($group, '/') . '`?/',
                 $text,
@@ -430,27 +563,103 @@ final class DeveloperDocsTest extends TestCase
             );
         }
 
-        foreach (
-            [
-                'login.php', 'index.php', 'edit.php', 'post.php', 'post-new.php',
-                'revision.php', 'edit-comments.php', 'comment.php', 'edit-tags.php',
-                'media.php', 'media-new.php', 'upload.php', 'nav-menus.php',
-                'widgets.php', 'themes.php', 'theme-options.php', 'plugins.php',
-                'users.php', 'user-new.php', 'user-edit.php', 'profile.php',
-                'forums.php', 'forum-edit.php', 'forum-groups.php',
-                'forum-moderation.php', 'forum-topics.php', 'options-general.php',
-                'options-writing.php', 'options-reading.php', 'options-discussion.php',
-                'options-media.php', 'options-permalink.php', 'options-privacy.php',
-                'options-modules.php', 'options-forums.php', 'options-hall-of-fame.php',
-                'analytics.php', 'site-health.php', 'update-core.php', 'import.php',
-                'export-personal-data.php', 'erase-personal-data.php', 'admin.php',
-            ] as $screen
-        ) {
+        $adminDir = dirname(__DIR__, 2) . '/ap-admin';
+        $skipScreens = ['admin-bootstrap.php', 'admin-header.php', 'admin-footer.php'];
+        $screens = glob($adminDir . '/*.php') ?: [];
+        $this->assertNotSame([], $screens, 'no ap-admin/*.php screens found');
+        foreach ($screens as $screenPath) {
+            $screen = basename($screenPath);
+            if (in_array($screen, $skipScreens, true)) {
+                continue;
+            }
             $this->assertStringContainsString(
                 $screen,
                 $text,
                 "features_and_functions.md should name ACP screen: {$screen}"
             );
+        }
+
+        $settingsSrc = (string) file_get_contents(dirname(__DIR__, 2) . '/ap-includes/class-ap-settings.php');
+        $this->assertNotFalse($settingsSrc);
+        preg_match_all("/self::registerSetting\(\s*'[^']+',\s*'([A-Za-z][A-Za-z0-9_]*)'/", $settingsSrc, $settingNames);
+        preg_match_all(
+            '/foreach\s*\(\s*\[(.*?)\]\s*as\s+\$\w+(?:\s*=>\s*\$\w+)?\s*\)\s*\{\s*self::registerSetting/s',
+            $settingsSrc,
+            $foreachBlocks
+        );
+        $optionNames = $settingNames[1];
+        foreach ($foreachBlocks[1] as $block) {
+            preg_match_all("/'([A-Za-z][A-Za-z0-9_]*)'/", $block, $fromBlock);
+            $optionNames = array_merge($optionNames, $fromBlock[1]);
+        }
+        $optionNames = array_values(array_unique($optionNames));
+        $this->assertNotSame([], $optionNames, 'No Settings API option names found in AP_Settings::registerCore()');
+        foreach ($optionNames as $option) {
+            $this->assertStringContainsString(
+                $option,
+                $text,
+                "features_and_functions.md should name Settings API option: {$option}"
+            );
+        }
+
+        $restSrc = (string) file_get_contents(dirname(__DIR__, 2) . '/ap-includes/class-ap-rest.php');
+        $this->assertNotFalse($restSrc);
+        $restStart = strpos($restSrc, 'private static function registerBuiltins()');
+        $this->assertNotFalse($restStart, 'AP_Rest::registerBuiltins() not found');
+        preg_match_all(
+            "/self::registerRoute\(\s*(?:self::NAMESPACE|'')\s*,\s*'([^']+)'/",
+            substr($restSrc, $restStart),
+            $restPaths
+        );
+        $resources = [];
+        foreach ($restPaths[1] as $path) {
+            $trimmed = trim($path, '/');
+            if ($trimmed === '') {
+                continue;
+            }
+            $resources[] = explode('/', $trimmed)[0];
+        }
+        $resources = array_values(array_unique($resources));
+        $this->assertNotSame([], $resources, 'No REST resources found in registerBuiltins()');
+        foreach ($resources as $resource) {
+            $this->assertStringContainsString(
+                '/ap/v1/' . $resource,
+                $text,
+                "features_and_functions.md should name REST resource /ap/v1/{$resource}"
+            );
+        }
+
+        $rewriteSrc = (string) file_get_contents(dirname(__DIR__, 2) . '/ap-includes/class-ap-rewrite.php');
+        $this->assertNotFalse($rewriteSrc);
+        preg_match_all("/public const STRUCTURE_\w+ = '([^']*)';/", $rewriteSrc, $structures);
+        $this->assertNotSame([], $structures[1], 'AP_Rewrite STRUCTURE_* constants not found');
+        foreach ($structures[1] as $structure) {
+            if ($structure === '') {
+                continue;
+            }
+            $this->assertStringContainsString(
+                $structure,
+                $text,
+                "features_and_functions.md should name permalink structure {$structure}"
+            );
+        }
+
+        $loadConfig = (string) file_get_contents(dirname(__DIR__, 2) . '/ap-includes/load-config.php');
+        foreach (['ap_core_base_tables', 'ap_forum_base_tables'] as $func) {
+            $this->assertSame(
+                1,
+                preg_match('/function ' . preg_quote($func, '/') . '\(\): array\s*\{(.*?)\n\}/s', $loadConfig, $body),
+                $func . '() not found'
+            );
+            preg_match_all("/'([a-z0-9_]+)'/", $body[1], $tables);
+            $this->assertNotSame([], $tables[1], $func . '() listed no string names');
+            foreach ($tables[1] as $table) {
+                $this->assertStringContainsString(
+                    '`' . $table . '`',
+                    $text,
+                    "features_and_functions.md should name schema table: {$table}"
+                );
+            }
         }
 
         $this->assertStringContainsString('GET only', $text);
@@ -949,25 +1158,18 @@ final class DeveloperDocsTest extends TestCase
 
     public function testInstallDocCoversInstallerSurfaces(): void
     {
+        $root = dirname(__DIR__, 2);
+        require_once $root . '/ap-includes/class-ap-cli-install.php';
+
         $text = $this->readDoc('install.md');
         foreach (
             [
                 '/install/',
                 'php install/cli.php',
-                '--db-driver',
-                '--site-title',
-                '--site-url',
-                '--admin-user',
-                '--admin-email',
-                '--admin-password',
-                '--table-prefix',
-                '--config-path',
-                '--skip-requirements',
-                '--sample-content',
-                '--no-sample-content',
                 'AP_ADMIN_PASSWORD',
                 'AP_DB_PASSWORD',
                 'docker compose',
+                'docker compose exec',
                 'ap-config-sample.php',
                 'ap-config.php',
                 'ap-content/',
@@ -976,10 +1178,21 @@ final class DeveloperDocsTest extends TestCase
                 'Permalinks',
                 'Site Health',
                 'analytics_enabled',
+                'require_email_verification',
+                'version_check_enabled',
                 'AP_DB_VERSION',
                 'session.save_path',
                 '/ap-admin/',
                 '0.3.6-beta',
+                'HTTP 403',
+                'HTTP 503',
+                '-----BEGIN AP-CONFIG-----',
+                'pdo_mysql',
+                '?step=requirements',
+                '?step=database',
+                '?step=site',
+                '?step=run',
+                '?step=done',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -988,7 +1201,20 @@ final class DeveloperDocsTest extends TestCase
                 "install.md should mention: {$needle}"
             );
         }
-        $this->assertStringContainsString('EXIT_OK', $text);
+        foreach (\AP_Cli_Install::KNOWN_OPTIONS as $option) {
+            $this->assertStringContainsString(
+                '--' . $option,
+                $text,
+                "install.md must name CLI installer flag --{$option} (AP_Cli_Install::KNOWN_OPTIONS)"
+            );
+        }
+        foreach (['EXIT_OK', 'EXIT_USAGE', 'EXIT_REQUIREMENTS', 'EXIT_INSTALL'] as $constant) {
+            $this->assertStringContainsString(
+                $constant,
+                $text,
+                "install.md should name CLI installer exit constant {$constant}"
+            );
+        }
         $this->assertTrue(
             str_contains($text, 'exit `0`')
             || str_contains($text, 'Exit codes')
@@ -1030,6 +1256,16 @@ final class DeveloperDocsTest extends TestCase
                 'rewrite_rules',
                 '0.3.6-beta',
                 'AP_DB_VERSION',
+                'Apache vs Nginx',
+                '/ap-json/',
+                '/forums/search/',
+                'query-string vars only',
+                'does **not** write',
+                'RewriteCond %{REQUEST_FILENAME} !-f',
+                'RewriteRule . /index.php',
+                '0 rule(s)',
+                'not in core',
+                'docker/apache-vhost.conf',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1054,20 +1290,22 @@ final class DeveloperDocsTest extends TestCase
 
     public function testUpdatesDocCoversUpdaterSurfaces(): void
     {
+        $root = dirname(__DIR__, 2);
+        require_once $root . '/ap-includes/class-ap-version-check.php';
+        require_once $root . '/ap-includes/class-ap-core-updater.php';
+
         $text = $this->readDoc('updates.md');
         foreach (
             [
                 'version.json',
-                'https://agorapress.extrovertednerd.com/version.json',
                 'Tools → Update Core',
                 'php bin/package-release.php',
                 'php ap-cli core check-update',
+                'php ap-cli core version',
                 'php ap-cli db migrate',
-                'ap-config.php',
-                'ap-config-sample.php',
-                'install/',
                 'ap-content/uploads/',
                 'ap-content/plugins/',
+                'ap-content/mu-plugins/',
                 'custom themes',
                 'no site identity',
                 'sha256',
@@ -1076,18 +1314,56 @@ final class DeveloperDocsTest extends TestCase
                 'update_core',
                 'AP_Core_Updater',
                 'AP_Version_Check',
+                'sendsSiteIdentity',
+                'maybeQueueAdminNotice',
                 '--force',
                 'not in core',
                 '0.3.6-beta',
                 'AP_DB_VERSION',
                 'ZipArchive',
-                '.maintenance',
+                'set_time_limit',
+                'VersionCheck; no-site-id',
+                'CoreUpdater; no-site-id',
+                'ap-content/themes/agora',
+                'Files were updated but database migration failed',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
                 $needle,
                 $text,
                 "updates.md should mention: {$needle}"
+            );
+        }
+        $this->assertStringContainsString(
+            \AP_Version_Check::DEFAULT_ENDPOINT,
+            $text,
+            'updates.md must quote AP_Version_Check::DEFAULT_ENDPOINT'
+        );
+        foreach (\AP_Core_Updater::PRESERVE_EXACT as $path) {
+            $this->assertStringContainsString(
+                $path,
+                $text,
+                "updates.md must name preserve path {$path} (AP_Core_Updater::PRESERVE_EXACT)"
+            );
+        }
+        $this->assertStringContainsString('install/', $text);
+        $this->assertStringContainsStringIgnoringCase('php ap-cli core update', $text);
+        $this->assertStringContainsStringIgnoringCase('**not** a cron event', $text);
+        $this->assertStringContainsStringIgnoringCase('**Not** followed', $text);
+
+        $script = (string) file_get_contents($root . '/bin/package-release.php');
+        $this->assertNotSame('', $script);
+        foreach (['--output-dir=', '--version=', '--prefix=', '--dry-run', '--json', '--help'] as $flag) {
+            $this->assertStringContainsString(
+                $flag,
+                $script,
+                "bin/package-release.php should parse {$flag}"
+            );
+            $docFlag = rtrim($flag, '=');
+            $this->assertStringContainsString(
+                $docFlag,
+                $text,
+                "updates.md must name package-release flag {$docFlag}"
             );
         }
         foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
@@ -1152,6 +1428,19 @@ final class DeveloperDocsTest extends TestCase
                 'not in core',
                 '0.3.6-beta',
                 'AP_DB_VERSION',
+                'AP_CLI_SKIP_PLUGINS',
+                'AP_CLI_SKIP_THEMES',
+                'scheme://',
+                'always exits `0`',
+                'Usage: option get <name>',
+                'Option not found',
+                'not reachable',
+                'check_update',
+                '--theme=',
+                '--key=',
+                'toPublicArray',
+                'compact',
+                'PHP 8.2',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1161,6 +1450,7 @@ final class DeveloperDocsTest extends TestCase
             );
         }
         $this->assertStringContainsString('php ap-cli core update', $text);
+        $this->assertStringContainsString('`--format=json` always exits `0`', $text);
         foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
@@ -1254,6 +1544,24 @@ final class DeveloperDocsTest extends TestCase
                 'marketplace',
                 '0.3.6-beta',
                 'AP_DB_VERSION',
+                'user-edit.php?user_id=',
+                'The requested admin page was not found.',
+                'Read only (members)',
+                'AP_ADMIN',
+                'maybeQueueAdminNotice',
+                'COLOR_MODE_META',
+                '40 MiB',
+                'plugin-upload',
+                'theme-upload',
+                'hall-of-fame-dismiss',
+                'usesInstallerPings',
+                'phpbb-json',
+                'phpbb-db',
+                'blog_public',
+                'sitemap_enabled',
+                'open_graph_enabled',
+                'noindex, nofollow',
+                'DEFAULT_MAX_BYTES',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1262,6 +1570,7 @@ final class DeveloperDocsTest extends TestCase
                 "admin.md should mention: {$needle}"
             );
         }
+        $this->assertStringContainsString('AP_Admin::COLOR_MODE_META', $text);
         foreach (['Roland', 'stallboy@', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
@@ -1329,6 +1638,26 @@ final class DeveloperDocsTest extends TestCase
                 'options-forums.php',
                 'forum-moderation.php',
                 'forum-groups.php',
+                'forum_access_level',
+                'rest_forum_invalid_id',
+                'rest_topic_invalid_id',
+                'Forum module is disabled.',
+                'The Forum module is disabled. Enable it under Settings → Modules.',
+                'ap_forum_notice',
+                'ap_forum_empty_state_html',
+                'ap_mark_all_forums_read',
+                'forum_last_mark',
+                'members_readonly',
+                'forum_slug',
+                'topic_slug',
+                'approve_topic',
+                'moveTopic',
+                'status=open',
+                'does **not** read',
+                'Mark all as read',
+                'Log in to like posts.',
+                '10485760',
+                'ap_forum_session',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1398,6 +1727,13 @@ final class DeveloperDocsTest extends TestCase
                 'users.php',
                 'user-edit.php',
                 'php ap-cli user create',
+                'php ap-cli user get',
+                'STATUS_PENDING',
+                'requireLogin',
+                'forum_access_level',
+                'addUserCap',
+                'ap_add_user_cap',
+                'ap_user_can_post_reply',
                 'example.com',
             ] as $needle
         ) {
@@ -1465,6 +1801,17 @@ final class DeveloperDocsTest extends TestCase
                 'JWT',
                 'example.com',
                 'admin@example.com',
+                'Untitled',
+                'ap_module_static_pages',
+                'ap_module_forum',
+                'X-AP-Total',
+                'X-WP-Nonce',
+                'ap_rest_namespaces',
+                'ap_rest_prepare_post',
+                'No forum ACL',
+                'namespace index',
+                'user_status',
+                'this page only',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1521,6 +1868,12 @@ final class DeveloperDocsTest extends TestCase
                 '2FA',
                 '0.3.6-beta',
                 'AP_DB_VERSION',
+                'view_site_health',
+                'query(',
+                'HTTP_CLIENT_IP',
+                'X-WP-Nonce',
+                'last 12 hex',
+                'AP_TRUST_PROXY',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1551,24 +1904,47 @@ final class DeveloperDocsTest extends TestCase
                 'session.save_path',
                 'php-fpm',
                 'security token',
+                'Invalid security token',
                 'ap-content/uploads/',
                 'Site Icon',
+                'Site icon must be a raster image',
                 'Settings → Modules',
                 'ap_module_static_pages',
                 'ap_module_blog',
                 'ap_module_forum',
+                'The forum module is currently disabled',
+                'The Forum module is disabled. Enable it under Settings → Modules.',
                 'compatibility.md',
                 'Block / FSE',
                 'rest_api_enabled',
+                'php ap-cli option set rest_api_enabled',
                 '/ap-json/',
                 '?rest_route=',
                 'rest_disabled',
+                'rest_no_route',
+                'rest_module_disabled',
+                'rest_cookie_invalid_nonce',
+                'rest_not_logged_in',
+                'X-WP-Nonce',
                 '0.3.2',
                 '0.3.6',
                 'Edit User',
                 'getById',
                 'comment_ok',
+                'comment_error',
                 'Site Health',
+                'view_site_health',
+                'rate_limited',
+                'require_email_verification',
+                'admin-login',
+                'AP_Session',
+                'Too many failed login attempts',
+                'ap-content/debug.log',
+                'Files were updated but database migration failed',
+                '.maintenance',
+                'docker/apache-vhost.conf',
+                'AllowOverride All',
+                'query-string vars only',
                 'not in core',
                 '0.3.6-beta',
                 'AP_DB_VERSION',

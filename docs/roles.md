@@ -77,10 +77,18 @@ Checks: `AP_Roles::userCan($userId, $cap, $objectId)` /
 the sentinel `do_not_allow` all fail. There is **no** `user_has_cap`
 filter in core.
 
-Users with **no** role (empty `ap_capabilities`) cannot enter `/ap-admin/`
-— login requires the primitive `read`. Banned / pending accounts
-(`users.user_status !== 0`) cannot obtain a session; that is account
-status, not a capability.
+Users with **no** role (empty `ap_capabilities`) cannot enter the ACP
+shell. `AP_Admin::requireLogin()` requires a session **and** the
+primitive `read`. The login form itself does not check a cap. A
+subscriber (who has `read`) can open `/ap-admin/` (Dashboard + Profile)
+but not Posts. Direct cap denials of `read` also block the shell.
+
+Banned or pending accounts (`users.user_status !== 0`) cannot obtain a
+session (`AP_Session`); that is account status, not a capability.
+Pending email verification uses `AP_Registration::STATUS_PENDING`
+(`1`). Forum bans also set `user_status` = `1`. Same column, two
+workflows — not a CMS role. There is **no** Users → Ban / suspend
+control in the ACP.
 
 ---
 
@@ -264,12 +272,27 @@ types `open` / `closed` / `hidden` / `system` and member roles
 `member` / `moderator` / `leader`. System groups cannot be deleted like
 ordinary groups.
 
+### Forum user levels (not CMS roles)
+
+ACP Forums → Edit stores `forum_access_level` (Public / Members only /
+Read only / Moderators only / Administrators only / Custom). Custom
+checkboxes are the four-rung **user level** ladder
+(`AP_Forum_Permissions::systemLevels()`). Each rung is a system group,
+not an `AP_Roles` slug.
+
+| Forum user level | System group | Who lands on it |
+|------------------|--------------|-----------------|
+| `guest` | `guests` | Not logged in (`user_id` 0) |
+| `registered` | `registered` | Any logged-in user (virtual) |
+| `moderator` | `global_moderators` | CMS cap `moderate_forums` (Editor and Administrator by default) |
+| `administrator` | `administrators` | CMS cap `manage_forums` **or** CMS role `administrator` |
+
 Do not confuse:
 
 | Name | What it is |
 |------|------------|
 | CMS role `editor` (level **7**) | `AP_Roles` slug. Gets `moderate_forums`. |
-| Forum ladder `moderator` | Access-level column on Forums → Edit. Maps to group `global_moderators`. |
+| Forum user level `moderator` | Ladder rung on Forums → Edit. Maps to group `global_moderators`. |
 | `ap_user_level` 0–10 | Usermeta convenience. **Not** consulted by `AP_Forum_Permissions`. |
 
 ### Permission keys and presets
@@ -298,11 +321,12 @@ Moderators only, Administrators only, or Custom). Labels and effects:
 
 Helpers: `ap_user_can_forum()`, `ap_current_user_can_forum()`,
 `ap_user_can_view_forum()`, `ap_user_can_post_topic()`,
-`ap_user_can_moderate_forum()`.
+`ap_user_can_post_reply()`, `ap_user_can_moderate_forum()`.
 
 Private messages use CMS `read` (or `manage_forums`), not forum ACL —
-[forums.md](forums.md#private-messages). Bans (`user_status` = 1) are
-forum moderation records, not a role.
+[forums.md](forums.md#private-messages). Forum bans live on the
+Moderation screen (`bans` table) and set `user_status` = `1`; they are
+not a CMS role.
 
 ---
 
@@ -323,6 +347,9 @@ ap_remove_cap('author', 'myplugin_manage');
 
 ap_add_user_role($userId, 'reviewer');
 ap_set_user_role($userId, 'editor');
+
+AP_Roles::addUserCap($userId, 'myplugin_manage', true);
+AP_Roles::removeUserCap($userId, 'myplugin_manage');
 ```
 
 | Helper | As built |
@@ -332,6 +359,7 @@ ap_set_user_role($userId, 'editor');
 | `ap_add_cap($role, $cap, $grant = true)` | Grant or deny on a registered role |
 | `ap_remove_cap($role, $cap)` | Drops the key from the role |
 | `ap_set_user_role` / `ap_add_user_role` / `ap_remove_user_role` | Assignment |
+| `AP_Roles::addUserCap` / `removeUserCap` | Direct per-user grant/deny. **No** `ap_add_user_cap` wrapper |
 | `ap_user_can` / `ap_current_user_can` / `ap_map_meta_cap` | Checks |
 
 Plugin ACP pages declare their own gate on
@@ -349,13 +377,14 @@ built-in AgoraPress role.
 
 | Surface | As built |
 |---------|----------|
-| Users list (`users.php`) | Cap `list_users`. Filter by role; bulk role change needs `promote_users`. Cannot delete the sole administrator. |
+| Users list (`users.php`) | Cap `list_users`. Filter by role; bulk role change needs `promote_users`. Cannot delete the sole administrator. **No** ban / suspend control. |
 | Add user (`user-new.php`) | Cap `create_users`. Role dropdown is the registered slug list. |
 | Edit user (`user-edit.php`) | Cap `edit_users`. Changing role needs `promote_users`. Cannot demote the last administrator. |
 | Profile (`profile.php`) | Cap `read`. **Never** changes the signed-in user’s role. |
 | Settings → General | `default_role` for self-registration. |
 | `php ap-cli user list --role=` | Filter. |
-| `php ap-cli user create --role=` | Default `subscriber`. **No** `user update` / `user delete`. |
+| `php ap-cli user get <id\|login\|email>` | Public fields + `roles:`. Password hash is **not** printed. |
+| `php ap-cli user create --role=` | Default `subscriber`. CLI is `user <list\|get\|create>` only. **No** `user update` / `user delete`. |
 | REST `GET /ap/v1/users` | Public profile fields (no email). Email on `GET /users/{id}` only for self or `list_users`. **No** user writes. |
 
 Registration (`users_can_register`, email verification, math CAPTCHA) is
@@ -378,7 +407,11 @@ Do not tell operators or agents these exist:
 - Extra built-in CMS roles (`moderator`, `super_admin`, `forum_moderator`, …)
 - A Roles / Capabilities admin screen, or editing the `ap_user_roles`
   option from Settings
-- `php ap-cli role` / `user update` / `user delete`
+- A Users → Ban / suspend screen
+- `php ap-cli role` / `user update` / `user delete` (CLI `user` is
+  `list` / `get` / `create` only)
+- `ap_add_user_cap` / `ap_remove_user_cap` function wrappers (use
+  `AP_Roles::addUserCap` / `removeUserCap`)
 - A `user_has_cap` / `map_meta_cap` filter
 - Application Passwords, OAuth, JWT, or TOTP
 - REST writes for users, comments, or forum replies
