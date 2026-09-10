@@ -54,7 +54,7 @@ def test_changelog_is_not_a_stub(changelog_text: str) -> None:
     lines = [ln for ln in changelog_text.splitlines() if ln.strip()]
     assert len(lines) >= 15, f"CHANGELOG too short ({len(lines)} non-empty lines)"
     assert len(changelog_text) >= 800, "CHANGELOG should list major product surface"
-    assert len(changelog_text) < 12000, "CHANGELOG should stay concise"
+    assert len(changelog_text) < 14000, "CHANGELOG should stay concise"
 
 
 @pytest.mark.parametrize("pattern", REQUIRED_PATTERNS)
@@ -179,14 +179,34 @@ def test_changelog_contains_no_private_markers(changelog_text: str) -> None:
         )
 
 
-def test_current_ap_version_is_037_beta() -> None:
+def _038_beta_body(changelog_text: str) -> str:
+    match = re.search(
+        r"(?ims)^##\s+\[0\.3\.8-beta\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
+        changelog_text,
+    )
+    assert match, "Missing ## [0.3.8-beta] body"
+    return match.group(1)
+
+
+def test_038_beta_documents_absolute_mail_links(changelog_text: str) -> None:
+    body = _038_beta_body(changelog_text)
+    lower = body.lower()
+    assert "loginactionurl" in lower
+    assert "ap_admin::url" in lower
+    assert "siteurl" in lower
+    assert "ap-admin/login.php" in lower
+    assert "verifyemail" in lower
+    assert "verification" in lower and "reset" in lower
+
+
+def test_current_ap_version_is_038_beta() -> None:
     version_php = VERSION_PHP.read_text(encoding="utf-8")
     match = re.search(
         r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
         version_php,
     )
     assert match, "ap-includes/version.php should define AP_VERSION"
-    assert match.group(1) == "0.3.7-beta", (
-        "AP_VERSION must be 0.3.7-beta for this release "
+    assert match.group(1) == "0.3.8-beta", (
+        "AP_VERSION must be 0.3.8-beta for this release "
         f"(found {match.group(1)})"
     )

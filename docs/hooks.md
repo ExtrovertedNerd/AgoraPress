@@ -1,6 +1,6 @@
 # Hooks (Actions & Filters)
 
-This is the **integrator hook guide** for AgoraPress **`0.3.7-beta`** (schema `AP_DB_VERSION` **12**). It describes the public action/filter API, request lifecycle, and a **selected** set of core hook names that exist in shipped code.
+This is the **integrator hook guide** for AgoraPress **`0.3.8-beta`** (schema `AP_DB_VERSION` **12**). It describes the public action/filter API, request lifecycle, and a **selected** set of core hook names that exist in shipped code.
 
 AgoraPress uses a WordPress-inspired hook system so plugins and themes can extend core without forking it. This file is **not** an encyclopedia. Every name in the tables below was grepped from shipped `ap_do_action` / `ap_apply_filters` (or is labeled as a compat **map target** that native core does **not** fire). Grep for the rest. Do **not invent** hook names. If a name is not in this file and not in core, it is **not in core**.
 

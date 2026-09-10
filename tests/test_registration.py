@@ -86,6 +86,8 @@ def test_registration_class_defines_api() -> None:
         "spam folder",
         "sending server may be new",
         "function mailLinkNotice",
+        "function loginActionUrl",
+        "function isAbsoluteHttpUrl",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-registration.php"
     assert "That username is not available." in src
@@ -93,6 +95,19 @@ def test_registration_class_defines_api() -> None:
         ln for ln in src.splitlines() if "USERNAME_UNAVAILABLE_MESSAGE" in ln and "=" in ln
     )
     assert "reserved" not in const_line.lower()
+
+
+def test_login_action_url_does_not_short_circuit_to_admin_url() -> None:
+    src = REG_CLASS.read_text(encoding="utf-8")
+    start = src.find("function loginActionUrl")
+    assert start != -1, "loginActionUrl must exist"
+    nxt = src.find("\n    public static function", start + 10)
+    if nxt == -1:
+        nxt = src.find("\n    private static function", start + 10)
+    body = src[start:nxt if nxt != -1 else None]
+    assert "AP_Admin::url" not in body
+    assert "siteurl" in body
+    assert "isAbsoluteHttpUrl" in body
 
 
 def test_mail_class_defines_api() -> None:

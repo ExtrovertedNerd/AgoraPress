@@ -1,7 +1,7 @@
 # Forums
 
 This is the **operator and integrator guide** for AgoraPress’s first-class
-forum module at **`0.3.7-beta`** (schema `AP_DB_VERSION` **12**). It describes
+forum module at **`0.3.8-beta`** (schema `AP_DB_VERSION` **12**). It describes
 the hierarchy, topic types, two-pane topic view, likes, moderation, groups and
 per-forum ACL (including the **This group only** preset), listing hygiene,
 attachments, private messages, search, flood guards, online/unread tracking,

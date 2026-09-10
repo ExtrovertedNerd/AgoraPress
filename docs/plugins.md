@@ -1,6 +1,6 @@
 # Plugin API
 
-This is the **plugin integrator guide** for AgoraPress **`0.3.7-beta`** (schema `AP_DB_VERSION` **12**). It describes headers, must-use plugins, shortcodes, the Settings API, ACP pages (`ap_register_admin_page`), and the zip installer **as built**.
+This is the **plugin integrator guide** for AgoraPress **`0.3.8-beta`** (schema `AP_DB_VERSION` **12**). It describes headers, must-use plugins, shortcodes, the Settings API, ACP pages (`ap_register_admin_page`), and the zip installer **as built**.
 
 Plugins extend AgoraPress via headers, activation hooks, and the [hook system](hooks.md). Layout and headers are deliberately familiar to classic WordPress plugin authors. Operator screens: [admin.md](admin.md). Shell verbs: [cli.md](cli.md). REST registration: [rest.md](rest.md).
 

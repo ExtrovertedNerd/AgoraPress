@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This is the **symptom → check** guide for AgoraPress **`0.3.7-beta`** (schema
+This is the **symptom → check** guide for AgoraPress **`0.3.8-beta`** (schema
 `AP_DB_VERSION` **12**). It describes common failures **as built**. Start
 here when a site misbehaves; follow the linked topic guide for depth.
 
@@ -66,7 +66,7 @@ host configuration.
 | “Members only” but every logged-in user can see the board | **Members only** is all registered accounts. A named group uses **This group only** | [Group board invisible](#group-board-invisible) |
 | Classic WP theme looks broken | Compat layer is for **classic PHP** themes. Block / FSE (`theme.json`, HTML under `templates/`) is out of scope | [compatibility.md](compatibility.md) |
 | REST 404 on `/ap-json/` or `?rest_route=` | Front controller (pretty `/ap-json/…`) **and** option `rest_api_enabled` | Distinguish a web-server HTML 404 from JSON `rest_disabled` / `rest_no_route` / `rest_module_disabled`. [rest.md](rest.md) |
-| Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.7-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
+| Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.8-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
 | Login rejected / “too many attempts” / “verify your email” | Rate limit (`rate_limited`) or `require_email_verification` — not a broken `session.save_path` | [Login fails](#login-fails), [security.md](security.md), [roles.md](roles.md) |
 | Verification mail never arrives (reset / test too) | SMTP (or PHP `mail()`) on **Settings → Mail**; check the **spam** folder (new sending server); Site Health `mail_last_error` | [Mail not arriving](#mail-not-arriving) |
 | Admin screens look “old schema” after a zip/rsync, or Update Core is greyed | `php ap-cli db check` then `php ap-cli db migrate`. Pre-flight: `version_check_enabled`, ZipArchive, writable root | [updates.md](updates.md) |
@@ -315,7 +315,7 @@ Basic. Depth: [rest.md](rest.md), [rewrites.md](rewrites.md),
 
 ## Logged-in comments and Edit User
 
-These used to surprise operators. On **0.3.7-beta** the current behaviour
+These used to surprise operators. On **0.3.8-beta** the current behaviour
 is:
 
 ### Logged-in blog comments (since 0.3.2-beta)
@@ -342,7 +342,7 @@ Settings → Discussion. Ownership caps (since 0.3.3-beta):
 `delete_own_comments` (Subscriber+), `edit_own_comments` (Author+);
 moderators keep `moderate_comments`. See [roles.md](roles.md).
 
-If comments still do not save on 0.3.7-beta, check the blog module, the
+If comments still do not save on 0.3.8-beta, check the blog module, the
 post’s comment status, rate limits, and the `comment_error=` token — not a
 missing `AP_User::get()` method.
 

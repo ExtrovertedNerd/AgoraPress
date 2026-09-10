@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace AgoraPress\Tests\User;
 
+use AP_Admin;
 use AP_DB;
 use AP_Mail;
 use AP_Migrator;
@@ -776,6 +777,10 @@ final class RegistrationTest extends TestCase
         $this->assertCount(1, $outbox);
         $this->assertSame('alice@example.test', $outbox[0]['to']);
         $this->assertStringContainsString('Confirm your email', $outbox[0]['subject']);
+        $this->assertStringContainsString(
+            'https://example.test/ap-admin/login.php?',
+            $outbox[0]['message']
+        );
         $this->assertStringContainsString('action=verifyemail', $outbox[0]['message']);
         $this->assertStringContainsString($result['plain_key'], $outbox[0]['message']);
         $this->assertMailLinkNotice($outbox[0]['message']);
@@ -1115,6 +1120,10 @@ final class RegistrationTest extends TestCase
         $outbox = AP_Mail::getTestOutbox();
         $this->assertCount(1, $outbox);
         $this->assertStringContainsString('Password reset', $outbox[0]['subject']);
+        $this->assertStringContainsString(
+            'https://example.test/ap-admin/login.php?',
+            $outbox[0]['message']
+        );
         $this->assertStringContainsString('action=rp', $outbox[0]['message']);
         $this->assertStringContainsString($req['plain_key'], $outbox[0]['message']);
         $this->assertMailLinkNotice($outbox[0]['message']);
@@ -1160,6 +1169,89 @@ final class RegistrationTest extends TestCase
         $this->assertMailLinkNotice($outbox[1]['message']);
         $this->assertStringContainsString('verify-plain-key', $outbox[0]['message']);
         $this->assertStringContainsString('reset-plain-key', $outbox[1]['message']);
+        $this->assertStringContainsString(
+            'https://example.test/ap-admin/login.php?',
+            $outbox[0]['message']
+        );
+        $this->assertStringContainsString(
+            'https://example.test/ap-admin/login.php?',
+            $outbox[1]['message']
+        );
+    }
+
+    public function testLoginActionUrlPrefersSiteurlWhenAdminClassLoaded(): void
+    {
+        require_once $this->root . '/ap-admin/includes/class-ap-admin.php';
+        $this->assertTrue(class_exists('AP_Admin', false));
+
+        $previousScript = $_SERVER['SCRIPT_NAME'] ?? null;
+        $_SERVER['SCRIPT_NAME'] = '/ap-admin/login.php';
+        $this->setOption('siteurl', 'https://forum.example.test');
+        $this->setOption('home', 'https://forum.example.test');
+
+        try {
+            $created = AP_User::create([
+                'user_login' => 'absmail',
+                'user_email' => 'absmail@example.test',
+                'user_pass' => 'securepass9',
+                'user_status' => 0,
+                'role' => 'subscriber',
+            ], $this->db);
+            $this->assertTrue($created['ok']);
+            $user = $created['user'];
+            $this->assertNotNull($user);
+
+            $verifyUrl = AP_Registration::verificationUrl($user, 'abs-verify-key', $this->db);
+            $resetUrl = AP_Registration::passwordResetUrl($user, 'abs-reset-key', $this->db);
+            $this->assertStringStartsWith(
+                'https://forum.example.test/ap-admin/login.php?',
+                $verifyUrl
+            );
+            $this->assertStringContainsString('action=verifyemail', $verifyUrl);
+            $this->assertStringContainsString('login=absmail', $verifyUrl);
+            $this->assertStringContainsString('key=abs-verify-key', $verifyUrl);
+            $this->assertStringStartsWith(
+                'https://forum.example.test/ap-admin/login.php?',
+                $resetUrl
+            );
+            $this->assertStringContainsString('action=rp', $resetUrl);
+            $this->assertStringContainsString('key=abs-reset-key', $resetUrl);
+
+            $pathOnlyAdmin = AP_Admin::url('login.php', [
+                'action' => 'verifyemail',
+                'login' => 'absmail',
+                'key' => 'abs-verify-key',
+            ]);
+            $this->assertNotSame($pathOnlyAdmin, $verifyUrl);
+
+            AP_Mail::clearTestOutbox();
+            $this->assertTrue(
+                AP_Registration::sendVerificationEmail($user, 'abs-verify-key', $this->db)
+            );
+            $this->assertTrue(
+                AP_Registration::sendPasswordResetEmail($user, 'abs-reset-key', $this->db)
+            );
+            $outbox = AP_Mail::getTestOutbox();
+            $this->assertCount(2, $outbox);
+            $this->assertStringContainsString($verifyUrl, $outbox[0]['message']);
+            $this->assertStringContainsString($resetUrl, $outbox[1]['message']);
+            $this->assertDoesNotMatchRegularExpression(
+                '/(?:^|\\s)\\/ap-admin\\/login\\.php/',
+                $outbox[0]['message']
+            );
+            $this->assertDoesNotMatchRegularExpression(
+                '/(?:^|\\s)\\/ap-admin\\/login\\.php/',
+                $outbox[1]['message']
+            );
+        } finally {
+            if ($previousScript === null) {
+                unset($_SERVER['SCRIPT_NAME']);
+            } else {
+                $_SERVER['SCRIPT_NAME'] = $previousScript;
+            }
+            $this->setOption('siteurl', 'https://example.test');
+            $this->setOption('home', 'https://example.test');
+        }
     }
 
     public function testPasswordResetDoesNotClaimSuccessWhenMailFails(): void

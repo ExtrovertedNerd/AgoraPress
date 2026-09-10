@@ -1,6 +1,6 @@
 # Security and privacy
 
-This is the **hardening and privacy guide** for AgoraPress **`0.3.7-beta`**
+This is the **hardening and privacy guide** for AgoraPress **`0.3.8-beta`**
 (schema `AP_DB_VERSION` **12**). It describes the security model **as built**:
 PDO prepared statements, HMAC nonces, Argon2id passwords, rate limits,
 `php` / `smtp` outbound mail, a first-party public-register gate, reserved
@@ -254,7 +254,9 @@ If `require_email_verification` is on and `send()` fails: keep the pending
 user; **do not** show “check your email” as success; store last error; offer
 resend on `login.php?action=resend` and on Users → Edit. Verification and
 password-reset bodies: the link expires in 24 hours; if the message is
-missing, check the spam folder — the sending server may be new.
+missing, check the spam folder — the sending server may be new. The
+action URL is the absolute `{siteurl}/ap-admin/login.php?…` (built from
+the `siteurl` option, not the path-only `AP_Admin::url()`).
 
 ---
 

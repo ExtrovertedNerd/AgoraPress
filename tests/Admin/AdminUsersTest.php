@@ -803,51 +803,74 @@ final class AdminUsersTest extends TestCase
         AP_Options::update('require_email_verification', '1', $this->db);
         AP_Options::update('default_role', 'subscriber', $this->db);
         AP_Options::update('blogname', 'Test Site', $this->db);
-        AP_Options::update('siteurl', 'https://example.test', $this->db);
+        AP_Options::update('siteurl', 'https://forum.example.test', $this->db);
 
-        $admin = AP_User::create([
-            'user_login' => 'resendadmin',
-            'user_email' => 'resendadmin@example.test',
-            'password' => 'password123',
-            'role' => 'administrator',
-        ], $this->db);
-        $pending = AP_Registration::register([
-            'user_login' => 'editresend',
-            'user_email' => 'editresend@example.test',
-            'user_pass' => 'securepass8',
-            'ap_form_ticket' => AP_Registration::createFormTicket(
-                time() - AP_Registration::MIN_FILL_SECONDS
-            )['token'],
-            'ap_hp' => '',
-        ], $this->db);
-        $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
-        AP_Mail::clearTestOutbox();
+        $previousScript = $_SERVER['SCRIPT_NAME'] ?? null;
+        $_SERVER['SCRIPT_NAME'] = '/ap-admin/login.php';
 
-        $nonce = ap_create_nonce('update-user-' . $pending['id'], $admin['id']);
-        $result = AP_Admin_User_Edit::save([
-            '_ap_nonce' => $nonce,
-            'user_ID' => $pending['id'],
-            'ap_resend_verification' => '1',
-        ], $admin['id'], 'update', $this->db);
+        try {
+            $admin = AP_User::create([
+                'user_login' => 'resendadmin',
+                'user_email' => 'resendadmin@example.test',
+                'password' => 'password123',
+                'role' => 'administrator',
+            ], $this->db);
+            $pending = AP_Registration::register([
+                'user_login' => 'editresend',
+                'user_email' => 'editresend@example.test',
+                'user_pass' => 'securepass8',
+                'ap_form_ticket' => AP_Registration::createFormTicket(
+                    time() - AP_Registration::MIN_FILL_SECONDS
+                )['token'],
+                'ap_hp' => '',
+            ], $this->db);
+            $this->assertTrue($pending['ok'], implode('; ', $pending['errors']));
+            AP_Mail::clearTestOutbox();
 
-        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
-        $this->assertSame('verification_resent', $result['message_key']);
-        $outbox = AP_Mail::getTestOutbox();
-        $this->assertCount(1, $outbox);
-        $this->assertSame('editresend@example.test', $outbox[0]['to']);
+            $nonce = ap_create_nonce('update-user-' . $pending['id'], $admin['id']);
+            $result = AP_Admin_User_Edit::save([
+                '_ap_nonce' => $nonce,
+                'user_ID' => $pending['id'],
+                'ap_resend_verification' => '1',
+            ], $admin['id'], 'update', $this->db);
 
-        AP_Mail::failNextForTests('SMTP down');
-        $nonce2 = ap_create_nonce('update-user-' . $pending['id'], $admin['id']);
-        $failed = AP_Admin_User_Edit::save([
-            '_ap_nonce' => $nonce2,
-            'user_ID' => $pending['id'],
-            'ap_resend_verification' => '1',
-        ], $admin['id'], 'update', $this->db);
-        $this->assertFalse($failed['ok']);
-        $this->assertStringContainsString('could not be sent', strtolower(implode(' ', $failed['errors'])));
-        $still = AP_User::getById($pending['id'], $this->db);
-        $this->assertNotNull($still);
-        $this->assertSame(AP_Registration::STATUS_PENDING, $still->user_status);
+            $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+            $this->assertSame('verification_resent', $result['message_key']);
+            $outbox = AP_Mail::getTestOutbox();
+            $this->assertCount(1, $outbox);
+            $this->assertSame('editresend@example.test', $outbox[0]['to']);
+            $this->assertStringContainsString(
+                'https://forum.example.test/ap-admin/login.php?',
+                $outbox[0]['message']
+            );
+            $this->assertStringContainsString('action=verifyemail', $outbox[0]['message']);
+            $this->assertDoesNotMatchRegularExpression(
+                '/(?:^|\\s)\\/ap-admin\\/login\\.php/',
+                $outbox[0]['message']
+            );
+
+            AP_Mail::failNextForTests('SMTP down');
+            $nonce2 = ap_create_nonce('update-user-' . $pending['id'], $admin['id']);
+            $failed = AP_Admin_User_Edit::save([
+                '_ap_nonce' => $nonce2,
+                'user_ID' => $pending['id'],
+                'ap_resend_verification' => '1',
+            ], $admin['id'], 'update', $this->db);
+            $this->assertFalse($failed['ok']);
+            $this->assertStringContainsString(
+                'could not be sent',
+                strtolower(implode(' ', $failed['errors']))
+            );
+            $still = AP_User::getById($pending['id'], $this->db);
+            $this->assertNotNull($still);
+            $this->assertSame(AP_Registration::STATUS_PENDING, $still->user_status);
+        } finally {
+            if ($previousScript === null) {
+                unset($_SERVER['SCRIPT_NAME']);
+            } else {
+                $_SERVER['SCRIPT_NAME'] = $previousScript;
+            }
+        }
     }
 
     public function testActivatePendingAccountFromUserEdit(): void

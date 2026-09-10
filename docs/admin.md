@@ -1,6 +1,6 @@
 # Admin Control Panel (`/ap-admin/`)
 
-This is the **operator map of `/ap-admin/`** for AgoraPress **`0.3.7-beta`**
+This is the **operator map of `/ap-admin/`** for AgoraPress **`0.3.8-beta`**
 (schema `AP_DB_VERSION` **12**). It describes the Control Panel **as built**:
 screens grouped by task, the capability that gates each area, the voluntary
 Hall of Fame handshake, and the unobtrusive donation link. It does **not**
@@ -94,7 +94,7 @@ an alias of `rp`.
 | `register` | Shown only when option `users_can_register` is on (Settings → General). Nonce `admin-register`. Always-on hidden gate, optional visible CAPTCHA, reserved logins — [Public registration](#public-registration). If `require_email_verification` is on and `AP_Mail::send()` fails, the pending account is **kept** and the form does **not** print “check your email” as success. Copy: “Your account was created, but the verification email could not be sent.” The screen then switches to `resend` with the email prefilled. |
 | `lostpassword` | Request a reset mail. Nonce `admin-lostpassword`. Unknown / pending accounts still show generic success so the form does not leak whether an address is registered. A real send failure is honest: “The password reset email could not be sent.” |
 | `rp` / `resetpass` | Set a new password with the mailed key (24-hour HMAC; same expiry copy as verification mail). |
-| `verifyemail` | Confirm a new account from the mailed link. |
+| `verifyemail` | Confirm a new account from the mailed link. Verification and reset messages include the absolute `{siteurl}/ap-admin/login.php?action=verifyemail|rp&…` address (not a path-only `/ap-admin/login.php`). |
 | `resend` | Public **Resend verification** form (`login.php?action=resend`). Nonce `admin-resend`. Username or email. Always linked from the login and register screens when those screens render. Success copy is generic: “If a pending account exists for that username or email, you will receive a verification message shortly.” Unknown or already-active accounts use that same generic ok (no enumeration). A real `send()` failure is reported honestly and does **not** claim the mail went out. Public resend shares the `password_reset` IP rate-limit bucket and a 60-second per-account cooldown (`VERIFY_RESEND_COOLDOWN`). Logged-in visitors are sent to the dashboard (this action is not excepted). |
 
 Already-logged-in visitors are sent to the dashboard except `verifyemail`

@@ -1508,31 +1508,35 @@ class AP_Registration
     /**
      * Build ap-admin/login.php?action=… URL (absolute when siteurl known).
      *
+     * Does not use AP_Admin::url(): that helper is path-only (`/ap-admin/…`)
+     * when AP_SITEURL is unset, which is the normal production config. Mail
+     * bodies need `{siteurl}/ap-admin/login.php?…`. Prefers the live `siteurl`
+     * option over AP_Rewrite’s request cache so the mailed host matches Settings.
+     *
      * @param array<string, string> $query
      */
     public static function loginActionUrl(string $action, array $query = [], ?AP_DB $db = null): string
     {
         $query = array_merge(['action' => $action], $query);
 
-        if (class_exists('AP_Admin', false)) {
-            return AP_Admin::url('login.php', $query);
+        $site = (string) self::readOption('siteurl', '', $db);
+        if ($site === '') {
+            $site = (string) self::readOption('home', '', $db);
+        }
+        if ($site === '' && defined('AP_SITEURL') && is_string(AP_SITEURL) && AP_SITEURL !== '') {
+            $site = (string) AP_SITEURL;
         }
 
         $base = '';
-        if (class_exists('AP_Rewrite', false)) {
-            $site = AP_Rewrite::siteUrl('ap-admin/login.php', $db);
-            if ($site !== '') {
-                $base = $site;
+        if (self::isAbsoluteHttpUrl($site)) {
+            $base = rtrim($site, '/') . '/ap-admin/login.php';
+        } elseif (class_exists('AP_Rewrite', false)) {
+            $rewritten = AP_Rewrite::siteUrl('ap-admin/login.php', $db);
+            if (self::isAbsoluteHttpUrl($rewritten)) {
+                $base = $rewritten;
             }
         }
         if ($base === '') {
-            $site = (string) self::readOption('siteurl', '', $db);
-            if ($site === '') {
-                $site = (string) self::readOption('home', '', $db);
-            }
-            if ($site === '' && defined('AP_SITEURL') && is_string(AP_SITEURL) && AP_SITEURL !== '') {
-                $site = (string) AP_SITEURL;
-            }
             $base = $site !== ''
                 ? rtrim($site, '/') . '/ap-admin/login.php'
                 : '/ap-admin/login.php';
@@ -1544,6 +1548,14 @@ class AP_Registration
         }
 
         return $base . (str_contains($base, '?') ? '&' : '?') . $qs;
+    }
+
+    /**
+     * Whether $url is an http(s) URL with a host (usable in email).
+     */
+    private static function isAbsoluteHttpUrl(string $url): bool
+    {
+        return strncmp($url, 'https://', 8) === 0 || strncmp($url, 'http://', 7) === 0;
     }
 
     /**

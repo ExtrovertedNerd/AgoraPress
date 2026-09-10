@@ -3,13 +3,25 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.7-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.8-beta**).
 
 ## [Unreleased]
 
 ### Added
 
 ### Changed
+
+## [0.3.8-beta] - 2026-09-09
+
+Verification and password-reset emails include the full `{siteurl}/ap-admin/login.php` address. Schema stays `AP_DB_VERSION` **12**; privacy posture unchanged (no telemetry by default).
+
+### Package
+
+- Beta package `0.3.8-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
+### Fixed
+
+- **Mail action links:** `AP_Registration::loginActionUrl()` no longer short-circuits to `AP_Admin::url()`, which is path-only (`/ap-admin/login.php`) when `AP_SITEURL` is unset. Verification and reset messages now the `siteurl` option so the link is `{siteurl}/ap-admin/login.php?action=verifyemail|rp&…`.
 
 ## [0.3.7-beta] - 2026-09-09
 

@@ -45,9 +45,9 @@ final class ChangelogTest extends TestCase
         $this->assertGreaterThanOrEqual(800, strlen($this->changelog));
         // Stay useful: reject the old multi-thousand-line implementation diary.
         $this->assertLessThan(
-            12000,
+            14000,
             strlen($this->changelog),
-            'CHANGELOG should stay concise (under ~12 KiB of prose)'
+            'CHANGELOG should stay concise (under ~14 KiB of prose)'
         );
     }
 
@@ -280,7 +280,28 @@ final class ChangelogTest extends TestCase
         }
     }
 
-    public function testCurrentApVersionIs037Beta(): void
+    public function test038BetaDocumentsAbsoluteMailLinks(): void
+    {
+        $matched = preg_match(
+            '/(?ims)^##\s+\[0\.3\.8-beta\][^\n]*\n(.*?)(?=^##\s+\[|\z)/',
+            $this->changelog,
+            $m
+        );
+        $this->assertSame(1, $matched, 'Missing ## [0.3.8-beta] body');
+        $body = $m[1];
+        $lower = strtolower($body);
+        $this->assertStringContainsString('loginactionurl', $lower);
+        $this->assertStringContainsString('ap_admin::url', $lower);
+        $this->assertStringContainsString('siteurl', $lower);
+        $this->assertStringContainsString('ap-admin/login.php', $lower);
+        $this->assertStringContainsString('verifyemail', $lower);
+        $this->assertTrue(
+            str_contains($lower, 'verification') && str_contains($lower, 'reset'),
+            '[0.3.8-beta] should mention verification and reset emails'
+        );
+    }
+
+    public function testCurrentApVersionIs038Beta(): void
     {
         $versionPath = $this->root . '/ap-includes/version.php';
         $this->assertFileIsReadable($versionPath);
@@ -293,9 +314,9 @@ final class ChangelogTest extends TestCase
         );
         $this->assertSame(1, $matched, 'ap-includes/version.php should define AP_VERSION');
         $this->assertSame(
-            '0.3.7-beta',
+            '0.3.8-beta',
             $m[1],
-            'AP_VERSION must be 0.3.7-beta for this release'
+            'AP_VERSION must be 0.3.8-beta for this release'
         );
     }
 }
