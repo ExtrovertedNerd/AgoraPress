@@ -220,3 +220,36 @@ def test_current_ap_version_is_039_beta() -> None:
         "AP_VERSION must be 0.3.9-beta for this release "
         f"(found {match.group(1)})"
     )
+
+
+def _039_beta_body(changelog_text: str) -> str:
+    match = re.search(
+        r"(?ims)^##\s+\[0\.3\.9-beta\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
+        changelog_text,
+    )
+    assert match, "Missing ## [0.3.9-beta] body"
+    return match.group(1)
+
+
+def test_039_beta_documents_charter_surfaces(changelog_text: str) -> None:
+    heading = re.search(
+        r"(?im)^##\s+\[0\.3\.9-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",
+        changelog_text,
+    )
+    assert heading, "Missing dated ## [0.3.9-beta] heading"
+    body = _039_beta_body(changelog_text)
+    assert re.search(r"(?im)^###\s+Added\s*$", body)
+    assert re.search(r"(?im)^###\s+Changed\s*$", body)
+    assert re.search(r"(?im)^###\s+Fixed\s*$", body)
+    lower = body.lower()
+    assert "ap_db_version" in lower
+    assert "**12**" in body or " 12" in body
+    assert "set as default" in lower
+    assert "agora_visitor_color_preview" in lower
+    assert "agora_scheme" in lower
+    assert "ensuredefaultcategory" in lower
+    assert "default_category" in lower
+    assert "color-scheme" in lower
+    assert "posted in" in lower
+    assert "uncategorized" in lower
+    assert "no telemetry" in lower
