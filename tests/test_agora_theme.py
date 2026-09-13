@@ -267,6 +267,32 @@ def test_header_applies_body_class_and_a11y() -> None:
         "agora_the_visitor_color_preview();"
     )
     assert "agorapress.extrovertednerd.com" not in src
+    assert "HTTP_HOST" not in src
+    assert "SERVER_NAME" not in src
+
+
+def test_visitor_preview_has_no_product_hostname_and_no_theme_fork() -> None:
+    """Preview is a Theme Option on stock Agora — not a hostname special-case or fork."""
+    product_host = "agorapress.extrovertednerd.com"
+    functions = FUNCTIONS.read_text(encoding="utf-8")
+    opts = THEME_OPTIONS.read_text(encoding="utf-8")
+    for src in (functions, opts):
+        assert product_host not in src
+        assert "HTTP_HOST" not in src
+        assert "SERVER_NAME" not in src
+    assert "agora_visitor_color_preview_control_enabled" in functions
+    assert "Gated on that option only" in functions
+    assert "Does not read the request host" in functions
+    assert "Host-relative only" in functions
+
+    themes = ROOT / "ap-content" / "themes"
+    theme_dirs = sorted(
+        p.name for p in themes.iterdir() if p.is_dir() and (p / "style.css").is_file()
+    )
+    assert theme_dirs == ["agora"]
+    css = STYLE.read_text(encoding="utf-8")
+    assert re.search(r"^Theme Name:\s*Agora\s*$", css, flags=re.M)
+    assert not re.search(r"^Template:", css, flags=re.M)
 
 
 def test_footer_powered_by_agorapress_is_linked() -> None:

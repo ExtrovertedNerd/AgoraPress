@@ -438,6 +438,7 @@ function agora_set_visitor_color_preview(bool $enabled, ?AP_DB $db = null): bool
  *
  * Requires the Theme Option to be on and {@see agora_get_color_schemes()}
  * to exist (stock Agora or a child that still loads those helpers).
+ * Gated on that option only — not on the request host.
  */
 function agora_visitor_color_preview_control_enabled(?AP_DB $db = null): bool
 {
@@ -449,18 +450,22 @@ function agora_visitor_color_preview_control_enabled(?AP_DB $db = null): bool
  * Path of the current request for preview GET links (no host, no query).
  *
  * Empty when REQUEST_URI is missing so the href can be query-only and keep
- * the browser on the current page. Never includes a hostname.
+ * the browser on the current page. Absolute or protocol-relative URIs keep
+ * only the path. Never includes a hostname. Does not read the request host.
  */
 function agora_visitor_color_preview_request_path(): string
 {
-    $uri = (string) ($_SERVER['REQUEST_URI'] ?? '');
+    $uri = str_replace(["\0", "\r", "\n"], '', (string) ($_SERVER['REQUEST_URI'] ?? ''));
     if ($uri === '') {
         return '';
     }
-    $qpos = strpos($uri, '?');
-    $path = $qpos === false ? $uri : substr($uri, 0, $qpos);
-    $path = str_replace(["\0", "\r", "\n"], '', $path);
-    if ($path === '' || !str_starts_with($path, '/') || str_contains($path, '://')) {
+
+    $parsed = parse_url($uri);
+    if (!is_array($parsed)) {
+        return '';
+    }
+    $path = (string) ($parsed['path'] ?? '');
+    if ($path === '' || !str_starts_with($path, '/') || str_starts_with($path, '//')) {
         return '';
     }
 
@@ -471,7 +476,8 @@ function agora_visitor_color_preview_request_path(): string
  * No-JS GET URL that previews $slug (`?agora_scheme={slug}`).
  *
  * Keeps the current path and other query args. Invalid slugs return ''.
- * Never writes {@see AGORA_COLOR_SCHEME_OPTION}.
+ * Host-relative only (path + query, or query-only). Never writes
+ * {@see AGORA_COLOR_SCHEME_OPTION}.
  */
 function agora_visitor_color_preview_url(string $slug): string
 {
@@ -494,8 +500,12 @@ function agora_visitor_color_preview_url(string $slug): string
     $query[AGORA_COLOR_SCHEME_QUERY] = $valid;
     $qs = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
     $path = agora_visitor_color_preview_request_path();
+    $url = $path . '?' . $qs;
+    if (str_contains($url, '://') || str_starts_with($url, '//')) {
+        return '?' . $qs;
+    }
 
-    return $path . '?' . $qs;
+    return $url;
 }
 
 /**

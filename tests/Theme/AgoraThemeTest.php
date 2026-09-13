@@ -821,6 +821,175 @@ final class AgoraThemeTest extends TestCase
         $this->assertLessThan($callPos, $gatePos);
     }
 
+    public function testCoreShipsOnlyAgoraThemeNoProductFork(): void
+    {
+        $themesRoot = $this->root . '/ap-content/themes';
+        $this->assertDirectoryExists($themesRoot);
+
+        $themeDirs = [];
+        $entries = scandir($themesRoot);
+        $this->assertIsArray($entries);
+        foreach ($entries as $name) {
+            if ($name === '.' || $name === '..') {
+                continue;
+            }
+            $dir = $themesRoot . '/' . $name;
+            if (is_dir($dir) && is_file($dir . '/style.css')) {
+                $themeDirs[] = $name;
+            }
+        }
+        sort($themeDirs);
+        $this->assertSame(
+            ['agora'],
+            $themeDirs,
+            'Core must ship only the Agora theme — no product-site fork'
+        );
+
+        $headers = AP_Theme::parseStyleCss($themesRoot . '/agora/style.css');
+        $this->assertSame('Agora', $headers['Theme Name'] ?? null);
+        $this->assertArrayNotHasKey('Template', $headers);
+    }
+
+    public function testVisitorPreviewHelpersHaveNoProductHostnameSpecialCase(): void
+    {
+        $productHost = 'agorapress.extrovertednerd.com';
+        foreach (
+            [
+                'agora_visitor_color_preview_enabled',
+                'agora_visitor_color_preview_control_enabled',
+                'agora_visitor_color_preview_request_path',
+                'agora_visitor_color_preview_url',
+                'agora_get_visitor_color_preview_html',
+                'agora_the_visitor_color_preview',
+                'agora_preview_scheme_from_query',
+                'agora_preview_scheme_from_cookie',
+                'agora_get_color_scheme',
+            ] as $name
+        ) {
+            $body = $this->agoraFunctionBody($name);
+            $this->assertStringNotContainsString($productHost, $body, $name);
+            $this->assertStringNotContainsString('HTTP_HOST', $body, $name);
+            $this->assertStringNotContainsString('SERVER_NAME', $body, $name);
+            $this->assertStringNotContainsString('gethostname', $body, $name);
+        }
+
+        $header = (string) file_get_contents($this->root . '/ap-content/themes/agora/header.php');
+        $this->assertStringNotContainsString($productHost, $header);
+        $this->assertStringNotContainsString('HTTP_HOST', $header);
+        $this->assertStringNotContainsString('SERVER_NAME', $header);
+
+        $opts = (string) file_get_contents($this->root . '/ap-admin/theme-options.php');
+        $this->assertStringNotContainsString($productHost, $opts);
+        $this->assertStringNotContainsString('HTTP_HOST', $opts);
+        $this->assertStringNotContainsString('SERVER_NAME', $opts);
+        $this->assertStringContainsString('agora_visitor_color_preview', $opts);
+        $this->assertStringContainsString('$isAgora', $opts);
+    }
+
+    public function testVisitorPreviewIsNotGatedOnRequestHost(): void
+    {
+        $productHost = 'agorapress.extrovertednerd.com';
+        $prevHost = $_SERVER['HTTP_HOST'] ?? null;
+        $prevName = $_SERVER['SERVER_NAME'] ?? null;
+        $prevUri = $_SERVER['REQUEST_URI'] ?? null;
+
+        try {
+            $_SERVER['HTTP_HOST'] = $productHost;
+            $_SERVER['SERVER_NAME'] = $productHost;
+            $_SERVER['REQUEST_URI'] = '/';
+
+            $this->assertFalse(agora_visitor_color_preview_enabled($this->db));
+            $this->assertFalse(agora_visitor_color_preview_control_enabled($this->db));
+            $this->assertSame('', agora_get_visitor_color_preview_html($this->db));
+            $htmlOff = $this->renderPublicHome();
+            $this->assertNoVisitorColorPreviewMarkup($htmlOff);
+
+            $this->assertTrue(agora_set_visitor_color_preview(true, $this->db));
+            $this->assertTrue(agora_visitor_color_preview_control_enabled($this->db));
+
+            $markup = agora_get_visitor_color_preview_html($this->db);
+            $this->assertStringContainsString('agora-scheme-preview', $markup);
+            $this->assertStringContainsString('agora_scheme=midnight', $markup);
+            $this->assertStringNotContainsString($productHost, $markup);
+            $this->assertDoesNotMatchRegularExpression('#href="(?:https?:)?//#', $markup);
+
+            $htmlOn = $this->renderPublicHome();
+            $this->assertSame(1, preg_match(
+                '/<nav class="agora-scheme-preview"[^>]*>.*?<\/nav>/s',
+                $htmlOn,
+                $nav
+            ));
+            $this->assertStringNotContainsString($productHost, $nav[0]);
+            $this->assertDoesNotMatchRegularExpression('#href="(?:https?:)?//#', $nav[0]);
+
+            $_SERVER['HTTP_HOST'] = 'example.com';
+            $_SERVER['SERVER_NAME'] = 'example.com';
+            $markupOther = agora_get_visitor_color_preview_html($this->db);
+            $this->assertStringContainsString('agora-scheme-preview', $markupOther);
+            $this->assertStringNotContainsString($productHost, $markupOther);
+            $this->assertStringNotContainsString('example.com', $markupOther);
+        } finally {
+            if ($prevHost === null) {
+                unset($_SERVER['HTTP_HOST']);
+            } else {
+                $_SERVER['HTTP_HOST'] = $prevHost;
+            }
+            if ($prevName === null) {
+                unset($_SERVER['SERVER_NAME']);
+            } else {
+                $_SERVER['SERVER_NAME'] = $prevName;
+            }
+            if ($prevUri === null) {
+                unset($_SERVER['REQUEST_URI']);
+            } else {
+                $_SERVER['REQUEST_URI'] = $prevUri;
+            }
+        }
+    }
+
+    public function testVisitorPreviewUrlStripsHostFromRequestUri(): void
+    {
+        $productHost = 'agorapress.extrovertednerd.com';
+        $prevUri = $_SERVER['REQUEST_URI'] ?? null;
+        $prevHost = $_SERVER['HTTP_HOST'] ?? null;
+        $prevGet = $_GET;
+
+        try {
+            $_SERVER['HTTP_HOST'] = $productHost;
+            $_GET = ['s' => 'stone', AGORA_COLOR_SCHEME_QUERY => 'cloud'];
+
+            $_SERVER['REQUEST_URI'] = 'https://' . $productHost . '/blog/hello/?s=stone&agora_scheme=cloud';
+            $fromAbsolute = agora_visitor_color_preview_url('midnight');
+            $this->assertSame('/blog/hello/?s=stone&agora_scheme=midnight', $fromAbsolute);
+
+            $_SERVER['REQUEST_URI'] = '//' . $productHost . '/forums/board';
+            $fromProtocolRelative = agora_visitor_color_preview_url('obsidian');
+            $this->assertSame('/forums/board?s=stone&agora_scheme=obsidian', $fromProtocolRelative);
+
+            $_SERVER['REQUEST_URI'] = '//' . $productHost;
+            $fromHostOnly = agora_visitor_color_preview_url('charcoal');
+            $this->assertSame('?s=stone&agora_scheme=charcoal', $fromHostOnly);
+
+            foreach ([$fromAbsolute, $fromProtocolRelative, $fromHostOnly] as $url) {
+                $this->assertStringNotContainsString($productHost, $url);
+                $this->assertStringNotContainsString('://', $url);
+                $this->assertFalse(str_starts_with($url, '//'));
+            }
+        } finally {
+            if ($prevUri === null) {
+                unset($_SERVER['REQUEST_URI']);
+            } else {
+                $_SERVER['REQUEST_URI'] = $prevUri;
+            }
+            if ($prevHost === null) {
+                unset($_SERVER['HTTP_HOST']);
+            } else {
+                $_SERVER['HTTP_HOST'] = $prevHost;
+            }
+            $_GET = $prevGet;
+        }
+    }
+
     public function testThemeOptionsAdminFileExists(): void
     {
         $path = $this->root . '/ap-admin/theme-options.php';
