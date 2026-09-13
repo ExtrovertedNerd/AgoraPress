@@ -7,6 +7,7 @@ Runnable via:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -179,3 +180,85 @@ def test_css_has_surface_rules() -> None:
     assert ".ap-editor__surface" in css
     assert ".ap-editor__toolbar" in css
     assert "ap-editor--visual-active" in css
+
+
+def _first_css_block(css: str, selector: str) -> str:
+    pattern = re.escape(selector) + r"(?![a-zA-Z0-9_-])\s*\{([^{}]+)\}"
+    match = re.search(pattern, css)
+    assert match, f"Missing CSS block for {selector!r}"
+    return match.group(1)
+
+
+def test_css_inherits_color_scheme_and_pairs_chrome() -> None:
+    """Dark chrome follows color-scheme inherit + system colors, not only Agora tokens."""
+    css = CSS.read_text(encoding="utf-8")
+    wrap = _first_css_block(css, ".ap-editor")
+    toolbar = _first_css_block(css, ".ap-editor__toolbar")
+    surface = _first_css_block(css, ".ap-editor__surface")
+    btn = _first_css_block(css, ".ap-editor__btn")
+
+    assert "color-scheme: inherit" in wrap
+    for token in (
+        "--ap-editor-bg",
+        "--ap-editor-fg",
+        "--ap-editor-border",
+        "--ap-editor-surface",
+        "Canvas",
+        "CanvasText",
+        "Field",
+        "FieldText",
+    ):
+        assert token in wrap, f"Expected {token!r} in .ap-editor"
+
+    assert "background: var(--ap-editor-chrome-bg)" in toolbar
+    assert "color: var(--ap-editor-chrome-fg)" in toolbar
+    assert "#eef0f3" not in toolbar
+    assert "background: var(--ap-editor-field-bg)" in surface
+    assert "color: var(--ap-editor-field-fg)" in surface
+    assert "color: currentColor" in btn
+    assert ".ap-editor button.ap-editor__btn" in css
+
+    assert re.search(r"--ap-editor-chrome-bg:\s*var\([^;]*Canvas\)", wrap)
+    assert re.search(r"--ap-editor-chrome-fg:\s*var\([^;]*CanvasText\)", wrap)
+    assert re.search(r"--ap-editor-field-bg:\s*var\([^;]*Field\)", wrap)
+    assert re.search(r"--ap-editor-field-fg:\s*var\([^;]*FieldText\)", wrap)
+    assert not re.search(r"#[0-9a-fA-F]{3,8}", wrap)
+
+    # Dark chrome still resolves if Agora-only host rules are removed.
+    stripped = re.sub(r"body\.agora-mode-dark[\s\S]*?\{[\s\S]*?\}", "", css)
+    stripped_wrap = _first_css_block(stripped, ".ap-editor")
+    assert "color-scheme: inherit" in stripped_wrap
+    assert "Canvas" in stripped_wrap
+    assert "FieldText" in stripped_wrap
+    assert not re.search(
+        r"body\.agora-mode-dark[^{]*\.ap-editor__(?:toolbar|btn|surface)[^{]*\{",
+        css,
+    )
+
+    assert "body.agora-mode-dark .ap-editor" in css
+    assert 'html[data-ap-color-mode="dark"] .ap-editor' in css
+    assert "[data-ap-color-mode=\"dark\"] .ap-editor" in css
+    assert "color-scheme: dark" in css
+
+
+def test_contrast_fixture_without_agora_stylesheet() -> None:
+    """Page with color-scheme: dark and light text, no Agora CSS, still contracts contrast."""
+    fixture = ROOT / "tests" / "Editor" / "fixtures" / "editor-contrast-dark.html"
+    html = fixture.read_text(encoding="utf-8")
+    assert "color-scheme: dark" in html
+    assert "color: #e8eaed" in html
+    assert "button { color: inherit; }" in html
+    assert "ap-editor.css" in html
+    assert "ap-editor__toolbar" in html
+    assert "agora/style.css" not in html
+    assert "agora-mode-dark" not in html
+    assert not re.search(r"--ap-(?:surface|text|fg|bg)\s*:", html)
+
+    css = CSS.read_text(encoding="utf-8")
+    wrap = _first_css_block(css, ".ap-editor")
+    toolbar = _first_css_block(css, ".ap-editor__toolbar")
+    assert "color-scheme: inherit" in wrap
+    assert "Canvas" in wrap
+    assert "CanvasText" in wrap
+    assert "background: var(--ap-editor-chrome-bg)" in toolbar
+    assert "color: var(--ap-editor-chrome-fg)" in toolbar
