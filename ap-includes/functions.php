@@ -5120,7 +5120,10 @@ function ap_get_objects_in_term(array $termIds, array $args = [], ?AP_DB $db = n
 }
 
 /**
- * Ensure default Uncategorized category exists; return its term_id.
+ * Ensure a living default category exists; return its term_id.
+ *
+ * Creates Uncategorized when no living default exists. Does not overwrite
+ * a valid default_category that already points at a living category.
  *
  * @see AP_Taxonomy::ensureDefaultCategory()
  */

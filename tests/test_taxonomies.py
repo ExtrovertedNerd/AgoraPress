@@ -39,6 +39,23 @@ def test_taxonomy_files_exist() -> None:
         assert path.is_file(), f"Missing {path.relative_to(ROOT)}"
 
 
+def test_default_category_phpunit_cases() -> None:
+    """Phase 1: default category is a setting, not a holy slug."""
+    src = (ROOT / "tests" / "Taxonomy" / "TaxonomyTest.php").read_text(
+        encoding="utf-8"
+    )
+    for needle in (
+        "function testEnsureDefaultCategoryDoesNotClobberLivingDefault",
+        "function testEnsureDefaultCategoryDoesNotRecreateUncategorizedWhenLivingDefaultExists",
+        "function testUncategorizedIsDeletableOnceItIsNotTheDefault",
+        "function testLastRemainingCategoryCannotBeDeleted",
+        "function testLastRemainingCategoryCannotBeDeletedWhenStoredDefaultIsDead",
+        "function testCurrentDefaultCannotBeDeletedWhenAnotherCategoryExists",
+        "function testDefaultCategoryCannotBeDeleted",
+    ):
+        assert needle in src, f"Expected {needle!r} in TaxonomyTest.php"
+
+
 def test_taxonomy_class_api_surface() -> None:
     src = (INCLUDES / "class-ap-taxonomy.php").read_text(encoding="utf-8")
     for needle in (

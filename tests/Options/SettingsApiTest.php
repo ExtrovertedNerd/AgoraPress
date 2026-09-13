@@ -13,12 +13,14 @@ namespace AgoraPress\Tests\Options;
 use AP_DB;
 use AP_Mail;
 use AP_Media;
-use AP_Rate_Limit;
 use AP_Migrator;
 use AP_Options;
+use AP_Post;
+use AP_Rate_Limit;
 use AP_Registration;
 use AP_Rewrite;
 use AP_Settings;
+use AP_Taxonomy;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -104,6 +106,12 @@ final class SettingsApiTest extends TestCase
     {
         AP_Options::flushCache();
         AP_Settings::flush();
+        if (class_exists('AP_Taxonomy', false)) {
+            AP_Taxonomy::resetRegistry();
+        }
+        if (class_exists('AP_Post', false)) {
+            AP_Post::resetRegistry();
+        }
         if (class_exists('AP_Mail', false)) {
             AP_Mail::resetForTests();
         }
@@ -196,6 +204,12 @@ final class SettingsApiTest extends TestCase
             AP_Settings::getRegisteredSettings('general')['reserved_usernames']['sanitize_callback']
         );
         $this->assertArrayHasKey('ap_module_blog', AP_Settings::getRegisteredSettings('modules'));
+        $writing = AP_Settings::getRegisteredSettings('writing');
+        $this->assertArrayHasKey('default_category', $writing);
+        $this->assertSame(
+            [AP_Settings::class, 'sanitizeDefaultCategory'],
+            $writing['default_category']['sanitize_callback']
+        );
         $mail = AP_Settings::getRegisteredSettings('mail');
         $this->assertArrayHasKey('mail_from_name', $mail);
         $this->assertArrayHasKey('mail_from_email', $mail);
@@ -551,6 +565,127 @@ final class SettingsApiTest extends TestCase
         }
     }
 
+    public function testWritingScreenListsRealCategoriesOnly(): void
+    {
+        $path = $this->root . '/ap-admin/options-writing.php';
+        $src = (string) file_get_contents($path);
+        $this->assertStringContainsString('name="default_category"', $src);
+        $this->assertStringContainsString('ensureDefaultCategory', $src);
+        $this->assertStringNotContainsString('— Uncategorized / site default —', $src);
+        $this->assertStringNotContainsString('value="0">— Uncategorized / site default —', $src);
+        $this->assertStringNotContainsString('<option value="0">', $src);
+    }
+
+    public function testUpdateWritingSettingsPersistsLivingTermId(): void
+    {
+        $this->bootTaxonomy();
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertGreaterThan(0, $uncatId);
+
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+
+        $ok = AP_Options::updateWritingSettings([
+            'default_category' => (string) $newsId,
+            'use_smilies' => '1',
+            'default_comment_status' => 'open',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame($newsId, (int) AP_Options::get('default_category', 0, $this->db));
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+        $this->assertNotSame(0, (int) AP_Options::get('default_category', 0, $this->db));
+    }
+
+    public function testUpdateWritingSettingsZeroResolvesToLivingTermId(): void
+    {
+        $this->bootTaxonomy();
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertGreaterThan(0, $uncatId);
+        AP_Options::update('default_category', '0', $this->db);
+        $this->assertSame(0, (int) AP_Options::get('default_category', 0, $this->db));
+
+        $ok = AP_Options::updateWritingSettings([
+            'default_category' => '0',
+            'use_smilies' => '1',
+            'default_comment_status' => 'closed',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $stored = (int) AP_Options::get('default_category', 0, $this->db);
+        $this->assertGreaterThan(0, $stored);
+        $this->assertSame($uncatId, $stored);
+        $this->assertSame('closed', (string) AP_Options::get('default_comment_status', 'open', $this->db));
+        $term = AP_Taxonomy::getTerm($stored, 'category', $this->db);
+        $this->assertNotNull($term);
+    }
+
+    public function testUpdateWritingSettingsDeadTermResolvesToLivingTermId(): void
+    {
+        $this->bootTaxonomy();
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertGreaterThan(0, $uncatId);
+
+        $ok = AP_Options::updateWritingSettings([
+            'default_category' => '99999',
+            'use_smilies' => '1',
+            'default_comment_status' => 'open',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $stored = (int) AP_Options::get('default_category', 0, $this->db);
+        $this->assertGreaterThan(0, $stored);
+        $this->assertSame($uncatId, $stored);
+        $this->assertNotNull(AP_Taxonomy::getTerm($stored, 'category', $this->db));
+    }
+
+    public function testUpdateWritingSettingsZeroDoesNotClobberLivingDefault(): void
+    {
+        $this->bootTaxonomy();
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+        AP_Options::update('default_category', (string) $newsId, $this->db);
+
+        $ok = AP_Options::updateWritingSettings([
+            'default_category' => '0',
+            'use_smilies' => '1',
+            'default_comment_status' => 'open',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame($newsId, (int) AP_Options::get('default_category', 0, $this->db));
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+        $this->assertNotNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+    }
+
+    public function testWritingLoadResolvesZeroAndPersistsLivingTermId(): void
+    {
+        $this->bootTaxonomy();
+        AP_Options::update('default_category', '0', $this->db);
+        $this->assertSame(0, (int) AP_Options::get('default_category', 0, $this->db));
+
+        $id = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertGreaterThan(0, $id);
+        $this->assertSame((string) $id, (string) AP_Options::get('default_category', '0', $this->db));
+        $term = AP_Taxonomy::getTerm($id, 'category', $this->db);
+        $this->assertNotNull($term);
+        $this->assertSame('uncategorized', $term->slug);
+    }
+
+    public function testWritingLoadResolvesDeadTermAndPersistsLivingTermId(): void
+    {
+        $this->bootTaxonomy();
+        AP_Options::update('default_category', '99999', $this->db);
+        $this->assertSame(99999, (int) AP_Options::get('default_category', 0, $this->db));
+
+        $id = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertGreaterThan(0, $id);
+        $this->assertNotSame(99999, $id);
+        $this->assertSame((string) $id, (string) AP_Options::get('default_category', '0', $this->db));
+        $term = AP_Taxonomy::getTerm($id, 'category', $this->db);
+        $this->assertNotNull($term);
+        $this->assertSame('uncategorized', $term->slug);
+    }
+
     public function testInstallerSeedsDiscussionAndMediaOptions(): void
     {
         $src = (string) file_get_contents($this->root . '/ap-includes/class-ap-installer.php');
@@ -852,6 +987,16 @@ final class SettingsApiTest extends TestCase
         $this->assertSame('user@example.com', AP_Options::get('smtp_user', '', $this->db));
         $this->assertSame('keep-secret', AP_Options::get('smtp_pass', '', $this->db));
         $this->assertSame('no', $this->optionAutoload('smtp_pass'));
+    }
+
+    private function bootTaxonomy(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-post.php';
+        require_once $this->root . '/ap-includes/class-ap-taxonomy.php';
+        AP_Post::resetRegistry();
+        AP_Taxonomy::resetRegistry();
+        AP_Post::ensureBuiltins();
+        AP_Taxonomy::ensureBuiltins();
     }
 
     private function optionAutoload(string $name): string

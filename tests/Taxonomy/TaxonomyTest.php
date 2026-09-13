@@ -86,6 +86,8 @@ final class TaxonomyTest extends TestCase
 
     public function testInsertUpdateGetDeleteTerm(): void
     {
+        AP_Taxonomy::ensureDefaultCategory($this->db);
+
         $created = AP_Taxonomy::insertTerm('News', 'category', [
             'description' => 'Latest news',
         ], $this->db);
@@ -148,6 +150,182 @@ final class TaxonomyTest extends TestCase
         $this->assertSame('uncategorized', $term->slug);
         $this->assertFalse(AP_Taxonomy::deleteTerm($defaultId, 'category', $this->db));
         $this->assertSame($defaultId, AP_Taxonomy::getDefaultCategoryId($this->db));
+    }
+
+    public function testCurrentDefaultCannotBeDeletedWhenAnotherCategoryExists(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+        $this->writeDefaultCategoryOption($newsId);
+
+        $this->assertFalse(AP_Taxonomy::deleteTerm($newsId, 'category', $this->db));
+        $this->assertNotNull(AP_Taxonomy::getTerm($newsId, 'category', $this->db));
+        $this->assertSame($newsId, $this->readDefaultCategoryOption());
+        $this->assertNotNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+    }
+
+    public function testUncategorizedIsDeletableOnceItIsNotTheDefault(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+        $this->writeDefaultCategoryOption($newsId);
+
+        $orphanId = AP_Post::insert([
+            'post_title' => 'Only uncategorized',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_author' => 1,
+        ], $this->db);
+        $this->assertGreaterThan(0, $orphanId);
+        AP_Taxonomy::setObjectTerms($orphanId, [$uncatId], 'category', false, $this->db);
+
+        $sharedId = AP_Post::insert([
+            'post_title' => 'News and uncategorized',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_author' => 1,
+        ], $this->db);
+        $this->assertGreaterThan(0, $sharedId);
+        AP_Taxonomy::setObjectTerms($sharedId, [$uncatId, $newsId], 'category', false, $this->db);
+
+        $this->assertTrue(AP_Taxonomy::deleteTerm($uncatId, 'category', $this->db));
+        $this->assertNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+        $this->assertNull(AP_Taxonomy::getTermBySlug('uncategorized', 'category', $this->db));
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+
+        $orphanCats = AP_Taxonomy::getObjectTerms($orphanId, 'category', ['fields' => 'ids'], $this->db);
+        $this->assertSame([$newsId], $orphanCats);
+
+        $sharedCats = AP_Taxonomy::getObjectTerms($sharedId, 'category', ['fields' => 'ids'], $this->db);
+        $this->assertSame([$newsId], $sharedCats);
+    }
+
+    public function testDeletingNonDefaultCategoryReassignsOrphansToDefault(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+
+        $orphanId = AP_Post::insert([
+            'post_title' => 'Only news',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_author' => 1,
+        ], $this->db);
+        $this->assertGreaterThan(0, $orphanId);
+        AP_Taxonomy::setObjectTerms($orphanId, [$newsId], 'category', false, $this->db);
+
+        $this->assertTrue(AP_Taxonomy::deleteTerm($newsId, 'category', $this->db));
+        $this->assertNull(AP_Taxonomy::getTerm($newsId, 'category', $this->db));
+
+        $orphanCats = AP_Taxonomy::getObjectTerms($orphanId, 'category', ['fields' => 'ids'], $this->db);
+        $this->assertSame([$uncatId], $orphanCats);
+        $this->assertSame($uncatId, AP_Taxonomy::getDefaultCategoryId($this->db));
+    }
+
+    public function testLastRemainingCategoryCannotBeDeleted(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+        $this->writeDefaultCategoryOption($newsId);
+        $this->assertTrue(AP_Taxonomy::deleteTerm($uncatId, 'category', $this->db));
+
+        $this->assertFalse(AP_Taxonomy::deleteTerm($newsId, 'category', $this->db));
+        $this->assertNotNull(AP_Taxonomy::getTerm($newsId, 'category', $this->db));
+        $this->assertSame($newsId, $this->readDefaultCategoryOption());
+    }
+
+    public function testLastRemainingCategoryCannotBeDeletedWhenStoredDefaultIsDead(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+        $this->writeDefaultCategoryOption($newsId);
+        $this->assertTrue(AP_Taxonomy::deleteTerm($uncatId, 'category', $this->db));
+        $this->assertNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+
+        $this->writeDefaultCategoryOption(99999);
+        $this->assertFalse(AP_Taxonomy::deleteTerm($newsId, 'category', $this->db));
+        $this->assertNotNull(AP_Taxonomy::getTerm($newsId, 'category', $this->db));
+        $this->assertNull(AP_Taxonomy::getTermBySlug('uncategorized', 'category', $this->db));
+        $this->assertSame(99999, $this->readDefaultCategoryOption());
+    }
+
+    public function testEnsureDefaultCategoryCreatesUncategorizedWhenNoLivingDefault(): void
+    {
+        $id = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertGreaterThan(0, $id);
+        $term = AP_Taxonomy::getTerm($id, 'category', $this->db);
+        $this->assertNotNull($term);
+        $this->assertSame('uncategorized', $term->slug);
+        $this->assertSame('Uncategorized', $term->name);
+        $this->assertSame($id, $this->readDefaultCategoryOption());
+
+        $again = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertSame($id, $again);
+        $this->assertSame($id, $this->readDefaultCategoryOption());
+    }
+
+    public function testEnsureDefaultCategoryDoesNotClobberLivingDefault(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertGreaterThan(0, $uncatId);
+
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+        $this->writeDefaultCategoryOption($newsId);
+
+        $result = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertSame($newsId, $result);
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+        $this->assertSame($newsId, $this->readDefaultCategoryOption());
+        $this->assertNotNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+    }
+
+    public function testEnsureDefaultCategoryRecreatesUncategorizedWhenStoredDefaultIsDead(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+        $this->writeDefaultCategoryOption($newsId);
+        $this->assertTrue(AP_Taxonomy::deleteTerm($uncatId, 'category', $this->db));
+        $this->assertNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+
+        $this->writeDefaultCategoryOption(99999);
+
+        $result = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertGreaterThan(0, $result);
+        $this->assertNotSame($newsId, $result);
+        $term = AP_Taxonomy::getTerm($result, 'category', $this->db);
+        $this->assertNotNull($term);
+        $this->assertSame('uncategorized', $term->slug);
+        $this->assertSame($result, $this->readDefaultCategoryOption());
+        $this->assertNotNull(AP_Taxonomy::getTerm($newsId, 'category', $this->db));
+    }
+
+    public function testEnsureDefaultCategoryDoesNotRecreateUncategorizedWhenLivingDefaultExists(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+        $this->writeDefaultCategoryOption($newsId);
+        $this->assertTrue(AP_Taxonomy::deleteTerm($uncatId, 'category', $this->db));
+
+        $result = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertSame($newsId, $result);
+        $this->assertNull(AP_Taxonomy::getTermBySlug('uncategorized', 'category', $this->db));
+        $this->assertSame($newsId, $this->readDefaultCategoryOption());
     }
 
     public function testObjectTermsAndCounts(): void
@@ -313,5 +491,40 @@ final class TaxonomyTest extends TestCase
 
         $ids = AP_Taxonomy::getObjectsInTerm([$catId], ['taxonomy' => 'category'], $this->db);
         $this->assertEqualsCanonicalizing([$p1, $p2], $ids);
+    }
+
+    private function writeDefaultCategoryOption(int $termId): void
+    {
+        $name = AP_Taxonomy::OPTION_DEFAULT_CATEGORY;
+        $existing = $this->db->getVar(
+            'SELECT option_id FROM ' . $this->db->quoteIdentifier($this->db->table('options'))
+            . ' WHERE option_name = ? LIMIT 1',
+            [$name]
+        );
+        if ($existing !== null) {
+            $this->db->update(
+                'options',
+                ['option_value' => (string) $termId],
+                ['option_name' => $name]
+            );
+
+            return;
+        }
+        $this->db->insert('options', [
+            'option_name' => $name,
+            'option_value' => (string) $termId,
+            'autoload' => 'yes',
+        ]);
+    }
+
+    private function readDefaultCategoryOption(): int
+    {
+        $val = $this->db->getVar(
+            'SELECT option_value FROM ' . $this->db->quoteIdentifier($this->db->table('options'))
+            . ' WHERE option_name = ? LIMIT 1',
+            [AP_Taxonomy::OPTION_DEFAULT_CATEGORY]
+        );
+
+        return $val !== null ? max(0, (int) $val) : 0;
     }
 }

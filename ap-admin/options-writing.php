@@ -34,12 +34,14 @@ if (AP_Settings::isSaveRequest('writing')) {
     }
 }
 
-$defaultCat = (int) AP_Options::get('default_category', 0, $db);
 $useSmilies = (string) AP_Options::get('use_smilies', '1', $db) === '1';
 $defaultComment = (string) AP_Options::get('default_comment_status', 'open', $db);
 
+$defaultCat = 0;
 $categories = [];
 if (class_exists('AP_Taxonomy', false)) {
+    // 0 / missing / dead stored value → Uncategorized seed (created if needed).
+    $defaultCat = AP_Taxonomy::ensureDefaultCategory($db);
     $categories = AP_Taxonomy::getTerms('category', [
         'hide_empty' => false,
         'orderby' => 'name',
@@ -69,7 +71,6 @@ require __DIR__ . '/admin-header.php';
         <p class="ap-field">
             <label for="default_category">Default Post Category</label>
             <select name="default_category" id="default_category">
-                <option value="0">— Uncategorized / site default —</option>
                 <?php foreach ($categories as $term) : ?>
                     <?php
                     $tid = is_object($term) ? (int) ($term->term_id ?? 0) : (int) ($term['term_id'] ?? 0);

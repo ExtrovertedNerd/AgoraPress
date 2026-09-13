@@ -427,8 +427,11 @@ class AP_Taxonomy
     /**
      * Delete a term from a taxonomy (and orphan term row if unused).
      *
-     * Default category cannot be deleted; objects using it are reassigned to
-     * the default category when deleting another category.
+     * The current default category cannot be deleted. The last remaining
+     * category cannot be deleted even if default_category points at a
+     * missing id. Uncategorized is a seed term, not immortal: once another
+     * category is the stored default it can be deleted. Objects that would
+     * otherwise be left with no category are reassigned to the default.
      */
     public static function deleteTerm(
         int $termId,
@@ -448,8 +451,18 @@ class AP_Taxonomy
         }
 
         if ($taxonomy === 'category') {
-            $defaultId = self::getDefaultCategoryId($db);
-            if ($defaultId === $termId) {
+            $living = (int) ($db->getVar(
+                'SELECT COUNT(*) FROM ' . $db->quoteIdentifier($db->table('term_taxonomy'))
+                . ' WHERE taxonomy = ?',
+                [$taxonomy]
+            ) ?? 0);
+            if ($living <= 1) {
+                return false;
+            }
+            // Compare the stored option, not getDefaultCategoryId(): that
+            // helper may create Uncategorized when the stored id is dead.
+            // Uncategorized itself is not special — only the current default is.
+            if (self::readDefaultCategoryOption($db) === $termId) {
                 return false;
             }
         }
@@ -1074,14 +1087,28 @@ class AP_Taxonomy
     // -------------------------------------------------------------------------
 
     /**
-     * Ensure Uncategorized exists and default_category option points at it.
+     * Ensure a living default category exists.
+     *
+     * Creates the Uncategorized seed when no living default exists (stored
+     * value is 0, empty, or a dead term). Does not overwrite a valid
+     * default_category that already points at a living category.
      *
      * Safe to call repeatedly (idempotent).
+     *
+     * @return int Living default category term_id, or 0 on failure.
      */
     public static function ensureDefaultCategory(?AP_DB $db = null): int
     {
         self::ensureBuiltins();
         $db = self::resolveDb($db);
+
+        $stored = self::readDefaultCategoryOption($db);
+        if ($stored > 0) {
+            $term = self::getTerm($stored, 'category', $db);
+            if ($term !== null) {
+                return $stored;
+            }
+        }
 
         $existing = self::getTermBySlug(self::UNCATEGORIZED_SLUG, 'category', $db);
         if ($existing !== null) {
@@ -1105,7 +1132,7 @@ class AP_Taxonomy
     }
 
     /**
-     * Default category term_id (creates Uncategorized if missing).
+     * Default category term_id (creates Uncategorized if no living default).
      */
     public static function getDefaultCategoryId(?AP_DB $db = null): int
     {
@@ -1364,6 +1391,13 @@ class AP_Taxonomy
 
     private static function persistDefaultCategoryOption(int $termId, AP_DB $db): void
     {
+        if (
+            class_exists('AP_Options', false)
+            && AP_Options::update(self::OPTION_DEFAULT_CATEGORY, (string) $termId, $db)
+        ) {
+            return;
+        }
+
         $name = self::OPTION_DEFAULT_CATEGORY;
         $existing = $db->getVar(
             'SELECT option_id FROM ' . $db->quoteIdentifier($db->table('options'))

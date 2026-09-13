@@ -705,9 +705,8 @@ class AP_Settings
         self::registerSetting('writing', 'default_category', [
             'type' => 'integer',
             'default' => '0',
-            'sanitize_callback' => static function (mixed $v): string {
-                return (string) max(0, (int) ($v ?? 0));
-            },
+            'description' => 'Default post category term_id. Living categories only; never stored as 0.',
+            'sanitize_callback' => [self::class, 'sanitizeDefaultCategory'],
         ]);
         self::registerSetting('writing', 'use_smilies', [
             'type' => 'boolean',
@@ -1137,6 +1136,30 @@ class AP_Settings
         }
 
         return implode("\n", $names);
+    }
+
+    /**
+     * Default post category: a living category term_id (never magic `0`).
+     *
+     * A submitted id that points at a living category is kept. `0`, empty,
+     * or a dead term resolves via {@see AP_Taxonomy::ensureDefaultCategory()}
+     * (creates the Uncategorized seed when needed) so the option cannot sit at 0.
+     */
+    public static function sanitizeDefaultCategory(mixed $value): string
+    {
+        $id = (int) ($value ?? 0);
+        if (!class_exists('AP_Taxonomy', false)) {
+            return (string) max(0, $id);
+        }
+
+        if ($id > 0) {
+            $term = AP_Taxonomy::getTerm($id, 'category');
+            if ($term !== null) {
+                return (string) $id;
+            }
+        }
+
+        return (string) max(0, AP_Taxonomy::ensureDefaultCategory());
     }
 
     /**

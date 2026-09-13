@@ -61,6 +61,7 @@ def test_settings_api_surface() -> None:
         "function sanitizeUrlOption",
         "function sanitizeRegistrationCaptcha",
         "function sanitizeReservedUsernames",
+        "function sanitizeDefaultCategory",
         "reserved_usernames",
         "['off', 'math', 'guard']",
     ):
@@ -192,6 +193,26 @@ def test_mail_settings_screen() -> None:
     assert "testSendTestToAdminRecordsLastErrorOnFailure" in phpunit
     assert "SMTP handshake failed." in phpunit
     assert "mail_last_error" in phpunit
+
+
+def test_writing_default_category_lists_real_terms() -> None:
+    writing = (ADMIN / "options-writing.php").read_text(encoding="utf-8")
+    settings = SETTINGS.read_text(encoding="utf-8")
+    phpunit = PHPUNIT.read_text(encoding="utf-8")
+
+    assert 'name="default_category"' in writing
+    assert "ensureDefaultCategory" in writing
+    assert "— Uncategorized / site default —" not in writing
+    assert '<option value="0">' not in writing
+    assert "function sanitizeDefaultCategory" in settings
+    assert "registerSetting('writing', 'default_category'" in settings
+    assert "sanitizeDefaultCategory" in settings
+    assert "testUpdateWritingSettingsPersistsLivingTermId" in phpunit
+    assert "testUpdateWritingSettingsZeroResolvesToLivingTermId" in phpunit
+    assert "testUpdateWritingSettingsDeadTermResolvesToLivingTermId" in phpunit
+    assert "testUpdateWritingSettingsZeroDoesNotClobberLivingDefault" in phpunit
+    assert "testWritingLoadResolvesZeroAndPersistsLivingTermId" in phpunit
+    assert "testWritingLoadResolvesDeadTermAndPersistsLivingTermId" in phpunit
 
 
 def test_reserved_usernames_option() -> None:
