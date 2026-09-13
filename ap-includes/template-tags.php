@@ -425,7 +425,9 @@ function ap_get_the_category_list(
         return '<ul class="ap-post-categories"><li>' . implode('</li><li>', $items) . '</li></ul>';
     }
 
-    return implode($separator, $items);
+    $html = implode($separator, $items);
+
+    return trim($html);
 }
 
 /**

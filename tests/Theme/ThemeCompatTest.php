@@ -16,6 +16,7 @@ use AP_Migrator;
 use AP_Options;
 use AP_Post;
 use AP_Query;
+use AP_Taxonomy;
 use AP_Theme;
 use AP_Theme_Compat;
 use AP_Theme_Converter;
@@ -54,6 +55,7 @@ final class ThemeCompatTest extends TestCase
             ap_reset_hooks();
         }
         AP_Post::resetRegistry();
+        AP_Taxonomy::resetRegistry();
         AP_Theme::reset();
         AP_Theme_Compat::reset();
         AP_Mail::resetForTests();
@@ -97,6 +99,7 @@ final class ThemeCompatTest extends TestCase
             ap_reset_hooks();
         }
         AP_Post::resetRegistry();
+        AP_Taxonomy::resetRegistry();
         AP_Theme::reset();
         AP_Theme_Compat::reset();
         AP_Mail::resetForTests();
@@ -400,6 +403,43 @@ final class ThemeCompatTest extends TestCase
         $this->assertTrue(function_exists('the_category'));
     }
 
+    public function testCategoryListShimOmitsPostedInWhenNamesEmpty(): void
+    {
+        AP_Theme_Compat::ensureLoaded(true, $this->db);
+        AP_Taxonomy::ensureBuiltins();
+
+        $blank = $this->insertCategoryTerm('', 'compat-blank-category');
+        $spaces = $this->insertCategoryTerm(" \t ", 'compat-whitespace-category');
+
+        $id = AP_Post::insert([
+            'post_title' => 'Nameless Compat Cats',
+            'post_content' => 'Body',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $this->assertGreaterThan(0, $id);
+        AP_Taxonomy::setObjectTerms($id, [$blank, $spaces], 'category', false, $this->db);
+
+        $post = AP_Post::get($id, $this->db);
+        $this->assertInstanceOf(AP_Post::class, $post);
+        $GLOBALS['ap_post'] = $post;
+
+        $this->assertSame([], get_the_category());
+        $list = get_the_category_list(', ');
+        $this->assertSame('', $list);
+
+        ob_start();
+        the_category(', ');
+        $echoed = (string) ob_get_clean();
+        $this->assertSame('', $echoed);
+        $this->assertStringNotContainsString(', ,', $echoed);
+
+        // Classic theme pattern: wrap "Posted in" only when the list is non-empty.
+        $html = $list !== '' ? 'Posted in ' . $list : '';
+        $this->assertSame('', $html);
+        $this->assertStringNotContainsString('Posted in', $html);
+    }
+
     public function testWpMailRoutesThroughApMail(): void
     {
         AP_Theme_Compat::ensureLoaded(true, $this->db);
@@ -490,6 +530,29 @@ final class ThemeCompatTest extends TestCase
         $report = AP_Theme_Converter::analyzePath($dir);
         $this->assertContains('wp_mail', $report['shimmed_used']);
         $this->assertNotContains('wp_mail', $report['unshimmed_used']);
+    }
+
+    private function insertCategoryTerm(string $name, string $slug): int
+    {
+        $n = $this->db->insert('terms', [
+            'name' => $name,
+            'slug' => $slug,
+            'term_group' => 0,
+        ]);
+        $this->assertSame(1, $n);
+        $termId = (int) $this->db->lastInsertId();
+        $this->assertGreaterThan(0, $termId);
+
+        $n = $this->db->insert('term_taxonomy', [
+            'term_id' => $termId,
+            'taxonomy' => 'category',
+            'description' => '',
+            'parent' => 0,
+            'count' => 0,
+        ]);
+        $this->assertSame(1, $n);
+
+        return $termId;
     }
 
     /**

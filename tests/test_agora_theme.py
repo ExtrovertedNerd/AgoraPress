@@ -188,11 +188,25 @@ def test_blog_templates_show_post_categories() -> None:
     for name in ("index.php", "archive.php", "search.php", "single.php"):
         src = (AGORA / name).read_text(encoding="utf-8")
         assert "agora_the_entry_meta" in src, f"{name} should print entry meta"
+        assert "Posted in" not in src, f"{name} must not hardcode Posted in"
     single = (AGORA / "single.php").read_text(encoding="utf-8")
     assert "agora_the_entry_footer" in single
     page = (AGORA / "page.php").read_text(encoding="utf-8")
     assert "agora_the_entry_meta" not in page
     assert "agora_the_entry_footer" not in page
+
+
+def test_entry_helpers_omit_posted_in_when_no_named_categories() -> None:
+    """Empty category lists omit the whole Posted-in line, not 'Posted in , ,'."""
+    src = FUNCTIONS.read_text(encoding="utf-8")
+    meta_start = src.index("function agora_the_entry_meta")
+    footer_start = src.index("function agora_the_entry_footer")
+    meta = src[meta_start:footer_start]
+    footer = src[footer_start : footer_start + 900]
+    assert "if ($categories !== '')" in meta
+    assert "if ($categories === '')" in footer
+    assert "return;" in footer
+    assert "Posted in , ," not in src
 
 
 def test_header_applies_body_class_and_a11y() -> None:

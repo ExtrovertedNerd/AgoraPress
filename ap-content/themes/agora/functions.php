@@ -725,7 +725,8 @@ function agora_get_the_category_list(): string
         return '';
     }
 
-    return ap_get_the_category_list(', ');
+    // Empty / whitespace-only lists omit the whole "Posted in" line.
+    return trim(ap_get_the_category_list(', '));
 }
 
 /**

@@ -329,6 +329,10 @@ final class TemplateTagsTest extends TestCase
         $this->assertSame([], ap_get_the_category($id, $this->db));
         $this->assertSame('', ap_get_the_category_list(', ', $id, $this->db));
         $this->assertSame('', ap_get_the_category_list('', $id, $this->db));
+
+        ob_start();
+        ap_the_category(', ', $id, $this->db);
+        $this->assertSame('', (string) ob_get_clean());
     }
 
     private function insertCategoryTerm(string $name, string $slug): int

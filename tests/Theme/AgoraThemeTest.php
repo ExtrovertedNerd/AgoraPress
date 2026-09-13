@@ -1285,6 +1285,23 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringNotContainsString('ap-entry__footer', $html);
         $this->assertStringNotContainsString(', ,', $html);
         $this->assertStringNotContainsString('agora-all-blank-category', $html);
+
+        $list = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($list);
+
+        ob_start();
+        AP_Theme::render($list, $this->db);
+        $listHtml = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Nameless Categories Story', $listHtml);
+        $this->assertStringNotContainsString('Posted in', $listHtml);
+        $this->assertStringNotContainsString('ap-meta-categories', $listHtml);
+        $this->assertStringNotContainsString('ap-entry__footer', $listHtml);
+        $this->assertStringNotContainsString(', ,', $listHtml);
+        $this->assertStringNotContainsString('agora-all-blank-category', $listHtml);
     }
 
     private function insertCategoryTerm(string $name, string $slug): int

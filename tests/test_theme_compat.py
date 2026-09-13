@@ -94,6 +94,7 @@ def test_shim_defines_common_wp_symbols() -> None:
         "function the_content",
         "function the_category",
         "function get_the_category",
+        "function get_the_category_list",
         "function body_class",
         "function post_class",
         "function is_home",

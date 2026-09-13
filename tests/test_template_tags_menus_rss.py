@@ -61,6 +61,7 @@ def test_template_tags_api() -> None:
         "function ap_get_the_category",
         "function ap_get_the_category_list",
         "function ap_the_category",
+        "callers can omit the whole line.",
         "function ap_get_bloginfo",
         "function ap_get_body_class",
         "function ap_body_class",
