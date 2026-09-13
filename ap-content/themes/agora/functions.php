@@ -294,12 +294,12 @@ function agora_preview_scheme_from_cookie(): ?string
  */
 function agora_refresh_preview_color_scheme_cookie(string $slug): void
 {
-    $slug = agora_valid_color_scheme_or_null($slug);
-    if ($slug === null) {
+    $valid = agora_valid_color_scheme_or_null($slug);
+    if ($valid === null) {
         return;
     }
 
-    $_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = $slug;
+    $_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = $valid;
 
     if (class_exists('AP_Session', false) && AP_Session::isTestMode()) {
         return;
@@ -309,7 +309,7 @@ function agora_refresh_preview_color_scheme_cookie(string $slug): void
     }
 
     $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
-    setcookie(AGORA_COLOR_SCHEME_COOKIE, $slug, [
+    setcookie(AGORA_COLOR_SCHEME_COOKIE, $valid, [
         'expires' => time() + AGORA_COLOR_SCHEME_COOKIE_TTL,
         'path' => '/',
         'secure' => $secure,
@@ -487,14 +487,12 @@ function agora_visitor_color_preview_url(string $slug): string
     }
 
     $query = [];
-    if (isset($_GET) && is_array($_GET)) {
-        foreach ($_GET as $key => $value) {
-            if (!is_string($key) || $key === '' || $key === AGORA_COLOR_SCHEME_QUERY) {
-                continue;
-            }
-            if (is_scalar($value)) {
-                $query[$key] = (string) $value;
-            }
+    foreach ($_GET as $key => $value) {
+        if (!is_string($key) || $key === '' || $key === AGORA_COLOR_SCHEME_QUERY) {
+            continue;
+        }
+        if (is_scalar($value)) {
+            $query[$key] = (string) $value;
         }
     }
     $query[AGORA_COLOR_SCHEME_QUERY] = $valid;
@@ -936,12 +934,9 @@ function agora_get_forum_search_data(): array
     if (!$alreadyRan && $data['results'] === [] && $data['query'] !== '' && function_exists('ap_forum_search')) {
         try {
             $page = $q instanceof AP_Query ? max(1, (int) $q->get('paged', 1)) : 1;
-            $userId = 0;
-            if (function_exists('ap_get_current_user_id')) {
-                $userId = (int) ap_get_current_user_id();
-            } elseif (class_exists('AP_User', false) && method_exists('AP_User', 'getCurrentUserId')) {
-                $userId = (int) AP_User::getCurrentUserId();
-            }
+            $userId = function_exists('ap_get_current_user_id')
+                ? (int) ap_get_current_user_id()
+                : 0;
             $search = ap_forum_search($data['query'], [
                 'type' => 'all',
                 'per_page' => 20,
