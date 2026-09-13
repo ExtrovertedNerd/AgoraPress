@@ -33,6 +33,7 @@ def test_taxonomy_files_exist() -> None:
         ADMIN / "edit-tags.php",
         ADMIN / "includes" / "class-ap-admin-terms.php",
         ROOT / "tests" / "Taxonomy" / "TaxonomyTest.php",
+        ROOT / "tests" / "Admin" / "AdminTermsTest.php",
         ROOT / "tests" / "Database" / "TermsTaxonomyMigrationTest.php",
     ]
     for path in required:
@@ -52,8 +53,53 @@ def test_default_category_phpunit_cases() -> None:
         "function testLastRemainingCategoryCannotBeDeletedWhenStoredDefaultIsDead",
         "function testCurrentDefaultCannotBeDeletedWhenAnotherCategoryExists",
         "function testDefaultCategoryCannotBeDeleted",
+        "function testSetDefaultCategoryPersistsLivingTerm",
+        "function testSetDefaultCategoryRejectsMissingTerm",
     ):
         assert needle in src, f"Expected {needle!r} in TaxonomyTest.php"
+
+
+def test_default_badge_phpunit_cases() -> None:
+    """Phase 2: Categories list keeps the — Default badge on the current default."""
+    src = (ROOT / "tests" / "Admin" / "AdminTermsTest.php").read_text(
+        encoding="utf-8"
+    )
+    for needle in (
+        "function testDefaultBadgeStaysOnCurrentDefaultCategory",
+        "function testDefaultBadgeIsAbsentFromTagsList",
+        "function testSetAsDefaultRowActionUpdatesDefaultCategory",
+        "function testSetAsDefaultMakesPreviousDefaultDeletable",
+        "function testSetAsDefaultRequiresNonce",
+        "function testSetAsDefaultRequiresManageCategories",
+        "function testPostsMoveConfirmMessageCopy",
+        "function testDeleteLinkConfirmsWhenCategoryHasPosts",
+        "function testDeleteLinkOmitsConfirmWhenCategoryHasNoPosts",
+        "function testDeleteLinkConfirmsSingularAndUsesNewDefaultName",
+        "function testTagDeleteLinkDoesNotConfirmCategoryReassign",
+        "— Default",
+        "Set as default",
+        "will move to",
+    ):
+        assert needle in src, f"Expected {needle!r} in AdminTermsTest.php"
+
+
+def test_set_as_default_and_delete_link_phpunit_cases() -> None:
+    """Set as default changes getDefaultCategoryId(); Delete link flips after the move."""
+    src = (ROOT / "tests" / "Admin" / "AdminTermsTest.php").read_text(
+        encoding="utf-8"
+    )
+    for needle in (
+        "function testSetAsDefaultRowActionUpdatesDefaultCategory",
+        "function testSetAsDefaultMakesPreviousDefaultDeletable",
+        "AP_Admin_Terms::setDefault",
+        "AP_Taxonomy::getDefaultCategoryId",
+        "rowHasDeleteLink",
+        'class="submitdelete"',
+        ">Delete</a>",
+        "uncategorized",
+        "Uncategorized",
+    ):
+        assert needle in src, f"Expected {needle!r} in AdminTermsTest.php"
 
 
 def test_taxonomy_class_api_surface() -> None:
@@ -74,6 +120,7 @@ def test_taxonomy_class_api_surface() -> None:
         "function removeObjectTerms",
         "function getObjectsInTerm",
         "function ensureDefaultCategory",
+        "function setDefaultCategory",
         "function uniqueTermSlug",
         "'category'",
         "'post_tag'",
@@ -164,18 +211,29 @@ def test_admin_terms_surface() -> None:
         "class AP_Admin_Terms",
         "function save",
         "function delete",
+        "function setDefault",
         "function bulkDelete",
         "function renderAddForm",
         "function renderEditForm",
         "function renderListTable",
         "function renderCategoryChecklist",
         "function renderTagsInput",
+        "— Default",
+        'class="ap-muted"',
+        "Set as default",
+        "set-default-tag-",
+        "manage_categories",
+        "function postsMoveConfirmMessage",
+        "will move to",
+        "return confirm(",
     ):
         assert needle in terms, f"Expected {needle!r} in admin terms"
 
     edit = (ADMIN / "edit-tags.php").read_text(encoding="utf-8")
     assert "AP_Admin_Terms" in edit
     assert "taxonomy" in edit
+    assert "set-default" in edit
+    assert "AP_Admin_Terms::setDefault" in edit
 
     menu = (ADMIN / "includes" / "class-ap-admin.php").read_text(encoding="utf-8")
     assert "categories" in menu
@@ -201,6 +259,7 @@ def test_phpunit_taxonomy_suite_runs() -> None:
             "--configuration",
             str(ROOT / "phpunit.xml.dist"),
             str(ROOT / "tests" / "Taxonomy" / "TaxonomyTest.php"),
+            str(ROOT / "tests" / "Admin" / "AdminTermsTest.php"),
             str(ROOT / "tests" / "Database" / "TermsTaxonomyMigrationTest.php"),
         ],
         cwd=str(ROOT),

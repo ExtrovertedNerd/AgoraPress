@@ -4,7 +4,7 @@
  * Admin: manage taxonomy terms (Categories, Tags, custom taxonomies).
  *
  * Query: ?taxonomy=category|post_tag
- * Actions: add-tag, editedtag, delete, bulk delete.
+ * Actions: add-tag, editedtag, delete, set-default, bulk delete.
  *
  * @package AgoraPress
  */
@@ -37,6 +37,21 @@ if ($action === '-1') {
 // --- Row delete via GET ---
 if ($action === 'delete' && isset($_GET['tag_ID'])) {
     $result = AP_Admin_Terms::delete(
+        (int) $_GET['tag_ID'],
+        $taxonomy,
+        $userId,
+        (string) ($_GET['_ap_nonce'] ?? ''),
+        $db
+    );
+    AP_Admin::redirect(AP_Admin::url('edit-tags.php', [
+        'taxonomy' => $taxonomy,
+        'message' => $result['message_key'],
+    ]));
+}
+
+// --- Set as default via GET ---
+if ($action === 'set-default' && isset($_GET['tag_ID'])) {
+    $result = AP_Admin_Terms::setDefault(
         (int) $_GET['tag_ID'],
         $taxonomy,
         $userId,

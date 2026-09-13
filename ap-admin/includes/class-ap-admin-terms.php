@@ -17,6 +17,37 @@ declare(strict_types=1);
 class AP_Admin_Terms
 {
     /**
+     * Copy shown when Delete is hidden because this term is the current default.
+     * Failed row-URL / bulk deletes of the default reuse this string.
+     */
+    public const DEFAULT_CATEGORY_DELETE_BLOCKED =
+        'This is the default category. Set another category as default first.';
+
+    /**
+     * Query-notice key for a blocked default-category delete (row URL or bulk).
+     */
+    public const DEFAULT_CATEGORY_DELETE_BLOCKED_KEY = 'default_category_delete_blocked';
+
+    /**
+     * Browser confirm() copy when deleting a non-default category that has posts.
+     *
+     * Posts that would be left with no category are reassigned to the current
+     * default. Uses the term count as a cheap N — native confirm(), not a modal.
+     *
+     * @return string Empty when there is nothing to warn about.
+     */
+    public static function postsMoveConfirmMessage(int $postCount, string $defaultName): string
+    {
+        $defaultName = trim($defaultName);
+        if ($postCount < 1 || $defaultName === '') {
+            return '';
+        }
+        $noun = $postCount === 1 ? 'post' : 'posts';
+
+        return $postCount . ' ' . $noun . ' will move to ' . $defaultName . '.';
+    }
+
+    /**
      * Resolve taxonomy query arg (must be registered and show_ui).
      */
     public static function resolveTaxonomy(string $raw, string $default = 'category'): string
@@ -189,6 +220,12 @@ class AP_Admin_Terms
         if ($termId < 1) {
             return ['ok' => false, 'message_key' => 'not_found'];
         }
+        if (self::isStoredDefaultCategory($termId, $taxonomy, $db)) {
+            return [
+                'ok' => false,
+                'message_key' => self::DEFAULT_CATEGORY_DELETE_BLOCKED_KEY,
+            ];
+        }
         $ok = AP_Taxonomy::deleteTerm($termId, $taxonomy, $db);
 
         return [
@@ -198,13 +235,42 @@ class AP_Admin_Terms
     }
 
     /**
+     * Promote a category to the site default (row action).
+     *
+     * Requires nonce `set-default-tag-{id}` and `manage_categories`.
+     * The previous default stays in the list and becomes deletable.
+     *
+     * @return array{ok: bool, message_key: string}
+     */
+    public static function setDefault(
+        int $termId,
+        string $taxonomy,
+        int $userId,
+        string $nonce,
+        ?AP_DB $db = null
+    ): array {
+        $db = $db ?? ap_db();
+        $taxonomy = self::resolveTaxonomy($taxonomy);
+        if (!ap_check_nonce($nonce, 'set-default-tag-' . $termId, $userId > 0 ? $userId : null)) {
+            return ['ok' => false, 'message_key' => 'nonce'];
+        }
+        if (!AP_Admin::userCan($userId, 'manage_categories', null, $db)) {
+            return ['ok' => false, 'message_key' => 'error'];
+        }
+        if ($taxonomy !== 'category' || $termId < 1) {
+            return ['ok' => false, 'message_key' => 'error'];
+        }
+        $ok = AP_Taxonomy::setDefaultCategory($termId, $db);
+
+        return [
+            'ok' => $ok,
+            'message_key' => $ok ? 'default_category_set' : 'not_found',
+        ];
+    }
+
+    /**
      * Bulk delete terms.
      *
-     * @param list<int> $ids
-     *
-     * @return array{ok: bool, count: int, message_key: string}
-     */
-    /**
      * @param list<int> $ids
      *
      * @return array{ok: bool, count: int, message_key: string}
@@ -225,18 +291,58 @@ class AP_Admin_Terms
             return ['ok' => false, 'count' => 0, 'message_key' => 'error'];
         }
         $count = 0;
+        $blockedDefault = false;
         foreach ($ids as $id) {
             $id = (int) $id;
-            if ($id > 0 && AP_Taxonomy::deleteTerm($id, $taxonomy, $db)) {
+            if ($id < 1) {
+                continue;
+            }
+            if (self::isStoredDefaultCategory($id, $taxonomy, $db)) {
+                $blockedDefault = true;
+                continue;
+            }
+            if (AP_Taxonomy::deleteTerm($id, $taxonomy, $db)) {
                 $count++;
             }
         }
 
+        if ($count > 0) {
+            return [
+                'ok' => true,
+                'count' => $count,
+                'message_key' => 'bulk_term_deleted',
+            ];
+        }
+
         return [
-            'ok' => $count > 0,
-            'count' => $count,
-            'message_key' => $count > 0 ? 'bulk_term_deleted' : 'error',
+            'ok' => false,
+            'count' => 0,
+            'message_key' => $blockedDefault
+                ? self::DEFAULT_CATEGORY_DELETE_BLOCKED_KEY
+                : 'error',
         ];
+    }
+
+    /**
+     * Whether this term is the stored default category (undeletable).
+     *
+     * Matches AP_Taxonomy::deleteTerm(): the stored option, not a living
+     * fallback created by getDefaultCategoryId().
+     */
+    private static function isStoredDefaultCategory(
+        int $termId,
+        string $taxonomy,
+        AP_DB $db
+    ): bool {
+        if ($taxonomy !== 'category' || $termId < 1) {
+            return false;
+        }
+
+        return (int) AP_Options::get(
+            AP_Taxonomy::OPTION_DEFAULT_CATEGORY,
+            0,
+            $db
+        ) === $termId;
     }
 
     /**
@@ -413,6 +519,19 @@ class AP_Admin_Terms
         $html .= '<th scope="col">Count</th>';
         $html .= '</tr></thead><tbody>';
 
+        $defaultCategoryId = 0;
+        $defaultCategoryName = '';
+        if ($taxonomy === 'category') {
+            $defaultCategoryId = AP_Taxonomy::getDefaultCategoryId($db);
+            if ($defaultCategoryId > 0) {
+                $defaultTerm = AP_Taxonomy::getTerm($defaultCategoryId, 'category', $db);
+                if ($defaultTerm !== null) {
+                    $name = trim((string) $defaultTerm->name);
+                    $defaultCategoryName = $name !== '' ? $name : '(no name)';
+                }
+            }
+        }
+
         if ($items === []) {
             $cols = $hierarchical ? 6 : 5;
             $html .= '<tr class="no-items"><td colspan="' . $cols . '">No items found.</td></tr>';
@@ -424,7 +543,15 @@ class AP_Admin_Terms
                 }
             }
             foreach ($items as $term) {
-                $html .= self::renderRow($term, $taxonomy, $hierarchical, $parentNames, $userId);
+                $html .= self::renderRow(
+                    $term,
+                    $taxonomy,
+                    $hierarchical,
+                    $parentNames,
+                    $userId,
+                    $defaultCategoryId,
+                    $defaultCategoryName
+                );
             }
         }
 
@@ -447,7 +574,9 @@ class AP_Admin_Terms
         string $taxonomy,
         bool $hierarchical,
         array $parentNames,
-        int $userId
+        int $userId,
+        int $defaultCategoryId = 0,
+        string $defaultCategoryName = ''
     ): string {
         $id = (int) $term->term_id;
         $editUrl = AP_Admin::url('edit-tags.php', [
@@ -472,7 +601,8 @@ class AP_Admin_Terms
         }
 
         $isDefault = $taxonomy === 'category'
-            && $id === AP_Taxonomy::getDefaultCategoryId();
+            && $defaultCategoryId > 0
+            && $id === $defaultCategoryId;
 
         $row = '<tr id="tag-' . $id . '">';
         $row .= '<th scope="row" class="check-column">';
@@ -488,9 +618,38 @@ class AP_Admin_Terms
         }
         $row .= '<div class="row-actions">';
         $row .= '<span class="edit"><a href="' . ap_esc_url($editUrl) . '">Edit</a></span>';
+        if ($taxonomy === 'category' && !$isDefault) {
+            $setDefaultUrl = AP_Admin::url('edit-tags.php', [
+                'taxonomy' => $taxonomy,
+                'action' => 'set-default',
+                'tag_ID' => $id,
+                '_ap_nonce' => ap_create_nonce(
+                    'set-default-tag-' . $id,
+                    $userId > 0 ? $userId : null
+                ),
+            ]);
+            $row .= ' | <span class="set-default"><a href="'
+                . ap_esc_url($setDefaultUrl) . '">Set as default</a></span>';
+        }
         if (!$isDefault) {
-            $row .= ' | <span class="delete"><a class="submitdelete" href="'
-                . ap_esc_url($deleteUrl) . '">Delete</a></span>';
+            $deleteLink = '<a class="submitdelete" href="' . ap_esc_url($deleteUrl) . '"';
+            if ($taxonomy === 'category') {
+                $moveConfirm = self::postsMoveConfirmMessage(
+                    (int) $term->count,
+                    $defaultCategoryName
+                );
+                if ($moveConfirm !== '') {
+                    $deleteLink .= ' onclick="return confirm(\''
+                        . ap_esc_js($moveConfirm) . '\');"';
+                }
+            }
+            $deleteLink .= '>Delete</a>';
+            $row .= ' | <span class="delete">' . $deleteLink . '</span>';
+        } else {
+            $writingUrl = AP_Admin::url('options-writing.php');
+            $row .= ' | <span class="delete-disabled ap-muted">'
+                . ap_esc_html(self::DEFAULT_CATEGORY_DELETE_BLOCKED)
+                . ' <a href="' . ap_esc_url($writingUrl) . '">Settings → Writing</a></span>';
         }
         $row .= '</div></td>';
         $row .= '<td class="column-slug" data-colname="Slug">'

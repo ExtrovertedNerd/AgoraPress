@@ -1755,6 +1755,11 @@ class AP_Admin
             'term_updated' => ['Term updated.', 'success'],
             'term_deleted' => ['Term deleted.', 'success'],
             'bulk_term_deleted' => ['Selected terms deleted.', 'success'],
+            'default_category_set' => ['Default category updated.', 'success'],
+            'default_category_delete_blocked' => [
+                'This is the default category. Set another category as default first.',
+                'error',
+            ],
             'theme_options_saved' => ['Theme options saved.', 'success'],
             'general_saved' => ['General settings saved.', 'success'],
             'mail_saved' => ['Mail settings saved.', 'success'],

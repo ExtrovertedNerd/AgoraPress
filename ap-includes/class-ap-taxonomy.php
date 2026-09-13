@@ -1148,6 +1148,29 @@ class AP_Taxonomy
         return self::ensureDefaultCategory($db);
     }
 
+    /**
+     * Persist a living category as the site default.
+     *
+     * The previous default is not deleted; it becomes a normal (deletable)
+     * term once this option points elsewhere.
+     *
+     * @return bool True when $termId is now stored as default_category.
+     */
+    public static function setDefaultCategory(int $termId, ?AP_DB $db = null): bool
+    {
+        self::ensureBuiltins();
+        $db = self::resolveDb($db);
+        if ($termId < 1) {
+            return false;
+        }
+        if (self::getTerm($termId, 'category', $db) === null) {
+            return false;
+        }
+        self::persistDefaultCategoryOption($termId, $db);
+
+        return self::readDefaultCategoryOption($db) === $termId;
+    }
+
     // -------------------------------------------------------------------------
     // Slug helpers
     // -------------------------------------------------------------------------

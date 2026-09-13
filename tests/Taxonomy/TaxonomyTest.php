@@ -152,6 +152,29 @@ final class TaxonomyTest extends TestCase
         $this->assertSame($defaultId, AP_Taxonomy::getDefaultCategoryId($this->db));
     }
 
+    public function testSetDefaultCategoryPersistsLivingTerm(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+
+        $this->assertTrue(AP_Taxonomy::setDefaultCategory($newsId, $this->db));
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+        $this->assertSame($newsId, $this->readDefaultCategoryOption());
+        $this->assertTrue(AP_Taxonomy::deleteTerm($uncatId, 'category', $this->db));
+        $this->assertNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+    }
+
+    public function testSetDefaultCategoryRejectsMissingTerm(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $this->assertFalse(AP_Taxonomy::setDefaultCategory(99999, $this->db));
+        $this->assertFalse(AP_Taxonomy::setDefaultCategory(0, $this->db));
+        $this->assertSame($uncatId, AP_Taxonomy::getDefaultCategoryId($this->db));
+        $this->assertSame($uncatId, $this->readDefaultCategoryOption());
+    }
+
     public function testCurrentDefaultCannotBeDeletedWhenAnotherCategoryExists(): void
     {
         $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
