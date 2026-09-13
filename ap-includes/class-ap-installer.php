@@ -648,6 +648,8 @@ PHP;
             'active_plugins' => '[]',
             // Agora color scheme: marble|parchment|cloud|obsidian|midnight|charcoal.
             'agora_color_scheme' => 'marble',
+            // Agora visitor scheme preview (Appearance → Theme Options); off by default.
+            'agora_visitor_color_preview' => '0',
             // Appearance → Theme Options: Additional CSS (empty until site owner adds rules).
             'custom_css' => '',
             // Reading / front-page settings (options-reading.php).

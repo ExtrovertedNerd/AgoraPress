@@ -137,6 +137,9 @@ def test_style_css_polish_responsive_accessible_forum() -> None:
     assert ".site-account__login" in css
     assert ".site-account__register" in css
     assert ".site-account--guest" in css
+    assert ".agora-scheme-preview" in css
+    assert ".agora-scheme-preview__swatch" in css
+    assert ".agora-scheme-preview__swatch.is-current" in css
     # Post categories in blog list / single-post meta and single-post footer.
     assert ".ap-meta-categories" in css
     assert ".ap-entry__footer" in css
@@ -172,6 +175,23 @@ def test_functions_define_scheme_and_forum_api() -> None:
         "site-account__login",
         "site-account__register",
         "AGORA_COLOR_SCHEME_OPTION",
+        "AGORA_VISITOR_COLOR_PREVIEW_OPTION",
+        "function agora_visitor_color_preview_enabled",
+        "function agora_set_visitor_color_preview",
+        "function agora_filter_color_scheme",
+        "ap_apply_filters('agora_color_scheme'",
+        "function agora_get_stored_color_scheme",
+        "function agora_preview_scheme_from_query",
+        "function agora_preview_scheme_from_cookie",
+        "function agora_get_color_scheme_swatches",
+        "function agora_visitor_color_preview_control_enabled",
+        "function agora_visitor_color_preview_url",
+        "function agora_get_visitor_color_preview_html",
+        "function agora_the_visitor_color_preview",
+        "'samesite' => 'Lax'",
+        "'path' => '/'",
+        "AGORA_COLOR_SCHEME_QUERY",
+        "AGORA_COLOR_SCHEME_COOKIE",
         "AGORA_DEFAULT_COLOR_SCHEME",
         "marble",
         "parchment",
@@ -237,6 +257,12 @@ def test_header_applies_body_class_and_a11y() -> None:
     assert "viewport" in src
     assert "lang=" in src
     assert "agora_the_account_indicator" in src
+    assert "agora_the_visitor_color_preview" in src
+    assert "agora_get_color_schemes" in src
+    assert src.index("agora_the_account_indicator") < src.index(
+        "agora_the_visitor_color_preview"
+    )
+    assert "agorapress.extrovertednerd.com" not in src
 
 
 def test_footer_powered_by_agorapress_is_linked() -> None:
@@ -397,6 +423,11 @@ def test_theme_options_admin_and_menu() -> None:
     opts = THEME_OPTIONS.read_text(encoding="utf-8")
     assert "agora_color_scheme" in opts
     assert "agora_set_color_scheme" in opts
+    assert "agora_visitor_color_preview" in opts
+    assert "agora_set_visitor_color_preview" in opts
+    assert "agora_get_stored_color_scheme" in opts
+    assert "agora_get_color_scheme_swatches" in opts
+    assert "Allow visitors to preview color schemes" in opts
     assert "Theme Options" in opts
 
     admin = ADMIN.read_text(encoding="utf-8")
@@ -409,6 +440,8 @@ def test_installer_seeds_marble_default() -> None:
     src = INSTALLER.read_text(encoding="utf-8")
     assert "agora_color_scheme" in src
     assert "'marble'" in src
+    assert "agora_visitor_color_preview" in src
+    assert "'agora_visitor_color_preview' => '0'" in src
 
 
 def test_color_scheme_and_forum_runtime_via_php() -> None:
@@ -457,6 +490,51 @@ def test_color_scheme_and_forum_runtime_via_php() -> None:
         "if (!agora_set_color_scheme('midnight', $db)) { fwrite(STDERR,\"set\\n\"); exit(1); }\n"
         "if (agora_get_color_scheme($db) !== 'midnight') { fwrite(STDERR,\"get\\n\"); exit(1); }\n"
         "if (agora_set_color_scheme('nope', $db)) { fwrite(STDERR,\"invalid ok\\n\"); exit(1); }\n"
+        "// Visitor preview resolve: query → cookie → option → marble; never writes option.\n"
+        "if (!function_exists('agora_get_stored_color_scheme')) { fwrite(STDERR,\"stored\\n\"); exit(1); }\n"
+        "agora_set_color_scheme('parchment', $db);\n"
+        "agora_set_visitor_color_preview(true, $db);\n"
+        "$_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = 'obsidian';\n"
+        "$_GET[AGORA_COLOR_SCHEME_QUERY] = 'midnight';\n"
+        "if (agora_get_color_scheme($db) !== 'midnight') { fwrite(STDERR,\"query win\\n\"); exit(1); }\n"
+        "if (agora_get_stored_color_scheme($db) !== 'parchment') { fwrite(STDERR,\"query wrote\\n\"); exit(1); }\n"
+        "unset($_GET[AGORA_COLOR_SCHEME_QUERY]);\n"
+        "$_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = 'obsidian';\n"
+        "if (agora_get_color_scheme($db) !== 'obsidian') { fwrite(STDERR,\"cookie win\\n\"); exit(1); }\n"
+        "$_GET[AGORA_COLOR_SCHEME_QUERY] = 'not-a-scheme';\n"
+        "if (agora_get_color_scheme($db) !== 'obsidian') { fwrite(STDERR,\"invalid query\\n\"); exit(1); }\n"
+        "agora_set_visitor_color_preview(false, $db);\n"
+        "$_GET[AGORA_COLOR_SCHEME_QUERY] = 'midnight';\n"
+        "if (agora_get_color_scheme($db) !== 'parchment') { fwrite(STDERR,\"preview off\\n\"); exit(1); }\n"
+        "// Filter wraps the resolved slug and must not write agora_color_scheme.\n"
+        "agora_set_visitor_color_preview(true, $db);\n"
+        "$_GET[AGORA_COLOR_SCHEME_QUERY] = 'midnight';\n"
+        "$seen = '';\n"
+        "ap_add_filter('agora_color_scheme', static function ($slug) use (&$seen) {\n"
+        "  $seen = (string) $slug;\n"
+        "  return $slug;\n"
+        "});\n"
+        "if (agora_get_color_scheme($db) !== 'midnight') { fwrite(STDERR,\"filter resolved\\n\"); exit(1); }\n"
+        "if ($seen !== 'midnight') { fwrite(STDERR,\"filter saw $seen\\n\"); exit(1); }\n"
+        "if (agora_get_stored_color_scheme($db) !== 'parchment') { fwrite(STDERR,\"filter wrote\\n\"); exit(1); }\n"
+        "ap_remove_all_filters('agora_color_scheme');\n"
+        "ap_add_filter('agora_color_scheme', static function ($slug) { unset($slug); return 'neon-disco'; });\n"
+        "if (agora_get_color_scheme($db) !== 'midnight') { fwrite(STDERR,\"invalid filter\\n\"); exit(1); }\n"
+        "if (agora_get_stored_color_scheme($db) !== 'parchment') { fwrite(STDERR,\"invalid filter wrote\\n\"); exit(1); }\n"
+        "ap_remove_all_filters('agora_color_scheme');\n"
+        "unset($_GET[AGORA_COLOR_SCHEME_QUERY], $_COOKIE[AGORA_COLOR_SCHEME_COOKIE]);\n"
+        "agora_set_visitor_color_preview(true, $db);\n"
+        "agora_set_color_scheme('parchment', $db);\n"
+        "$ctl = agora_get_visitor_color_preview_html($db);\n"
+        "if (!str_contains($ctl, 'agora-scheme-preview') || !str_contains($ctl, 'agora_scheme=midnight')) {\n"
+        "  fwrite(STDERR,\"control on\\n\"); exit(1);\n"
+        "}\n"
+        "if (!str_contains($ctl, 'agora_scheme=obsidian') || !str_contains($ctl, 'agora_scheme=charcoal')) {\n"
+        "  fwrite(STDERR,\"control six\\n\"); exit(1);\n"
+        "}\n"
+        "agora_set_visitor_color_preview(false, $db);\n"
+        "if (agora_get_visitor_color_preview_html($db) !== '') { fwrite(STDERR,\"control off\\n\"); exit(1); }\n"
+        "agora_set_color_scheme('midnight', $db);\n"
         "$cls = agora_body_class($db);\n"
         "if (!str_contains($cls, 'agora-scheme-midnight') || !str_contains($cls, 'agora-mode-dark')) {\n"
         "  fwrite(STDERR,\"body $cls\\n\"); exit(1);\n"

@@ -5,6 +5,8 @@
  *
  * Six pure-CSS schemes (3 light + 3 dark), selectable via the
  * `agora_color_scheme` option / Theme Options admin screen.
+ * Optional `agora_visitor_color_preview` (default off) is a Theme Option
+ * checkbox; visitor preview never writes the site scheme.
  * Blog + forum front-end templates share the same tokens and layout shell.
  *
  * @package Agora
@@ -15,8 +17,26 @@ declare(strict_types=1);
 /** Option name storing the active color scheme slug. */
 const AGORA_COLOR_SCHEME_OPTION = 'agora_color_scheme';
 
+/**
+ * Option name: allow visitors to preview schemes (stored as '0'/'1').
+ * Default off. Does not write {@see AGORA_COLOR_SCHEME_OPTION}.
+ */
+const AGORA_VISITOR_COLOR_PREVIEW_OPTION = 'agora_visitor_color_preview';
+
 /** Default scheme (light marble). */
 const AGORA_DEFAULT_COLOR_SCHEME = 'marble';
+
+/** Query arg visitors use to preview a scheme (`?agora_scheme=obsidian`). */
+const AGORA_COLOR_SCHEME_QUERY = 'agora_scheme';
+
+/**
+ * Cookie storing a visitor preview slug.
+ * Path `/`, SameSite=Lax, not HttpOnly (JS enhancer may update it).
+ */
+const AGORA_COLOR_SCHEME_COOKIE = 'agora_scheme';
+
+/** Preview cookie lifetime in seconds (30 days). */
+const AGORA_COLOR_SCHEME_COOKIE_TTL = 2592000;
 
 /** Stylesheet version (fallback when style.css header is unavailable). */
 const AGORA_THEME_VERSION = '0.3.9';
@@ -174,6 +194,26 @@ function agora_get_color_schemes(): array
 }
 
 /**
+ * Approximate swatch colors (bg, card, accent, fg) for each scheme.
+ *
+ * Shared by Appearance → Theme Options cards and the public visitor
+ * preview control. Hex only; no images.
+ *
+ * @return array<string, array{0: string, 1: string, 2: string, 3: string}>
+ */
+function agora_get_color_scheme_swatches(): array
+{
+    return [
+        'marble' => ['#f4f5f7', '#ffffff', '#2f5eb8', '#1c1f26'],
+        'parchment' => ['#f6f0e4', '#fffaf0', '#9a4a2a', '#3a2f24'],
+        'cloud' => ['#eef4f8', '#fbfcfe', '#0b7ea4', '#1a2a36'],
+        'obsidian' => ['#0c0c10', '#14141c', '#b794f6', '#ece8f4'],
+        'midnight' => ['#0a1220', '#0f1a2c', '#5ec8ff', '#e2eaf4'],
+        'charcoal' => ['#1a1816', '#221f1c', '#e8b86d', '#f0ebe4'],
+    ];
+}
+
+/**
  * Whether a slug is one of the six built-in schemes.
  */
 function agora_is_valid_color_scheme(string $slug): bool
@@ -207,13 +247,142 @@ function agora_sanitize_color_scheme(string $slug): string
 }
 
 /**
- * Active color scheme slug (defaults to marble).
+ * Return a known scheme slug, or null when the value is not one of the six.
  */
-function agora_get_color_scheme(?AP_DB $db = null): string
+function agora_valid_color_scheme_or_null(mixed $value): ?string
+{
+    if (!is_string($value) && !is_int($value)) {
+        return null;
+    }
+    $slug = agora_sanitize_color_scheme_raw((string) $value);
+    if ($slug === '' || !agora_is_valid_color_scheme($slug)) {
+        return null;
+    }
+
+    return $slug;
+}
+
+/**
+ * Valid `?agora_scheme=` slug for this request, or null when missing/invalid.
+ */
+function agora_preview_scheme_from_query(): ?string
+{
+    if (!isset($_GET[AGORA_COLOR_SCHEME_QUERY])) {
+        return null;
+    }
+
+    return agora_valid_color_scheme_or_null($_GET[AGORA_COLOR_SCHEME_QUERY]);
+}
+
+/**
+ * Valid preview-cookie slug, or null when missing/invalid.
+ */
+function agora_preview_scheme_from_cookie(): ?string
+{
+    if (!isset($_COOKIE[AGORA_COLOR_SCHEME_COOKIE])) {
+        return null;
+    }
+
+    return agora_valid_color_scheme_or_null($_COOKIE[AGORA_COLOR_SCHEME_COOKIE]);
+}
+
+/**
+ * Refresh the visitor preview cookie (path `/`, SameSite=Lax, not HttpOnly).
+ *
+ * Never writes {@see AGORA_COLOR_SCHEME_OPTION}. Skips setcookie when headers
+ * have already been sent or session test-mode is active.
+ */
+function agora_refresh_preview_color_scheme_cookie(string $slug): void
+{
+    $slug = agora_valid_color_scheme_or_null($slug);
+    if ($slug === null) {
+        return;
+    }
+
+    $_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = $slug;
+
+    if (class_exists('AP_Session', false) && AP_Session::isTestMode()) {
+        return;
+    }
+    if (headers_sent()) {
+        return;
+    }
+
+    $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    setcookie(AGORA_COLOR_SCHEME_COOKIE, $slug, [
+        'expires' => time() + AGORA_COLOR_SCHEME_COOKIE_TTL,
+        'path' => '/',
+        'secure' => $secure,
+        'httponly' => false,
+        'samesite' => 'Lax',
+    ]);
+}
+
+/**
+ * Site-saved color scheme (option `agora_color_scheme`, default marble).
+ *
+ * Ignores visitor query/cookie preview. Theme Options uses this so a preview
+ * cannot appear selected as the site default.
+ */
+function agora_get_stored_color_scheme(?AP_DB $db = null): string
 {
     $raw = agora_read_option(AGORA_COLOR_SCHEME_OPTION, AGORA_DEFAULT_COLOR_SCHEME, $db);
 
     return agora_sanitize_color_scheme($raw);
+}
+
+/**
+ * Active color scheme slug for this request.
+ *
+ * Resolve order when visitor preview is enabled:
+ * 1. valid `?agora_scheme=` (refreshes the preview cookie)
+ * 2. valid preview cookie
+ * 3. site option `agora_color_scheme`
+ * 4. `marble`
+ *
+ * Preview never writes the site option. {@see agora_filter_color_scheme()}
+ * then runs the `agora_color_scheme` filter on that resolved slug so a plugin
+ * can inject a preview without a theme fork.
+ */
+function agora_get_color_scheme(?AP_DB $db = null): string
+{
+    $slug = null;
+    if (agora_visitor_color_preview_enabled($db)) {
+        $fromQuery = agora_preview_scheme_from_query();
+        if ($fromQuery !== null) {
+            agora_refresh_preview_color_scheme_cookie($fromQuery);
+            $slug = $fromQuery;
+        } else {
+            $slug = agora_preview_scheme_from_cookie();
+        }
+    }
+    if ($slug === null) {
+        $slug = agora_get_stored_color_scheme($db);
+    }
+
+    return agora_filter_color_scheme((string) $slug, $db);
+}
+
+/**
+ * Apply the `agora_color_scheme` filter to an already-resolved slug.
+ *
+ * Invalid or non-scheme returns keep $slug (same as an invalid query/cookie).
+ * Never writes {@see AGORA_COLOR_SCHEME_OPTION}.
+ */
+function agora_filter_color_scheme(string $slug, ?AP_DB $db = null): string
+{
+    $slug = agora_sanitize_color_scheme($slug);
+    if (!function_exists('ap_apply_filters')) {
+        return $slug;
+    }
+
+    $filtered = ap_apply_filters('agora_color_scheme', $slug, $db);
+    $valid = agora_valid_color_scheme_or_null($filtered);
+    if ($valid === null) {
+        return $slug;
+    }
+
+    return $valid;
 }
 
 /**
@@ -227,6 +396,174 @@ function agora_set_color_scheme(string $slug, ?AP_DB $db = null): bool
     }
 
     return agora_write_option(AGORA_COLOR_SCHEME_OPTION, $slug, $db);
+}
+
+/**
+ * Whether a stored / posted value means the visitor preview is on.
+ */
+function agora_sanitize_visitor_color_preview(mixed $value): bool
+{
+    if ($value === true || $value === 1 || $value === '1') {
+        return true;
+    }
+    if (!is_string($value)) {
+        return false;
+    }
+
+    $raw = strtolower(trim($value));
+
+    return $raw === '1' || $raw === 'true' || $raw === 'yes' || $raw === 'on';
+}
+
+/**
+ * Whether visitors may preview color schemes (Theme Option, default off).
+ */
+function agora_visitor_color_preview_enabled(?AP_DB $db = null): bool
+{
+    $raw = agora_read_option(AGORA_VISITOR_COLOR_PREVIEW_OPTION, '0', $db);
+
+    return agora_sanitize_visitor_color_preview($raw);
+}
+
+/**
+ * Persist the visitor color-scheme preview flag ('1' on, '0' off).
+ */
+function agora_set_visitor_color_preview(bool $enabled, ?AP_DB $db = null): bool
+{
+    return agora_write_option(AGORA_VISITOR_COLOR_PREVIEW_OPTION, $enabled ? '1' : '0', $db);
+}
+
+/**
+ * Whether the public six-swatch preview control should render.
+ *
+ * Requires the Theme Option to be on and {@see agora_get_color_schemes()}
+ * to exist (stock Agora or a child that still loads those helpers).
+ */
+function agora_visitor_color_preview_control_enabled(?AP_DB $db = null): bool
+{
+    return agora_visitor_color_preview_enabled($db)
+        && function_exists('agora_get_color_schemes');
+}
+
+/**
+ * Path of the current request for preview GET links (no host, no query).
+ *
+ * Empty when REQUEST_URI is missing so the href can be query-only and keep
+ * the browser on the current page. Never includes a hostname.
+ */
+function agora_visitor_color_preview_request_path(): string
+{
+    $uri = (string) ($_SERVER['REQUEST_URI'] ?? '');
+    if ($uri === '') {
+        return '';
+    }
+    $qpos = strpos($uri, '?');
+    $path = $qpos === false ? $uri : substr($uri, 0, $qpos);
+    $path = str_replace(["\0", "\r", "\n"], '', $path);
+    if ($path === '' || !str_starts_with($path, '/') || str_contains($path, '://')) {
+        return '';
+    }
+
+    return $path;
+}
+
+/**
+ * No-JS GET URL that previews $slug (`?agora_scheme={slug}`).
+ *
+ * Keeps the current path and other query args. Invalid slugs return ''.
+ * Never writes {@see AGORA_COLOR_SCHEME_OPTION}.
+ */
+function agora_visitor_color_preview_url(string $slug): string
+{
+    $valid = agora_valid_color_scheme_or_null($slug);
+    if ($valid === null) {
+        return '';
+    }
+
+    $query = [];
+    if (isset($_GET) && is_array($_GET)) {
+        foreach ($_GET as $key => $value) {
+            if (!is_string($key) || $key === '' || $key === AGORA_COLOR_SCHEME_QUERY) {
+                continue;
+            }
+            if (is_scalar($value)) {
+                $query[$key] = (string) $value;
+            }
+        }
+    }
+    $query[AGORA_COLOR_SCHEME_QUERY] = $valid;
+    $qs = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    $path = agora_visitor_color_preview_request_path();
+
+    return $path . '?' . $qs;
+}
+
+/**
+ * Markup for the compact six-swatch visitor preview control, or empty.
+ *
+ * No-JS fallback is a GET link per swatch. A valid click refreshes the
+ * preview cookie (path `/`, SameSite=Lax) via {@see agora_get_color_scheme()}.
+ */
+function agora_get_visitor_color_preview_html(?AP_DB $db = null): string
+{
+    if (!agora_visitor_color_preview_control_enabled($db)) {
+        return '';
+    }
+
+    $schemes = agora_get_color_schemes();
+    if ($schemes === []) {
+        return '';
+    }
+
+    $swatches = agora_get_color_scheme_swatches();
+    $active = agora_get_color_scheme($db);
+    $html = '<nav class="agora-scheme-preview" aria-label="Preview color scheme">';
+    $html .= '<ul class="agora-scheme-preview__list">';
+    $index = 0;
+    foreach ($schemes as $slug => $meta) {
+        if ($index === 3) {
+            $html .= '<li class="agora-scheme-preview__sep" aria-hidden="true"></li>';
+        }
+        $index++;
+        $label = (string) ($meta['label'] ?? $slug);
+        $url = agora_visitor_color_preview_url((string) $slug);
+        if ($url === '') {
+            continue;
+        }
+        $colors = $swatches[$slug] ?? ['#ccc', '#fff', '#06c', '#111'];
+        $isCurrent = $slug === $active;
+        $class = 'agora-scheme-preview__swatch agora-scheme-preview__swatch--' . $slug;
+        if ($isCurrent) {
+            $class .= ' is-current';
+        }
+        $style = '--s0: ' . $colors[0]
+            . '; --s1: ' . $colors[1]
+            . '; --s2: ' . $colors[2]
+            . '; --s3: ' . $colors[3]
+            . ';';
+        $html .= '<li class="agora-scheme-preview__item">';
+        $html .= '<a class="' . agora_esc_attr($class) . '"'
+            . ' href="' . agora_esc_url($url) . '"'
+            . ' title="' . agora_esc_attr($label) . '"'
+            . ' aria-label="' . agora_esc_attr('Preview ' . $label) . '"';
+        if ($isCurrent) {
+            $html .= ' aria-current="true"';
+        }
+        $html .= ' style="' . agora_esc_attr($style) . '">';
+        $html .= '<span class="screen-reader-text">' . agora_esc($label) . '</span>';
+        $html .= '</a></li>';
+    }
+    $html .= '</ul></nav>';
+
+    return $html;
+}
+
+/**
+ * Print the visitor color-scheme preview control (no-op when the option is off).
+ */
+function agora_the_visitor_color_preview(?AP_DB $db = null): void
+{
+    echo agora_get_visitor_color_preview_html($db);
 }
 
 /**

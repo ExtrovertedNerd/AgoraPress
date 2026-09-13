@@ -71,6 +71,17 @@ if (
             }
         }
 
+        $previewOk = true;
+        if (function_exists('agora_set_visitor_color_preview') && $isAgora) {
+            $previewOn = function_exists('agora_sanitize_visitor_color_preview')
+                ? agora_sanitize_visitor_color_preview($_POST['agora_visitor_color_preview'] ?? '0')
+                : ((string) ($_POST['agora_visitor_color_preview'] ?? '') === '1');
+            $previewOk = agora_set_visitor_color_preview($previewOn, $db);
+            if (!$previewOk) {
+                AP_Admin::addNotice('Could not save visitor color-scheme preview.', 'error');
+            }
+        }
+
         $settingsOk = true;
         if (class_exists('AP_Settings', false)) {
             $settingsOk = AP_Settings::save($settingsGroup, null, $db);
@@ -87,7 +98,7 @@ if (
             }
         }
 
-        if ($schemeOk && $settingsOk && $cssOk) {
+        if ($schemeOk && $previewOk && $settingsOk && $cssOk) {
             AP_Admin::redirect(AP_Admin::url('theme-options.php', ['message' => 'theme_options_saved']));
         }
     }
@@ -96,22 +107,31 @@ if (
 $schemes = $isAgora && function_exists('agora_get_color_schemes')
     ? agora_get_color_schemes()
     : [];
-$current = function_exists('agora_get_color_scheme')
-    ? agora_get_color_scheme($db)
-    : 'marble';
+// Site default only — visitor preview query/cookie must not select the radio.
+$current = 'marble';
+if (function_exists('agora_get_stored_color_scheme')) {
+    $current = agora_get_stored_color_scheme($db);
+} elseif (function_exists('agora_get_color_scheme')) {
+    $current = agora_get_color_scheme($db);
+}
+$visitorPreview = function_exists('agora_visitor_color_preview_enabled')
+    ? agora_visitor_color_preview_enabled($db)
+    : false;
 $customCss = class_exists('AP_Theme', false)
     ? AP_Theme::getCustomCss($db)
     : '';
 
-// Preview swatches (approximate; pure CSS admin previews).
-$swatches = [
-    'marble' => ['#f4f5f7', '#ffffff', '#2f5eb8', '#1c1f26'],
-    'parchment' => ['#f6f0e4', '#fffaf0', '#9a4a2a', '#3a2f24'],
-    'cloud' => ['#eef4f8', '#fbfcfe', '#0b7ea4', '#1a2a36'],
-    'obsidian' => ['#0c0c10', '#14141c', '#b794f6', '#ece8f4'],
-    'midnight' => ['#0a1220', '#0f1a2c', '#5ec8ff', '#e2eaf4'],
-    'charcoal' => ['#1a1816', '#221f1c', '#e8b86d', '#f0ebe4'],
-];
+// Preview swatches (approximate; same catalog as the public visitor control).
+$swatches = function_exists('agora_get_color_scheme_swatches')
+    ? agora_get_color_scheme_swatches()
+    : [
+        'marble' => ['#f4f5f7', '#ffffff', '#2f5eb8', '#1c1f26'],
+        'parchment' => ['#f6f0e4', '#fffaf0', '#9a4a2a', '#3a2f24'],
+        'cloud' => ['#eef4f8', '#fbfcfe', '#0b7ea4', '#1a2a36'],
+        'obsidian' => ['#0c0c10', '#14141c', '#b794f6', '#ece8f4'],
+        'midnight' => ['#0a1220', '#0f1a2c', '#5ec8ff', '#e2eaf4'],
+        'charcoal' => ['#1a1816', '#221f1c', '#e8b86d', '#f0ebe4'],
+    ];
 
 $ap_admin_title = 'Theme Options';
 $ap_admin_screen = 'theme-options';
@@ -195,6 +215,23 @@ require __DIR__ . '/admin-header.php';
                 <?php endforeach; ?>
             </div>
         </fieldset>
+
+        <p class="ap-field" style="margin-top:1.25rem;">
+            <label for="agora_visitor_color_preview">
+                <input
+                    type="checkbox"
+                    name="agora_visitor_color_preview"
+                    id="agora_visitor_color_preview"
+                    value="1"
+                    <?php echo $visitorPreview ? ' checked' : ''; ?>
+                >
+                Allow visitors to preview color schemes
+            </label>
+            <span class="ap-help">
+                When enabled, visitors can try all six color schemes on the public site.
+                Their choice does not change this site’s default scheme.
+            </span>
+        </p>
 <?php elseif (!$hasThemeSettings) : ?>
     <div class="ap-notice ap-notice--info">
         This theme has not registered any custom options yet.

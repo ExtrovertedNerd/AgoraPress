@@ -101,6 +101,14 @@ if (function_exists('ap_nav_menu')) {
 if (function_exists('agora_the_account_indicator')) {
     agora_the_account_indicator();
 }
+
+// Compact six-swatch scheme preview (Theme Option, default off). No-JS = GET links.
+if (
+    function_exists('agora_the_visitor_color_preview')
+    && function_exists('agora_get_color_schemes')
+) {
+    agora_the_visitor_color_preview();
+}
 ?>
     </div>
 </header>

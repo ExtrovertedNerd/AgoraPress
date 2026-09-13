@@ -182,6 +182,7 @@ PHP;
         $this->assertStringContainsString('registerThemeOptions', $src);
         $this->assertStringContainsString('ap_do_settings_sections', $src);
         $this->assertStringContainsString('THEME_OPTIONS', $src);
+        $this->assertStringContainsString('agora_visitor_color_preview', $src);
         // No hard-coded ExtrovertedNerd project save path.
         $this->assertStringNotContainsString('en_set_hub_projects', $src);
     }
