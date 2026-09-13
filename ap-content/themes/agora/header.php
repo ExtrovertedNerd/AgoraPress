@@ -102,10 +102,12 @@ if (function_exists('agora_the_account_indicator')) {
     agora_the_account_indicator();
 }
 
-// Compact six-swatch scheme preview (Theme Option, default off). No-JS = GET links.
+// Compact six-swatch scheme preview. Option off (default): no visitor markup.
 if (
     function_exists('agora_the_visitor_color_preview')
     && function_exists('agora_get_color_schemes')
+    && function_exists('agora_visitor_color_preview_control_enabled')
+    && agora_visitor_color_preview_control_enabled()
 ) {
     agora_the_visitor_color_preview();
 }

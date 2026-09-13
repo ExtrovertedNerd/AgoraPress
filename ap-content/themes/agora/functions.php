@@ -563,7 +563,11 @@ function agora_get_visitor_color_preview_html(?AP_DB $db = null): string
  */
 function agora_the_visitor_color_preview(?AP_DB $db = null): void
 {
-    echo agora_get_visitor_color_preview_html($db);
+    $html = agora_get_visitor_color_preview_html($db);
+    if ($html === '') {
+        return;
+    }
+    echo $html;
 }
 
 /**

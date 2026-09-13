@@ -259,8 +259,12 @@ def test_header_applies_body_class_and_a11y() -> None:
     assert "agora_the_account_indicator" in src
     assert "agora_the_visitor_color_preview" in src
     assert "agora_get_color_schemes" in src
+    assert "agora_visitor_color_preview_control_enabled" in src
     assert src.index("agora_the_account_indicator") < src.index(
         "agora_the_visitor_color_preview"
+    )
+    assert src.index("agora_visitor_color_preview_control_enabled()") < src.index(
+        "agora_the_visitor_color_preview();"
     )
     assert "agorapress.extrovertednerd.com" not in src
 
@@ -534,6 +538,8 @@ def test_color_scheme_and_forum_runtime_via_php() -> None:
         "}\n"
         "agora_set_visitor_color_preview(false, $db);\n"
         "if (agora_get_visitor_color_preview_html($db) !== '') { fwrite(STDERR,\"control off\\n\"); exit(1); }\n"
+        "ob_start(); agora_the_visitor_color_preview($db); $printed = ob_get_clean();\n"
+        "if ($printed !== '') { fwrite(STDERR,\"print off\\n\"); exit(1); }\n"
         "agora_set_color_scheme('midnight', $db);\n"
         "$cls = agora_body_class($db);\n"
         "if (!str_contains($cls, 'agora-scheme-midnight') || !str_contains($cls, 'agora-mode-dark')) {\n"
@@ -549,6 +555,9 @@ def test_color_scheme_and_forum_runtime_via_php() -> None:
         "if (!str_contains($html, 'skip-link') || !str_contains($html, 'id=\"main\"')) {\n"
         "  fwrite(STDERR,\"a11y\\n\"); exit(1);\n"
         "}\n"
+        "if (str_contains($html, 'agora-scheme-preview') || str_contains($html, 'agora_scheme=')) {\n"
+        "  fwrite(STDERR,\"render control off\\n\"); exit(1);\n"
+        "}\n"
         "// Forum hierarchy + empty index render\n"
         "$fq = new AP_Query(['ap_forum_view'=>'index','post_type'=>'post','posts_per_page'=>1], $db);\n"
         "$GLOBALS['ap_query'] = $fq;\n"
@@ -562,6 +571,9 @@ def test_color_scheme_and_forum_runtime_via_php() -> None:
         "ob_start(); AP_Theme::render($fq, $db); $fhtml = ob_get_clean();\n"
         "if (!str_contains($fhtml, 'ap-forum') || !str_contains($fhtml, 'Forums')) {\n"
         "  fwrite(STDERR,\"forum render\\n\"); exit(1);\n"
+        "}\n"
+        "if (str_contains($fhtml, 'agora-scheme-preview') || str_contains($fhtml, 'agora_scheme=')) {\n"
+        "  fwrite(STDERR,\"forum control off\\n\"); exit(1);\n"
         "}\n"
         "$tq = new AP_Query(['ap_forum_view'=>'topic','topic_id'=>1,'topic_title'=>'Hello'], $db);\n"
         "$th = AP_Theme::getHierarchy($tq, $db);\n"

@@ -165,6 +165,17 @@ final class AgoraThemeTest extends TestCase
     }
 
     /**
+     * Public pages must not emit the visitor scheme-preview control.
+     */
+    private function assertNoVisitorColorPreviewMarkup(string $html): void
+    {
+        $this->assertStringNotContainsString('agora-scheme-preview', $html);
+        $this->assertStringNotContainsString('agora-scheme-preview__swatch', $html);
+        $this->assertStringNotContainsString('Preview color scheme', $html);
+        $this->assertStringNotContainsString('agora_scheme=', $html);
+    }
+
+    /**
      * Body of a top-level function in agora/functions.php (brace-matched).
      */
     private function agoraFunctionBody(string $name): string
@@ -347,6 +358,7 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('Scheme Post', $html);
         $this->assertStringContainsString('skip-link', $html);
         $this->assertStringContainsString('color-scheme', $html);
+        $this->assertNoVisitorColorPreviewMarkup($html);
     }
 
     public function testVisitorColorPreviewDefaultsOffAndDoesNotWriteScheme(): void
@@ -622,11 +634,27 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('agora_filter_color_scheme', $getBody);
     }
 
+    public function testVisitorPreviewControlAbsentByDefault(): void
+    {
+        $this->assertFalse(agora_visitor_color_preview_enabled($this->db));
+        $this->assertFalse(agora_visitor_color_preview_control_enabled($this->db));
+        $this->assertSame('', agora_get_visitor_color_preview_html($this->db));
+
+        ob_start();
+        agora_the_visitor_color_preview($this->db);
+        $this->assertSame('', (string) ob_get_clean());
+
+        $html = $this->renderPublicHome();
+        $this->assertStringContainsString('site-header__inner', $html);
+        $this->assertNoVisitorColorPreviewMarkup($html);
+    }
+
     public function testVisitorPreviewControlAbsentWhenOptionOff(): void
     {
         $this->assertTrue(agora_set_color_scheme('parchment', $this->db));
         $this->assertTrue(agora_set_visitor_color_preview(false, $this->db));
         $_GET[AGORA_COLOR_SCHEME_QUERY] = 'midnight';
+        $_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = 'charcoal';
 
         $this->assertFalse(agora_visitor_color_preview_control_enabled($this->db));
         $this->assertSame('', agora_get_visitor_color_preview_html($this->db));
@@ -636,10 +664,28 @@ final class AgoraThemeTest extends TestCase
         $this->assertSame('', (string) ob_get_clean());
 
         $html = $this->renderPublicHome();
-        $this->assertStringNotContainsString('agora-scheme-preview', $html);
-        $this->assertStringNotContainsString('agora_scheme=', $html);
+        $this->assertNoVisitorColorPreviewMarkup($html);
         $this->assertStringContainsString('agora-scheme-parchment', $html);
+        $this->assertStringNotContainsString('agora-scheme-midnight', $html);
         $this->assertSame('parchment', $this->storedColorSchemeValue());
+    }
+
+    public function testVisitorPreviewControlAbsentOnForumWhenOptionOff(): void
+    {
+        $this->assertTrue(agora_set_visitor_color_preview(false, $this->db));
+        $query = new AP_Query([
+            'ap_forum_view' => 'index',
+            'posts_per_page' => 1,
+        ], $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('ap-forum', $html);
+        $this->assertStringContainsString('Forums', $html);
+        $this->assertNoVisitorColorPreviewMarkup($html);
     }
 
     public function testVisitorPreviewControlRendersSixGetLinksWhenOn(): void
@@ -765,8 +811,14 @@ final class AgoraThemeTest extends TestCase
         $this->assertNotFalse($previewPos);
         $this->assertGreaterThan($accountPos, $previewPos);
         $this->assertStringContainsString('agora_get_color_schemes', $header);
+        $this->assertStringContainsString('agora_visitor_color_preview_control_enabled', $header);
         $this->assertStringContainsString('site-header__inner', $header);
         $this->assertStringNotContainsString('agorapress.extrovertednerd.com', $header);
+        $gatePos = strpos($header, 'agora_visitor_color_preview_control_enabled()');
+        $callPos = strpos($header, 'agora_the_visitor_color_preview();');
+        $this->assertNotFalse($gatePos);
+        $this->assertNotFalse($callPos);
+        $this->assertLessThan($callPos, $gatePos);
     }
 
     public function testThemeOptionsAdminFileExists(): void
@@ -1326,6 +1378,7 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('agora-forum', $html);
         $this->assertStringContainsString('skip-link', $html);
         $this->assertStringContainsString('No forums have been created yet', $html);
+        $this->assertNoVisitorColorPreviewMarkup($html);
     }
 
     public function testRenderForumTopicWithFilteredPosts(): void
