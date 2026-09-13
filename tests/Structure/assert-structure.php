@@ -230,6 +230,15 @@ $hephaestusGitignoreRules = [
     '**/.hephaestus/',
 ];
 
+/**
+ * Exact .gitignore rules so release zip / version.json stay out of the public tree.
+ *
+ * @var list<string> $releaseGitignoreRules
+ */
+$releaseGitignoreRules = [
+    '/dist/',
+];
+
 $failures = [];
 
 foreach ($requiredPaths as $rel) {
@@ -270,6 +279,11 @@ if (!is_readable($gitignore)) {
             $failures[] = "Expected .gitignore exact rule: {$rule}";
         }
     }
+    foreach ($releaseGitignoreRules as $rule) {
+        if (!isset($giLines[$rule])) {
+            $failures[] = "Expected .gitignore exact rule: {$rule}";
+        }
+    }
 
     // If git is available in a work tree, prove nothing under .hephaestus is tracked
     // and that check-ignore matches process paths.
@@ -295,6 +309,47 @@ if (!is_readable($gitignore)) {
             // 0 = ignored; 1 = not ignored; 128 = not a repo / git error (skip soft).
             if ($checkExit === 1) {
                 $failures[] = "git check-ignore must match process path: {$path}";
+            }
+        }
+
+        // Release packaging: dist/ stays gitignored. Do not commit the zip.
+        $distTrackedCmd = 'git -C ' . escapeshellarg($root)
+            . ' ls-files -- dist dist/ 2>/dev/null';
+        $distTrackedOut = [];
+        $distTrackedExit = 0;
+        exec($distTrackedCmd, $distTrackedOut, $distTrackedExit);
+        if ($distTrackedExit === 0 && $distTrackedOut !== []) {
+            $failures[] = 'dist/ packaging artifacts must not be tracked by git; found: '
+                . implode(', ', $distTrackedOut);
+        }
+
+        $zipTrackedCmd = 'git -C ' . escapeshellarg($root)
+            . " ls-files -- '*.zip' '**/*.zip' 2>/dev/null";
+        $zipTrackedOut = [];
+        $zipTrackedExit = 0;
+        exec($zipTrackedCmd, $zipTrackedOut, $zipTrackedExit);
+        if ($zipTrackedExit === 0 && $zipTrackedOut !== []) {
+            $failures[] = 'Release zip files must not be committed to the public tree; found: '
+                . implode(', ', $zipTrackedOut);
+        }
+
+        $releaseIgnorePaths = [
+            'dist/',
+            'dist/AgoraPress-9.9.9-test.zip',
+            'dist/AgoraPress-9.9.9-test.sha256',
+            'dist/version.json',
+            'dist/changelog-page.html',
+            'dist/download-page.html',
+            'dist/deployed/AgoraPress-9.9.9-test.zip',
+        ];
+        foreach ($releaseIgnorePaths as $path) {
+            $checkCmd = 'git -C ' . escapeshellarg($root)
+                . ' check-ignore -q ' . escapeshellarg($path) . ' 2>/dev/null';
+            $checkOut = [];
+            $checkExit = 0;
+            exec($checkCmd, $checkOut, $checkExit);
+            if ($checkExit === 1) {
+                $failures[] = "git check-ignore must match release path: {$path}";
             }
         }
     }

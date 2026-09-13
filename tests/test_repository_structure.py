@@ -104,6 +104,22 @@ HEPHAESTUS_GITIGNORE_RULES: list[str] = [
     "**/.hephaestus/",
 ]
 
+# Release packaging: dist/ stays gitignored. Do not commit the zip.
+RELEASE_GITIGNORE_RULES: list[str] = [
+    "/dist/",
+]
+
+# Paths git check-ignore must match (files need not exist on disk).
+RELEASE_IGNORE_PATHS: list[str] = [
+    "dist/",
+    "dist/AgoraPress-9.9.9-test.zip",
+    "dist/AgoraPress-9.9.9-test.sha256",
+    "dist/version.json",
+    "dist/changelog-page.html",
+    "dist/download-page.html",
+    "dist/deployed/AgoraPress-9.9.9-test.zip",
+]
+
 
 def _gitignore_covers(gi: str, pattern: str) -> bool:
     """Return True if .gitignore content covers the given path pattern."""
@@ -198,6 +214,68 @@ def test_gitignore_never_tracks_hephaestus() -> None:
             return
         assert check.returncode == 0, (
             f"git check-ignore must match {path!r}; "
+            f"exit={check.returncode} stderr={check.stderr!r}"
+        )
+
+
+def test_gitignore_never_tracks_dist_release_artifacts() -> None:
+    """dist/ stays gitignored. Do not commit the zip into the public tree."""
+    gi_path = ROOT / ".gitignore"
+    assert gi_path.is_file(), "Missing .gitignore"
+    gi = gi_path.read_text(encoding="utf-8")
+    rules = _gitignore_lines(gi)
+
+    for rule in RELEASE_GITIGNORE_RULES:
+        assert rule in rules, (
+            f".gitignore must contain exact rule {rule!r} "
+            "(never commit release packaging artifacts)"
+        )
+
+    try:
+        tracked_dist = subprocess.run(
+            ["git", "ls-files", "--", "dist", "dist/"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        tracked_zip = subprocess.run(
+            ["git", "ls-files", "--", "*.zip", "**/*.zip"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return
+
+    if tracked_dist.returncode != 0 or tracked_zip.returncode != 0:
+        return  # Not a git work tree or git unavailable — rule text still asserted.
+
+    assert tracked_dist.stdout.strip() == "", (
+        "dist/ packaging artifacts must not be tracked by git; found:\n"
+        f"{tracked_dist.stdout}"
+    )
+    assert tracked_zip.stdout.strip() == "", (
+        "Release zip files must not be committed to the public tree; found:\n"
+        f"{tracked_zip.stdout}"
+    )
+
+    for path in RELEASE_IGNORE_PATHS:
+        check = subprocess.run(
+            ["git", "check-ignore", "-q", path],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if check.returncode == 128:
+            return
+        assert check.returncode == 0, (
+            f"git check-ignore must match release path {path!r}; "
             f"exit={check.returncode} stderr={check.stderr!r}"
         )
 

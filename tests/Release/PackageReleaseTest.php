@@ -233,6 +233,88 @@ final class PackageReleaseTest extends TestCase
             str_contains($gi, '*.sqlite') || str_contains($gi, 'database.sqlite'),
             '.gitignore must ignore SQLite runtime databases for live installs'
         );
+
+        $lines = [];
+        foreach (preg_split("/\R/", $gi) ?: [] as $raw) {
+            $line = trim((string) $raw);
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+            $lines[$line] = true;
+        }
+        $this->assertArrayHasKey(
+            '/dist/',
+            $lines,
+            '.gitignore must contain the exact rule /dist/'
+        );
+    }
+
+    public function testDistReleaseArtifactsAreNotTrackedByGit(): void
+    {
+        $gitDir = $this->root . '/.git';
+        if (!is_dir($gitDir) && !is_file($gitDir)) {
+            $this->markTestSkipped('Not a git work tree');
+        }
+
+        [$distExit, $distOut] = $this->runGit(['ls-files', '--', 'dist', 'dist/']);
+        if ($distExit !== 0) {
+            $this->markTestSkipped('git ls-files unavailable');
+        }
+        $this->assertSame(
+            '',
+            trim($distOut),
+            "dist/ packaging artifacts must not be tracked by git; found:\n{$distOut}"
+        );
+
+        [$zipExit, $zipOut] = $this->runGit(['ls-files', '--', '*.zip', '**/*.zip']);
+        if ($zipExit !== 0) {
+            $this->markTestSkipped('git ls-files unavailable');
+        }
+        $this->assertSame(
+            '',
+            trim($zipOut),
+            "Release zip files must not be committed to the public tree; found:\n{$zipOut}"
+        );
+
+        $releaseIgnorePaths = [
+            'dist/',
+            'dist/AgoraPress-9.9.9-test.zip',
+            'dist/AgoraPress-9.9.9-test.sha256',
+            'dist/version.json',
+            'dist/changelog-page.html',
+            'dist/download-page.html',
+            'dist/deployed/AgoraPress-9.9.9-test.zip',
+        ];
+        foreach ($releaseIgnorePaths as $path) {
+            [$checkExit] = $this->runGit(['check-ignore', '-q', $path]);
+            if ($checkExit === 128) {
+                $this->markTestSkipped('git check-ignore unavailable');
+            }
+            $this->assertSame(
+                0,
+                $checkExit,
+                "git check-ignore must match release path: {$path}"
+            );
+        }
+    }
+
+    /**
+     * @param list<string> $args
+     * @return array{0:int,1:string}
+     */
+    private function runGit(array $args): array
+    {
+        $cmd = 'git -C ' . escapeshellarg($this->root);
+        foreach ($args as $arg) {
+            $cmd .= ' ' . escapeshellarg($arg);
+        }
+        $cmd .= ' 2>/dev/null';
+
+        $output = [];
+        $exit = 0;
+        exec($cmd, $output, $exit);
+
+        return [$exit, implode("\n", $output)];
     }
 
     /**

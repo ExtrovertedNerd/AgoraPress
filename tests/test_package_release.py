@@ -137,3 +137,68 @@ def test_gitignore_covers_dist() -> None:
     gi = GITIGNORE.read_text(encoding="utf-8")
     assert "/dist/" in gi or "dist/" in gi
     assert "*.sqlite" in gi or "database.sqlite" in gi
+    rules = {
+        line.strip()
+        for line in gi.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+    assert "/dist/" in rules, ".gitignore must contain the exact rule /dist/"
+
+
+def test_dist_release_artifacts_are_not_tracked_by_git() -> None:
+    """dist/ stays gitignored. Do not commit the zip into the public tree."""
+    try:
+        tracked_dist = subprocess.run(
+            ["git", "ls-files", "--", "dist", "dist/"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        tracked_zip = subprocess.run(
+            ["git", "ls-files", "--", "*.zip", "**/*.zip"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pytest.skip("git unavailable")
+
+    if tracked_dist.returncode != 0 or tracked_zip.returncode != 0:
+        pytest.skip("not a git work tree")
+
+    assert tracked_dist.stdout.strip() == "", (
+        "dist/ packaging artifacts must not be tracked by git; found:\n"
+        f"{tracked_dist.stdout}"
+    )
+    assert tracked_zip.stdout.strip() == "", (
+        "Release zip files must not be committed to the public tree; found:\n"
+        f"{tracked_zip.stdout}"
+    )
+
+    for path in (
+        "dist/",
+        "dist/AgoraPress-9.9.9-test.zip",
+        "dist/AgoraPress-9.9.9-test.sha256",
+        "dist/version.json",
+        "dist/changelog-page.html",
+        "dist/download-page.html",
+        "dist/deployed/AgoraPress-9.9.9-test.zip",
+    ):
+        check = subprocess.run(
+            ["git", "check-ignore", "-q", path],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if check.returncode == 128:
+            pytest.skip("git check-ignore unavailable")
+        assert check.returncode == 0, (
+            f"git check-ignore must match release path {path!r}; "
+            f"exit={check.returncode} stderr={check.stderr!r}"
+        )

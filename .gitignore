@@ -50,7 +50,8 @@ yarn-error.log*
 /temp/
 *.cache
 
-# Release packaging artifacts (php bin/package-release.php)
+# Release packaging artifacts (php bin/package-release.php).
+# dist/ stays gitignored — do not commit the zip into the public tree.
 /dist/
 
 # Tests & coverage
