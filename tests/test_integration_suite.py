@@ -14,6 +14,7 @@ COEXIST = ROOT / "tests" / "Integration" / "ContentCoexistenceTest.php"
 ROLES_CAPS = ROOT / "tests" / "Integration" / "RolesCapsContentTest.php"
 HEALTH = ROOT / "tests" / "Integration" / "SuiteHealthTest.php"
 CHARTER = ROOT / "tests" / "Integration" / "CharterSpecTest.php"
+CI_HYGIENE = ROOT / "tests" / "Integration" / "CiHygieneTest.php"
 PHPUNIT_XML = ROOT / "phpunit.xml.dist"
 
 
@@ -22,6 +23,7 @@ def test_integration_suite_files_exist() -> None:
     assert ROLES_CAPS.is_file(), "Missing RolesCapsContentTest.php"
     assert HEALTH.is_file(), "Missing SuiteHealthTest.php"
     assert CHARTER.is_file(), "Missing CharterSpecTest.php"
+    assert CI_HYGIENE.is_file(), "Missing CiHygieneTest.php"
     assert PHPUNIT_XML.is_file()
 
 
@@ -68,5 +70,6 @@ def test_suite_health_lists_critical_areas() -> None:
         "AgoraThemeTest",
         "EditorTest",
         "CharterSpecTest",
+        "CiHygieneTest",
     ):
         assert needle in src, f"Expected {needle!r} in SuiteHealthTest"

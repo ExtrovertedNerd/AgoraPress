@@ -72,6 +72,7 @@ final class SuiteHealthTest extends TestCase
             ['tests/Docs/DocsPresenceTest.php'],
             ['tests/Docs/DeveloperDocsTest.php'],
             ['tests/Integration/CharterSpecTest.php'],
+            ['tests/Integration/CiHygieneTest.php'],
         ];
     }
 
@@ -114,6 +115,7 @@ final class SuiteHealthTest extends TestCase
         $this->assertStringContainsString('AgoraThemeTest', $body);
         $this->assertStringContainsString('EditorTest', $body);
         $this->assertStringContainsString('CharterSpecTest', $body);
+        $this->assertStringContainsString('CiHygieneTest', $body);
     }
 
     public function testComposerTestScriptPointsAtPhpunit(): void
