@@ -46,6 +46,7 @@ def test_default_category_phpunit_cases() -> None:
         encoding="utf-8"
     )
     for needle in (
+        "function testEnsureDefaultCategoryCreatesUncategorizedWhenNoLivingDefault",
         "function testEnsureDefaultCategoryDoesNotClobberLivingDefault",
         "function testEnsureDefaultCategoryDoesNotRecreateUncategorizedWhenLivingDefaultExists",
         "function testUncategorizedIsDeletableOnceItIsNotTheDefault",
@@ -91,6 +92,7 @@ def test_set_as_default_and_delete_link_phpunit_cases() -> None:
     for needle in (
         "function testSetAsDefaultRowActionUpdatesDefaultCategory",
         "function testSetAsDefaultMakesPreviousDefaultDeletable",
+        "function testSetAsDefaultThenUncategorizedDeleteReassignsOrphans",
         "AP_Admin_Terms::setDefault",
         "AP_Taxonomy::getDefaultCategoryId",
         "rowHasDeleteLink",

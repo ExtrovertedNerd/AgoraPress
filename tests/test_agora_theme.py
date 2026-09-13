@@ -409,6 +409,8 @@ def test_visitor_preview_phpunit_cases() -> None:
         "function testVisitorPreviewInvalidSlugIgnoredOnRenderedPage",
         "function testPreviewCookieWinsOverSiteOption",
         "function testVisitorPreviewCookieWinsOverSiteOptionOnRenderedPage",
+        "function testDefaultSchemeIsMarble",
+        "function testSixSchemesKeepEditorContrastWithoutAddons",
         "agora-scheme-preview",
         "agora-scheme-midnight",
         "neon-disco",

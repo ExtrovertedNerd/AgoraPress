@@ -63,6 +63,15 @@ final class SuiteHealthTest extends TestCase
             ['tests/Changelog/ChangelogTest.php'],
             ['tests/Integration/ContentCoexistenceTest.php'],
             ['tests/Integration/RolesCapsContentTest.php'],
+            ['tests/Taxonomy/TaxonomyTest.php'],
+            ['tests/Admin/AdminTermsTest.php'],
+            ['tests/Options/SettingsApiTest.php'],
+            ['tests/Theme/AgoraThemeTest.php'],
+            ['tests/Editor/EditorTest.php'],
+            ['tests/Template/TemplateTagsTest.php'],
+            ['tests/Docs/DocsPresenceTest.php'],
+            ['tests/Docs/DeveloperDocsTest.php'],
+            ['tests/Integration/CharterSpecTest.php'],
         ];
     }
 
@@ -100,6 +109,11 @@ final class SuiteHealthTest extends TestCase
         $this->assertStringContainsString('PageCacheTest', $body);
         $this->assertStringContainsString('MailTest', $body);
         $this->assertStringContainsString('SmtpTest', $body);
+        $this->assertStringContainsString('TaxonomyTest', $body);
+        $this->assertStringContainsString('AdminTermsTest', $body);
+        $this->assertStringContainsString('AgoraThemeTest', $body);
+        $this->assertStringContainsString('EditorTest', $body);
+        $this->assertStringContainsString('CharterSpecTest', $body);
     }
 
     public function testComposerTestScriptPointsAtPhpunit(): void

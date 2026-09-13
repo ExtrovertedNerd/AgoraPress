@@ -220,6 +220,51 @@ final class AdminTermsTest extends TestCase
         $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
     }
 
+    public function testSetAsDefaultThenUncategorizedDeleteReassignsOrphans(): void
+    {
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+
+        $orphanId = AP_Post::insert([
+            'post_title' => 'Only uncategorized',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_author' => $this->actorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $orphanId);
+        AP_Taxonomy::setObjectTerms($orphanId, [$uncatId], 'category', false, $this->db);
+
+        $setNonce = ap_create_nonce('set-default-tag-' . $newsId, $this->actorId);
+        $set = AP_Admin_Terms::setDefault(
+            $newsId,
+            'category',
+            $this->actorId,
+            $setNonce,
+            $this->db
+        );
+        $this->assertTrue($set['ok']);
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+
+        $deleteNonce = ap_create_nonce('delete-tag-' . $uncatId, $this->actorId);
+        $deleted = AP_Admin_Terms::delete(
+            $uncatId,
+            'category',
+            $this->actorId,
+            $deleteNonce,
+            $this->db
+        );
+        $this->assertTrue($deleted['ok']);
+        $this->assertSame('term_deleted', $deleted['message_key']);
+        $this->assertNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+        $this->assertSame(
+            [$newsId],
+            AP_Taxonomy::getObjectTerms($orphanId, 'category', ['fields' => 'ids'], $this->db)
+        );
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+    }
+
     public function testSetAsDefaultRequiresNonce(): void
     {
         AP_Taxonomy::ensureDefaultCategory($this->db);

@@ -686,6 +686,41 @@ final class SettingsApiTest extends TestCase
         $this->assertSame('uncategorized', $term->slug);
     }
 
+    public function testWritingDefaultThenUncategorizedDeleteReassignsOrphans(): void
+    {
+        $this->bootTaxonomy();
+        $uncatId = AP_Taxonomy::ensureDefaultCategory($this->db);
+        $news = AP_Taxonomy::insertTerm('News', 'category', [], $this->db);
+        $this->assertIsArray($news);
+        $newsId = (int) $news['term_id'];
+
+        $orphanId = AP_Post::insert([
+            'post_title' => 'Only uncategorized',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_author' => 1,
+        ], $this->db);
+        $this->assertGreaterThan(0, $orphanId);
+        AP_Taxonomy::setObjectTerms($orphanId, [$uncatId], 'category', false, $this->db);
+
+        $ok = AP_Options::updateWritingSettings([
+            'default_category' => (string) $newsId,
+            'use_smilies' => '1',
+            'default_comment_status' => 'open',
+        ], $this->db);
+        $this->assertTrue($ok);
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+        $this->assertSame($newsId, (int) AP_Options::get('default_category', 0, $this->db));
+
+        $this->assertTrue(AP_Taxonomy::deleteTerm($uncatId, 'category', $this->db));
+        $this->assertNull(AP_Taxonomy::getTerm($uncatId, 'category', $this->db));
+        $this->assertSame(
+            [$newsId],
+            AP_Taxonomy::getObjectTerms($orphanId, 'category', ['fields' => 'ids'], $this->db)
+        );
+        $this->assertSame($newsId, AP_Taxonomy::getDefaultCategoryId($this->db));
+    }
+
     public function testInstallerSeedsDiscussionAndMediaOptions(): void
     {
         $src = (string) file_get_contents($this->root . '/ap-includes/class-ap-installer.php');

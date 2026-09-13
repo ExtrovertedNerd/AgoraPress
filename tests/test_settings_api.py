@@ -213,6 +213,7 @@ def test_writing_default_category_lists_real_terms() -> None:
     assert "testUpdateWritingSettingsZeroDoesNotClobberLivingDefault" in phpunit
     assert "testWritingLoadResolvesZeroAndPersistsLivingTermId" in phpunit
     assert "testWritingLoadResolvesDeadTermAndPersistsLivingTermId" in phpunit
+    assert "testWritingDefaultThenUncategorizedDeleteReassignsOrphans" in phpunit
 
 
 def test_reserved_usernames_option() -> None:

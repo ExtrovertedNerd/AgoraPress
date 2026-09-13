@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -490,4 +491,47 @@ def test_inherit_bleach_fixture_locks_chrome_foreground() -> None:
     assert "inherit" not in toolbar_lock
     assert "background: var(--ap-editor-chrome-bg, Canvas)" in toolbar
     assert "color: var(--ap-editor-chrome-fg, CanvasText)" in toolbar
+
+
+def test_contrast_phpunit_cases() -> None:
+    """Fixture + Agora scheme contrast stay locked in EditorTest / AgoraThemeTest."""
+    editor = PHPUNIT.read_text(encoding="utf-8")
+    for needle in (
+        "function testContrastFixtureWithoutAgoraStylesheet",
+        "function testCssInheritsColorSchemeAndPublishesEditorTokens",
+        "function testCssDarkChromeDoesNotDependOnlyOnAgoraOrApTokens",
+        "function testCssHonorsHtmlBodyColorSchemeAndKnownDarkHosts",
+        "editor-contrast-dark.html",
+        "Canvas",
+        "CanvasText",
+    ):
+        assert needle in editor, f"Expected {needle!r} in EditorTest.php"
+
+    agora = (ROOT / "tests" / "Theme" / "AgoraThemeTest.php").read_text(
+        encoding="utf-8"
+    )
+    assert "function testSixSchemesKeepEditorContrastWithoutAddons" in agora
+
+
+def test_phpunit_editor_suite_runs() -> None:
+    phpunit = ROOT / "vendor" / "bin" / "phpunit"
+    if not phpunit.is_file():
+        return
+    proc = subprocess.run(
+        [
+            _php_bin(),
+            str(phpunit),
+            "--configuration",
+            str(ROOT / "phpunit.xml.dist"),
+            "--colors=never",
+            str(PHPUNIT),
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stdout + "\n" + proc.stderr)
+    assert proc.returncode == 0, "EditorTest PHPUnit suite failed"
 
