@@ -1194,4 +1194,119 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringNotContainsString('ap-meta-categories', $html);
         $this->assertStringNotContainsString('ap-entry__footer', $html);
     }
+
+    public function testEntryFooterSkipsEmptyCategoryNames(): void
+    {
+        $named = $this->insertCategoryTerm('News Desk', 'news-desk-skip-empty');
+        $blank = $this->insertCategoryTerm('', 'blank-agora-category');
+        $spaces = $this->insertCategoryTerm('   ', 'whitespace-agora-category');
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Mixed Category Names',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Story body.',
+            'post_name' => 'mixed-category-names',
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+        AP_Taxonomy::setObjectTerms(
+            $postId,
+            [$named, $blank, $spaces],
+            'category',
+            false,
+            $this->db
+        );
+
+        $post = AP_Post::get($postId, $this->db);
+        $this->assertInstanceOf(AP_Post::class, $post);
+        $GLOBALS['ap_post'] = $post;
+
+        ob_start();
+        agora_the_entry_footer();
+        $footer = (string) ob_get_clean();
+        $this->assertStringContainsString('ap-entry__footer', $footer);
+        $this->assertStringContainsString('Posted in', $footer);
+        $this->assertStringContainsString('News Desk', $footer);
+        $this->assertStringNotContainsString(', ,', $footer);
+        $this->assertStringNotContainsString('?cat=' . $blank, $footer);
+        $this->assertStringNotContainsString('blank-agora-category', $footer);
+        $this->assertStringNotContainsString('whitespace-agora-category', $footer);
+
+        ob_start();
+        agora_the_entry_meta();
+        $meta = (string) ob_get_clean();
+        $this->assertStringContainsString('ap-meta-categories', $meta);
+        $this->assertStringContainsString('News Desk', $meta);
+        $this->assertStringNotContainsString(', ,', $meta);
+        $this->assertStringNotContainsString('?cat=' . $blank, $meta);
+    }
+
+    public function testEntryFooterOmitsPostedInWhenAllCategoryNamesEmpty(): void
+    {
+        $blank = $this->insertCategoryTerm('', 'agora-all-blank-category');
+        $spaces = $this->insertCategoryTerm(" \t ", 'agora-all-whitespace-category');
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Nameless Categories Story',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Story body for nameless terms.',
+            'post_name' => 'nameless-categories-story',
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+        AP_Taxonomy::setObjectTerms($postId, [$blank, $spaces], 'category', false, $this->db);
+
+        $post = AP_Post::get($postId, $this->db);
+        $this->assertInstanceOf(AP_Post::class, $post);
+        $GLOBALS['ap_post'] = $post;
+
+        ob_start();
+        agora_the_entry_footer();
+        $this->assertSame('', (string) ob_get_clean());
+
+        ob_start();
+        agora_the_entry_meta();
+        $meta = (string) ob_get_clean();
+        $this->assertStringNotContainsString('Posted in', $meta);
+        $this->assertStringNotContainsString('ap-meta-categories', $meta);
+        $this->assertStringNotContainsString(', ,', $meta);
+
+        $single = new AP_Query(['p' => $postId], $this->db);
+        $this->assertTrue($single->is_single);
+        ap_set_query($single);
+
+        ob_start();
+        AP_Theme::render($single, $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Nameless Categories Story', $html);
+        $this->assertStringNotContainsString('Posted in', $html);
+        $this->assertStringNotContainsString('ap-meta-categories', $html);
+        $this->assertStringNotContainsString('ap-entry__footer', $html);
+        $this->assertStringNotContainsString(', ,', $html);
+        $this->assertStringNotContainsString('agora-all-blank-category', $html);
+    }
+
+    private function insertCategoryTerm(string $name, string $slug): int
+    {
+        $n = $this->db->insert('terms', [
+            'name' => $name,
+            'slug' => $slug,
+            'term_group' => 0,
+        ]);
+        $this->assertSame(1, $n);
+        $termId = (int) $this->db->lastInsertId();
+        $this->assertGreaterThan(0, $termId);
+
+        $n = $this->db->insert('term_taxonomy', [
+            'term_id' => $termId,
+            'taxonomy' => 'category',
+            'description' => '',
+            'parent' => 0,
+            'count' => 0,
+        ]);
+        $this->assertSame(1, $n);
+
+        return $termId;
+    }
 }

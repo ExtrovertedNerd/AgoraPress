@@ -322,6 +322,9 @@ function ap_the_author_avatar(
 /**
  * Category terms assigned to a post (or the current loop post).
  *
+ * Terms whose name is empty after trim are omitted so display helpers
+ * do not print a "Posted in , ," line.
+ *
  * @return list<object>
  */
 function ap_get_the_category(AP_Post|int|null $post = null, ?AP_DB $db = null): array
@@ -385,8 +388,10 @@ function ap_get_the_category_link(object $term, ?AP_DB $db = null): string
 /**
  * HTML list of linked category names for a post (or the current loop post).
  *
- * Names are escaped. When $separator is empty, returns a `<ul>` list; otherwise
- * the links are joined with $separator.
+ * Names are escaped. Terms with an empty name are omitted. When no named
+ * terms remain, the result is empty so callers can omit the whole line.
+ * When $separator is empty, returns a `<ul>` list; otherwise the links are
+ * joined with $separator.
  */
 function ap_get_the_category_list(
     string $separator = ', ',
@@ -400,10 +405,11 @@ function ap_get_the_category_list(
 
     $items = [];
     foreach ($cats as $term) {
-        $name = ap_esc_html((string) ($term->name ?? ''));
+        $name = trim((string) ($term->name ?? ''));
         if ($name === '') {
             continue;
         }
+        $name = ap_esc_html($name);
         $url = ap_get_the_category_link($term, $db);
         if ($url !== '') {
             $items[] = '<a href="' . ap_esc_url($url) . '" rel="tag">' . $name . '</a>';

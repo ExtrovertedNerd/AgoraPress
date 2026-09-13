@@ -270,4 +270,87 @@ final class TemplateTagsTest extends TestCase
         $this->assertSame([], ap_get_the_category($pageId, $this->db));
         $this->assertSame('', ap_get_the_category_list(', ', $pageId, $this->db));
     }
+
+    public function testCategoryListSkipsEmptyNames(): void
+    {
+        $named = $this->insertCategoryTerm('News Desk', 'news-desk-empty-mix');
+        $blank = $this->insertCategoryTerm('', 'blank-category-name');
+        $spaces = $this->insertCategoryTerm('   ', 'whitespace-category-name');
+
+        $id = AP_Post::insert([
+            'post_title' => 'Mixed Names',
+            'post_content' => 'Body',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $this->assertGreaterThan(0, $id);
+        AP_Taxonomy::setObjectTerms(
+            $id,
+            [$named, $blank, $spaces],
+            'category',
+            false,
+            $this->db
+        );
+
+        $terms = ap_get_the_category($id, $this->db);
+        $this->assertCount(1, $terms);
+        $this->assertSame('News Desk', (string) ($terms[0]->name ?? ''));
+
+        $html = ap_get_the_category_list(', ', $id, $this->db);
+        $this->assertStringContainsString('News Desk', $html);
+        $this->assertStringContainsString('rel="tag"', $html);
+        $this->assertStringNotContainsString(', ,', $html);
+        $this->assertStringNotContainsString('?cat=' . $blank, $html);
+        $this->assertStringNotContainsString('?cat=' . $spaces, $html);
+        $this->assertStringNotContainsString('blank-category-name', $html);
+        $this->assertStringNotContainsString('whitespace-category-name', $html);
+
+        $ul = ap_get_the_category_list('', $id, $this->db);
+        $this->assertStringContainsString('<ul class="ap-post-categories">', $ul);
+        $this->assertStringContainsString('News Desk', $ul);
+        $this->assertStringNotContainsString('<li></li>', $ul);
+        $this->assertStringNotContainsString('rel="tag"></a>', $ul);
+    }
+
+    public function testCategoryListIsEmptyWhenAllNamesAreEmpty(): void
+    {
+        $blank = $this->insertCategoryTerm('', 'all-blank-category');
+        $spaces = $this->insertCategoryTerm(" \t ", 'all-whitespace-category');
+
+        $id = AP_Post::insert([
+            'post_title' => 'Nameless Cats',
+            'post_content' => 'Body',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $this->assertGreaterThan(0, $id);
+        AP_Taxonomy::setObjectTerms($id, [$blank, $spaces], 'category', false, $this->db);
+
+        $this->assertSame([], ap_get_the_category($id, $this->db));
+        $this->assertSame('', ap_get_the_category_list(', ', $id, $this->db));
+        $this->assertSame('', ap_get_the_category_list('', $id, $this->db));
+    }
+
+    private function insertCategoryTerm(string $name, string $slug): int
+    {
+        $n = $this->db->insert('terms', [
+            'name' => $name,
+            'slug' => $slug,
+            'term_group' => 0,
+        ]);
+        $this->assertSame(1, $n);
+        $termId = (int) $this->db->lastInsertId();
+        $this->assertGreaterThan(0, $termId);
+
+        $n = $this->db->insert('term_taxonomy', [
+            'term_id' => $termId,
+            'taxonomy' => 'category',
+            'description' => '',
+            'parent' => 0,
+            'count' => 0,
+        ]);
+        $this->assertSame(1, $n);
+
+        return $termId;
+    }
 }

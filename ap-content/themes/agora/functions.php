@@ -715,7 +715,9 @@ function agora_the_posts_pagination(?AP_Query $query = null): void
 }
 
 /**
- * Linked category names for the current post, or empty when none are assigned.
+ * Linked category names for the current post, or empty when none remain.
+ *
+ * Empty-name terms are skipped by ap_get_the_category_list().
  */
 function agora_get_the_category_list(): string
 {
@@ -728,6 +730,8 @@ function agora_get_the_category_list(): string
 
 /**
  * Print entry meta (author, date, and categories) for the current post.
+ *
+ * The "Posted in" category span is omitted when no named categories remain.
  */
 function agora_the_entry_meta(): void
 {
@@ -759,6 +763,8 @@ function agora_the_entry_meta(): void
 
 /**
  * Print a post-footer "Posted in" category list (single posts).
+ *
+ * Omits the footer when no named categories remain.
  */
 function agora_the_entry_footer(): void
 {
