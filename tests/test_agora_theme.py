@@ -209,6 +209,25 @@ def test_entry_helpers_omit_posted_in_when_no_named_categories() -> None:
     assert "Posted in , ," not in src
 
 
+def test_empty_name_category_html_phpunit_cases() -> None:
+    """Empty-name terms are absent from HTML; all-empty omits the Posted-in wrapper."""
+    src = (ROOT / "tests" / "Theme" / "AgoraThemeTest.php").read_text(encoding="utf-8")
+    for needle in (
+        "function testEntryFooterSkipsEmptyCategoryNames",
+        "function testRenderedHtmlOmitsEmptyNameCategoryTerms",
+        "function testEntryFooterOmitsPostedInWhenAllCategoryNamesEmpty",
+        "blank-agora-category",
+        "whitespace-agora-category",
+        "blank-html-omit",
+        "agora-all-blank-category",
+        "ap-entry__footer",
+        "ap-meta-categories",
+        "Posted in",
+        ", ,",
+    ):
+        assert needle in src, f"Expected {needle!r} in AgoraThemeTest.php"
+
+
 def test_header_applies_body_class_and_a11y() -> None:
     src = HEADER.read_text(encoding="utf-8")
     assert "agora_body_class" in src

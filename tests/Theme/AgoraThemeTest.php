@@ -1241,6 +1241,68 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringNotContainsString('?cat=' . $blank, $meta);
     }
 
+    public function testRenderedHtmlOmitsEmptyNameCategoryTerms(): void
+    {
+        $named = $this->insertCategoryTerm('News Desk', 'news-desk-html-omit');
+        $blank = $this->insertCategoryTerm('', 'blank-html-omit');
+        $spaces = $this->insertCategoryTerm('   ', 'whitespace-html-omit');
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Mixed Names HTML Story',
+            'post_type' => 'post',
+            'post_status' => 'publish',
+            'post_content' => 'Story body for mixed empty-name HTML.',
+            'post_name' => 'mixed-names-html-story',
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+        AP_Taxonomy::setObjectTerms(
+            $postId,
+            [$named, $blank, $spaces],
+            'category',
+            false,
+            $this->db
+        );
+
+        $list = new AP_Query([
+            'post_type' => 'post',
+            'posts_per_page' => 5,
+        ], $this->db);
+        ap_set_query($list);
+
+        ob_start();
+        AP_Theme::render($list, $this->db);
+        $listHtml = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Mixed Names HTML Story', $listHtml);
+        $this->assertStringContainsString('News Desk', $listHtml);
+        $this->assertStringContainsString('ap-meta-categories', $listHtml);
+        $this->assertStringContainsString('Posted in', $listHtml);
+        $this->assertStringNotContainsString(', ,', $listHtml);
+        $this->assertStringNotContainsString('?cat=' . $blank, $listHtml);
+        $this->assertStringNotContainsString('?cat=' . $spaces, $listHtml);
+        $this->assertStringNotContainsString('blank-html-omit', $listHtml);
+        $this->assertStringNotContainsString('whitespace-html-omit', $listHtml);
+
+        $single = new AP_Query(['p' => $postId], $this->db);
+        $this->assertTrue($single->is_single);
+        ap_set_query($single);
+
+        ob_start();
+        AP_Theme::render($single, $this->db);
+        $singleHtml = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Mixed Names HTML Story', $singleHtml);
+        $this->assertStringContainsString('News Desk', $singleHtml);
+        $this->assertStringContainsString('ap-meta-categories', $singleHtml);
+        $this->assertStringContainsString('ap-entry__footer', $singleHtml);
+        $this->assertStringContainsString('Posted in', $singleHtml);
+        $this->assertStringNotContainsString(', ,', $singleHtml);
+        $this->assertStringNotContainsString('?cat=' . $blank, $singleHtml);
+        $this->assertStringNotContainsString('?cat=' . $spaces, $singleHtml);
+        $this->assertStringNotContainsString('blank-html-omit', $singleHtml);
+        $this->assertStringNotContainsString('whitespace-html-omit', $singleHtml);
+    }
+
     public function testEntryFooterOmitsPostedInWhenAllCategoryNamesEmpty(): void
     {
         $blank = $this->insertCategoryTerm('', 'agora-all-blank-category');

@@ -243,3 +243,18 @@ echo ($ok && $called) ? "OK\\n" : "FAIL\\n";
     )
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == "OK"
+
+
+def test_empty_name_category_shim_phpunit_cases() -> None:
+    """Empty-name terms are absent from shim HTML; all-empty omits Posted-in."""
+    src = (ROOT / "tests" / "Theme" / "ThemeCompatTest.php").read_text(encoding="utf-8")
+    for needle in (
+        "function testCategoryListShimOmitsPostedInWhenNamesEmpty",
+        "function testCategoryListShimOmitsEmptyNameTermsFromHtml",
+        "compat-blank-category",
+        "compat-named-category",
+        "compat-blank-mixed",
+        "Posted in",
+        ", ,",
+    ):
+        assert needle in src, f"Expected {needle!r} in ThemeCompatTest.php"

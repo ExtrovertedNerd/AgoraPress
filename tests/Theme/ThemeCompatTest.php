@@ -440,6 +440,48 @@ final class ThemeCompatTest extends TestCase
         $this->assertStringNotContainsString('Posted in', $html);
     }
 
+    public function testCategoryListShimOmitsEmptyNameTermsFromHtml(): void
+    {
+        AP_Theme_Compat::ensureLoaded(true, $this->db);
+        AP_Taxonomy::ensureBuiltins();
+
+        $named = $this->insertCategoryTerm('News Desk', 'compat-named-category');
+        $blank = $this->insertCategoryTerm('', 'compat-blank-mixed');
+        $spaces = $this->insertCategoryTerm('   ', 'compat-whitespace-mixed');
+
+        $id = AP_Post::insert([
+            'post_title' => 'Mixed Compat Cats',
+            'post_content' => 'Body',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $this->assertGreaterThan(0, $id);
+        AP_Taxonomy::setObjectTerms(
+            $id,
+            [$named, $blank, $spaces],
+            'category',
+            false,
+            $this->db
+        );
+
+        $post = AP_Post::get($id, $this->db);
+        $this->assertInstanceOf(AP_Post::class, $post);
+        $GLOBALS['ap_post'] = $post;
+
+        $list = get_the_category_list(', ');
+        $this->assertStringContainsString('News Desk', $list);
+        $this->assertStringNotContainsString(', ,', $list);
+        $this->assertStringNotContainsString('compat-blank-mixed', $list);
+        $this->assertStringNotContainsString('compat-whitespace-mixed', $list);
+        $this->assertStringNotContainsString('?cat=' . $blank, $list);
+        $this->assertStringNotContainsString('?cat=' . $spaces, $list);
+
+        $html = $list !== '' ? 'Posted in ' . $list : '';
+        $this->assertStringContainsString('Posted in', $html);
+        $this->assertStringContainsString('News Desk', $html);
+        $this->assertStringNotContainsString(', ,', $html);
+    }
+
     public function testWpMailRoutesThroughApMail(): void
     {
         AP_Theme_Compat::ensureLoaded(true, $this->db);

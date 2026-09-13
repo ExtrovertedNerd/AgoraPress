@@ -62,6 +62,7 @@ def test_template_tags_api() -> None:
         "function ap_get_the_category_list",
         "function ap_the_category",
         "callers can omit the whole line.",
+        "Terms with an empty name are omitted.",
         "function ap_get_bloginfo",
         "function ap_get_body_class",
         "function ap_body_class",
@@ -221,6 +222,22 @@ def test_structure_assert_includes_new_paths() -> None:
         "front-page.php",
     ):
         assert needle in src, f"Expected {needle!r} in assert-structure.php"
+
+
+def test_empty_name_category_list_phpunit_cases() -> None:
+    """Empty-name terms are absent from HTML; all-empty lists are blank."""
+    src = (ROOT / "tests" / "Template" / "TemplateTagsTest.php").read_text(
+        encoding="utf-8"
+    )
+    for needle in (
+        "function testCategoryListSkipsEmptyNames",
+        "function testCategoryListIsEmptyWhenAllNamesAreEmpty",
+        "blank-category-name",
+        "whitespace-category-name",
+        "all-blank-category",
+        ", ,",
+    ):
+        assert needle in src, f"Expected {needle!r} in TemplateTagsTest.php"
 
 
 def test_phpunit_new_suites_pass() -> None:
