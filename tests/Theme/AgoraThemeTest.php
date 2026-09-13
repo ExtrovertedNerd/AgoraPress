@@ -1505,9 +1505,9 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('skip-link', $css);
         $this->assertMatchesRegularExpression('/@media\s*\(\s*max-width:/', $css);
         // Theme stylesheet version must stay in lockstep with AGORA_THEME_VERSION.
-        $this->assertStringContainsString('Version: 0.3.9', $css);
+        $this->assertStringContainsString('Version: 0.3.10', $css);
         $functions = (string) file_get_contents($this->root . '/ap-content/themes/agora/functions.php');
-        $this->assertStringContainsString("AGORA_THEME_VERSION = '0.3.9'", $functions);
+        $this->assertStringContainsString("AGORA_THEME_VERSION = '0.3.10'", $functions);
         // Desktop shell: blog, wide, and forum pages share one max width.
         $this->assertStringContainsString('--ap-max-wide: var(--ap-max)', $css);
         $this->assertStringContainsString('--ap-max-forum: var(--ap-max)', $css);

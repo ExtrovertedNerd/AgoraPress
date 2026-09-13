@@ -1,7 +1,7 @@
 # REST API (`/ap-json/`)
 
 This is the **operator and integrator guide** for AgoraPress’s lightweight
-JSON REST API at **`0.3.8-beta`** (schema `AP_DB_VERSION` **12**). It
+JSON REST API at **`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). It
 describes the public prefix, the `ap/v1` resources **as built**, cookie +
 `X-AP-Nonce` or HTTP Basic authentication, and the master switch
 `rest_api_enabled`.

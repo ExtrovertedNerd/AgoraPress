@@ -3,7 +3,7 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.8-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.9-beta**).
 
 ## [Unreleased]
 

@@ -2,7 +2,7 @@
 
 This is the **operator and integrator guide** for AgoraPress roles,
 capabilities, blog-comment ownership, and the relationship to forum ACL at
-**`0.3.8-beta`** (schema `AP_DB_VERSION` **12**). It describes the system
+**`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). It describes the system
 **as built**. Do not invent extra core roles, caps, filters, CLI verbs, or
 admin screens.
 

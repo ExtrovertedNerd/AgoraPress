@@ -1,6 +1,6 @@
 # Classic WordPress Theme Compatibility Layer
 
-This is the **classic WordPress theme shim** guide for AgoraPress **`0.3.8-beta`** (schema `AP_DB_VERSION` **12**). High-priority differentiator: many **pre-block classic PHP themes** can be uploaded and run on AgoraPress with minimal changes.
+This is the **classic WordPress theme shim** guide for AgoraPress **`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). High-priority differentiator: many **pre-block classic PHP themes** can be uploaded and run on AgoraPress with minimal changes.
 
 Block / FSE themes (`theme.json`, HTML files under `templates/`) are **out of scope** and **not in core**. A broken-looking compat theme is usually this limit — [troubleshooting.md](troubleshooting.md). Zip upload: [admin.md](admin.md) / [themes.md](themes.md).
 

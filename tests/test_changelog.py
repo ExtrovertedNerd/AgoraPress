@@ -209,14 +209,14 @@ def test_038_beta_documents_absolute_mail_links(changelog_text: str) -> None:
     assert "verification" in lower and "reset" in lower
 
 
-def test_current_ap_version_is_038_beta() -> None:
+def test_current_ap_version_is_039_beta() -> None:
     version_php = VERSION_PHP.read_text(encoding="utf-8")
     match = re.search(
         r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
         version_php,
     )
     assert match, "ap-includes/version.php should define AP_VERSION"
-    assert match.group(1) == "0.3.8-beta", (
-        "AP_VERSION must be 0.3.8-beta for this release "
+    assert match.group(1) == "0.3.9-beta", (
+        "AP_VERSION must be 0.3.9-beta for this release "
         f"(found {match.group(1)})"
     )

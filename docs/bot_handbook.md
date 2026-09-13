@@ -2,7 +2,7 @@
 
 How a trusted scripted agent (Grok Bot) that can **only** read this **public**
 repository supports AgoraPress. This is the operating model for *this*
-product at `AP_VERSION` **0.3.8-beta** · schema `AP_DB_VERSION` **12**.
+product at `AP_VERSION` **0.3.9-beta** · schema `AP_DB_VERSION` **12**.
 
 It is **not** a copy of the Heph Agent API / Control Panel contract. Filing
 mechanics live in Heph’s own docs (short pointer below). Product facts live
@@ -37,7 +37,7 @@ Do this every time. Do not skip the index.
 4. Confirm behaviour against shipped PHP in **this** repository. Reading
    code is allowed and expected. Inventing hook names, routes, CLI verbs,
    options, capabilities, tables, or admin screens is not.
-5. Describe the system **as built** at 0.3.8-beta / schema 12. Do **not
+5. Describe the system **as built** at 0.3.9-beta / schema 12. Do **not
    invent** product surfaces so an answer looks complete.
 6. If a surface is not in these guides and not in the shipped code, say it
    is **not in core**.
@@ -143,7 +143,7 @@ remote log collector, or host-specific repair flow.
 
 Order of work:
 
-1. Confirm the site is **0.3.8-beta** / schema **12** when the question is
+1. Confirm the site is **0.3.9-beta** / schema **12** when the question is
    about current behaviour (`php ap-cli version`, Tools → Site Health).
 2. Run **Tools → Site Health** (`/ap-admin/site-health.php`, cap
    `view_site_health`; `manage_options` is accepted as a fallback) or

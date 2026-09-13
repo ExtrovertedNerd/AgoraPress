@@ -39,7 +39,7 @@ const AGORA_COLOR_SCHEME_COOKIE = 'agora_scheme';
 const AGORA_COLOR_SCHEME_COOKIE_TTL = 2592000;
 
 /** Stylesheet version (fallback when style.css header is unavailable). */
-const AGORA_THEME_VERSION = '0.3.9';
+const AGORA_THEME_VERSION = '0.3.10';
 
 /**
  * Register theme chrome: nav locations + modular sidebars (idempotent).

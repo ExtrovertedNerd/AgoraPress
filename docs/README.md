@@ -1,7 +1,7 @@
 # AgoraPress documentation index
 
 This directory is the **operator, integrator, and trusted-agent documentation**
-for AgoraPress **`0.3.8-beta`** (schema `AP_DB_VERSION` **12**). Start here if
+for AgoraPress **`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). Start here if
 you need exhaustive instructions, then follow the topic guides for depth.
 
 The human landing page (vision, requirements, four install paths) remains
@@ -133,7 +133,7 @@ guides and the lookup catalog. Do **not** invent product surfaces.
 | Install / rewrites / CLI / admin / forums / REST / roles / security | The day-to-day table above |
 | File a Heph bug against registry name **AgoraPress** | [bot_handbook.md](bot_handbook.md) (short pointer to Heph Agent API — do not duplicate that contract here) |
 
-Describe the system **as built** at 0.3.8-beta / schema 12. Missing from these
+Describe the system **as built** at 0.3.9-beta / schema 12. Missing from these
 guides and from core means **not in core**. Stay inside the public-safe rule
 above.
 

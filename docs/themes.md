@@ -1,6 +1,6 @@
 # Theme hierarchy & theme API
 
-This is the **theme integrator guide** for AgoraPress **`0.3.8-beta`** (schema `AP_DB_VERSION` **12**). It describes the native template hierarchy, default **Agora** theme, assets, Theme Options, and the ACP zip installer **as built**.
+This is the **theme integrator guide** for AgoraPress **`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). It describes the native template hierarchy, default **Agora** theme, assets, Theme Options, and the ACP zip installer **as built**.
 
 AgoraPress themes are **pure PHP templates** with a classic WordPress-inspired hierarchy. Block / Full Site Editing themes (`theme.json`, HTML block templates) are **out of scope** for the native loader (see [compatibility](compatibility.md)) — they are **not in core**. Operator screens: [admin.md](admin.md). Activate from the shell: [cli.md](cli.md). Forum templates: [forums.md](forums.md).
 
@@ -218,7 +218,7 @@ Admin: Appearance → Menus, Appearance → Widgets ([admin.md](admin.md)).
 
 ## Default theme: Agora
 
-Current stylesheet version: **0.3.9** (`AGORA_THEME_VERSION` / `style.css` header). Board index uses stable phpBB-parity hooks (`.ap-forum-cat-header`, `.ap-forum-row--{unread|read|neutral|locked}`, `.ap-forum-icon--{type}`, three-line `.ap-forum-last-post__*`) styled only in theme CSS — not core — so custom themes can restyle freely. Topic view adds `.ap-forum-first-unread` / `.ap-forum-first-unread-wrap` for the SPEC B1 jump link.
+Current stylesheet version: **0.3.10** (`AGORA_THEME_VERSION` / `style.css` header). Board index uses stable phpBB-parity hooks (`.ap-forum-cat-header`, `.ap-forum-row--{unread|read|neutral|locked}`, `.ap-forum-icon--{type}`, three-line `.ap-forum-last-post__*`) styled only in theme CSS — not core — so custom themes can restyle freely. Topic view adds `.ap-forum-first-unread` / `.ap-forum-first-unread-wrap` for the SPEC B1 jump link.
 
 **Source:** `ap-content/themes/agora/functions.php`, `header.php`, `style.css`, `ap-admin/theme-options.php`. Editor chrome: `ap-includes/css/ap-editor.css` ([editor.md](editor.md)).
 
