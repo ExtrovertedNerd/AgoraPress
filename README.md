@@ -354,7 +354,7 @@ guides:
 | [docs/hooks.md](docs/hooks.md) | Actions, filters, lifecycle |
 | [docs/themes.md](docs/themes.md) | Template hierarchy, Agora theme, assets |
 | [docs/plugins.md](docs/plugins.md) | Plugin headers, shortcodes, settings, ACP pages |
-| [docs/editor.md](docs/editor.md) | Visual editor contract (no blocks in core) |
+| [docs/editor.md](docs/editor.md) | Visual editor contract, dark `color-scheme` chrome (no blocks in core) |
 | [docs/site-icon.md](docs/site-icon.md) | Site icon / favicon pack (admin, sizes, head tags) |
 | [docs/compatibility.md](docs/compatibility.md) | Classic WordPress Theme Compatibility Layer |
 | [docs/schema.md](docs/schema.md) | Tables, migrations, multi-driver notes |

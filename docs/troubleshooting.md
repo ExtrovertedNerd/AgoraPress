@@ -18,10 +18,14 @@ the shipped code, say it is **not in core**.
 `ap-includes/class-ap-smtp.php`, `ap-includes/class-ap-registration.php`,
 `ap-includes/class-ap-forum.php`, `ap-includes/class-ap-forum-front.php`,
 `ap-includes/class-ap-forum-permissions.php`, `ap-includes/class-ap-group.php`,
+`ap-includes/class-ap-taxonomy.php`, `ap-includes/class-ap-editor.php`,
+`ap-includes/css/ap-editor.css`,
 `ap-includes/functions.php` (`ap_handle_comment_form_post`),
 `ap-admin/user-edit.php`, `ap-admin/admin-header.php`,
 `ap-admin/login.php`, `ap-admin/options-mail.php`,
 `ap-admin/options-modules.php`, `ap-admin/options-permalink.php`,
+`ap-admin/options-writing.php`, `ap-admin/edit-tags.php`,
+`ap-admin/includes/class-ap-admin-terms.php`,
 `ap-admin/forum-edit.php`, `ap-admin/forum-groups.php`,
 `ap-admin/site-health.php`, `ap-includes/compatibility/`,
 [`.htaccess`](../.htaccess),
@@ -30,7 +34,8 @@ the shipped code, say it is **not in core**.
 
 Generic examples only (`example.com`, `localhost`, `admin@example.com`,
 `noreply@example.com`, `smtp.example.com`, `/var/www/agorapress`).
-Document **mechanisms**, not a private install.
+Document **mechanisms**, not a private install. Do not name private hosts,
+persona mailboxes, or live fleet inventory.
 
 ---
 
@@ -70,6 +75,8 @@ host configuration.
 | Login rejected / “too many attempts” / “verify your email” | Rate limit (`rate_limited`) or `require_email_verification` — not a broken `session.save_path` | [Login fails](#login-fails), [security.md](security.md), [roles.md](roles.md) |
 | Verification mail never arrives (reset / test too) | SMTP (or PHP `mail()`) on **Settings → Mail**; check the **spam** folder (new sending server); Site Health `mail_last_error` | [Mail not arriving](#mail-not-arriving) |
 | Admin screens look “old schema” after a zip/rsync, or Update Core is greyed | `php ap-cli db check` then `php ap-cli db migrate`. Pre-flight: `version_check_enabled`, ZipArchive, writable root | [updates.md](updates.md) |
+| Cannot delete Uncategorized | It is the **current default** (or the last remaining category). Set another category as default first | [Cannot delete Uncategorized](#cannot-delete-uncategorized), [admin.md](admin.md#default-post-category) |
+| Editor toolbar invisible on a dark theme | Page `color-scheme: dark` + core `--ap-editor-*` / system colors (`Canvas` / `CanvasText`). Not Agora-only CSS | [Editor toolbar invisible on a dark theme](#editor-toolbar-invisible-on-a-dark-theme), [editor.md](editor.md#contrast-contract) |
 
 Each row is expanded below.
 
@@ -492,6 +499,101 @@ room), and REST. Depth: [forums.md](forums.md#this-group-only-group_only),
 
 ---
 
+## Cannot delete Uncategorized
+
+**Symptom:** Posts → Categories (`edit-tags.php?taxonomy=category`) will
+not delete **Uncategorized**. The row has no **Delete** link (and no bulk
+checkbox), or a direct/bulk delete returns **“This is the default
+category. Set another category as default first.”** (`message`
+`default_category_delete_blocked`) — not “Could not delete the term.”
+
+**Cause:** Uncategorized (slug `uncategorized`) is a **seed**, not an
+immortal slug. Option `default_category` stores a **living category term
+id**. There is **no** magic `0`. You cannot delete the **current
+default**. You cannot delete the **last remaining** category either
+(even if `default_category` points at a missing id). Fresh installs seed
+Uncategorized as that default, so the first delete attempt is blocked
+until another category is the default.
+
+This is **not** a rewrite 404, **not** the Blog module being off, and
+**not** a permissions miss when you can already open the Categories
+screen (`manage_categories`).
+
+Split the “cannot delete” **kind** before filing a bug:
+
+| What you see | Meaning | Check |
+|--------------|---------|--------|
+| **— Default** badge; no checkbox / **Delete**; copy “This is the default category. Set another category as default first.” plus a link to Settings → Writing | This row **is** `default_category` | Promote another category, then delete Uncategorized |
+| Same copy after a row-URL or bulk delete (`default_category_delete_blocked`) | Direct delete of the current default is refused with that honest message | Same fix. Not the generic “Something went wrong. Please try again.” |
+| **Delete** still shown on a last-remaining category that is **not** the stored default, then a generic `error` notice | `AP_Taxonomy::deleteTerm()` refuses a zero-category site. The list hides **Delete** only on the current default | Add another category first. There is **no** dedicated last-remaining notice |
+| Uncategorized **can** be deleted after **Set as default** (or Writing) points at another living category | Expected. Orphan posts reassign to the **new** default | Native `confirm()` when that term has posts: “N posts will move to {default name}.” |
+| Visiting Categories after Settings → Writing still blocks Uncategorized | You are not on current core, or the stored id never changed | `ensureDefaultCategory()` does **not** clobber a living custom default. Confirm `php ap-cli option get default_category` is the other term’s id |
+
+**Change the default first:**
+
+1. Create a second category if you only have Uncategorized.
+2. On the other row, use **Set as default** (GET `action=set-default` +
+   `tag_ID`, nonce `set-default-tag-{id}`, cap `manage_categories`).
+   Success: “Default category updated.” (`message` `default_category_set`).
+   The previous default (often Uncategorized) stays in the list and
+   becomes deletable.
+3. Or pick that category under **Settings → Writing** → Default Post
+   Category (`options-writing.php`). The dropdown lists **living**
+   categories only. There is **no** `<option value="0">` and **no**
+   “— Uncategorized / site default —” sentinel.
+4. Then delete Uncategorized. Rename in place was always allowed.
+
+Tags (`taxonomy=post_tag`) have none of this chrome. There is **no**
+`php ap-cli taxonomy` / `category` verb; use the screens or
+`php ap-cli option get default_category`. Depth:
+[admin.md](admin.md#default-post-category).
+
+---
+
+## Editor toolbar invisible on a dark theme
+
+**Symptom:** the classic visual editor (`AP_Editor`) on a **dark**
+front-end (blog comment, forum compose, or any other `ap_editor()`
+surface) shows a **light toolbar** with **light letter labels** (`B`,
+`I`, `Link`) — white-on-white / invisible chrome. The **emoji** button
+often stays visible because it is a Unicode glyph, not an icon font.
+
+**Cause:** a custom dark theme styled `<input>` / `<textarea>` (and maybe
+page text) but left `.ap-editor__toolbar` / `.ap-editor__btn` on light
+chrome, **or** a theme `button { color: inherit }` bleached those letter
+labels onto a light bar. Core does **not** require the active theme to
+be Agora or to define `--ap-*` tokens.
+
+The shipped contract is `ap-includes/css/ap-editor.css`:
+
+| Contract | As built |
+|----------|----------|
+| Inherit | `.ap-editor` (toolbar, surface, textarea) sets `color-scheme: inherit`. |
+| Dark hosts | Honors `color-scheme: dark` on `html` / `body`, `html.agora-mode-dark` / `body.agora-mode-dark`, and `[data-ap-color-mode=dark]` (ACP sets this on `<html>`). Dark chrome does **not** depend only on Agora classes or `--ap-*` tokens. |
+| Pairing | Toolbar: `Canvas` / `CanvasText` (via `--ap-editor-bg` / `--ap-editor-fg` when set). Surface + textarea: `Field` / `FieldText` (via `--ap-editor-surface` / `--ap-editor-fg`). |
+| Buttons | `currentColor` on a transparent background. Isolation stops `button { color: inherit }` from bleaching labels. |
+| Optional tokens | `--ap-editor-bg`, `--ap-editor-fg`, `--ap-editor-surface`, `--ap-editor-border`, `--ap-on-accent`. Themes **may** gold-plate these. They are **not** required when the page sets `color-scheme: dark` and uses light text. |
+
+Split the “invisible toolbar” **kind** before patching core:
+
+| What you see | Meaning | Check |
+|--------------|---------|--------|
+| Agora **obsidian** / **midnight** / **charcoal** | Scheme CSS already maps `--ap-editor-*`. Should be readable | Confirm the body class is `agora-scheme-{slug}` + `agora-mode-dark`. Visitor preview (`?agora_scheme=` / cookie) only applies when Theme Option `agora_visitor_color_preview` is on — [themes.md](themes.md#visitor-color-scheme-preview) |
+| Custom dark theme **with** `color-scheme: dark` on `html` or `body` and light text | Core contract applies **without** Agora’s stylesheet | Optional `--ap-editor-*` gold-plate only. [editor.md](editor.md#contrast-contract) |
+| Custom dark theme **without** `color-scheme: dark` (light `Canvas`, light labels) | System colors stay light. Tokens are not a substitute for `color-scheme` | Set `color-scheme: dark` on `html` or `body` and use light text. Checklist: [themes.md](themes.md#checklist-for-a-new-theme) |
+| Only the emoji button is visible; `B` / `I` / `Link` vanished | Theme `button { color: inherit }` on a still-light toolbar, or missing `color-scheme` | Core isolation covers the inherit trap when chrome is dark. If the **page** is still light-scheme, fix the theme `color-scheme` |
+| ACP compose looks wrong under a dark OS theme while the front-end is fine | ACP `admin.css` dark-mode is a **separate** surface | **Not in core** this pass. Do not invent admin chrome in `ap-editor.css` |
+
+If a named custom theme is still unusable after `color-scheme: dark` +
+light text, that is a **follow-on theme CSS** pass. Do **not** add
+site-specific editor CSS to core. There is **no** per-theme toolbar
+patch, **no** third-party icon font, and **no** Gutenberg fallback.
+
+Depth: [editor.md](editor.md#contrast-contract),
+[themes.md](themes.md#editor-contrast).
+
+---
+
 ## Update Core / pending schema
 
 **Symptom:** ACP looks like an older schema after a zip extract, git pull,
@@ -543,7 +645,11 @@ Do not invent these while diagnosing:
 - PHPMailer, HTML mail, newsletters, or comment-subscription mail
 - A public group Join button on default Agora (Forums → Groups is the roster)
 - Forum ACL applied to blog posts or static pages
-- Host-specific pool names, private vhosts, or live fleet inventory
+- An immortal Uncategorized slug (once another category is the default, Uncategorized can be deleted)
+- A magic `value="0"` Default Post Category option (“— Uncategorized / site default —”)
+- Per-theme `AP_Editor` CSS in core, or named custom-skin toolbar patches
+- An ACP `admin.css` dark-mode overhaul (separate surface from the editor contract)
+- Private hosts, persona mailboxes, host-specific pool names, or live fleet inventory
 
 If the surface is missing from these guides and from the shipped tree, it
 is **not in core**.
@@ -559,7 +665,8 @@ is **not in core**.
 | [rewrites.md](rewrites.md) | Front controller, `try_files`, `?p=` vs pretty |
 | [updates.md](updates.md) | `version.json`, Update Core, `db migrate` |
 | [cli.md](cli.md) | Built-in `ap-cli` groups, flags, exit codes |
-| [admin.md](admin.md) | `/ap-admin/` screens including Site Health |
+| [admin.md](admin.md) | `/ap-admin/` screens including Site Health and default category |
+| [editor.md](editor.md) | Visual editor contrast (`color-scheme`, `--ap-editor-*`) |
 | [forums.md](forums.md) | Forum module, **This group only**, listing hygiene |
 | [roles.md](roles.md) | Caps, comment ownership |
 | [rest.md](rest.md) | `/ap-json/`, `ap/v1`, `rest_api_enabled` |

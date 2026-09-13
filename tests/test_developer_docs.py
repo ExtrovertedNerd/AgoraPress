@@ -426,6 +426,7 @@ def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> Non
         r"(?im)^##\s+REST resources",
         r"(?im)^##\s+Admin screens",
         r"(?im)^##\s+Default Agora schemes\s*$",
+        r"(?im)^##\s+Visual editor\s*$",
         r"(?im)^##\s+Install and updates\s*$",
         r"(?im)^##\s+Rewrites\s*$",
         r"(?im)^##\s+Hooks\s*$",
@@ -603,6 +604,70 @@ def test_catalog_covers_mail_register_gate_and_group_only(docs_root: Path) -> No
         assert needle in text, f"docs/features_and_functions.md missing: {needle}"
 
 
+def test_catalog_covers_default_category_preview_and_editor(docs_root: Path) -> None:
+    """SPEC: catalog rows for default category, visitor preview, editor tokens."""
+    text = (docs_root / "features_and_functions.md").read_text(encoding="utf-8")
+    for needle in (
+        "agora_visitor_color_preview",
+        "Allow visitors to preview color schemes",
+        "?agora_scheme=",
+        "SameSite=Lax",
+        "agora-scheme-preview",
+        "site-header__inner",
+        "agora_get_color_scheme",
+        "agora_get_stored_color_scheme",
+        "agora_filter_color_scheme",
+        "hostname special case",
+        "Set as default",
+        "This is the default category. Set another category as default first.",
+        "ensureDefaultCategory",
+        "sanitizeDefaultCategory",
+        "action=set-default",
+        "set-default-tag-",
+        '<option value="0">',
+        "ap_get_the_category_list",
+        "Posted in , ,",
+        "living category term id",
+        "AP_Editor",
+        "--ap-editor-bg",
+        "--ap-editor-fg",
+        "--ap-editor-surface",
+        "--ap-editor-border",
+        "--ap-on-accent",
+        "color-scheme: inherit",
+        "color-scheme: dark",
+        "Canvas",
+        "CanvasText",
+        "Field",
+        "FieldText",
+        "button { color: inherit }",
+        "data-ap-color-mode",
+        "ap-includes/css/ap-editor.css",
+        "agora-mode-dark",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+        "example.com",
+    ):
+        assert needle in text, f"docs/features_and_functions.md missing: {needle}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, (
+            f"docs/features_and_functions.md must not contain private marker: {banned}"
+        )
+
+
 def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
     assert "0.3.8-beta" in index
@@ -661,6 +726,51 @@ def test_editor_doc_content(docs_root: Path) -> None:
         assert phrase in text, f"editor.md missing: {phrase}"
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/editor.md must not contain private marker: {banned}"
+
+
+def test_editor_doc_covers_contrast_contract(docs_root: Path) -> None:
+    """themes.md overflow: editor contrast lives on the short editor.md contract."""
+    text = (docs_root / "editor.md").read_text(encoding="utf-8")
+    for needle in (
+        "Contrast contract",
+        "color-scheme: inherit",
+        "color-scheme: dark",
+        "agora-mode-dark",
+        "data-ap-color-mode",
+        "--ap-editor-bg",
+        "--ap-editor-fg",
+        "--ap-editor-surface",
+        "--ap-editor-border",
+        "--ap-on-accent",
+        "Canvas",
+        "CanvasText",
+        "Field",
+        "FieldText",
+        "button { color: inherit }",
+        "ap-includes/css/ap-editor.css",
+        "Unicode",
+        "admin.css",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, f"docs/editor.md must document contrast contract: {needle!r}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, f"docs/editor.md must not contain private marker: {banned}"
+    assert "agorapress.extrovertednerd.com" not in lower
 
 
 def test_site_icon_doc_content(docs_root: Path) -> None:
@@ -940,6 +1050,68 @@ def test_themes_doc_content(docs_root: Path) -> None:
         assert phrase in text, f"themes.md missing: {phrase}"
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in text, f"docs/themes.md must not contain private marker: {banned}"
+
+
+def test_themes_doc_covers_schemes_preview_and_editor(docs_root: Path) -> None:
+    """SPEC: themes.md documents six schemes, visitor preview, editor tokens."""
+    text = (docs_root / "themes.md").read_text(encoding="utf-8")
+    for needle in (
+        "marble",
+        "parchment",
+        "cloud",
+        "obsidian",
+        "midnight",
+        "charcoal",
+        "agora_color_scheme",
+        "agora_visitor_color_preview",
+        "Allow visitors to preview color schemes",
+        "?agora_scheme=",
+        "agora_get_color_scheme",
+        "agora_get_stored_color_scheme",
+        "agora_get_color_schemes",
+        "agora-scheme-preview",
+        "site-header__inner",
+        "SameSite=Lax",
+        "color-scheme",
+        "color-scheme: inherit",
+        "color-scheme: dark",
+        "--ap-editor-bg",
+        "--ap-editor-fg",
+        "--ap-editor-surface",
+        "--ap-editor-border",
+        "--ap-on-accent",
+        "Canvas",
+        "CanvasText",
+        "Field",
+        "FieldText",
+        "agora_filter_color_scheme",
+        "hostname special case",
+        "button { color: inherit }",
+        "ap-includes/css/ap-editor.css",
+        "data-ap-color-mode",
+        "agora-mode-dark",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, f"docs/themes.md must document schemes/preview/editor: {needle!r}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, f"docs/themes.md must not contain private marker: {banned}"
+    # Preview is an option on any Agora site — do not document a product-host gate.
+    assert "agorapress.extrovertednerd.com" not in lower
 
 
 def test_plugins_doc_content(docs_root: Path) -> None:
@@ -1447,6 +1619,12 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "could not complete registration. please try again.",
         "your account was created, but the verification email could not be sent.",
         "verification_resent",
+        "set as default",
+        "this is the default category. set another category as default first.",
+        "default_category",
+        "ensuredefaultcategory",
+        "default post category",
+        "set-default-tag-",
     ):
         assert phrase in lower, f"admin.md missing: {phrase}"
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
@@ -1488,6 +1666,60 @@ def test_admin_doc_covers_mail_and_register_gate(docs_root: Path) -> None:
     for const in _php_mail_override_constants():
         assert const in text, (
             f"docs/admin.md must name mail override constant {const}"
+        )
+
+
+def test_admin_doc_covers_default_category(docs_root: Path) -> None:
+    """SPEC: admin.md documents default category, Set as default, Writing."""
+    text = (docs_root / "admin.md").read_text(encoding="utf-8")
+    for needle in (
+        "Set as default",
+        "This is the default category. Set another category as default first.",
+        "default_category",
+        "ensureDefaultCategory",
+        "setDefaultCategory",
+        "sanitizeDefaultCategory",
+        "set-default-tag-",
+        "action=set-default",
+        "Uncategorized",
+        "uncategorized",
+        "Default Post Category",
+        "— Default",
+        "Last remaining",
+        "will move to",
+        "default_category_set",
+        "default_category_delete_blocked",
+        "Default category updated.",
+        "Could not delete the term.",
+        "— Uncategorized / site default —",
+        '<option value="0">',
+        "AP_Admin_Terms",
+        "AP_Taxonomy",
+        "bulk-tags",
+        "options-writing.php",
+        "edit-tags.php",
+        "manage_categories",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, f"docs/admin.md must document default category: {needle!r}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, (
+            f"docs/admin.md must not contain private marker: {banned}"
         )
 
 
@@ -1901,6 +2133,12 @@ def test_troubleshooting_doc_content(docs_root: Path) -> None:
         "stream_socket_client",
         "check your email",
         "forum_allow_guest_viewing",
+        "cannot delete uncategorized",
+        "set as default",
+        "this is the default category. set another category as default first.",
+        "editor toolbar invisible",
+        "color-scheme: dark",
+        "--ap-editor-bg",
     ):
         assert phrase in lower, f"troubleshooting.md missing: {phrase}"
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
@@ -1935,6 +2173,62 @@ def test_troubleshooting_covers_verification_mail_and_group_acl(
     assert "smtp.example.com" in lower
     assert "noreply@example.com" in lower
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
+        assert banned not in lower, f"docs/troubleshooting.md must not contain private marker: {banned}"
+
+
+def test_troubleshooting_covers_uncategorized_delete_and_editor_contrast(
+    docs_root: Path,
+) -> None:
+    """SPEC: cannot delete Uncategorized → change default first; dark toolbar → color-scheme + tokens."""
+    text = (docs_root / "troubleshooting.md").read_text(encoding="utf-8")
+    lower = text.lower()
+    assert "## cannot delete uncategorized" in lower
+    assert "## editor toolbar invisible on a dark theme" in lower
+    assert "cannot delete uncategorized" in lower
+    assert "set as default" in lower
+    assert "this is the default category. set another category as default first." in lower
+    assert "could not delete the term." in lower
+    assert "default_category_delete_blocked" in lower
+    assert "last remaining" in lower
+    assert "settings → writing" in lower
+    assert "posts → categories" in lower
+    assert "— uncategorized / site default —" in lower
+    assert "<option value=\"0\">" in text
+    assert "ensureDefaultCategory" in text
+    assert "set-default-tag-" in text
+    assert "editor toolbar invisible" in lower
+    assert "color-scheme: dark" in lower
+    assert "color-scheme: inherit" in lower
+    assert "--ap-editor-bg" in text
+    assert "--ap-editor-fg" in text
+    assert "--ap-editor-surface" in text
+    assert "Canvas" in text
+    assert "CanvasText" in text
+    assert "Field" in text
+    assert "FieldText" in text
+    assert "button { color: inherit }" in text
+    assert "ap-includes/css/ap-editor.css" in text
+    assert "AP_Editor" in text
+    assert "agora-mode-dark" in lower
+    assert "data-ap-color-mode" in lower
+    assert "admin.css" in lower
+    assert "editor.md" in lower
+    assert "example.com" in text
+    assert "private hosts" in lower
+    assert "persona mailboxes" in lower
+    assert "live fleet inventory" in lower
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
         assert banned not in lower, f"docs/troubleshooting.md must not contain private marker: {banned}"
 
 
@@ -2281,6 +2575,7 @@ OPERATOR_GUIDE_CROSS_LINKS = {
         "updates.md",
         "cli.md",
         "admin.md",
+        "editor.md",
         "forums.md",
         "roles.md",
         "rest.md",

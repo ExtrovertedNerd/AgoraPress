@@ -9,6 +9,7 @@
 | REST prefix | `/ap-json/` · namespace `ap/v1` |
 | Telemetry | **none** — no `AP_TELEMETRY` constant, flag, or option; version check sends **no site identity** |
 | Rule | If a row is not in this catalog and not in the linked guide, it is **not in core** |
+| Public-safe | Generic examples only (`example.com`). No private hosts, persona mailboxes, or live fleet inventory — [README.md](README.md#public-safe-rule) |
 | Depth | Topic guides, not this file |
 
 ## Modules
@@ -57,7 +58,7 @@
 | `time_format` | `H:i` | Settings → General | [admin.md](admin.md#settings) |
 | `start_of_week` | `1` | Settings → General | [admin.md](admin.md#settings) |
 | `site_icon` | `0` (none) | Settings → General | [site-icon.md](site-icon.md) |
-| `default_category` | `0` (seeded) | Settings → Writing | [admin.md](admin.md#settings) |
+| `default_category` | living category term id (**no** magic `0`) | Settings → Writing · Posts → Categories | [admin.md](admin.md#default-post-category) |
 | `use_smilies` | `1` | Settings → Writing | [admin.md](admin.md#settings) |
 | `default_comment_status` | `open` | Settings → Writing | [admin.md](admin.md#settings) |
 | `show_on_front` | `posts` | Settings → Reading | [admin.md](admin.md#settings) |
@@ -76,6 +77,7 @@
 | `tag_base` | `''` | Settings → Permalinks | [rewrites.md](rewrites.md) |
 | `wp_page_for_privacy_policy` | (sample may set) | Settings → Privacy | [security.md](security.md) |
 | `agora_color_scheme` | `marble` | Appearance → Theme Options | [themes.md](themes.md#default-theme-agora) |
+| `agora_visitor_color_preview` | `0` (off) | Appearance → Theme Options (Agora) | [themes.md](themes.md#visitor-color-scheme-preview) |
 | `custom_css` | `''` | Appearance → Theme Options | [themes.md](themes.md) |
 | `stylesheet` | `agora` | Appearance → Themes | [themes.md](themes.md) |
 | `template` | `agora` | Appearance → Themes | [themes.md](themes.md) |
@@ -89,6 +91,18 @@
 | `forum_attachment_max_per_post` | `5` | **CLI only** — not on Settings → Forums | [forums.md](forums.md) |
 | `forum_attachment_user_quota` | `10485760` | **CLI only** — not on Settings → Forums | [forums.md](forums.md) |
 | `forum_online_window` | `900` | **CLI only** — not on Settings → Forums | [forums.md](forums.md) |
+
+| Default post category | As built | Guide |
+|-----------------------|----------|-------|
+| Stored value | Living category term id. **No** magic `0` | [admin.md](admin.md#default-post-category) |
+| Installer | Options seed `0`; `ensureDefaultCategory()` then persists Uncategorized’s id | [admin.md](admin.md#default-post-category) |
+| `ensureDefaultCategory()` | May create slug `uncategorized`. Sets the option only when stored is `0` / empty / dead. Does **not** clobber a living custom default | [admin.md](admin.md#default-post-category) |
+| Cannot delete | Current default; last remaining category | [admin.md](admin.md#default-post-category) |
+| Uncategorized | Seed, not immortal. Deletable once it is not the default. Orphan posts reassign to the new default | [admin.md](admin.md#default-post-category) |
+| **Set as default** | Posts → Categories row action. GET `action=set-default` + `tag_ID`. Nonce `set-default-tag-{id}`. Cap `manage_categories` | [admin.md](admin.md#default-post-category) |
+| Hidden Delete | “This is the default category. Set another category as default first.” | [admin.md](admin.md#default-post-category) |
+| Writing | Living categories only. **No** `<option value="0">`. `AP_Settings::sanitizeDefaultCategory()` | [admin.md](admin.md#default-post-category) |
+| Public lists | `ap_get_the_category_list` skips empty-name terms; omit the line when none remain (no “Posted in , ,”) | [themes.md](themes.md#default-theme-agora) |
 
 | `ap-config.php` mail constant | Overrides option | Guide |
 |-------------------------------|-------------------|-------|
@@ -374,12 +388,12 @@
 | `revision.php` | Revisions | same meta cap | [admin.md](admin.md#content) |
 | `edit-comments.php` | Comments list | `moderate_comments` | [admin.md](admin.md#content) |
 | `comment.php` | Single comment | meta `edit_comment` | [admin.md](admin.md#content) |
-| `edit-tags.php` | Categories / tags | `manage_categories` | [admin.md](admin.md#content) |
+| `edit-tags.php` | Categories / tags (**Set as default** on category) | `manage_categories` | [admin.md](admin.md#content) · [admin.md](admin.md#default-post-category) |
 | `media.php` `media-new.php` `upload.php` | Media library / upload | `upload_files` | [admin.md](admin.md#content) |
 | `nav-menus.php` | Menus | `edit_theme_options` | [admin.md](admin.md#appearance) |
 | `widgets.php` | Widgets | `edit_theme_options` | [admin.md](admin.md#appearance) |
 | `themes.php` | Themes + **theme zip installer** (`install_themes`) | `switch_themes` | [admin.md](admin.md#appearance) · [themes.md](themes.md) |
-| `theme-options.php` | Theme Options / Additional CSS | `edit_theme_options` | [admin.md](admin.md#appearance) · [themes.md](themes.md) |
+| `theme-options.php` | Theme Options / Additional CSS / Agora schemes + visitor preview | `edit_theme_options` | [admin.md](admin.md#appearance) · [themes.md](themes.md#theme-options-acp) |
 | `plugins.php` | Plugins + **plugin zip installer** (`install_plugins`) | `activate_plugins` | [admin.md](admin.md#plugin-zip-installer) · [plugins.md](plugins.md#plugin-installer) |
 | `users.php` | Users list (pending **Activate** needs `edit_users`) | `list_users` | [admin.md](admin.md#users) |
 | `user-new.php` | Add user (reserved logins **allowed**) | `create_users` | [admin.md](admin.md#users) |
@@ -389,7 +403,7 @@
 | `forum-topics.php` `forum-moderation.php` | Topics / mod queue | `moderate_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
 | `options-general.php` | General + **Site Icon** + membership (`registration_captcha`, `reserved_usernames`) | `manage_options` | [admin.md](admin.md#settings) · [admin.md](admin.md#public-registration) · [site-icon.md](site-icon.md) |
 | `options-mail.php` | Mail (from identity, php/smtp, test to `admin_email`) | `manage_options` | [admin.md](admin.md#mail) |
-| `options-writing.php` | Writing | `manage_options` | [admin.md](admin.md#settings) |
+| `options-writing.php` | Writing (Default Post Category, living ids only) | `manage_options` | [admin.md](admin.md#settings) · [admin.md](admin.md#default-post-category) |
 | `options-reading.php` | Reading / front page / feeds | `manage_options` | [admin.md](admin.md#settings) |
 | `options-discussion.php` | Discussion / avatars | `manage_options` | [admin.md](admin.md#settings) |
 | `options-media.php` | Media sizes | `manage_options` | [admin.md](admin.md#settings) |
@@ -428,6 +442,38 @@
 | Dark | `obsidian` | same | [themes.md](themes.md#default-theme-agora) |
 | Dark | `midnight` | same | [themes.md](themes.md#default-theme-agora) |
 | Dark | `charcoal` | same | [themes.md](themes.md#default-theme-agora) |
+
+| Visitor preview | As built | Guide |
+|-----------------|----------|-------|
+| Option | `agora_visitor_color_preview` default **off** (`'0'`). Label: **Allow visitors to preview color schemes** | [themes.md](themes.md#visitor-color-scheme-preview) |
+| Persist | Cookie / `?agora_scheme=` only. **Never** writes `agora_color_scheme` | [themes.md](themes.md#visitor-color-scheme-preview) |
+| Resolve (option on) | valid `?agora_scheme=` → valid cookie `agora_scheme` → site option → `marble` (`agora_get_color_scheme()`) | [themes.md](themes.md#visitor-color-scheme-preview) |
+| Site default | `agora_get_stored_color_scheme()` ignores query/cookie | [themes.md](themes.md#visitor-color-scheme-preview) |
+| Option off | No visitor control markup; query/cookie ignored | [themes.md](themes.md#visitor-color-scheme-preview) |
+| Control | `<nav class="agora-scheme-preview">` in `site-header__inner` (after account indicator). No-JS = GET links | [themes.md](themes.md#visitor-color-scheme-preview) |
+| Cookie | `agora_scheme`, path `/`, `SameSite=Lax`, not HttpOnly, max-age 30 days | [themes.md](themes.md#visitor-color-scheme-preview) |
+| Filter | `agora_color_scheme` on the already-resolved slug (`agora_filter_color_scheme()`). Never writes the option | [themes.md](themes.md#visitor-color-scheme-preview) |
+| Not this | No hostname special case; no product-site-only theme; no `php ap-cli` preview verb | [themes.md](themes.md#visitor-color-scheme-preview) |
+
+## Visual editor
+
+| Piece | As built | Guide |
+|-------|----------|-------|
+| Widget | `AP_Editor` (`ap-includes/class-ap-editor.php`) | [editor.md](editor.md) |
+| CSS | `ap-includes/css/ap-editor.css` — `color-scheme: inherit` | [editor.md](editor.md#contrast-contract) |
+| Dark hosts | `color-scheme: dark` on `html`/`body`; `html.agora-mode-dark` / `body.agora-mode-dark`; `[data-ap-color-mode=dark]` | [editor.md](editor.md#contrast-contract) · [themes.md](themes.md#editor-contrast) |
+| Pairing | Chrome `Canvas` / `CanvasText`; surface `Field` / `FieldText` | [editor.md](editor.md#contrast-contract) |
+| Buttons | `currentColor`; isolation vs theme `button { color: inherit }` | [editor.md](editor.md#contrast-contract) |
+| Emoji | Unicode glyph. No third-party icon font | [editor.md](editor.md#contrast-contract) |
+| Architecture | Classic Visual \| Text. Gutenberg / FSE **not in core** | [editor.md](editor.md) |
+
+| Token | Role | Guide |
+|-------|------|-------|
+| `--ap-editor-bg` | Toolbar / chrome background (`Canvas`) | [themes.md](themes.md#editor-contrast) |
+| `--ap-editor-fg` | Toolbar / chrome / surface text (`CanvasText` / `FieldText`) | [themes.md](themes.md#editor-contrast) |
+| `--ap-editor-surface` | Visual surface + textarea background (`Field`) | [themes.md](themes.md#editor-contrast) |
+| `--ap-editor-border` | Chrome border | [themes.md](themes.md#editor-contrast) |
+| `--ap-on-accent` | Active Visual \| Text chip text (fallback `#fff`) | [themes.md](themes.md#editor-contrast) |
 
 ## Install and updates
 
@@ -481,6 +527,7 @@
 | `ap_registration_captcha_challenge` | filter | Challenge payload for the register form — [hooks.md](hooks.md#users--registration) · [admin.md](admin.md#public-registration) |
 | `ap_registration_verify_captcha` | filter | Verify posted captcha/guard data — [hooks.md](hooks.md#users--registration) · [admin.md](admin.md#public-registration) |
 | `ap_registration_captcha_fields` | action | Extra markup for a plugin-supplied visible mode — [admin.md](admin.md#public-registration) |
+| `agora_color_scheme` | filter | Resolved slug only (`agora_filter_color_scheme()`). Invalid returns keep the slug. **Never** writes the site option — [themes.md](themes.md#visitor-color-scheme-preview) |
 | Plugin ACP pages | — | [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp) (`ap_register_admin_page`) |
 | REST registration | — | [rest.md](rest.md) (`ap_rest_api_init`) |
 | CLI registration | — | [cli.md](cli.md) (`ap_cli_init`) |
@@ -490,6 +537,9 @@
 | Surface | Notes |
 |---------|-------|
 | Gutenberg / FSE / block themes on the compat layer | [editor.md](editor.md) · [compatibility.md](compatibility.md) |
+| Magic `default_category` `0` / “— Uncategorized / site default —” Writing sentinel | [admin.md](admin.md#default-post-category) |
+| Hostname allowlist or product-site-only theme for scheme preview | [themes.md](themes.md#visitor-color-scheme-preview) |
+| `php ap-cli` visitor-preview verb | [themes.md](themes.md#visitor-color-scheme-preview) · [cli.md](cli.md) |
 | Official SaaS, paid marketplace, telemetry, PHP &lt; 8.2, multisite, e-commerce | [vision-compliance.md](vision-compliance.md) |
 | `AP_TELEMETRY` constant / flag / option; version check site identity | [security.md](security.md) · [updates.md](updates.md) |
 | REST writes for pages, comments, users, categories, tags, forums, topics | [rest.md](rest.md) |
@@ -503,6 +553,7 @@
 | PHPMailer / Composer mail library; HTML mail / newsletters / comment-subscription mail | [admin.md](admin.md#mail) |
 | Google / hCaptcha / Turnstile widgets | [security.md](security.md#public-registration-gate) |
 | A second docs index (`docs/index.md`) or a Bot-only tree | [README.md](README.md) |
+| Private hosts, persona mailboxes, live fleet inventory | [README.md](README.md#public-safe-rule) · [bot_handbook.md](bot_handbook.md#public-safe-rule) |
 
 ## Guides this catalog points at
 

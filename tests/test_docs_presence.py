@@ -56,9 +56,41 @@ PRIVATE_MARKERS = (
     "roland",
     "stallboy",
     "mail.0shits.com",
+    "0shits.com",
     "keepass",
     "stalwart",
+    "jarvis",
+    "blindvault",
+    "mensbs",
+    "agorapress_addons",
 )
+
+# RFC 2606 examples, loopback, already-public product site, public references.
+PUBLIC_SAFE_HOSTS = {
+    "localhost",
+    "127.0.0.1",
+    "example.com",
+    "example.net",
+    "example.org",
+    "smtp.example.com",
+    "your-domain.example",
+    "agorapress.extrovertednerd.com",
+    "github.com",
+    "docs.docker.com",
+    "www.gnu.org",
+    "gnu.org",
+    "keepachangelog.com",
+    "semver.org",
+}
+
+PUBLIC_SAFE_VAR_WWW = {"agorapress", "html", "site"}
+# Other-product names. Allowed only in docs/bot_handbook.md as "not in core".
+OTHER_PRODUCT_MARKERS = ("haultn", "themis", "logos")
+URL_HOST = re.compile(r"https?://([a-zA-Z0-9.-]+)", re.IGNORECASE)
+MAILBOX = re.compile(r"[A-Z0-9._%+\-]+@([A-Z0-9.\-]+\.[A-Z]{2,})", re.IGNORECASE)
+ORG_HOST = re.compile(r"[a-z0-9.-]*extrovertednerd\.com", re.IGNORECASE)
+PRIVATE_FS_PATH = re.compile(r"(?<![A-Za-z0-9])/(?:home|root|srv|opt|etc)/[^\s`'\" )\]]+")
+VAR_WWW = re.compile(r"/var/www/([A-Za-z0-9._-]*)")
 
 CATALOG_TOKENS = (
     "AP_DB_VERSION",
@@ -75,6 +107,9 @@ CATALOG_TOKENS = (
     "group_only",
     "This group only",
     "AP_MAIL_TRANSPORT",
+    "agora_visitor_color_preview",
+    "--ap-editor-bg",
+    "Set as default",
 )
 
 ADD_COMMAND = re.compile(
@@ -390,6 +425,12 @@ def test_admin_doc_matches_acp_as_built(docs_root: Path) -> None:
         "AP_SMTP_HOST",
         "This group only",
         "register-guard.js",
+        "Set as default",
+        "This is the default category. Set another category as default first.",
+        "default_category",
+        "ensureDefaultCategory",
+        "set-default-tag-",
+        "Default Post Category",
     ):
         assert needle in text, f"docs/admin.md should mention: {needle}"
 
@@ -587,6 +628,101 @@ def test_public_product_file_contains_no_private_markers(relative: str) -> None:
         assert banned not in text, (
             f"{relative} must not contain private marker: {banned}"
         )
+
+
+def _public_safe_landing_files() -> list[str]:
+    names = [f"docs/{path.name}" for path in sorted(DOCS.glob("*.md"))] if DOCS.is_dir() else []
+    names.extend(["README.md", "CHANGELOG.md", "ap-config-sample.php"])
+    return names
+
+
+def _is_allowed_public_host(host: str) -> bool:
+    if host in PUBLIC_SAFE_HOSTS:
+        return True
+    for suffix in (".example.com", ".example.net", ".example.org"):
+        if host.endswith(suffix) and len(host) > len(suffix):
+            return True
+    return bool(re.fullmatch(r"(?:[a-z0-9-]+\.)+example", host))
+
+
+def _is_allowed_example_mailbox_domain(domain: str) -> bool:
+    domain = domain.lower()
+    for root in ("example.com", "example.net", "example.org"):
+        if domain == root or domain.endswith("." + root):
+            return True
+    return False
+
+
+def _assert_document_is_public_safe(relative: str, text: str) -> None:
+    lower = text.lower()
+    for banned in PRIVATE_MARKERS:
+        assert banned not in lower, f"{relative} must not contain private marker: {banned}"
+    if relative != "docs/bot_handbook.md":
+        for banned in OTHER_PRODUCT_MARKERS:
+            assert banned not in lower, (
+                f"{relative} must not name other-product {banned} (not in core)"
+            )
+    for hit in ORG_HOST.findall(text):
+        assert hit.lower() == "agorapress.extrovertednerd.com", (
+            f"{relative} may name only the public product host, not fleet inventory ({hit})"
+        )
+    for domain in MAILBOX.findall(text):
+        assert _is_allowed_example_mailbox_domain(domain), (
+            f"{relative} mailbox must be @example.com (or .net/.org), got @{domain}"
+        )
+    for host in URL_HOST.findall(text):
+        host = host.lower()
+        if not host or "…" in host or "..." in host:
+            continue
+        assert _is_allowed_public_host(host), f"{relative} must not name private host {host}"
+    private_paths = PRIVATE_FS_PATH.findall(text)
+    assert private_paths == [], f"{relative} must not document private host paths: {private_paths}"
+    for leaf in VAR_WWW.findall(text):
+        assert leaf in PUBLIC_SAFE_VAR_WWW, (
+            f"{relative} /var/www/{leaf} is not a shipped generic example"
+        )
+
+
+@pytest.mark.parametrize("relative", _public_safe_landing_files())
+def test_public_landing_file_stays_public_safe(relative: str) -> None:
+    """SPEC: no private hosts, persona mailboxes, or live fleet inventory."""
+    path = ROOT / relative
+    assert path.is_file(), f"Missing public file: {relative}"
+    _assert_document_is_public_safe(relative, path.read_text(encoding="utf-8"))
+
+
+CHARTER_PUBLIC_SAFE_GUIDES = (
+    "admin.md",
+    "themes.md",
+    "editor.md",
+    "troubleshooting.md",
+    "features_and_functions.md",
+)
+
+
+@pytest.mark.parametrize("name", CHARTER_PUBLIC_SAFE_GUIDES)
+def test_charter_guide_states_public_safe_rule(docs_root: Path, name: str) -> None:
+    """Phase 6 guides restate: no private hosts, persona mailboxes, or fleet inventory."""
+    text = (docs_root / name).read_text(encoding="utf-8")
+    _assert_document_is_public_safe(f"docs/{name}", text)
+    lower = text.lower()
+    assert "private host" in lower, f"docs/{name} should forbid private hosts"
+    assert "persona mailbox" in lower, f"docs/{name} should forbid persona mailboxes"
+    assert "fleet inventory" in lower, f"docs/{name} should forbid live fleet inventory"
+    assert "example.com" in text, f"docs/{name} should use generic example.com"
+
+
+def test_docs_index_and_handbook_state_fleet_and_persona_rule() -> None:
+    for relative in ("docs/README.md", "docs/bot_handbook.md"):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        lower = text.lower()
+        assert "persona" in lower, f"{relative} should mention persona mailboxes as forbidden"
+        assert "inventory" in lower or "fleet" in lower, (
+            f"{relative} should mention live-site / fleet inventory as forbidden"
+        )
+        assert "private host" in lower
+        assert "example.com" in text
+        assert "admin@example.com" in text
 
 
 def test_public_safe_mail_examples_appear_in_operator_docs() -> None:

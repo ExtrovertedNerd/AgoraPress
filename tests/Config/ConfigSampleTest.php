@@ -258,7 +258,18 @@ PHP;
         $this->assertStringContainsString('noreply@example.com', $src);
         $this->assertStringContainsString('your-smtp-password-here', $src);
         $this->assertStringNotContainsString('mail.0shits.com', $src);
-        foreach (['Roland', 'stallboy', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (
+            [
+                'Roland',
+                'stallboy',
+                'KeePass',
+                'Stalwart',
+                'Jarvis',
+                'BlindVault',
+                'MensBS',
+                'AgoraPress_Addons',
+            ] as $banned
+        ) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $src,

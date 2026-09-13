@@ -14,6 +14,10 @@ meta-caps are in [roles.md](roles.md).
 
 **Source (as built):** `ap-admin/` entry scripts, `ap-admin/admin-bootstrap.php`,
 `ap-admin/includes/class-ap-admin.php` (`AP_Admin`),
+`ap-admin/includes/class-ap-admin-terms.php` (`AP_Admin_Terms`),
+`ap-admin/edit-tags.php`, `ap-admin/options-writing.php`,
+`ap-includes/class-ap-taxonomy.php` (`AP_Taxonomy`),
+`ap-includes/class-ap-settings.php` (`AP_Settings`),
 `ap-includes/class-ap-admin-menu.php` (`AP_Admin_Menu`),
 `ap-includes/class-ap-plugin-installer.php` (`AP_Plugin_Installer`),
 `ap-includes/class-ap-hall-of-fame.php` (`AP_Hall_Of_Fame`),
@@ -24,7 +28,8 @@ meta-caps are in [roles.md](roles.md).
 
 There is **no** Gutenberg / block editor in the ACP, **no** official plugin or
 theme marketplace, and **no** paywall. Missing from this guide and from core
-means **not in core**.
+means **not in core**. Generic examples only (`example.com`). Do not document
+private hosts, persona mailboxes, or live fleet inventory here.
 
 ---
 
@@ -193,8 +198,8 @@ also 403 with “The Blog module is disabled…” when Blog is off.
 | Revisions | `revision.php?post=` | meta `edit_post` / `edit_page` | List, restore, delete autosaves. Post type must support revisions. |
 | List / bulk-edit pages | Pages (`edit.php?post_type=page`) | `edit_pages` | Static Pages module. Hierarchical. |
 | Write / edit a page | `post-new.php?post_type=page`, `post.php` | `edit_pages` / meta `edit_page` | |
-| Categories | Categories (`edit-tags.php?taxonomy=category`) | `manage_categories` | Blog module. |
-| Tags | Tags (`edit-tags.php?taxonomy=post_tag`) | `manage_categories` | Blog module. |
+| Categories | Categories (`edit-tags.php?taxonomy=category`) | `manage_categories` | Blog module. Default badge, **Set as default**, delete rules: [Default post category](#default-post-category). |
+| Tags | Tags (`edit-tags.php?taxonomy=post_tag`) | `manage_categories` | Blog module. No default-category badge or **Set as default**. |
 | Comments | Comments (`edit-comments.php`) | `moderate_comments` | Views: All / Pending / Approved / Spam / Trash. Bulk + row: approve, spam, trash, delete. |
 | Edit one comment | `comment.php?c=` | meta `edit_comment` | Screen map lists `read`; the entry script then requires `edit_comment` on that row. Own comments with `edit_own_comments`, or any with `moderate_comments`. Only moderators may change approval status here. |
 | Media library | Media (`upload.php`) | `upload_files` | List, upload (drag-and-drop), bulk delete. Files land under `ap-content/uploads/`. |
@@ -203,6 +208,75 @@ also 403 with “The Blog module is disabled…” when Blog is off.
 
 Site Icon is **not** a Media screen. It lives on Settings → General
 ([site-icon.md](site-icon.md)).
+
+---
+
+## Default post category
+
+**Screens:** Posts → Categories (`edit-tags.php?taxonomy=category`) and
+Settings → Writing (`options-writing.php`). **Caps:** `manage_categories`
+(Categories) · `manage_options` (Writing). Writing 403s when Blog is off
+(“The Blog module is disabled…”). Categories is a Content menu item that
+**hides** when Blog is off; `edit-tags.php` itself does not repeat that
+module 403.
+
+**Source:** `ap-includes/class-ap-taxonomy.php` (`AP_Taxonomy`),
+`ap-admin/includes/class-ap-admin-terms.php` (`AP_Admin_Terms`),
+`ap-admin/edit-tags.php`, `ap-admin/options-writing.php`,
+`AP_Settings::sanitizeDefaultCategory()`.
+
+The default is a **setting**, not a holy slug. Option `default_category`
+stores a **living category term id**. There is **no** magic `0`.
+Uncategorized (slug `uncategorized`) is a **seed** created when no living
+default exists. It is **not** immortal: once another category is the
+default, Uncategorized is a normal term and **can** be deleted. Rename in
+place stays allowed.
+
+`AP_Taxonomy::ensureDefaultCategory()` may create that seed and may set
+`default_category` only when the stored value is `0`, empty, or a dead
+term. It does **not** overwrite a valid `default_category` that already
+points at a living category. Categories and Writing both call it on load,
+so visiting Posts → Categories after changing Writing does **not** re-lock
+Uncategorized.
+
+| Rule | As built |
+|------|----------|
+| Current default | Cannot be deleted. List hides the row checkbox and **Delete** link. |
+| Last remaining category | Cannot be deleted (even if `default_category` points at a missing id). Enforced in `AP_Taxonomy::deleteTerm()`. The list hides **Delete** only on the **current default**; a last-remaining row that is not that default may still show Delete and then fail with the generic `error` notice (“Something went wrong. Please try again.”). |
+| Uncategorized | Deletable once it is not the stored default. |
+| Orphan posts | Posts that would be left with no category are reassigned to the **new** default (`deleteTerm`). |
+| Promote | `AP_Taxonomy::setDefaultCategory()` writes a living term id. The previous default stays in the list and becomes deletable. |
+
+### Categories list (`edit-tags.php`)
+
+GET actions: row **Delete** (`action=delete`) and **Set as default**
+(`action=set-default`). Bulk delete is POST (`action=delete`, nonce
+`bulk-tags`). Tags (`taxonomy=post_tag`) have none of this chrome.
+
+| Piece | As built |
+|-------|----------|
+| **— Default** | Badge on the current default row only (`<span class="ap-muted">— Default</span>`). |
+| **Set as default** | Row action on every **non-default** category. GET `action=set-default` + `tag_ID`. Nonce `set-default-tag-{id}`. Cap `manage_categories`. Success notice: “Default category updated.” (`message` `default_category_set`). |
+| Hidden Delete | Copy on the default row: “This is the default category. Set another category as default first.” plus a link to [Settings → Writing](#settings) (`options-writing.php`). |
+| Failed delete | Row URL or bulk of the current default uses that **same** copy (`message` `default_category_delete_blocked`) — not “Could not delete the term.” and not the generic “Something went wrong. Please try again.” |
+| Confirm | Native `confirm()` (not a modal) when deleting a **non-default** category that has posts: “N posts will move to {default name}.” `N` is the term count. Empty when the count is 0. |
+
+### Writing (`options-writing.php`)
+
+Nonce group `writing`. Save: `AP_Options::updateWritingSettings()`.
+
+| Field / option | As built |
+|----------------|----------|
+| Default Post Category (`default_category`) | `<select>` of **living** categories only (name order, up to 200). Each `<option value="{term_id}">`. **No** `<option value="0">` and **no** “— Uncategorized / site default —” sentinel. Saving persists a living term id (`AP_Settings::sanitizeDefaultCategory()`). Posted `0` or a dead id resolves through `ensureDefaultCategory()` and does **not** clobber a living default already stored. |
+| On load | If the stored value is `0` / missing / dead, Writing calls `ensureDefaultCategory()` (creates the Uncategorized seed if needed) and **persists** that id so the `0` trap cannot reopen. |
+| Convert emoticons (`use_smilies`) | Checkbox. Default on. |
+| Allow comments on new posts (`default_comment_status`) | `open` / `closed`. |
+
+A finished install runs `ensureDefaultCategory()` after seeding options, so
+the stored id is already the Uncategorized term. Raw option writes, older
+rows, or a dead id can still leave `0` / empty / missing; the next
+Categories or Writing load (or a Writing save) resolves that to a living
+id so the `0` trap cannot reopen.
 
 ---
 
@@ -314,7 +388,7 @@ with `manage_options` accepted as a fallback).
 | General | General (`options-general.php`) | `blogname`, `blogdescription`, **Site Icon** (`site_icon` attachment ID), `siteurl`, `home`, `admin_email` (site notices **and** the address used by **Send test email to admin_email**), `users_can_register`, `require_email_verification` (default on), `registration_captcha` (`off` / `math` / `guard`), extra reserved usernames (`reserved_usernames`, textarea, one login per line; plugins may add more via filter `ap_reserved_usernames`), `default_role`, `WPLANG`, `timezone_string`, `date_format`, `time_format`, `start_of_week`. Membership fields: [Public registration](#public-registration). |
 | Mail | Settings → Mail (`options-mail.php`) | Own group (not stuffed into General). From identity, `php` \| `smtp` transport, SMTP host/port/encryption/user, write-only password, **Send test email to admin_email**, last error. Depth: [Mail](#mail). |
 | Modules | Modules (`options-modules.php`) | Independent toggles for Static Pages, Blog, and Forum. At least one must remain enabled. Related menus and front-end routes follow these switches. Nonce `ap_settings_modules`. |
-| Writing | Writing (`options-writing.php`) | Blog module (403 when off). Default category, smilies, default comment status on new posts. |
+| Writing | Writing (`options-writing.php`) | Blog module (403 when off). Default Post Category (living term ids only — no magic `0`), smilies, default comment status on new posts. Depth: [Default post category](#default-post-category). |
 | Reading | Reading (`options-reading.php`) | `show_on_front` (`posts` / `page`), `page_on_front`, `page_for_posts`, `posts_per_page`, `posts_per_rss`, `rss_use_excerpt`. |
 | Discussion | Discussion (`options-discussion.php`) | Blog module (403 when off). Comment defaults, moderation, registration-required comments, auto-close, threading, avatars. |
 | Media | Media Settings (`options-media.php`) | Thumbnail / medium / large sizes, crop, `uploads_use_yearmonth_folders`. |
@@ -545,6 +619,8 @@ Do not tell operators these exist in `/ap-admin/`:
 - Google reCAPTCHA, hCaptcha, or Turnstile widgets (registration `guard` is first-party)
 - A second membership / CAPTCHA screen besides Settings → General
 - Mail settings stuffed into Settings → General (they live on Settings → Mail)
+- A magic `value="0"` Default Post Category option (“— Uncategorized / site default —”)
+- An immortal Uncategorized slug (once another category is the default, Uncategorized can be deleted)
 
 If a plugin registered an extra sidebar item via `ap_register_admin_page()`,
 that page is **that plugin**, not core.

@@ -6,14 +6,14 @@ visual WYSIWYG**. Full block / Gutenberg / FSE editors remain a **non-goal for
 core** (see [vision-compliance.md](vision-compliance.md)) — they are **not in core**.
 
 ACP compose screens: [admin.md](admin.md). Forum reply surface: [forums.md](forums.md).
-Theme field tokens: [themes.md](themes.md).
+Theme gold-plating (`--ap-editor-*`): [themes.md](themes.md#editor-contrast).
 
 ## What ships
 
 | Piece | Path | Role |
 |-------|------|------|
 | `AP_Editor` | `ap-includes/class-ap-editor.php` | Toolbar + visual surface + textarea |
-| CSS | `ap-includes/css/ap-editor.css` | Toolbar, surface, emoji picker styles |
+| CSS | `ap-includes/css/ap-editor.css` | Toolbar, surface, emoji picker; inherits page `color-scheme` |
 | JS | `ap-includes/js/ap-editor.js` | Vanilla progressive enhancement |
 
 - **Architecture:** `classic` (always). See `AP_Editor::architecture()`,
@@ -40,6 +40,47 @@ Where core actually renders it:
 | ACP comment edit | `ap-admin/comment.php` (`ap_editor()`, context `comment`) |
 | Agora blog comments | `ap-content/themes/agora/single.php` |
 | Agora forum new topic / reply | `forum-view.php`, `topic.php` (context `forum`) |
+
+## Contrast contract
+
+`AP_Editor` (toolbar + visual surface + textarea) must stay readable on a
+**dark page** even when the active theme is **not** Agora and does **not**
+define `--ap-*` tokens. Core stylesheet: `ap-includes/css/ap-editor.css`.
+Optional theme tokens: [themes.md](themes.md#editor-contrast).
+
+| Contract | As built |
+|----------|----------|
+| Inherit | `.ap-editor` sets `color-scheme: inherit`. Toolbar, surface, and textarea do the same. |
+| Dark hosts | Honors `color-scheme: dark` on `html` / `body` (custom themes), `html.agora-mode-dark` / `body.agora-mode-dark` (Agora), and `[data-ap-color-mode=dark]` (ACP sets this on `<html>`). Dark chrome does **not** depend only on Agora classes or `--ap-*` tokens. |
+| Pairing | Toolbar / chrome: `Canvas` / `CanvasText` (via `--ap-editor-bg` / `--ap-editor-fg` when set). Surface + textarea: `Field` / `FieldText` (via `--ap-editor-surface` / `--ap-editor-fg`). Border: `--ap-editor-border`, else `currentColor` at low opacity. |
+| Buttons | `currentColor` on a transparent background. Isolation then locks wrapper-qualified toolbar buttons to chrome foreground so a theme `button { color: inherit }` cannot bleach letter labels (`B`, `I`, `Link`) onto a light toolbar. |
+| Emoji | Unicode glyph only. No third-party icon font. |
+
+**Optional theme tokens** (unset = page `--ap-*`, then system colors). Themes
+**may** gold-plate these. They are **not** required when the page sets
+`color-scheme: dark` and uses light text.
+
+| Token | Role |
+|-------|------|
+| `--ap-editor-bg` | Toolbar / chrome background |
+| `--ap-editor-fg` | Toolbar / chrome / surface text |
+| `--ap-editor-surface` | Visual surface + textarea background |
+| `--ap-editor-border` | Chrome border |
+| `--ap-on-accent` | Active Visual \| Text chip text (fallback `#fff`) |
+
+Agora’s six schemes still win when present (`body.agora-theme` maps
+`--ap-editor-*` onto scheme tokens). Do **not** add site-specific theme CSS to
+core. Generic examples only (`example.com`). Do not name private hosts, persona mailboxes,
+live fleet inventory, or add-on skins here.
+
+**Not in core**
+
+- An ACP `admin.css` dark-mode overhaul (separate surface)
+- A toolbar redesign or a new emoji set
+- Per-theme patches in core for named custom skins
+
+If a custom theme is still unusable after this contract, that is a follow-on
+theme CSS pass.
 
 ## Usage
 
@@ -117,7 +158,7 @@ block editor. Prefer a separate package and opt-in UI.
 |------|-----|
 | ACP post / page / comment screens | [admin.md](admin.md) |
 | Forum reply / topic compose | [forums.md](forums.md) |
-| Agora scheme tokens for fields | [themes.md](themes.md) |
+| Agora scheme tokens / `--ap-editor-*` gold-plate | [themes.md](themes.md#editor-contrast) |
 | `ap_format_content` and editor filters | [hooks.md](hooks.md) |
 | Gutenberg non-goal | [vision-compliance.md](vision-compliance.md) |
 | Block/FSE themes out of scope | [compatibility.md](compatibility.md) |

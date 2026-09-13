@@ -173,7 +173,17 @@ def test_037_beta_documents_charter_and_docs_pass(changelog_text: str) -> None:
 
 def test_changelog_contains_no_private_markers(changelog_text: str) -> None:
     lower = changelog_text.lower()
-    for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
         assert banned not in lower, (
             f"CHANGELOG.md must not contain private marker: {banned}"
         )

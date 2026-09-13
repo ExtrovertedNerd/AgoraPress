@@ -137,7 +137,16 @@ def test_sample_mail_constants_use_generic_examples(sample_text: str) -> None:
     assert "your-smtp-password-here" in sample_text
     assert "mail.0shits.com" not in sample_text
     lower = sample_text.lower()
-    for banned in ("roland", "stallboy", "keepass", "stalwart"):
+    for banned in (
+        "roland",
+        "stallboy",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
         assert banned not in lower, (
             f"ap-config-sample.php must not contain private marker: {banned}"
         )

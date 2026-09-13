@@ -220,23 +220,117 @@ Admin: Appearance → Menus, Appearance → Widgets ([admin.md](admin.md)).
 
 Current stylesheet version: **0.3.9** (`AGORA_THEME_VERSION` / `style.css` header). Board index uses stable phpBB-parity hooks (`.ap-forum-cat-header`, `.ap-forum-row--{unread|read|neutral|locked}`, `.ap-forum-icon--{type}`, three-line `.ap-forum-last-post__*`) styled only in theme CSS — not core — so custom themes can restyle freely. Topic view adds `.ap-forum-first-unread` / `.ap-forum-first-unread-wrap` for the SPEC B1 jump link.
 
+**Source:** `ap-content/themes/agora/functions.php`, `header.php`, `style.css`, `ap-admin/theme-options.php`. Editor chrome: `ap-includes/css/ap-editor.css` ([editor.md](editor.md)).
+
 | Feature | Detail |
 |---------|--------|
 | Weight | Lightweight, **image-free**, pure CSS |
-| Schemes | **Six** (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal |
-| Selection | Option `agora_color_scheme` (Appearance → Theme Options) |
+| Schemes | **Six** (3 light + 3 dark): Marble, Parchment, Cloud, Obsidian, Midnight, Charcoal — [catalog](#color-schemes) |
+| Site default | Option `agora_color_scheme` (Appearance → Theme Options). Hard fallback **`marble`**. |
+| Visitor preview | Optional Theme Option `agora_visitor_color_preview` (default **off**). Cookie / `?agora_scheme=` only — [visitor preview](#visitor-color-scheme-preview) |
 | Body classes | `agora-theme`, `agora-scheme-{slug}`, `agora-mode-light\|dark` |
+| `color-scheme` | Each scheme sets `color-scheme: light` or `dark` on `body.agora-scheme-{slug}`. `header.php` also emits `<meta name="color-scheme" content="light\|dark">` and `data-agora-scheme-mode` on `<html>`. |
 | Account chrome | Guests: **Log in** (+ **Register** when `users_can_register` is on). Logged-in: welcome, profile, log out (`agora_the_account_indicator`) |
-| Forms | Comment/forum fields and the visual editor use scheme tokens (`--ap-field-bg`, `--ap-surface`, …) so dark modes keep dark fields and contrasting text |
+| Forms | Comment/forum fields use scheme tokens (`--ap-field-bg`, `--ap-surface`, …). The visual editor also maps `--ap-editor-*` so dark schemes keep dark chrome — [editor contrast](#editor-contrast) |
 | Long strings | `overflow-wrap: anywhere` so unbroken strings (e.g. Monero addresses) wrap instead of stretching the layout |
 | Custom CSS | Appearance → Theme Options → Additional CSS (`custom_css` / `AP_Theme::printCustomCss` on `ap_head`) |
 | Templates | Blog + forum templates, landmarks, reduced-motion / contrast support |
 | Post categories | Linked names in entry meta on blog lists, archives, search, and single posts; single posts also list them after the content (`Posted in`) |
 | Nav | Primary + footer menu locations; fallbacks list published pages and useful login/register links when open |
 
+### Color schemes
+
+Six **pure-CSS** schemes. Slugs are stable (options, body classes, `?agora_scheme=`, cookie). Catalog: `agora_get_color_schemes()`.
+
+| Mode | Slug | Label | As built |
+|------|------|-------|----------|
+| Light (default) | `marble` | Marble | Cool stone white, indigo accents. `color-scheme: light`. |
+| Light | `parchment` | Parchment | Warm paper cream, terracotta links. `color-scheme: light`. |
+| Light | `cloud` | Cloud | Airy sky blue-gray, cyan accents. `color-scheme: light`. |
+| Dark | `obsidian` | Obsidian | Volcanic near-black, violet edges. `color-scheme: dark`. |
+| Dark | `midnight` | Midnight | Deep navy night, electric blue. `color-scheme: dark`. |
+| Dark | `charcoal` | Charcoal | Warm graphite, amber highlights. `color-scheme: dark`. |
+
+Site default is option **`agora_color_scheme`** (installer default `marble`). Appearance → Theme Options shows six radio cards when the active stylesheet is `agora` and `agora_get_color_schemes()` exists. That screen reads **`agora_get_stored_color_scheme()`** so a visitor preview cannot appear selected as the site default.
+
+Invalid stored slugs sanitize to **`marble`**. `agora_set_color_scheme()` returns false for unknown slugs and does not write them.
+
+Body classes come from `agora_body_class()` / `agora_get_color_scheme()` (the resolved slug for **this request**, which may be a visitor preview). Mode class is `agora-mode-light` or `agora-mode-dark` via `agora_get_color_scheme_mode()`.
+
+### Visitor color-scheme preview
+
+Optional Agora Theme Option, default **off**. Any Agora site can turn it on. There is **no** hostname special case and **no** Agora fork. Generic examples only (`example.com`). Do not document private hosts, persona mailboxes, or live fleet inventory here.
+
+| Piece | As built |
+|-------|----------|
+| Option | `agora_visitor_color_preview` (`'0'` / `'1'`). Installer default `'0'`. Constant `AGORA_VISITOR_COLOR_PREVIEW_OPTION`. |
+| Screen | Appearance → Theme Options, only when Agora is active. Checkbox label: **Allow visitors to preview color schemes.** Help: visitors can try all six schemes on the public site; their choice does **not** change the site default. |
+| Persist | `agora_set_visitor_color_preview()`. Read: `agora_visitor_color_preview_enabled()`. |
+| Control gate | `agora_visitor_color_preview_control_enabled()`: option **on** **and** `agora_get_color_schemes()` exists (stock Agora or a child that still loads those helpers). Gated on that option only — **not** on the request host. |
+| Markup | Compact six-swatch `<nav class="agora-scheme-preview">` in `site-header__inner` **after** the account indicator (`header.php`). Option off: **no** visitor control markup. |
+| No-JS | Each swatch is a GET link `?agora_scheme={slug}` (`agora_visitor_color_preview_url()`). Host-relative path + query, or query-only. Invalid slugs yield `''`. Full reload is the shipped path; there is **no** Agora JS enhancer. |
+| Current | Resolved slug gets `is-current` and `aria-current="true"`. Light group, then a separator, then dark group. Swatch colors: `agora_get_color_scheme_swatches()` (same catalog as Theme Options). |
+
+**Resolve order** in `agora_get_color_scheme()` (and body-class / `color-scheme` helpers that call it) when the option is **on**:
+
+1. Valid query arg `?agora_scheme={slug}` (refreshes the preview cookie, then used for this request).
+2. Valid preview cookie `agora_scheme`.
+3. Site option `agora_color_scheme`.
+4. `marble`.
+
+When the option is **off**, query and cookie are ignored; the stored site option (then `marble`) wins.
+
+A preview **must not** write `agora_color_scheme`. `agora_get_stored_color_scheme()` ignores query/cookie. Invalid slugs are ignored (same as a missing value).
+
+**Cookie** (`AGORA_COLOR_SCHEME_COOKIE` = `agora_scheme`): path `/`, `SameSite=Lax`, **not** HttpOnly, `Secure` when the request is HTTPS, max-age **30 days** (`AGORA_COLOR_SCHEME_COOKIE_TTL` = `2592000`). Clearing the preview is **not** a shipped control; the next visit without a cookie uses the site default.
+
+**Filter:** `agora_color_scheme` runs on the already-resolved slug (`agora_filter_color_scheme()`). A plugin can inject a preview without a theme fork. Invalid or non-scheme returns keep the resolved slug. The filter **never** writes the site option.
+
+**Not in core**
+
+- A hostname allowlist or product-site-only theme for the swatches  
+- A second “site default vs visitor” setting beyond the checkbox  
+- A dedicated CLI verb (Theme Options is the screen; there is no `php ap-cli theme` preview flag)  
+- A live body-class swap without reload  
+
+### Editor contrast
+
+The visual editor chrome is a **core contract** (`AP_Editor` +
+`ap-includes/css/ap-editor.css`), not an Agora-only restyle. Full table:
+[editor.md](editor.md#contrast-contract).
+
+Dark custom themes set `color-scheme: dark` on `html` or `body` and use light
+text. `.ap-editor` uses `color-scheme: inherit`. Dark chrome also honors
+`html.agora-mode-dark` / `body.agora-mode-dark` and `[data-ap-color-mode=dark]`.
+Isolation stops a theme `button { color: inherit }` from bleaching letter
+labels (`B`, `I`, `Link`).
+
+**Optional `--ap-editor-*` tokens** (unset = page `--ap-*`, then system colors).
+Themes **may** gold-plate these. They are **not** required when the page sets
+`color-scheme: dark` and uses light text.
+
+| Token | Role |
+|-------|------|
+| `--ap-editor-bg` | Toolbar / chrome background (`Canvas`) |
+| `--ap-editor-fg` | Toolbar / chrome / surface text (`CanvasText` / `FieldText`) |
+| `--ap-editor-surface` | Visual surface + textarea background (`Field`) |
+| `--ap-editor-border` | Chrome border |
+| `--ap-on-accent` | Active Visual \| Text chip text (fallback `#fff`) |
+
+Agora’s six schemes still win when present. `body.agora-theme` maps:
+
+```css
+--ap-editor-bg: var(--ap-surface-2);
+--ap-editor-fg: var(--ap-fg);
+--ap-editor-surface: var(--ap-field-bg, var(--ap-card));
+--ap-editor-border: var(--ap-border);
+```
+
+Dark Agora schemes use light accents; `--ap-on-accent` keeps the active Visual \| Text chip readable. Do **not** add site-specific theme CSS to core.
+
 ## Theme Options (ACP)
 
-Appearance → **Theme Options** (`theme-options.php`, cap `edit_theme_options`) is the shared screen for theme settings. Core always provides **Additional CSS**. Themes declare more options with the Settings API (WordPress-compatible names when the Classic WP compatibility layer is loaded). Operator map: [admin.md](admin.md).
+Appearance → **Theme Options** (`theme-options.php`, cap `edit_theme_options`) is the shared screen for theme settings. Core always provides **Additional CSS**. When the active stylesheet is **`agora`**, the same screen also exposes the six color-scheme radios and the **Allow visitors to preview color schemes** checkbox (`agora_visitor_color_preview`). Themes declare more options with the Settings API (WordPress-compatible names when the Classic WP compatibility layer is loaded). Operator map: [admin.md](admin.md).
 
 ### Registration (in `functions.php`)
 
@@ -325,7 +419,7 @@ CLI conversion report for classic WP themes: see [compatibility](compatibility.m
 4. Override hierarchy templates as needed  
 5. Register menus/sidebars if used  
 6. Activate via admin or `php ap-cli theme activate my-theme`  
-7. If supporting dark schemes, define field/surface tokens so form controls stay readable  
+7. For a dark front-end, set `color-scheme: dark` on `html` or `body` and use light text. Optional `--ap-editor-*` tokens gold-plate the visual editor; they are **not** required when `color-scheme` is set. Agora already maps those tokens for its six schemes.  
 
 ## Related docs
 
@@ -336,7 +430,7 @@ CLI conversion report for classic WP themes: see [compatibility](compatibility.m
 | Forum templates / two-pane CSS | [forums.md](forums.md) |
 | Classic WP shim; block/FSE out of scope | [compatibility.md](compatibility.md) |
 | `ap_enqueue_scripts`, `ap_head`, template filters | [hooks.md](hooks.md) |
-| Front-end comment/forum editor styling | [editor.md](editor.md) |
+| Front-end comment/forum editor; `--ap-editor-*` / `color-scheme` | [editor.md](editor.md#contrast-contract) · [tokens](#editor-contrast) |
 | Pretty permalinks / front controller | [rewrites.md](rewrites.md) |
 | Site Icon in `ap_head` | [site-icon.md](site-icon.md) |
 | Plugin zip installer (parallel surface) | [plugins.md](plugins.md) |

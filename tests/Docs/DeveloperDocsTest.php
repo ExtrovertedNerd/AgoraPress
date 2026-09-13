@@ -17,6 +17,24 @@ use PHPUnit\Framework\TestCase;
 #[CoversNothing]
 final class DeveloperDocsTest extends TestCase
 {
+    /**
+     * Persona names, private mail hosts, credential stores, and Addons skins.
+     *
+     * @var list<string>
+     */
+    private const PRIVATE_MARKERS = [
+        'Roland',
+        'stallboy',
+        'mail.0shits.com',
+        '0shits.com',
+        'KeePass',
+        'Stalwart',
+        'Jarvis',
+        'BlindVault',
+        'MensBS',
+        'AgoraPress_Addons',
+    ];
+
     private string $docsRoot;
 
     protected function setUp(): void
@@ -465,6 +483,7 @@ final class DeveloperDocsTest extends TestCase
                 '/(?im)^##\s+REST resources/',
                 '/(?im)^##\s+Admin screens/',
                 '/(?im)^##\s+Default Agora schemes\s*$/',
+                '/(?im)^##\s+Visual editor\s*$/',
                 '/(?im)^##\s+Install and updates\s*$/',
                 '/(?im)^##\s+Rewrites\s*$/',
                 '/(?im)^##\s+Hooks\s*$/',
@@ -755,6 +774,62 @@ final class DeveloperDocsTest extends TestCase
         }
     }
 
+    public function testCatalogCoversDefaultCategoryPreviewAndEditor(): void
+    {
+        $text = $this->readDoc('features_and_functions.md');
+        foreach (
+            [
+                'agora_visitor_color_preview',
+                'Allow visitors to preview color schemes',
+                '?agora_scheme=',
+                'SameSite=Lax',
+                'agora-scheme-preview',
+                'site-header__inner',
+                'agora_get_color_scheme',
+                'agora_get_stored_color_scheme',
+                'agora_filter_color_scheme',
+                'hostname special case',
+                'Set as default',
+                'This is the default category. Set another category as default first.',
+                'ensureDefaultCategory',
+                'sanitizeDefaultCategory',
+                'action=set-default',
+                'set-default-tag-',
+                '<option value="0">',
+                'ap_get_the_category_list',
+                'Posted in , ,',
+                'living category term id',
+                'AP_Editor',
+                '--ap-editor-bg',
+                '--ap-editor-fg',
+                '--ap-editor-surface',
+                '--ap-editor-border',
+                '--ap-on-accent',
+                'color-scheme: inherit',
+                'color-scheme: dark',
+                'Canvas',
+                'CanvasText',
+                'Field',
+                'FieldText',
+                'button { color: inherit }',
+                'data-ap-color-mode',
+                'ap-includes/css/ap-editor.css',
+                'agora-mode-dark',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+                'example.com',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/features_and_functions.md missing: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('features_and_functions.md', $text);
+    }
+
     public function testSiteIconDocCoversFaviconPack(): void
     {
         $text = $this->readDoc('site-icon.md');
@@ -817,6 +892,49 @@ final class DeveloperDocsTest extends TestCase
                 "editor.md should mention: {$needle}"
             );
         }
+    }
+
+    public function testEditorDocCoversContrastContract(): void
+    {
+        $text = $this->readDoc('editor.md');
+        foreach (
+            [
+                'Contrast contract',
+                'color-scheme: inherit',
+                'color-scheme: dark',
+                'agora-mode-dark',
+                'data-ap-color-mode',
+                '--ap-editor-bg',
+                '--ap-editor-fg',
+                '--ap-editor-surface',
+                '--ap-editor-border',
+                '--ap-on-accent',
+                'Canvas',
+                'CanvasText',
+                'Field',
+                'FieldText',
+                'button { color: inherit }',
+                'ap-includes/css/ap-editor.css',
+                'Unicode',
+                'admin.css',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/editor.md must document contrast contract: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('editor.md', $text);
+        $this->assertStringNotContainsStringIgnoringCase(
+            'agorapress.extrovertednerd.com',
+            $text,
+            'docs/editor.md must not hardcode a product hostname'
+        );
     }
 
     public function testVisionComplianceDocCoversPrinciplesAndDeviations(): void
@@ -1111,6 +1229,65 @@ final class DeveloperDocsTest extends TestCase
                 "themes.md should mention: {$needle}"
             );
         }
+    }
+
+    public function testThemesDocCoversSchemesPreviewAndEditor(): void
+    {
+        $text = $this->readDoc('themes.md');
+        foreach (
+            [
+                'marble',
+                'parchment',
+                'cloud',
+                'obsidian',
+                'midnight',
+                'charcoal',
+                'agora_color_scheme',
+                'agora_visitor_color_preview',
+                'Allow visitors to preview color schemes',
+                '?agora_scheme=',
+                'agora_get_color_scheme',
+                'agora_get_stored_color_scheme',
+                'agora_get_color_schemes',
+                'agora-scheme-preview',
+                'site-header__inner',
+                'SameSite=Lax',
+                'color-scheme',
+                'color-scheme: inherit',
+                'color-scheme: dark',
+                '--ap-editor-bg',
+                '--ap-editor-fg',
+                '--ap-editor-surface',
+                '--ap-editor-border',
+                '--ap-on-accent',
+                'Canvas',
+                'CanvasText',
+                'Field',
+                'FieldText',
+                'agora_filter_color_scheme',
+                'hostname special case',
+                'button { color: inherit }',
+                'ap-includes/css/ap-editor.css',
+                'data-ap-color-mode',
+                'agora-mode-dark',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/themes.md must document schemes/preview/editor: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('themes.md', $text);
+        $this->assertStringNotContainsStringIgnoringCase(
+            'agorapress.extrovertednerd.com',
+            $text,
+            'docs/themes.md must not document a product-host gate for scheme preview'
+        );
     }
 
     public function testPluginsDocCoversApi(): void
@@ -1724,6 +1901,12 @@ final class DeveloperDocsTest extends TestCase
                 'Could not complete registration. Please try again.',
                 'Your account was created, but the verification email could not be sent.',
                 'verification_resent',
+                'Set as default',
+                'This is the default category. Set another category as default first.',
+                'default_category',
+                'ensureDefaultCategory',
+                'Default Post Category',
+                'set-default-tag-',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -1760,6 +1943,52 @@ final class DeveloperDocsTest extends TestCase
                 "docs/admin.md must name mail override constant {$const}"
             );
         }
+    }
+
+    public function testAdminDocCoversDefaultCategory(): void
+    {
+        $text = $this->readDoc('admin.md');
+        foreach (
+            [
+                'Set as default',
+                'This is the default category. Set another category as default first.',
+                'default_category',
+                'ensureDefaultCategory',
+                'setDefaultCategory',
+                'sanitizeDefaultCategory',
+                'set-default-tag-',
+                'action=set-default',
+                'Uncategorized',
+                'uncategorized',
+                'Default Post Category',
+                '— Default',
+                'Last remaining',
+                'will move to',
+                'default_category_set',
+                'default_category_delete_blocked',
+                'Default category updated.',
+                'Could not delete the term.',
+                '— Uncategorized / site default —',
+                '<option value="0">',
+                'AP_Admin_Terms',
+                'AP_Taxonomy',
+                'bulk-tags',
+                'options-writing.php',
+                'edit-tags.php',
+                'manage_categories',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/admin.md must document default category: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('admin.md', $text);
     }
 
     public function testForumsDocCoversModuleSurfaces(): void
@@ -2217,6 +2446,12 @@ final class DeveloperDocsTest extends TestCase
                 'stream_socket_client',
                 'check your email',
                 'forum_allow_guest_viewing',
+                'Cannot delete Uncategorized',
+                'Set as default',
+                'This is the default category. Set another category as default first.',
+                'Editor toolbar invisible',
+                'color-scheme: dark',
+                '--ap-editor-bg',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -2268,6 +2503,60 @@ final class DeveloperDocsTest extends TestCase
                 "docs/troubleshooting.md must not contain private marker: {$banned}"
             );
         }
+    }
+
+    public function testTroubleshootingCoversUncategorizedDeleteAndEditorContrast(): void
+    {
+        $text = $this->readDoc('troubleshooting.md');
+        $this->assertMatchesRegularExpression('/(?im)^##\\s+Cannot delete Uncategorized\\s*$/', $text);
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Editor toolbar invisible on a dark theme\\s*$/',
+            $text
+        );
+        foreach (
+            [
+                'Cannot delete Uncategorized',
+                'Set as default',
+                'This is the default category. Set another category as default first.',
+                'Could not delete the term.',
+                'default_category_delete_blocked',
+                'last remaining',
+                'Settings → Writing',
+                'Posts → Categories',
+                '— Uncategorized / site default —',
+                '<option value="0">',
+                'ensureDefaultCategory',
+                'set-default-tag-',
+                'Editor toolbar invisible',
+                'color-scheme: dark',
+                'color-scheme: inherit',
+                '--ap-editor-bg',
+                '--ap-editor-fg',
+                '--ap-editor-surface',
+                'Canvas',
+                'CanvasText',
+                'Field',
+                'FieldText',
+                'button { color: inherit }',
+                'ap-includes/css/ap-editor.css',
+                'AP_Editor',
+                'agora-mode-dark',
+                'data-ap-color-mode',
+                'admin.css',
+                'editor.md',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "troubleshooting.md must document Uncategorized delete / editor contrast: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('troubleshooting.md', $text);
     }
 
     public function testReadmeLinksDeveloperDocs(): void
@@ -2436,5 +2725,16 @@ final class DeveloperDocsTest extends TestCase
         $this->assertNotFalse($contents);
 
         return $contents;
+    }
+
+    private function assertNoPrivateMarkers(string $relative, string $text): void
+    {
+        foreach (self::PRIVATE_MARKERS as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "docs/{$relative} must not contain private marker: {$banned}"
+            );
+        }
     }
 }

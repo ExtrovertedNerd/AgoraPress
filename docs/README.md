@@ -114,7 +114,7 @@ Trusted agents: the same public-safe rule is restated in
 | Plugin headers, MU-plugins, shortcodes, Settings API, zip installer | [plugins.md](plugins.md) |
 | ACP pages (`ap_register_admin_page`) | [plugins.md](plugins.md) · [admin.md](admin.md) |
 | Actions, filters, lifecycle | [hooks.md](hooks.md) |
-| Visual editor contract (no blocks in core) | [editor.md](editor.md) |
+| Visual editor contract (no blocks in core; dark `color-scheme` chrome) | [editor.md](editor.md) |
 | Site icon / favicon pack | [site-icon.md](site-icon.md) |
 | Classic WordPress theme shim (block/FSE out of scope) | [compatibility.md](compatibility.md) |
 | REST registration (`ap_rest_api_init`) | [rest.md](rest.md) · [plugins.md](plugins.md) |
@@ -169,7 +169,7 @@ above.
 | [hooks.md](hooks.md) | Selected actions, filters, priorities, lifecycle (grep core for the rest) |
 | [themes.md](themes.md) | Template files, child themes, Agora defaults, assets, Theme Options |
 | [plugins.md](plugins.md) | Headers, activation, MU-plugins, shortcodes, settings, ACP admin pages, REST registration |
-| [editor.md](editor.md) | Lightweight visual WYSIWYG (no block editor in core) |
+| [editor.md](editor.md) | Lightweight visual WYSIWYG, contrast contract (no block editor in core) |
 | [site-icon.md](site-icon.md) | Favicon pack generation, option, head tags, passive root fallback |
 | [compatibility.md](compatibility.md) | WP shims, hook maps, conversion CLI, limitations |
 | [schema.md](schema.md) | Tables, migrations, prefix, multi-driver notes |

@@ -271,7 +271,19 @@ final class ChangelogTest extends TestCase
 
     public function testChangelogContainsNoPrivateMarkers(): void
     {
-        foreach (['Roland', 'stallboy', 'mail.0shits.com', 'KeePass', 'Stalwart'] as $banned) {
+        foreach (
+            [
+                'Roland',
+                'stallboy',
+                'mail.0shits.com',
+                'KeePass',
+                'Stalwart',
+                'Jarvis',
+                'BlindVault',
+                'MensBS',
+                'AgoraPress_Addons',
+            ] as $banned
+        ) {
             $this->assertStringNotContainsStringIgnoringCase(
                 $banned,
                 $this->changelog,

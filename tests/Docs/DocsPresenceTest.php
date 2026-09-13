@@ -48,6 +48,7 @@ final class DocsPresenceTest extends TestCase
 
     /**
      * Private markers that must not appear in any public docs/*.md file.
+     * Persona names, private mail hosts, credential stores, and Addons skins.
      *
      * @var list<string>
      */
@@ -55,8 +56,58 @@ final class DocsPresenceTest extends TestCase
         'Roland',
         'stallboy',
         'mail.0shits.com',
+        '0shits.com',
         'KeePass',
         'Stalwart',
+        'Jarvis',
+        'BlindVault',
+        'MensBS',
+        'AgoraPress_Addons',
+    ];
+
+    /**
+     * Hosts allowed in public landing docs (RFC 2606 examples, loopback,
+     * already-public product site, public third-party references).
+     *
+     * @var list<string>
+     */
+    private const PUBLIC_SAFE_HOSTS = [
+        'localhost',
+        '127.0.0.1',
+        'example.com',
+        'example.net',
+        'example.org',
+        'smtp.example.com',
+        'your-domain.example',
+        'agorapress.extrovertednerd.com',
+        'github.com',
+        'docs.docker.com',
+        'www.gnu.org',
+        'gnu.org',
+        'keepachangelog.com',
+        'semver.org',
+    ];
+
+    /**
+     * /var/www/ leaves allowed in public docs (shipped Docker / nginx examples).
+     *
+     * @var list<string>
+     */
+    private const PUBLIC_SAFE_VAR_WWW = [
+        'agorapress',
+        'html',
+        'site',
+    ];
+
+    /**
+     * Other-product names. Allowed only in docs/bot_handbook.md as **not in core**.
+     *
+     * @var list<string>
+     */
+    private const OTHER_PRODUCT_MARKERS = [
+        'HaulTN',
+        'Themis',
+        'Logos',
     ];
 
     /**
@@ -79,6 +130,9 @@ final class DocsPresenceTest extends TestCase
         'group_only',
         'This group only',
         'AP_MAIL_TRANSPORT',
+        'agora_visitor_color_preview',
+        '--ap-editor-bg',
+        'Set as default',
     ];
 
     protected function setUp(): void
@@ -468,6 +522,12 @@ final class DocsPresenceTest extends TestCase
                 'AP_SMTP_HOST',
                 'This group only',
                 'register-guard.js',
+                'Set as default',
+                'This is the default category. Set another category as default first.',
+                'default_category',
+                'ensureDefaultCategory',
+                'set-default-tag-',
+                'Default Post Category',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -828,6 +888,101 @@ final class DocsPresenceTest extends TestCase
         }
     }
 
+    /**
+     * SPEC: public landing files use generic hosts/mailboxes only. No private
+     * hosts, persona mailboxes, live fleet inventory, or Addons skins.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function publicSafeLandingFileProvider(): array
+    {
+        $root = dirname(__DIR__, 2);
+        $out = [];
+        $docs = glob($root . '/docs/*.md') ?: [];
+        sort($docs, SORT_STRING);
+        foreach ($docs as $path) {
+            $rel = 'docs/' . basename($path);
+            $out[$rel] = [$rel];
+        }
+        foreach (['README.md', 'CHANGELOG.md', 'ap-config-sample.php'] as $rel) {
+            $out[$rel] = [$rel];
+        }
+
+        return $out;
+    }
+
+    #[DataProvider('publicSafeLandingFileProvider')]
+    public function testPublicLandingFileStaysPublicSafe(string $relative): void
+    {
+        $path = $this->root . '/' . $relative;
+        $this->assertFileIsReadable($path, "Missing public file: {$relative}");
+        $text = (string) file_get_contents($path);
+        $this->assertDocumentIsPublicSafe($relative, $text);
+    }
+
+    /**
+     * Phase 6 charter guides must restate the public-safe rule (generic
+     * examples only; no private hosts, persona mailboxes, or fleet inventory).
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function charterPublicSafeGuideProvider(): array
+    {
+        return [
+            'admin' => ['admin.md'],
+            'themes' => ['themes.md'],
+            'editor' => ['editor.md'],
+            'troubleshooting' => ['troubleshooting.md'],
+            'catalog' => ['features_and_functions.md'],
+        ];
+    }
+
+    #[DataProvider('charterPublicSafeGuideProvider')]
+    public function testCharterGuideStatesPublicSafeRule(string $relative): void
+    {
+        $text = $this->readDoc($relative);
+        $this->assertDocumentIsPublicSafe('docs/' . $relative, $text);
+        $lower = strtolower($text);
+        $this->assertTrue(
+            str_contains($lower, 'private host'),
+            "docs/{$relative} should forbid private hosts"
+        );
+        $this->assertTrue(
+            str_contains($lower, 'persona mailbox'),
+            "docs/{$relative} should forbid persona mailboxes"
+        );
+        $this->assertTrue(
+            str_contains($lower, 'fleet inventory'),
+            "docs/{$relative} should forbid live fleet inventory"
+        );
+        $this->assertStringContainsString(
+            'example.com',
+            $text,
+            "docs/{$relative} should use generic example.com"
+        );
+    }
+
+    public function testDocsIndexAndHandbookStateFleetAndPersonaRule(): void
+    {
+        foreach (['docs/README.md', 'docs/bot_handbook.md'] as $relative) {
+            $path = $this->root . '/' . $relative;
+            $this->assertFileIsReadable($path, "Missing {$relative}");
+            $text = (string) file_get_contents($path);
+            $lower = strtolower($text);
+            $this->assertTrue(
+                str_contains($lower, 'persona'),
+                "{$relative} should mention persona mailboxes as forbidden"
+            );
+            $this->assertTrue(
+                str_contains($lower, 'inventory') || str_contains($lower, 'fleet'),
+                "{$relative} should mention live-site / fleet inventory as forbidden"
+            );
+            $this->assertStringContainsStringIgnoringCase('private host', $text);
+            $this->assertStringContainsString('example.com', $text);
+            $this->assertStringContainsString('admin@example.com', $text);
+        }
+    }
+
     public function testNoParallelDocsIndex(): void
     {
         $this->assertFileDoesNotExist(
@@ -1086,5 +1241,97 @@ final class DocsPresenceTest extends TestCase
         $this->assertNotFalse($contents);
 
         return $contents;
+    }
+
+    private function assertDocumentIsPublicSafe(string $relative, string $text): void
+    {
+        foreach (self::PRIVATE_MARKERS as $banned) {
+            $this->assertStringNotContainsStringIgnoringCase(
+                $banned,
+                $text,
+                "{$relative} must not contain private marker: {$banned}"
+            );
+        }
+
+        if ($relative !== 'docs/bot_handbook.md') {
+            foreach (self::OTHER_PRODUCT_MARKERS as $banned) {
+                $this->assertStringNotContainsStringIgnoringCase(
+                    $banned,
+                    $text,
+                    "{$relative} must not name other-product {$banned} (not in core)"
+                );
+            }
+        }
+
+        preg_match_all('/[a-z0-9.-]*extrovertednerd\.com/i', $text, $orgHits);
+        foreach ($orgHits[0] as $hit) {
+            $this->assertSame(
+                'agorapress.extrovertednerd.com',
+                strtolower($hit),
+                "{$relative} may name only the public product host, not fleet inventory ({$hit})"
+            );
+        }
+
+        preg_match_all('/[A-Z0-9._%+\-]+@([A-Z0-9.\-]+\.[A-Z]{2,})/i', $text, $mailHits);
+        foreach ($mailHits[1] as $domain) {
+            $domain = strtolower($domain);
+            $this->assertTrue(
+                $this->isAllowedExampleMailboxDomain($domain),
+                "{$relative} mailbox must be @example.com (or .net/.org), got @{$domain}"
+            );
+        }
+
+        preg_match_all('~https?://([a-zA-Z0-9.-]+)~i', $text, $urlHits);
+        foreach ($urlHits[1] as $host) {
+            $host = strtolower($host);
+            if ($host === '' || str_contains($host, '…') || str_contains($host, '...')) {
+                continue;
+            }
+            $this->assertTrue(
+                $this->isAllowedPublicHost($host),
+                "{$relative} must not name private host {$host}"
+            );
+        }
+
+        preg_match_all('#(?<![A-Za-z0-9])/(home|root|srv|opt|etc)/[^\s`\'")\]]+#', $text, $pathHits);
+        $this->assertSame(
+            [],
+            $pathHits[0],
+            "{$relative} must not document private host paths"
+        );
+
+        preg_match_all('#/var/www/([A-Za-z0-9._-]*)#', $text, $wwwHits);
+        foreach ($wwwHits[1] as $leaf) {
+            $this->assertContains(
+                $leaf,
+                self::PUBLIC_SAFE_VAR_WWW,
+                "{$relative} /var/www/{$leaf} is not a shipped generic example"
+            );
+        }
+    }
+
+    private function isAllowedExampleMailboxDomain(string $domain): bool
+    {
+        foreach (['example.com', 'example.net', 'example.org'] as $root) {
+            if ($domain === $root || str_ends_with($domain, '.' . $root)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isAllowedPublicHost(string $host): bool
+    {
+        if (in_array($host, self::PUBLIC_SAFE_HOSTS, true)) {
+            return true;
+        }
+        foreach (['.example.com', '.example.net', '.example.org'] as $suffix) {
+            if (str_ends_with($host, $suffix) && strlen($host) > strlen($suffix)) {
+                return true;
+            }
+        }
+
+        return preg_match('/^(?:[a-z0-9-]+\.)+example$/', $host) === 1;
     }
 }
