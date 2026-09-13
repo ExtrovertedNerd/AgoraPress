@@ -295,6 +295,28 @@ def test_visitor_preview_has_no_product_hostname_and_no_theme_fork() -> None:
     assert not re.search(r"^Template:", css, flags=re.M)
 
 
+def test_visitor_preview_phpunit_cases() -> None:
+    """off → no control; on + query applies midnight without changing the option;
+    invalid slug ignored; cookie wins over site option."""
+    src = (ROOT / "tests" / "Theme" / "AgoraThemeTest.php").read_text(encoding="utf-8")
+    for needle in (
+        "function testVisitorPreviewControlAbsentByDefault",
+        "function testVisitorPreviewControlAbsentWhenOptionOff",
+        "function testVisitorPreviewQueryAppliesMidnightWithoutWritingOption",
+        "function testRenderAppliesPreviewQueryWithoutChangingStoredScheme",
+        "function testInvalidPreviewSlugIgnoredThenOptionThenMarble",
+        "function testVisitorPreviewInvalidSlugIgnoredOnRenderedPage",
+        "function testPreviewCookieWinsOverSiteOption",
+        "function testVisitorPreviewCookieWinsOverSiteOptionOnRenderedPage",
+        "agora-scheme-preview",
+        "agora-scheme-midnight",
+        "neon-disco",
+        "agora-scheme-obsidian",
+        "AGORA_COLOR_SCHEME_OPTION",
+    ):
+        assert needle in src, f"Expected {needle!r} in AgoraThemeTest.php"
+
+
 def test_footer_powered_by_agorapress_is_linked() -> None:
     """“Powered by AgoraPress” credits the project site with a link on AgoraPress.
 
@@ -584,6 +606,35 @@ def test_color_scheme_and_forum_runtime_via_php() -> None:
         "if (str_contains($html, 'agora-scheme-preview') || str_contains($html, 'agora_scheme=')) {\n"
         "  fwrite(STDERR,\"render control off\\n\"); exit(1);\n"
         "}\n"
+        "// Option on: query midnight applies without writing agora_color_scheme.\n"
+        "agora_set_visitor_color_preview(true, $db);\n"
+        "agora_set_color_scheme('parchment', $db);\n"
+        "unset($_GET[AGORA_COLOR_SCHEME_QUERY], $_COOKIE[AGORA_COLOR_SCHEME_COOKIE]);\n"
+        "$_GET[AGORA_COLOR_SCHEME_QUERY] = 'midnight';\n"
+        "ob_start(); AP_Theme::render($q, $db); $onhtml = ob_get_clean();\n"
+        "if (!str_contains($onhtml, 'agora-scheme-preview') || !str_contains($onhtml, 'agora-scheme-midnight')) {\n"
+        "  fwrite(STDERR,\"render midnight\\n\"); exit(1);\n"
+        "}\n"
+        "if (str_contains($onhtml, 'agora-scheme-parchment')) { fwrite(STDERR,\"render midnight parchment\\n\"); exit(1); }\n"
+        "if (agora_get_stored_color_scheme($db) !== 'parchment') { fwrite(STDERR,\"render midnight wrote\\n\"); exit(1); }\n"
+        "// Invalid slug ignored (falls through to site option).\n"
+        "unset($_GET[AGORA_COLOR_SCHEME_QUERY], $_COOKIE[AGORA_COLOR_SCHEME_COOKIE]);\n"
+        "$_GET[AGORA_COLOR_SCHEME_QUERY] = 'neon-disco';\n"
+        "ob_start(); AP_Theme::render($q, $db); $inv = ob_get_clean();\n"
+        "if (!str_contains($inv, 'agora-scheme-parchment') || str_contains($inv, 'agora-scheme-neon-disco')) {\n"
+        "  fwrite(STDERR,\"render invalid\\n\"); exit(1);\n"
+        "}\n"
+        "if (agora_get_stored_color_scheme($db) !== 'parchment') { fwrite(STDERR,\"invalid wrote\\n\"); exit(1); }\n"
+        "// Cookie wins over the site option.\n"
+        "unset($_GET[AGORA_COLOR_SCHEME_QUERY]);\n"
+        "$_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = 'obsidian';\n"
+        "ob_start(); AP_Theme::render($q, $db); $ck = ob_get_clean();\n"
+        "if (!str_contains($ck, 'agora-scheme-obsidian') || str_contains($ck, 'agora-scheme-parchment')) {\n"
+        "  fwrite(STDERR,\"render cookie\\n\"); exit(1);\n"
+        "}\n"
+        "if (agora_get_stored_color_scheme($db) !== 'parchment') { fwrite(STDERR,\"cookie wrote\\n\"); exit(1); }\n"
+        "agora_set_visitor_color_preview(false, $db);\n"
+        "unset($_GET[AGORA_COLOR_SCHEME_QUERY], $_COOKIE[AGORA_COLOR_SCHEME_COOKIE]);\n"
         "// Forum hierarchy + empty index render\n"
         "$fq = new AP_Query(['ap_forum_view'=>'index','post_type'=>'post','posts_per_page'=>1], $db);\n"
         "$GLOBALS['ap_query'] = $fq;\n"

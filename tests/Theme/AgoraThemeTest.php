@@ -771,6 +771,61 @@ final class AgoraThemeTest extends TestCase
         $this->assertSame('cloud', $this->storedColorSchemeValue());
     }
 
+    public function testVisitorPreviewInvalidSlugIgnoredOnRenderedPage(): void
+    {
+        $this->assertTrue(agora_set_color_scheme('parchment', $this->db));
+        $this->assertTrue(agora_set_visitor_color_preview(true, $this->db));
+        $_GET[AGORA_COLOR_SCHEME_QUERY] = 'neon-disco';
+
+        $html = $this->renderPublicHome();
+        $this->assertStringContainsString('agora-scheme-preview', $html);
+        $this->assertStringContainsString('agora-scheme-parchment', $html);
+        $this->assertStringContainsString('agora-mode-light', $html);
+        $this->assertStringContainsString('agora-scheme-preview__swatch--parchment is-current', $html);
+        $this->assertStringNotContainsString('agora-scheme-neon-disco', $html);
+        $this->assertStringNotContainsString('agora-scheme-midnight', $html);
+        $this->assertSame('parchment', agora_get_color_scheme($this->db));
+        $this->assertSame('parchment', agora_get_stored_color_scheme($this->db));
+        $this->assertSame('parchment', $this->storedColorSchemeValue());
+
+        $this->clearColorSchemePreviewRequest();
+        $_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = 'not-a-scheme';
+        $htmlCookie = $this->renderPublicHome();
+        $this->assertStringContainsString('agora-scheme-parchment', $htmlCookie);
+        $this->assertStringNotContainsString('agora-scheme-not-a-scheme', $htmlCookie);
+        $this->assertSame('parchment', $this->storedColorSchemeValue());
+
+        $this->clearColorSchemePreviewRequest();
+        $_GET[AGORA_COLOR_SCHEME_QUERY] = '../evil';
+        $_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = 'midnight';
+        $htmlFallback = $this->renderPublicHome();
+        $this->assertStringContainsString('agora-scheme-midnight', $htmlFallback);
+        $this->assertStringContainsString('agora-mode-dark', $htmlFallback);
+        $this->assertStringContainsString('agora-scheme-preview__swatch--midnight is-current', $htmlFallback);
+        $this->assertStringNotContainsString('agora-scheme-parchment', $htmlFallback);
+        $this->assertStringNotContainsString('agora-scheme-evil', $htmlFallback);
+        $this->assertSame('midnight', $_COOKIE[AGORA_COLOR_SCHEME_COOKIE]);
+        $this->assertSame('parchment', $this->storedColorSchemeValue());
+    }
+
+    public function testVisitorPreviewCookieWinsOverSiteOptionOnRenderedPage(): void
+    {
+        $this->assertTrue(agora_set_color_scheme('parchment', $this->db));
+        $this->assertTrue(agora_set_visitor_color_preview(true, $this->db));
+        $_COOKIE[AGORA_COLOR_SCHEME_COOKIE] = 'obsidian';
+
+        $html = $this->renderPublicHome();
+        $this->assertStringContainsString('agora-scheme-preview', $html);
+        $this->assertStringContainsString('agora-scheme-obsidian', $html);
+        $this->assertStringContainsString('agora-mode-dark', $html);
+        $this->assertStringContainsString('agora-scheme-preview__swatch--obsidian is-current', $html);
+        $this->assertStringNotContainsString('agora-scheme-parchment', $html);
+        $this->assertSame('obsidian', agora_get_color_scheme($this->db));
+        $this->assertSame('parchment', agora_get_stored_color_scheme($this->db));
+        $this->assertSame('parchment', $this->storedColorSchemeValue());
+        $this->assertSame('obsidian', $_COOKIE[AGORA_COLOR_SCHEME_COOKIE]);
+    }
+
     public function testVisitorPreviewUrlIsGetLinkWithoutHostname(): void
     {
         $prevUri = $_SERVER['REQUEST_URI'] ?? null;
