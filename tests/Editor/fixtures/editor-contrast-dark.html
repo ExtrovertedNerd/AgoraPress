@@ -5,8 +5,20 @@
   <title>AP_Editor contrast fixture (dark, no Agora)</title>
   <!--
     Custom dark theme that only sets color-scheme + light page text.
-    No Agora stylesheet, no core design tokens, no Agora body mode class.
+    No Agora stylesheet, no --ap-* tokens, no Agora body mode class.
     Theme `button { color: inherit }` is the bleach failure mode.
+
+    Computed token contract (empty extra map → last-resort system colors):
+      --ap-editor-chrome-bg → Canvas
+      --ap-editor-chrome-fg → CanvasText
+      toolbar background / button labels = that matched pair
+    color-scheme: inherit on .ap-editor follows html/body dark, so
+    Canvas is dark and CanvasText is light. Readable toolbar contrast
+    does not require Agora or --ap-editor-* gold-plating.
+
+    Follow-on (not core): Addons skins that still force a light toolbar
+    hex (or omit color-scheme) need theme CSS. Do not add named-theme
+    rules to ap-editor.css.
   -->
   <style>
     html, body {
@@ -20,7 +32,11 @@
 </head>
 <body>
   <form>
-    <div class="ap-editor ap-editor--visual" data-ap-editor-wrap>
+    <div
+      class="ap-editor ap-editor--visual"
+      data-ap-editor-wrap
+      data-ap-editor-contrast-fixture="dark-no-agora"
+    >
       <div class="ap-editor__toolbar" role="toolbar" aria-label="Formatting (Visual)">
         <button type="button" class="ap-editor__btn ap-editor__btn--weight">B</button>
         <button type="button" class="ap-editor__btn ap-editor__btn--em">I</button>

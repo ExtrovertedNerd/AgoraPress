@@ -148,6 +148,107 @@ def test_style_css_polish_responsive_accessible_forum() -> None:
         assert f"agora-scheme-{slug}" in css
 
 
+def _hex_luminance(hex_color: str) -> float:
+    raw = hex_color.lstrip("#")
+    if len(raw) == 3:
+        raw = "".join(ch * 2 for ch in raw)
+    channels = [int(raw[i : i + 2], 16) / 255.0 for i in (0, 2, 4)]
+    out = []
+    for channel in channels:
+        if channel <= 0.04045:
+            out.append(channel / 12.92)
+        else:
+            out.append(((channel + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2]
+
+
+def _contrast(a: str, b: str) -> float:
+    hi, lo = sorted((_hex_luminance(a), _hex_luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _scheme_block(css: str, slug: str) -> str:
+    match = re.search(
+        rf"body\.agora-scheme-{re.escape(slug)}\s*\{{([^{{}}]+)\}}",
+        css,
+    )
+    assert match, f"missing body.agora-scheme-{slug} block"
+    return match.group(1)
+
+
+def _hex_var(block: str, name: str, slug: str) -> str:
+    match = re.search(rf"{re.escape(name)}\s*:\s*(#[0-9a-fA-F]{{3,8}})\s*;", block)
+    assert match, f"{slug} missing {name}"
+    return match.group(1)
+
+
+def test_six_schemes_keep_editor_contrast_without_addons() -> None:
+    """Agora scheme tokens still win for editor chrome; do not patch Addons themes."""
+    css = STYLE.read_text(encoding="utf-8")
+    editor = (ROOT / "ap-includes" / "css" / "ap-editor.css").read_text(encoding="utf-8")
+    gallery = (
+        ROOT / "tests" / "Editor" / "fixtures" / "agora-six-schemes-editor.html"
+    ).read_text(encoding="utf-8")
+    frame = (
+        ROOT / "tests" / "Editor" / "fixtures" / "agora-scheme-editor.html"
+    ).read_text(encoding="utf-8")
+
+    assert "AgoraPress_Addons" not in css
+    assert "AgoraPress_Addons" not in editor
+    for skin in ("Jarvis", "BlindVault", "MensBS"):
+        assert skin not in css
+        assert skin not in editor
+    assert "--ap-editor-bg: var(--ap-surface-2)" in css
+    assert "--ap-editor-fg: var(--ap-fg)" in css
+    assert "--ap-editor-surface: var(--ap-field-bg, var(--ap-card))" in css
+    assert "--ap-editor-border: var(--ap-border)" in css
+    assert re.search(
+        r"body\.agora-theme\s+\.ap-editor button\.ap-editor__mode-btn\.is-active\s*"
+        r"\{[^}]*color:\s*var\(--ap-on-accent,\s*#fff\)",
+        css,
+    )
+    assert re.search(
+        r"\.ap-editor button\.ap-editor__mode-btn\.is-active\s*\{[^}]*"
+        r"color:\s*var\(--ap-on-accent,\s*#fff\)",
+        editor,
+    )
+    assert re.search(r"--ap-editor-chrome-fg:\s*var\(--ap-editor-fg,.*--ap-fg", editor)
+
+    modes = {
+        "marble": "light",
+        "parchment": "light",
+        "cloud": "light",
+        "obsidian": "dark",
+        "midnight": "dark",
+        "charcoal": "dark",
+    }
+    for slug, mode in modes.items():
+        block = _scheme_block(css, slug)
+        assert f"color-scheme: {mode}" in block
+        fg = _hex_var(block, "--ap-fg", slug)
+        field = _hex_var(block, "--ap-field-bg", slug)
+        code = _hex_var(block, "--ap-code-bg", slug)
+        accent = _hex_var(block, "--ap-accent", slug)
+        on_accent = _hex_var(block, "--ap-on-accent", slug)
+        assert _contrast(fg, field) >= 4.5, f"{slug} surface contrast"
+        assert _contrast(fg, code) >= 4.5, f"{slug} toolbar contrast"
+        assert _contrast(on_accent, accent) >= 4.5, f"{slug} active chip contrast"
+        if mode == "dark":
+            assert _contrast("#ffffff", accent) < 4.5, (
+                f"{slug} light accent cannot use white chip text"
+            )
+
+    assert "ap-editor.css" in frame
+    assert "themes/agora/style.css" in frame
+    assert "ap-comment-form" in frame
+    assert 'name="color-scheme"' in frame
+    assert "data-agora-scheme-mode" in frame
+    assert "AgoraPress_Addons" not in gallery + frame
+    for slug in SCHEMES:
+        assert f"agora-scheme-{slug}" in gallery
+        assert f"scheme={slug}" in gallery
+
+
 def test_functions_define_scheme_and_forum_api() -> None:
     src = FUNCTIONS.read_text(encoding="utf-8")
     for needle in (

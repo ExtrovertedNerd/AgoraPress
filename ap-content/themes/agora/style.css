@@ -236,6 +236,7 @@ body.agora-scheme-charcoal {
  * Editor / form token aliases used by ap-editor.css and form controls.
  * Maps scheme tokens so comment/forum fields stay readable in dark modes
  * (avoids light #fff fallbacks when --ap-surface is undefined).
+ * --ap-editor-* lets Agora's six schemes win over Canvas/Field fallbacks.
  */
 body.agora-theme {
   --ap-surface: var(--ap-field-bg, var(--ap-card));
@@ -245,6 +246,10 @@ body.agora-theme {
   --ap-text-muted: var(--ap-muted);
   --ap-primary: var(--ap-accent);
   --ap-border-strong: var(--ap-border);
+  --ap-editor-bg: var(--ap-surface-2);
+  --ap-editor-fg: var(--ap-fg);
+  --ap-editor-surface: var(--ap-field-bg, var(--ap-card));
+  --ap-editor-border: var(--ap-border);
 }
 
 /* --------------------------------------------------------------------------
@@ -1429,6 +1434,11 @@ iframe {
   background: var(--ap-field-bg, var(--ap-bg-accent));
   border-color: var(--ap-border);
   color: var(--ap-fg);
+}
+
+/* Dark-scheme accents are light; white chip text fails. Scheme --ap-on-accent wins. */
+body.agora-theme .ap-editor button.ap-editor__mode-btn.is-active {
+  color: var(--ap-on-accent, #fff);
 }
 
 /* Autofill must not force a light white box over dark schemes */

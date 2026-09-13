@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" data-agora-scheme-mode="light">
+<head>
+  <meta charset="utf-8">
+  <title>Agora scheme × AP_Editor</title>
+  <!--
+    One Agora color scheme + core ap-editor.css. No Addons themes
+    (Jarvis, BlindVault, MensBS, …). Mirrors production: scheme tokens
+    on body.agora-scheme-{slug}, agora-mode-* on <body>, color-scheme
+    meta + data-agora-scheme-mode on <html>.
+    Parent gallery (agora-six-schemes-editor.html) loads this in iframes
+    with ?scheme=marble|parchment|cloud|obsidian|midnight|charcoal.
+    No-JS fallback is marble / light.
+  -->
+  <meta name="color-scheme" content="light">
+  <link rel="stylesheet" href="../../../ap-includes/css/ap-editor.css">
+  <link rel="stylesheet" href="../../../ap-content/themes/agora/style.css">
+  <style>
+    html, body { margin: 0; }
+    main { padding: 1rem; }
+    h1 { font-size: 1rem; margin: 0 0 0.75rem; }
+  </style>
+</head>
+<body class="agora-theme agora-scheme-marble agora-mode-light">
+  <main>
+  <h1 id="scheme-label">Marble</h1>
+  <form class="ap-comment-form">
+    <div class="ap-editor ap-editor--visual" data-ap-editor-wrap>
+      <div class="ap-editor__toolbar" role="toolbar" aria-label="Formatting (Visual)">
+        <button type="button" class="ap-editor__btn ap-editor__btn--weight">B</button>
+        <button type="button" class="ap-editor__btn ap-editor__btn--em">I</button>
+        <button type="button" class="ap-editor__btn">Link</button>
+        <button type="button" class="ap-editor__btn ap-editor__btn--emoji">😀</button>
+        <span class="ap-editor__mode-switch" data-ap-editor-mode-switch>
+          <button type="button" class="ap-editor__mode-btn is-active">Visual</button>
+          <button type="button" class="ap-editor__mode-btn">Text</button>
+        </span>
+      </div>
+      <div class="ap-editor__surface" data-ap-editor-surface>Hello from Agora.</div>
+    </div>
+  </form>
+  </main>
+  <script>
+    (function () {
+      var modes = {
+        marble: 'light',
+        parchment: 'light',
+        cloud: 'light',
+        obsidian: 'dark',
+        midnight: 'dark',
+        charcoal: 'dark'
+      };
+      var labels = {
+        marble: 'Marble',
+        parchment: 'Parchment',
+        cloud: 'Cloud',
+        obsidian: 'Obsidian',
+        midnight: 'Midnight',
+        charcoal: 'Charcoal'
+      };
+      var slug = 'marble';
+      try {
+        slug = new URLSearchParams(window.location.search).get('scheme') || 'marble';
+      } catch (e) {
+        slug = 'marble';
+      }
+      if (!Object.prototype.hasOwnProperty.call(modes, slug)) {
+        slug = 'marble';
+      }
+      var mode = modes[slug];
+      document.body.className = 'agora-theme agora-scheme-' + slug + ' agora-mode-' + mode;
+      document.documentElement.setAttribute('data-agora-scheme-mode', mode);
+      var meta = document.querySelector('meta[name="color-scheme"]');
+      if (meta) {
+        meta.setAttribute('content', mode);
+      }
+      var heading = document.getElementById('scheme-label');
+      if (heading) {
+        heading.textContent = labels[slug] + ' (' + mode + ')';
+      }
+    })();
+  </script>
+</body>
+</html>

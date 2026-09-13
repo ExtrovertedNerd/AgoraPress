@@ -334,6 +334,69 @@ final class EditorTest extends TestCase
         $this->assertStringContainsString('--ap-editor-fg', $header);
         $this->assertStringContainsString('--ap-editor-border', $header);
         $this->assertStringContainsString('--ap-editor-surface', $header);
+        $this->assertStringContainsString('--ap-on-accent', $header);
+    }
+
+    public function testCssPairsToolbarSurfaceAndButtons(): void
+    {
+        $css = $this->editorCss();
+        $this->assertLessThanOrEqual(
+            AP_Editor::MAX_CSS_BYTES,
+            (int) filesize($this->root . '/ap-includes/css/ap-editor.css'),
+            'pairing fallbacks must stay inside AP_Editor::MAX_CSS_BYTES'
+        );
+
+        $wrap = $this->firstCssBlock($css, '.ap-editor');
+        $toolbar = $this->firstCssBlock($css, '.ap-editor__toolbar');
+        $surface = $this->firstCssBlock($css, '.ap-editor__surface');
+        $textarea = $this->firstCssBlock($css, '.ap-editor__textarea');
+        $modeSwitch = $this->firstCssBlock($css, '.ap-editor__mode-switch');
+        $picker = $this->firstCssBlock($css, '.ap-editor__emoji-picker');
+        $btn = $this->firstCssBlock($css, '.ap-editor__btn');
+        $modeBtn = $this->firstCssBlock($css, '.ap-editor__mode-btn');
+        $emojiBtn = $this->firstCssBlock($css, '.ap-editor__emoji-btn');
+        $emojiClose = $this->firstCssBlock($css, '.ap-editor__emoji-close');
+
+        $this->assertMatchesRegularExpression(
+            '/--ap-editor-chrome-bg:\s*var\(--ap-editor-bg,.*Canvas\)/',
+            $wrap
+        );
+        $this->assertMatchesRegularExpression(
+            '/--ap-editor-chrome-fg:\s*var\(--ap-editor-fg,.*CanvasText\)/',
+            $wrap
+        );
+        $this->assertMatchesRegularExpression(
+            '/--ap-editor-field-bg:\s*var\(--ap-editor-surface,.*Field\)/',
+            $wrap
+        );
+        $this->assertMatchesRegularExpression(
+            '/--ap-editor-field-fg:\s*var\(--ap-editor-fg,.*FieldText\)/',
+            $wrap
+        );
+        $this->assertMatchesRegularExpression(
+            '/--ap-editor-line:\s*var\(--ap-editor-border,.*currentColor/',
+            $wrap
+        );
+
+        $this->assertStringContainsString('background: var(--ap-editor-chrome-bg, Canvas)', $toolbar);
+        $this->assertStringContainsString('color: var(--ap-editor-chrome-fg, CanvasText)', $toolbar);
+        $this->assertStringContainsString('background: var(--ap-editor-field-bg, Field)', $surface);
+        $this->assertStringContainsString('color: var(--ap-editor-field-fg, FieldText)', $surface);
+        $this->assertStringContainsString('background: var(--ap-editor-field-bg, Field)', $textarea);
+        $this->assertStringContainsString('color: var(--ap-editor-field-fg, FieldText)', $textarea);
+        $this->assertStringContainsString('background: var(--ap-editor-field-bg, Field)', $modeSwitch);
+        $this->assertStringContainsString('color: var(--ap-editor-field-fg, FieldText)', $modeSwitch);
+        $this->assertStringContainsString('background: var(--ap-editor-field-bg, Field)', $picker);
+        $this->assertStringContainsString('color: var(--ap-editor-field-fg, FieldText)', $picker);
+
+        foreach ([$btn, $modeBtn, $emojiBtn, $emojiClose] as $control) {
+            $this->assertStringContainsString('background: transparent', $control);
+            $this->assertStringContainsString('color: currentColor', $control);
+        }
+
+        $active = $this->firstCssBlock($css, '.ap-editor__mode-btn.is-active');
+        $this->assertStringContainsString('background: var(--ap-primary, #1a5fb4)', $active);
+        $this->assertStringContainsString('color: var(--ap-on-accent, #fff)', $active);
     }
 
     public function testCssDarkChromeDoesNotDependOnlyOnAgoraOrApTokens(): void
@@ -362,14 +425,15 @@ final class EditorTest extends TestCase
             $wrap
         );
 
-        $this->assertStringContainsString('background: var(--ap-editor-chrome-bg)', $toolbar);
-        $this->assertStringContainsString('color: var(--ap-editor-chrome-fg)', $toolbar);
+        $this->assertStringContainsString('background: var(--ap-editor-chrome-bg, Canvas)', $toolbar);
+        $this->assertStringContainsString('color: var(--ap-editor-chrome-fg, CanvasText)', $toolbar);
+        $this->assertStringContainsString('color-scheme: inherit', $toolbar);
         $this->assertStringNotContainsString('#eef0f3', $toolbar);
         $this->assertStringNotContainsString('#fff', $toolbar);
         $this->assertStringNotContainsString('#1a1a1a', $toolbar);
 
-        $this->assertStringContainsString('background: var(--ap-editor-field-bg)', $surface);
-        $this->assertStringContainsString('color: var(--ap-editor-field-fg)', $surface);
+        $this->assertStringContainsString('background: var(--ap-editor-field-bg, Field)', $surface);
+        $this->assertStringContainsString('color: var(--ap-editor-field-fg, FieldText)', $surface);
         $this->assertStringContainsString('color-scheme: inherit', $surface);
 
         // Inherit + system colors live on .ap-editor itself. Agora dark is an
@@ -386,7 +450,7 @@ final class EditorTest extends TestCase
         $this->assertStringContainsString('Field', $strippedWrap);
         $this->assertStringContainsString('FieldText', $strippedWrap);
         $this->assertStringContainsString(
-            'background: var(--ap-editor-chrome-bg)',
+            'background: var(--ap-editor-chrome-bg, Canvas)',
             $this->firstCssBlock($stripped, '.ap-editor__toolbar')
         );
         $this->assertDoesNotMatchRegularExpression(
@@ -395,7 +459,7 @@ final class EditorTest extends TestCase
         );
     }
 
-    public function testCssIsolatesButtonsWithCurrentColor(): void
+    public function testCssIsolatesButtonsFromThemeInherit(): void
     {
         $css = $this->editorCss();
         $btn = $this->firstCssBlock($css, '.ap-editor__btn');
@@ -418,51 +482,218 @@ final class EditorTest extends TestCase
             '.ap-editor button.ap-editor__emoji-close',
             $css
         );
+        $this->assertStringContainsString('.ap-editor .ap-editor__toolbar', $css);
+
+        // Isolation must not use inherit/currentColor — those re-open page text.
         $this->assertMatchesRegularExpression(
-            '/\.ap-editor button\.ap-editor__btn\s*,[\s\S]*?\{\s*color:\s*currentColor/',
+            '/\.ap-editor button\.ap-editor__btn\s*\{[^}]*color:\s*var\(--ap-editor-chrome-fg/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.ap-editor button\.ap-editor__mode-btn\s*,[\s\S]*?\{\s*color:\s*var\(--ap-editor-field-fg/',
+            $css
+        );
+        $isolate = $this->ruleContaining($css, '.ap-editor button.ap-editor__btn');
+        $this->assertStringContainsString('--ap-editor-chrome-fg', $isolate);
+        $this->assertStringContainsString('CanvasText', $isolate);
+        $this->assertStringNotContainsString('currentColor', $isolate);
+        $this->assertStringNotContainsString('inherit', $isolate);
+        $fieldIsolate = $this->ruleContaining($css, '.ap-editor button.ap-editor__mode-btn');
+        $this->assertStringContainsString('--ap-editor-field-fg', $fieldIsolate);
+        $this->assertStringContainsString('FieldText', $fieldIsolate);
+        $this->assertStringNotContainsString('currentColor', $fieldIsolate);
+        $this->assertStringNotContainsString('inherit', $fieldIsolate);
+
+        // Isolation (0,2,1) would override .ap-editor__mode-btn.is-active (0,2,0).
+        // Agora dark schemes remap --ap-primary to a light accent; --ap-on-accent
+        // keeps the chip readable, with #fff for themes that do not set it.
+        $this->assertMatchesRegularExpression(
+            '/\.ap-editor button\.ap-editor__mode-btn\.is-active\s*\{[^}]*'
+            . 'color:\s*var\(--ap-on-accent,\s*#fff\)/',
             $css
         );
     }
 
-    public function testCssHonorsAgoraDarkModeAndAdminColorModeHosts(): void
+    public function testInheritBleachFixtureLocksChromeForeground(): void
+    {
+        $path = $this->root . '/tests/Editor/fixtures/editor-button-inherit-light-toolbar.html';
+        $this->assertFileIsReadable($path);
+        $html = (string) file_get_contents($path);
+
+        $this->assertStringContainsString('button { color: inherit; }', $html);
+        $this->assertStringContainsString('.ap-editor__toolbar { color: inherit; }', $html);
+        $this->assertStringContainsString('color: #e8eaed', $html);
+        $this->assertStringContainsString('ap-editor.css', $html);
+        $this->assertStringContainsString('ap-editor__toolbar', $html);
+        $this->assertStringContainsString('ap-editor__btn', $html);
+        $this->assertStringNotContainsString('color-scheme: dark', $html);
+        $this->assertStringNotContainsString('agora/style.css', $html);
+        $this->assertDoesNotMatchRegularExpression('/--ap-(?:surface|text|fg|bg)\s*:/', $html);
+
+        $css = $this->editorCss();
+        $isolate = $this->ruleContaining($css, '.ap-editor button.ap-editor__btn');
+        $toolbarLock = $this->firstCssBlock($css, '.ap-editor .ap-editor__toolbar');
+        $toolbar = $this->firstCssBlock($css, '.ap-editor__toolbar');
+        $this->assertStringContainsString('--ap-editor-chrome-fg', $isolate);
+        $this->assertStringNotContainsString('inherit', $isolate);
+        $this->assertStringContainsString('--ap-editor-chrome-fg', $toolbarLock);
+        $this->assertStringNotContainsString('inherit', $toolbarLock);
+        $this->assertStringContainsString('background: var(--ap-editor-chrome-bg, Canvas)', $toolbar);
+        $this->assertStringContainsString('color: var(--ap-editor-chrome-fg, CanvasText)', $toolbar);
+    }
+
+    public function testCssHonorsHtmlBodyColorSchemeAndKnownDarkHosts(): void
     {
         $css = $this->editorCss();
-        $this->assertStringContainsString('body.agora-mode-dark .ap-editor', $css);
-        $this->assertStringContainsString('html[data-ap-color-mode="dark"] .ap-editor', $css);
-        $this->assertStringContainsString('[data-ap-color-mode="dark"] .ap-editor', $css);
+        $wrap = $this->firstCssBlock($css, '.ap-editor');
+        $toolbar = $this->firstCssBlock($css, '.ap-editor__toolbar');
+
+        // html/body { color-scheme: dark } reaches chrome via inherit.
+        $this->assertStringContainsString('color-scheme: inherit', $wrap);
+        $this->assertStringContainsString('color-scheme: inherit', $toolbar);
+        $this->assertStringContainsString('html .ap-editor', $css);
+        $this->assertStringContainsString('body .ap-editor', $css);
         $this->assertMatchesRegularExpression(
-            '/body\.agora-mode-dark\s+\.ap-editor\s*,[\s\S]*?\{[\s\S]*?color-scheme:\s*dark/',
+            '/html\s+\.ap-editor\s*,[\s\S]*?body\s+\.ap-editor\s*\{[^}]*color-scheme:\s*inherit/',
             $css
+        );
+        // Must not force dark on every document — light pages stay inherit.
+        $this->assertDoesNotMatchRegularExpression(
+            '/html\s+\.ap-editor\s*,[\s\S]*?body\s+\.ap-editor\s*\{[^}]*color-scheme:\s*dark/',
+            $css
+        );
+
+        // Agora dark mode (class on body; html listed for the same lock).
+        $this->assertStringContainsString('html.agora-mode-dark .ap-editor', $css);
+        $this->assertStringContainsString('body.agora-mode-dark .ap-editor', $css);
+
+        // ACP already sets data-ap-color-mode on <html>; honor body / any ancestor too.
+        $this->assertStringContainsString('html[data-ap-color-mode="dark"] .ap-editor', $css);
+        $this->assertStringContainsString('body[data-ap-color-mode="dark"] .ap-editor', $css);
+        $this->assertStringContainsString('[data-ap-color-mode="dark"] .ap-editor', $css);
+
+        $this->assertMatchesRegularExpression(
+            '/html\.agora-mode-dark\s+\.ap-editor\s*,[\s\S]*?'
+            . 'body\.agora-mode-dark\s+\.ap-editor\s*,[\s\S]*?'
+            . 'html\[data-ap-color-mode="dark"\]\s+\.ap-editor\s*,[\s\S]*?'
+            . '\{[^}]*color-scheme:\s*dark/',
+            $css
+        );
+
+        $adminCss = (string) file_get_contents($this->root . '/ap-admin/css/admin.css');
+        $this->assertStringContainsString('html[data-ap-color-mode="dark"]', $adminCss);
+        $this->assertMatchesRegularExpression(
+            '/html\[data-ap-color-mode="dark"\]\s*\{[\s\S]*?color-scheme:\s*dark/',
+            $adminCss
         );
     }
 
+    /**
+     * Fixture: color-scheme:dark + light text, no Agora stylesheet.
+     * Computed tokens are Canvas / CanvasText (readable toolbar pair).
+     *
+     * Follow-on: named Addons skins that still force a light toolbar hex
+     * (or omit color-scheme) need theme CSS. Do not add site-specific
+     * rules to ap-editor.css.
+     */
     public function testContrastFixtureWithoutAgoraStylesheet(): void
     {
         $path = $this->root . '/tests/Editor/fixtures/editor-contrast-dark.html';
         $this->assertFileIsReadable($path);
         $html = (string) file_get_contents($path);
 
+        $this->assertMatchesRegularExpression(
+            '/html,\s*body\s*\{[^}]*color-scheme:\s*dark/',
+            $html
+        );
+        $this->assertMatchesRegularExpression('/html,\s*body\s*\{[^}]*background:\s*#12141a/', $html);
         $this->assertStringContainsString('color-scheme: dark', $html);
         $this->assertStringContainsString('color: #e8eaed', $html);
         $this->assertStringContainsString('button { color: inherit; }', $html);
         $this->assertStringContainsString('ap-editor.css', $html);
+        $this->assertSame(1, substr_count($html, 'rel="stylesheet"'));
         $this->assertStringContainsString('ap-editor__toolbar', $html);
         $this->assertStringContainsString('ap-editor__btn', $html);
         $this->assertStringContainsString('ap-editor__surface', $html);
+        $this->assertStringContainsString('data-ap-editor-contrast-fixture="dark-no-agora"', $html);
         $this->assertStringNotContainsString('agora/style.css', $html);
+        $this->assertStringNotContainsString('themes/agora', $html);
         $this->assertStringNotContainsString('agora-mode-dark', $html);
         $this->assertDoesNotMatchRegularExpression('/--ap-(?:surface|text|fg|bg)\s*:/', $html);
+        $this->assertDoesNotMatchRegularExpression('/--ap-editor-(?:bg|fg|surface|border)\s*:/', $html);
+
+        // Page itself is dark + light text (WCAG AA). The old light toolbar
+        // hex against that page color is the unreadable failure mode.
+        $this->assertGreaterThan(0.6, $this->relativeLuminance('#e8eaed'));
+        $this->assertLessThan(0.25, $this->relativeLuminance('#12141a'));
+        $this->assertGreaterThanOrEqual(
+            4.5,
+            $this->contrastRatio('#e8eaed', '#12141a'),
+            'fixture page text vs page background must meet WCAG AA'
+        );
+        $this->assertLessThan(
+            4.5,
+            $this->contrastRatio('#e8eaed', '#eef0f3'),
+            'legacy light toolbar #eef0f3 vs page text is the bleach failure'
+        );
 
         $css = $this->editorCss();
+        foreach (['Jarvis', 'BlindVault', 'MensBS', 'AgoraPress_Addons'] as $skin) {
+            $this->assertStringNotContainsString($skin, $css);
+            $this->assertStringNotContainsString($skin, $html);
+        }
+
         $wrap = $this->firstCssBlock($css, '.ap-editor');
         $toolbar = $this->firstCssBlock($css, '.ap-editor__toolbar');
         $btn = $this->firstCssBlock($css, '.ap-editor__btn');
+        $isolate = $this->ruleContaining($css, '.ap-editor button.ap-editor__btn');
+        $tokens = $this->cssCustomProperties($wrap);
+
         $this->assertStringContainsString('color-scheme: inherit', $wrap);
-        $this->assertStringContainsString('Canvas', $wrap);
-        $this->assertStringContainsString('CanvasText', $wrap);
-        $this->assertStringContainsString('background: var(--ap-editor-chrome-bg)', $toolbar);
-        $this->assertStringContainsString('color: var(--ap-editor-chrome-fg)', $toolbar);
+        $this->assertArrayHasKey('--ap-editor-chrome-bg', $tokens);
+        $this->assertArrayHasKey('--ap-editor-chrome-fg', $tokens);
+
+        // No Agora / --ap-* on the fixture → last-resort system pair.
+        $chromeBg = $this->resolveCssVar($tokens['--ap-editor-chrome-bg'], $tokens);
+        $chromeFg = $this->resolveCssVar($tokens['--ap-editor-chrome-fg'], $tokens);
+        $this->assertSame('Canvas', $chromeBg);
+        $this->assertSame('CanvasText', $chromeFg);
+
+        $this->assertStringContainsString('background: var(--ap-editor-chrome-bg, Canvas)', $toolbar);
+        $this->assertStringContainsString('color: var(--ap-editor-chrome-fg, CanvasText)', $toolbar);
+        $this->assertStringContainsString('color-scheme: inherit', $toolbar);
+        $this->assertStringNotContainsString('#eef0f3', $toolbar);
         $this->assertStringContainsString('color: currentColor', $btn);
+
+        $toolbarBg = $this->resolveCssVar(
+            $this->cssDeclaration($toolbar, 'background'),
+            $tokens
+        );
+        $toolbarFg = $this->resolveCssVar(
+            $this->cssDeclaration($toolbar, 'color'),
+            $tokens
+        );
+        $buttonFg = $this->resolveCssVar(
+            $this->cssDeclaration($isolate, 'color'),
+            $tokens
+        );
+        $this->assertSame('Canvas', $toolbarBg);
+        $this->assertSame('CanvasText', $toolbarFg);
+        $this->assertSame(
+            'CanvasText',
+            $buttonFg,
+            'toolbar labels must use CanvasText, not inherited page color'
+        );
+        $this->assertSame(
+            $toolbarFg,
+            $buttonFg,
+            'button color vs toolbar background is the Canvas/CanvasText pair'
+        );
+        $this->assertNotSame(
+            $toolbarBg,
+            $buttonFg,
+            'toolbar background and button color must be a contrasting pair'
+        );
     }
 
     public function testContentFormatAvailableForDisplay(): void
@@ -481,10 +712,126 @@ final class EditorTest extends TestCase
     private function firstCssBlock(string $css, string $selector): string
     {
         $quoted = preg_quote($selector, '/');
-        if (!preg_match('/' . $quoted . '(?![a-zA-Z0-9_-])\s*\{([^{}]+)\}/', $css, $match)) {
+        if (!preg_match('/^' . $quoted . '\s*\{([^{}]+)\}/m', $css, $match)) {
             $this->fail('Missing CSS block for ' . $selector);
         }
 
         return $match[1];
+    }
+
+    /**
+     * Declarations of the rule that includes $selector (comma groups allowed).
+     */
+    private function ruleContaining(string $css, string $selector): string
+    {
+        $quoted = preg_quote($selector, '/');
+        if (!preg_match('/(?<![a-zA-Z0-9_-])' . $quoted . '(?![a-zA-Z0-9_-])[^{]*\{([^{}]+)\}/', $css, $match)) {
+            $this->fail('Missing CSS rule containing ' . $selector);
+        }
+
+        return $match[1];
+    }
+
+    /**
+     * Custom properties declared in a single CSS block.
+     *
+     * @return array<string, string>
+     */
+    private function cssCustomProperties(string $block): array
+    {
+        $out = [];
+        if (
+            preg_match_all(
+                '/(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/',
+                $block,
+                $matches,
+                PREG_SET_ORDER
+            ) === false
+        ) {
+            return $out;
+        }
+        foreach ($matches as $match) {
+            $out[$match[1]] = trim($match[2]);
+        }
+
+        return $out;
+    }
+
+    private function cssDeclaration(string $block, string $property): string
+    {
+        $quoted = preg_quote($property, '/');
+        if (!preg_match('/(?:^|;)\s*' . $quoted . '\s*:\s*([^;]+);/', ';' . $block, $match)) {
+            $this->fail('Missing CSS declaration ' . $property);
+        }
+
+        return trim($match[1]);
+    }
+
+    /**
+     * Walk var(--name, fallback) until a concrete value. Unset names use the
+     * fallback (the dark fixture defines no --ap-* tokens).
+     *
+     * @param array<string, string> $defined
+     * @param array<string, true>   $visiting
+     */
+    private function resolveCssVar(string $value, array $defined, array $visiting = []): string
+    {
+        $value = trim(rtrim(trim($value), ';'));
+        if (
+            !preg_match(
+                '/^var\(\s*(--[A-Za-z0-9-]+)\s*(?:,\s*(.*))?\)$/s',
+                $value,
+                $match
+            )
+        ) {
+            return $value;
+        }
+
+        $name = $match[1];
+        $fallback = isset($match[2]) ? trim($match[2]) : '';
+        if (isset($visiting[$name])) {
+            return $fallback !== ''
+                ? $this->resolveCssVar($fallback, $defined, $visiting)
+                : $name;
+        }
+        $visiting[$name] = true;
+        if (array_key_exists($name, $defined)) {
+            return $this->resolveCssVar($defined[$name], $defined, $visiting);
+        }
+        if ($fallback !== '') {
+            return $this->resolveCssVar($fallback, $defined, $visiting);
+        }
+
+        return $name;
+    }
+
+    private function relativeLuminance(string $hex): float
+    {
+        $hex = ltrim($hex, '#');
+        if (strlen($hex) === 3) {
+            $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+        }
+        $channels = [
+            hexdec(substr($hex, 0, 2)) / 255.0,
+            hexdec(substr($hex, 2, 2)) / 255.0,
+            hexdec(substr($hex, 4, 2)) / 255.0,
+        ];
+        foreach ($channels as $i => $channel) {
+            $channels[$i] = $channel <= 0.04045
+                ? $channel / 12.92
+                : (($channel + 0.055) / 1.055) ** 2.4;
+        }
+
+        return (0.2126 * $channels[0]) + (0.7152 * $channels[1]) + (0.0722 * $channels[2]);
+    }
+
+    private function contrastRatio(string $a, string $b): float
+    {
+        $l1 = $this->relativeLuminance($a);
+        $l2 = $this->relativeLuminance($b);
+        $hi = max($l1, $l2);
+        $lo = min($l1, $l2);
+
+        return ($hi + 0.05) / ($lo + 0.05);
     }
 }

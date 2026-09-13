@@ -331,6 +331,153 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('Marble', (string) ($headers['Description'] ?? ''));
     }
 
+    public function testSixSchemesKeepEditorContrastWithoutAddons(): void
+    {
+        $cssPath = $this->root . '/ap-content/themes/agora/style.css';
+        $css = (string) file_get_contents($cssPath);
+        $editorCss = (string) file_get_contents($this->root . '/ap-includes/css/ap-editor.css');
+
+        $this->assertStringNotContainsString('AgoraPress_Addons', $css);
+        $this->assertStringNotContainsString('AgoraPress_Addons', $editorCss);
+        foreach (['Jarvis', 'BlindVault', 'MensBS'] as $addonsSkin) {
+            $this->assertStringNotContainsString($addonsSkin, $css);
+            $this->assertStringNotContainsString($addonsSkin, $editorCss);
+        }
+        $this->assertDoesNotMatchRegularExpression(
+            '/--ap-editor-(?:bg|fg|surface|border)\s*:\s*#(?:fff|ffffff)\b/i',
+            $css
+        );
+
+        $alias = $this->agoraEditorAliasBlock($css);
+        $this->assertStringContainsString('--ap-editor-bg: var(--ap-surface-2)', $alias);
+        $this->assertStringContainsString('--ap-editor-fg: var(--ap-fg)', $alias);
+        $this->assertStringContainsString('--ap-editor-surface: var(--ap-field-bg, var(--ap-card))', $alias);
+        $this->assertStringContainsString('--ap-editor-border: var(--ap-border)', $alias);
+        $this->assertStringContainsString('--ap-text: var(--ap-fg)', $alias);
+        $this->assertStringContainsString('--ap-primary: var(--ap-accent)', $alias);
+
+        $this->assertMatchesRegularExpression(
+            '/body\.agora-theme\s+\.ap-editor button\.ap-editor__mode-btn\.is-active\s*\{[^}]*'
+            . 'color:\s*var\(--ap-on-accent,\s*#fff\)/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.ap-comment-form \.ap-editor__toolbar[\s\S]*?background:\s*var\(--ap-surface-2/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.ap-comment-form \.ap-editor__surface[\s\S]*?background:\s*var\(--ap-field-bg/',
+            $css
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.ap-comment-form \.ap-editor__surface[\s\S]*?color:\s*var\(--ap-fg\)/',
+            $css
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/--ap-editor-chrome-bg:\s*var\(--ap-editor-bg,.*Canvas\)/',
+            $editorCss
+        );
+        $this->assertMatchesRegularExpression(
+            '/--ap-editor-chrome-fg:\s*var\(--ap-editor-fg,.*--ap-text,.*--ap-fg,.*CanvasText\)/',
+            $editorCss
+        );
+        $this->assertMatchesRegularExpression(
+            '/--ap-editor-field-bg:\s*var\(--ap-editor-surface,.*--ap-field-bg,.*Field\)/',
+            $editorCss
+        );
+        $this->assertMatchesRegularExpression(
+            '/\.ap-editor button\.ap-editor__mode-btn\.is-active\s*\{[^}]*'
+            . 'color:\s*var\(--ap-on-accent,\s*#fff\)/',
+            $editorCss
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/body\.agora-mode-dark[^{]*\.ap-editor__(?:toolbar|btn|surface)[^{]*\{/',
+            $editorCss
+        );
+
+        $expectedMode = [
+            'marble' => 'light',
+            'parchment' => 'light',
+            'cloud' => 'light',
+            'obsidian' => 'dark',
+            'midnight' => 'dark',
+            'charcoal' => 'dark',
+        ];
+        foreach ($expectedMode as $slug => $mode) {
+            $block = $this->agoraSchemeBlock($css, $slug);
+            $this->assertStringContainsString('color-scheme: ' . $mode, $block, $slug);
+            $fg = $this->cssVarHex($block, '--ap-fg', $slug);
+            $field = $this->cssVarHex($block, '--ap-field-bg', $slug);
+            $code = $this->cssVarHex($block, '--ap-code-bg', $slug);
+            $bg = $this->cssVarHex($block, '--ap-bg', $slug);
+            $accent = $this->cssVarHex($block, '--ap-accent', $slug);
+            $onAccent = $this->cssVarHex($block, '--ap-on-accent', $slug);
+
+            $this->assertGreaterThanOrEqual(
+                4.5,
+                $this->contrastRatio($fg, $field),
+                "{$slug} editor surface (--ap-fg on --ap-field-bg) must meet WCAG AA"
+            );
+            $this->assertGreaterThanOrEqual(
+                4.5,
+                $this->contrastRatio($fg, $code),
+                "{$slug} editor toolbar (--ap-fg on --ap-code-bg) must meet WCAG AA"
+            );
+            $this->assertGreaterThanOrEqual(
+                4.5,
+                $this->contrastRatio($fg, $bg),
+                "{$slug} page text (--ap-fg on --ap-bg) must meet WCAG AA"
+            );
+            $this->assertGreaterThanOrEqual(
+                4.5,
+                $this->contrastRatio($onAccent, $accent),
+                "{$slug} active mode chip (--ap-on-accent on --ap-accent) must meet WCAG AA"
+            );
+
+            $fgLum = $this->relativeLuminance($fg);
+            $fieldLum = $this->relativeLuminance($field);
+            if ($mode === 'light') {
+                $this->assertLessThan(0.4, $fgLum, "{$slug} text should be dark");
+                $this->assertGreaterThan(0.5, $fieldLum, "{$slug} field should be light");
+            } else {
+                $this->assertGreaterThan(0.6, $fgLum, "{$slug} text should be light");
+                $this->assertLessThan(0.25, $fieldLum, "{$slug} field should be dark");
+                // Dark schemes use light accents; #fff on --ap-accent fails AA.
+                // Isolation of .ap-editor button.ap-editor__mode-btn.is-active
+                // must use --ap-on-accent, not a hard-coded white chip.
+                $this->assertLessThan(
+                    4.5,
+                    $this->contrastRatio('#ffffff', $accent),
+                    "{$slug} light accent cannot use white Visual|Text chip text"
+                );
+            }
+        }
+
+        $gallery = $this->root . '/tests/Editor/fixtures/agora-six-schemes-editor.html';
+        $frame = $this->root . '/tests/Editor/fixtures/agora-scheme-editor.html';
+        $this->assertFileIsReadable($gallery);
+        $this->assertFileIsReadable($frame);
+        $galleryHtml = (string) file_get_contents($gallery);
+        $frameHtml = (string) file_get_contents($frame);
+        $this->assertStringContainsString('ap-editor.css', $frameHtml);
+        $this->assertStringContainsString('themes/agora/style.css', $frameHtml);
+        $this->assertStringContainsString('ap-editor__toolbar', $frameHtml);
+        $this->assertStringContainsString('ap-editor__mode-btn is-active', $frameHtml);
+        $this->assertStringContainsString('ap-comment-form', $frameHtml);
+        $this->assertStringContainsString('name="color-scheme"', $frameHtml);
+        $this->assertStringContainsString('data-agora-scheme-mode', $frameHtml);
+        $this->assertStringNotContainsString('AgoraPress_Addons', $galleryHtml . $frameHtml);
+        $this->assertDoesNotMatchRegularExpression(
+            '/ap-content\/themes\/(?!agora\/)/',
+            $galleryHtml . $frameHtml
+        );
+        foreach (array_keys($expectedMode) as $slug) {
+            $this->assertStringContainsString('agora-scheme-' . $slug, $galleryHtml);
+            $this->assertStringContainsString('scheme=' . $slug, $galleryHtml);
+        }
+    }
+
     public function testRenderAppliesActiveSchemeBodyClass(): void
     {
         agora_set_color_scheme('obsidian', $this->db);
@@ -2144,6 +2291,74 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringNotContainsString('ap-entry__footer', $listHtml);
         $this->assertStringNotContainsString(', ,', $listHtml);
         $this->assertStringNotContainsString('agora-all-blank-category', $listHtml);
+    }
+
+    /**
+     * Declarations of the body.agora-theme block that publishes editor aliases.
+     */
+    private function agoraEditorAliasBlock(string $css): string
+    {
+        if (
+            !preg_match(
+                '/body\.agora-theme\s*\{([^{}]*--ap-editor-bg:[^{}]+)\}/',
+                $css,
+                $match
+            )
+        ) {
+            $this->fail('Missing body.agora-theme editor token aliases');
+        }
+
+        return $match[1];
+    }
+
+    private function agoraSchemeBlock(string $css, string $slug): string
+    {
+        $quoted = preg_quote($slug, '/');
+        if (!preg_match('/body\.agora-scheme-' . $quoted . '\s*\{([^{}]+)\}/', $css, $match)) {
+            $this->fail('Missing CSS block for body.agora-scheme-' . $slug);
+        }
+
+        return $match[1];
+    }
+
+    private function cssVarHex(string $block, string $name, string $slug): string
+    {
+        $quoted = preg_quote($name, '/');
+        if (!preg_match('/' . $quoted . '\s*:\s*(#[0-9a-fA-F]{3,8})\s*;/', $block, $match)) {
+            $this->fail("Scheme {$slug} is missing hex token {$name}");
+        }
+
+        return $match[1];
+    }
+
+    private function relativeLuminance(string $hex): float
+    {
+        $hex = ltrim($hex, '#');
+        if (strlen($hex) === 3) {
+            $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+        }
+        $channels = [
+            hexdec(substr($hex, 0, 2)) / 255.0,
+            hexdec(substr($hex, 2, 2)) / 255.0,
+            hexdec(substr($hex, 4, 2)) / 255.0,
+        ];
+        foreach ($channels as $i => $channel) {
+            $channels[$i] = $channel <= 0.04045
+                ? $channel / 12.92
+                : (($channel + 0.055) / 1.055) ** 2.4;
+        }
+
+        return (0.2126 * $channels[0]) + (0.7152 * $channels[1]) + (0.0722 * $channels[2]);
+    }
+
+    private function contrastRatio(string $a, string $b): float
+    {
+        $l1 = $this->relativeLuminance($a);
+        $l2 = $this->relativeLuminance($b);
+        $hi = max($l1, $l2);
+        $lo = min($l1, $l2);
+
+        return ($hi + 0.05) / ($lo + 0.05);
     }
 
     private function insertCategoryTerm(string $name, string $slug): int

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AP_Editor inherit bleach fixture (light toolbar)</title>
+  <!--
+    Dark-looking page that does NOT set color-scheme, so Canvas chrome
+    stays light. Theme `button { color: inherit }` (and a toolbar color
+    reset) would paint #e8eaed onto that bar and bleach B / I / Link.
+    Isolation must lock labels to --ap-editor-chrome-fg, not page color.
+  -->
+  <style>
+    html, body {
+      background: #12141a;
+      color: #e8eaed;
+    }
+    button { color: inherit; }
+    .ap-editor__toolbar { color: inherit; }
+  </style>
+  <link rel="stylesheet" href="../../../ap-includes/css/ap-editor.css">
+</head>
+<body>
+  <form>
+    <div class="ap-editor ap-editor--visual" data-ap-editor-wrap>
+      <div class="ap-editor__toolbar" role="toolbar" aria-label="Formatting (Visual)">
+        <button type="button" class="ap-editor__btn ap-editor__btn--weight">B</button>
+        <button type="button" class="ap-editor__btn ap-editor__btn--em">I</button>
+        <button type="button" class="ap-editor__btn">Link</button>
+        <button type="button" class="ap-editor__btn ap-editor__btn--emoji">😀</button>
+      </div>
+      <div class="ap-editor__surface" data-ap-editor-surface>Hello</div>
+    </div>
+  </form>
+</body>
+</html>

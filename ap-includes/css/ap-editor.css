@@ -2,26 +2,34 @@
  * AgoraPress visual WYSIWYG editor styles (admin + front-end).
  *
  * Contrast contract: `.ap-editor` inherits the page `color-scheme`. Dark
- * chrome follows `color-scheme: dark` on html/body — including Agora
- * `body.agora-mode-dark` and ACP `[data-ap-color-mode=dark]` — and does
- * not depend only on those selectors or on `--ap-*` tokens.
+ * chrome honors `color-scheme: dark` on `html`/`body`, Agora
+ * `html.agora-mode-dark` / `body.agora-mode-dark`, and ACP
+ * `[data-ap-color-mode=dark]` (set on `<html>`). It does not depend only
+ * on those class/attribute hosts or on `--ap-*` tokens.
  *
- * Toolbar, surface, and buttons pair background with matching text:
- *   background  Field / Canvas / --ap-editor-bg
- *   text        FieldText / CanvasText / --ap-editor-fg
- *   border      --ap-editor-border, else currentColor at low opacity
- * Buttons use currentColor on a transparent background so letter labels
- * stay readable even when a theme sets `button { color: inherit }`.
+ * Toolbar, surface, and buttons pair background with matching text.
+ * Used background/color keep matching system-color fallbacks:
+ *   chrome   Canvas / CanvasText / --ap-editor-bg / --ap-editor-fg
+ *   fields   Field / FieldText / --ap-editor-surface / --ap-editor-fg
+ *   border   --ap-editor-border, else currentColor at low opacity
+ * Buttons use currentColor on a transparent background. Isolation then
+ * locks wrapper-qualified toolbar buttons to `--ap-editor-chrome-fg`
+ * and field-hosted buttons to `--ap-editor-field-fg` so a theme
+ * `button { color: inherit }` cannot bleach letter labels onto a light
+ * toolbar (`color: currentColor` equals inherit).
  *
  * Optional theme tokens (unset = page `--ap-*`, then system colors):
  *   --ap-editor-bg       toolbar / chrome background
  *   --ap-editor-fg       toolbar / chrome / surface text
  *   --ap-editor-surface  visual surface + textarea background
  *   --ap-editor-border   chrome border
+ *   --ap-on-accent       active Visual|Text chip text (fallback #fff)
  *
  * Themes may gold-plate these. They are not required when the page sets
  * `color-scheme: dark` and uses light text. Agora scheme tokens still
- * win when present.
+ * win when present (`--ap-editor-*`, `--ap-text` / `--ap-fg`). Dark
+ * Agora schemes use light accents; `--ap-on-accent` keeps the active
+ * Visual|Text chip readable.
  */
 
 .ap-editor {
@@ -34,14 +42,25 @@
   --ap-editor-field-bg: var(--ap-editor-surface, var(--ap-editor-bg, var(--ap-surface, var(--ap-field-bg, var(--ap-card, var(--ap-bg, Field))))));
   --ap-editor-field-fg: var(--ap-editor-fg, var(--ap-text, var(--ap-fg, FieldText)));
   --ap-editor-line: var(--ap-editor-border, var(--ap-border, color-mix(in srgb, currentColor 28%, transparent)));
-  color: var(--ap-editor-chrome-fg);
+  color: var(--ap-editor-chrome-fg, CanvasText);
+}
+
+/* Document hosts: html/body { color-scheme: dark } (custom themes).
+   Re-assert inherit under html/body so Canvas/Field follow the page
+   scheme without a class or data attribute. */
+html .ap-editor,
+body .ap-editor {
+  color-scheme: inherit;
 }
 
 /* Known dark hosts: lock color-scheme so system colors still resolve if
-   an ancestor interrupted inherit. Pages that only set color-scheme on
-   html/body already reach these values via inherit. */
+   an ancestor interrupted inherit. Agora puts agora-mode-dark on <body>;
+   ACP sets data-ap-color-mode on <html> (also honor it on body / any
+   shared-surface ancestor). Do not force dark on every html/body. */
+html.agora-mode-dark .ap-editor,
 body.agora-mode-dark .ap-editor,
 html[data-ap-color-mode="dark"] .ap-editor,
+body[data-ap-color-mode="dark"] .ap-editor,
 [data-ap-color-mode="dark"] .ap-editor {
   color-scheme: dark;
 }
@@ -62,8 +81,9 @@ html[data-ap-color-mode="dark"] .ap-editor,
   border: 1px solid var(--ap-editor-line);
   border-bottom: none;
   border-radius: 6px 6px 0 0;
-  background: var(--ap-editor-chrome-bg);
-  color: var(--ap-editor-chrome-fg);
+  background: var(--ap-editor-chrome-bg, Canvas);
+  color: var(--ap-editor-chrome-fg, CanvasText);
+  color-scheme: inherit;
 }
 
 .ap-editor__btn {
@@ -89,7 +109,7 @@ html[data-ap-color-mode="dark"] .ap-editor,
 .ap-editor__btn:hover,
 .ap-editor__btn:focus-visible {
   border-color: var(--ap-editor-border, var(--ap-border-strong, var(--ap-border, color-mix(in srgb, currentColor 40%, transparent))));
-  background: var(--ap-editor-field-bg);
+  background: var(--ap-editor-field-bg, Field);
   color: currentColor;
   outline: none;
 }
@@ -137,8 +157,8 @@ html[data-ap-color-mode="dark"] .ap-editor,
   border: 1px solid var(--ap-editor-line);
   border-radius: 4px;
   overflow: hidden;
-  background: var(--ap-editor-field-bg);
-  color: var(--ap-editor-field-fg);
+  background: var(--ap-editor-field-bg, Field);
+  color: var(--ap-editor-field-fg, FieldText);
 }
 
 .ap-editor__mode-btn {
@@ -166,14 +186,14 @@ html[data-ap-color-mode="dark"] .ap-editor,
 .ap-editor__mode-btn:focus-visible {
   opacity: 1;
   outline: none;
-  background: var(--ap-editor-chrome-bg);
+  background: var(--ap-editor-chrome-bg, Canvas);
   color: currentColor;
 }
 
 .ap-editor__mode-btn.is-active {
   opacity: 1;
   background: var(--ap-primary, #1a5fb4);
-  color: #fff;
+  color: var(--ap-on-accent, #fff);
 }
 
 .ap-editor--html-active .ap-editor__btn:not([data-ap-editor-set-mode]) {
@@ -194,13 +214,27 @@ html[data-ap-color-mode="dark"] .ap-editor,
   tab-size: 2;
 }
 
-/* Isolate chrome from theme `button { color: inherit }` (page text on a
-   mismatched toolbar). Wrapper-qualified currentColor wins on labels. */
-.ap-editor button.ap-editor__btn,
+/* Isolate chrome from theme `button { color: inherit }`. That paints
+   page text onto a light Canvas toolbar and bleaches B / I / Link.
+   currentColor on `color` is inherit, so it cannot win — lock matching
+   fg on wrapper+element buttons (0,2,1 beats `button`): toolbar →
+   chrome-fg / CanvasText; field-hosted → field-fg / FieldText. */
+.ap-editor .ap-editor__toolbar {
+  color: var(--ap-editor-chrome-fg, CanvasText);
+}
+
+.ap-editor button.ap-editor__btn {
+  color: var(--ap-editor-chrome-fg, CanvasText);
+}
+
 .ap-editor button.ap-editor__mode-btn,
 .ap-editor button.ap-editor__emoji-btn,
 .ap-editor button.ap-editor__emoji-close {
-  color: currentColor;
+  color: var(--ap-editor-field-fg, FieldText);
+}
+
+.ap-editor button.ap-editor__mode-btn.is-active {
+  color: var(--ap-on-accent, #fff);
 }
 
 /* Visual editing surface — what-you-see-is-what-you-get */
@@ -214,8 +248,8 @@ html[data-ap-color-mode="dark"] .ap-editor,
   min-height: 10rem;
   border: 1px solid var(--ap-editor-line);
   border-radius: 0 0 6px 6px;
-  background: var(--ap-editor-field-bg);
-  color: var(--ap-editor-field-fg);
+  background: var(--ap-editor-field-bg, Field);
+  color: var(--ap-editor-field-fg, FieldText);
   font: inherit;
   line-height: 1.55;
   overflow-wrap: break-word;
@@ -299,7 +333,7 @@ html[data-ap-color-mode="dark"] .ap-editor,
 .ap-editor__surface code {
   padding: 0.1em 0.3em;
   border-radius: 3px;
-  background: var(--ap-editor-chrome-bg);
+  background: var(--ap-editor-chrome-bg, Canvas);
 }
 
 .ap-editor__surface pre {
@@ -307,7 +341,7 @@ html[data-ap-color-mode="dark"] .ap-editor,
   padding: 0.65em 0.75em;
   border-radius: 4px;
   overflow: auto;
-  background: var(--ap-editor-chrome-bg);
+  background: var(--ap-editor-chrome-bg, Canvas);
 }
 
 .ap-editor__surface pre code {
@@ -344,8 +378,8 @@ html[data-ap-color-mode="dark"] .ap-editor,
   font: inherit;
   padding: 0.65rem 0.75rem;
   min-height: 10rem;
-  background: var(--ap-editor-field-bg);
-  color: var(--ap-editor-field-fg);
+  background: var(--ap-editor-field-bg, Field);
+  color: var(--ap-editor-field-fg, FieldText);
   color-scheme: inherit;
   caret-color: currentColor;
 }
@@ -407,8 +441,8 @@ html[data-ap-color-mode="dark"] .ap-editor,
   border: 1px solid var(--ap-editor-line);
   border-top: none;
   border-radius: 0;
-  background: var(--ap-editor-field-bg);
-  color: var(--ap-editor-field-fg);
+  background: var(--ap-editor-field-bg, Field);
+  color: var(--ap-editor-field-fg, FieldText);
   box-shadow: 0 6px 18px color-mix(in srgb, CanvasText 12%, transparent);
 }
 
@@ -454,7 +488,7 @@ html[data-ap-color-mode="dark"] .ap-editor,
 .ap-editor__emoji-close:hover,
 .ap-editor__emoji-close:focus-visible {
   border-color: var(--ap-editor-border, var(--ap-border-strong, var(--ap-border, color-mix(in srgb, currentColor 40%, transparent))));
-  background: var(--ap-editor-chrome-bg);
+  background: var(--ap-editor-chrome-bg, Canvas);
   color: currentColor;
   outline: none;
 }
@@ -500,7 +534,7 @@ html[data-ap-color-mode="dark"] .ap-editor,
 .ap-editor__emoji-btn:hover,
 .ap-editor__emoji-btn:focus-visible {
   border-color: var(--ap-editor-border, var(--ap-border-strong, var(--ap-border, color-mix(in srgb, currentColor 40%, transparent))));
-  background: var(--ap-editor-chrome-bg);
+  background: var(--ap-editor-chrome-bg, Canvas);
   color: currentColor;
   outline: none;
 }
