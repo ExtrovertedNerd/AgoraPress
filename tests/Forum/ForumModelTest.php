@@ -634,6 +634,7 @@ final class ForumModelTest extends TestCase
         $this->assertSame($replyId, (int) $row['last_post']['post_id']);
         $this->assertSame($topicId, (int) $row['last_post']['topic_id']);
         $this->assertSame($authorId, (int) $row['last_post']['author_id']);
+        $this->assertSame('A reply that becomes last post.', $row['last_post']['excerpt']);
 
         // Procedural wrapper matches.
         $viaHelper = ap_forum_to_display_row($forum, $this->db);

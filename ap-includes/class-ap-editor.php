@@ -149,6 +149,15 @@ class AP_Editor
             ['id' => 'h2', 'label' => 'H2', 'title' => 'Heading 2', 'cmd' => 'visual-block', 'block' => 'h2'],
             ['id' => 'h3', 'label' => 'H3', 'title' => 'Heading 3', 'cmd' => 'visual-block', 'block' => 'h3'],
             ['id' => 'quote', 'label' => 'Quote', 'title' => 'Blockquote', 'cmd' => 'visual-block', 'block' => 'blockquote'],
+            [
+                'id' => 'spoiler',
+                'label' => 'Spoiler',
+                'title' => 'Spoiler',
+                'cmd' => 'visual-spoiler',
+                // Text mode wraps the textarea selection with this pair.
+                'wrap-open' => '[spoiler]',
+                'wrap-close' => '[/spoiler]',
+            ],
             ['id' => 'code', 'label' => 'Code', 'title' => 'Inline code', 'cmd' => 'visual-code'],
             ['id' => 'ul', 'label' => '• List', 'title' => 'Bullet list', 'cmd' => 'visual', 'visual' => 'insertUnorderedList'],
             ['id' => 'ol', 'label' => '1. List', 'title' => 'Numbered list', 'cmd' => 'visual', 'visual' => 'insertOrderedList'],
@@ -473,7 +482,7 @@ class AP_Editor
                     . $escAttr($pickerId) . '"';
             }
 
-            foreach (['visual', 'block', 'text', 'placeholder'] as $key) {
+            foreach (['visual', 'block', 'text', 'placeholder', 'wrap-open', 'wrap-close'] as $key) {
                 if (isset($btn[$key]) && is_string($btn[$key])) {
                     $html .= ' data-ap-editor-' . $key . '="' . $escAttr($btn[$key]) . '"';
                 }
@@ -592,6 +601,10 @@ class AP_Editor
         $css = self::assetUrl('css/ap-editor.css');
         $js = self::assetUrl('js/ap-editor.js');
 
+        if (class_exists('AP_Content_Format', false)) {
+            AP_Content_Format::enqueueAssets();
+        }
+
         if (function_exists('ap_enqueue_style')) {
             ap_enqueue_style(self::HANDLE_STYLE, $css, [], $ver);
         } elseif (class_exists('AP_Assets', false)) {
@@ -614,6 +627,10 @@ class AP_Editor
             return;
         }
         self::$assetsPrinted = true;
+
+        if (class_exists('AP_Content_Format', false)) {
+            AP_Content_Format::printStyle();
+        }
 
         $ver = defined('AP_VERSION') ? (string) AP_VERSION : '';
         $css = self::assetUrl('css/ap-editor.css');

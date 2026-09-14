@@ -1,0 +1,91 @@
+/**
+ * AgoraPress native spoilers (<details class="ap-spoiler">).
+ *
+ * Works with JavaScript off. Closed body is unreadable (not hover-only).
+ * Open body follows the page color-scheme (inherit; no forced light/dark paint).
+ * Keyboard uses native <summary> (Enter / Space) with a visible focus ring.
+ * No images, icon fonts, or background images — the disclosure marker is native.
+ */
+
+.ap-spoiler {
+  display: block;
+  margin: 0.75em 0;
+  color: inherit;
+  background: transparent;
+  color-scheme: inherit;
+}
+
+/* Document hosts: html/body { color-scheme: dark } (custom themes).
+   Re-assert inherit so nested system colors follow the page scheme.
+   Do not force dark here — light pages must stay inherit. */
+html .ap-spoiler,
+body .ap-spoiler {
+  color: inherit;
+  background: transparent;
+  color-scheme: inherit;
+}
+
+/* Known dark hosts: lock color-scheme if an ancestor interrupted inherit.
+   Agora puts agora-mode-dark on <body>; ACP sets data-ap-color-mode on <html>. */
+html.agora-mode-dark .ap-spoiler,
+body.agora-mode-dark .ap-spoiler,
+html[data-ap-color-mode="dark"] .ap-spoiler,
+body[data-ap-color-mode="dark"] .ap-spoiler,
+[data-ap-color-mode="dark"] .ap-spoiler {
+  color-scheme: dark;
+}
+
+/*
+ * Closed: hide the body even when a theme sets details > * { display: block },
+ * which would otherwise leak spoiler text. Native <details> already hides
+ * non-summary children; this rule is the defense in depth.
+ */
+.ap-spoiler:not([open]) > .ap-spoiler__body {
+  display: none !important;
+  visibility: hidden;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Chrome 131+ ::details-content can show closed contents if a reset unhides it. */
+.ap-spoiler:not([open])::details-content {
+  display: none !important;
+  content-visibility: hidden;
+}
+
+/* Open: page colors, not a forced Canvas/white box. */
+.ap-spoiler[open] > .ap-spoiler__body {
+  display: block;
+  color: inherit;
+  background: transparent;
+  color-scheme: inherit;
+  margin: 0.35em 0 0;
+  visibility: visible;
+  user-select: text;
+}
+
+.ap-spoiler[open]::details-content {
+  color: inherit;
+  background: transparent;
+  color-scheme: inherit;
+  content-visibility: visible;
+}
+
+/* Native keyboard target. Keep list-item so the disclosure triangle stays. */
+.ap-spoiler__summary {
+  display: list-item;
+  list-style-type: disclosure-closed;
+  list-style-position: outside;
+  cursor: pointer;
+  color: inherit;
+  background: transparent;
+}
+
+.ap-spoiler[open] > .ap-spoiler__summary {
+  list-style-type: disclosure-open;
+}
+
+.ap-spoiler__summary:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

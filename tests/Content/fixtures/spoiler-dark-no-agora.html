@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Spoiler color-scheme fixture (dark, no Agora)</title>
+  <!--
+    Custom dark page: color-scheme + light text only.
+    No Agora stylesheet, no --ap-* tokens, no agora-mode-dark.
+    Hostile reset (details > * { display: block } / summary { display: block })
+    would leak closed spoiler text without core CSS.
+    Core stylesheet: ap-includes/css/ap-spoiler.css
+  -->
+  <style>
+    html, body {
+      color-scheme: dark;
+      background: #12141a;
+      color: #e8eaed;
+    }
+    details > * { display: block; }
+    summary { display: block; outline: none; }
+  </style>
+  <link rel="stylesheet" href="../../../ap-includes/css/ap-spoiler.css">
+</head>
+<body>
+  <details class="ap-spoiler" data-ap-spoiler-fixture="closed-dark">
+    <summary class="ap-spoiler__summary">Spoiler</summary>
+    <div class="ap-spoiler__body">secret plot</div>
+  </details>
+  <details class="ap-spoiler" open data-ap-spoiler-fixture="open-dark">
+    <summary class="ap-spoiler__summary">Spoiler</summary>
+    <div class="ap-spoiler__body">revealed plot</div>
+  </details>
+</body>
+</html>

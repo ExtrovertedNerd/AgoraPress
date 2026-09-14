@@ -14,6 +14,7 @@ use AP_Content_Format;
 use AP_DB;
 use AP_Forum;
 use AP_Migrator;
+use AP_Shortcode;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -201,6 +202,106 @@ final class ContentFormatTest extends TestCase
         $this->assertStringContainsString('alt="a"', $out);
     }
 
+    public function testAllowedHtmlIncludesDetailsAndSummary(): void
+    {
+        $allowed = AP_Content_Format::allowedTags();
+        $this->assertArrayHasKey('details', $allowed);
+        $this->assertArrayHasKey('summary', $allowed);
+        $this->assertTrue($allowed['details']['class'] ?? false);
+        $this->assertTrue($allowed['details']['open'] ?? false);
+        $this->assertTrue($allowed['summary']['class'] ?? false);
+        $this->assertTrue($allowed['div']['class'] ?? false);
+
+        $viaHelper = ap_allowed_html();
+        $this->assertArrayHasKey('details', $viaHelper);
+        $this->assertArrayHasKey('summary', $viaHelper);
+    }
+
+    public function testKsesKeepsDetailsSummaryAndInnerMarkup(): void
+    {
+        $html = '<details class="ap-spoiler">'
+            . '<summary class="ap-spoiler__summary">Ending</summary>'
+            . '<div class="ap-spoiler__body">see <strong>this</strong> and <em>that</em>'
+            . ' <a href="https://example.com">link</a>'
+            . ' <ul><li>one</li></ul></div>'
+            . '</details>';
+
+        $out = AP_Content_Format::kses($html);
+        $this->assertStringContainsString('<details class="ap-spoiler">', $out);
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Ending</summary>', $out);
+        $this->assertStringContainsString('<div class="ap-spoiler__body">', $out);
+        $this->assertStringContainsString('<strong>this</strong>', $out);
+        $this->assertStringContainsString('<em>that</em>', $out);
+        $this->assertStringContainsString('href="https://example.com"', $out);
+        $this->assertStringContainsString('<ul><li>one</li></ul>', $out);
+        $this->assertStringContainsString('</details>', $out);
+
+        $htmlMode = AP_Content_Format::format($html, ['mode' => 'html']);
+        $this->assertStringContainsString('<details class="ap-spoiler">', $htmlMode);
+        $this->assertStringContainsString('<strong>this</strong>', $htmlMode);
+
+        $viaHelper = ap_kses($html);
+        $this->assertStringContainsString('<details class="ap-spoiler">', $viaHelper);
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Ending</summary>', $viaHelper);
+
+        $fromBbcode = AP_Content_Format::format('[spoiler=Ending]see [b]this[/b][/spoiler]');
+        $reKses = AP_Content_Format::kses($fromBbcode);
+        $this->assertStringContainsString('<details class="ap-spoiler">', $reKses);
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Ending</summary>', $reKses);
+        $this->assertStringContainsString('<strong>this</strong>', $reKses);
+    }
+
+    public function testKsesStripsDangerInsideDetailsButKeepsSafeInnerMarkup(): void
+    {
+        $html = '<details class="ap-spoiler" onclick="alert(1)">'
+            . '<summary class="ap-spoiler__summary" onmouseover="x">Spoiler</summary>'
+            . '<div class="ap-spoiler__body">ok<script>alert(1)</script><em>keep</em></div>'
+            . '</details>';
+        $out = AP_Content_Format::kses($html);
+        $this->assertStringContainsString('<details class="ap-spoiler">', $out);
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Spoiler</summary>', $out);
+        $this->assertStringContainsString('<em>keep</em>', $out);
+        $this->assertStringContainsString('ok', $out);
+        $this->assertStringNotContainsString('onclick', $out);
+        $this->assertStringNotContainsString('onmouseover', $out);
+        $this->assertStringNotContainsString('<script', $out);
+        $this->assertStringNotContainsString('alert(1)', $out);
+    }
+
+    public function testKsesKeepsDetailsOpenWithClass(): void
+    {
+        $mixed = AP_Content_Format::kses(
+            '<details class="ap-spoiler" open>'
+            . '<summary class="ap-spoiler__summary">Spoiler</summary>'
+            . '<div class="ap-spoiler__body">x</div>'
+            . '</details>'
+        );
+        $this->assertStringContainsString('<details class="ap-spoiler" open>', $mixed);
+        $this->assertStringContainsString('<div class="ap-spoiler__body">x</div>', $mixed);
+
+        $bare = AP_Content_Format::kses('<details open><summary>Hi</summary>body</details>');
+        $this->assertStringContainsString('<details open>', $bare);
+        $this->assertStringContainsString('<summary>Hi</summary>', $bare);
+        $this->assertStringContainsString('body', $bare);
+    }
+
+    public function testKsesKeepsNestedDetails(): void
+    {
+        $html = '<details class="ap-spoiler">'
+            . '<summary class="ap-spoiler__summary">Outer</summary>'
+            . '<div class="ap-spoiler__body">outer '
+            . '<details class="ap-spoiler">'
+            . '<summary class="ap-spoiler__summary">Inner</summary>'
+            . '<div class="ap-spoiler__body">secret</div>'
+            . '</details> tail</div></details>';
+        $out = AP_Content_Format::kses($html);
+        $this->assertEquals(2, substr_count($out, '<details class="ap-spoiler">'));
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Inner</summary>', $out);
+        $this->assertStringContainsString('<div class="ap-spoiler__body">secret</div>', $out);
+        $this->assertStringContainsString('outer', $out);
+        $this->assertStringContainsString('tail', $out);
+    }
+
     public function testProceduralHelpers(): void
     {
         $this->assertStringContainsString('<strong>x</strong>', ap_format_content('[b]x[/b]'));
@@ -279,10 +380,161 @@ final class ContentFormatTest extends TestCase
     public function testSpoilerAndColor(): void
     {
         $html = AP_Content_Format::format('[spoiler=Ending]they lived[/spoiler] [color=#ff0000]red[/color]');
-        $this->assertStringContainsString('<details', $html);
-        $this->assertStringContainsString('<summary>Ending</summary>', $html);
-        $this->assertStringContainsString('they lived', $html);
+        $this->assertStringContainsString('<details class="ap-spoiler">', $html);
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Ending</summary>', $html);
+        $this->assertStringContainsString('<div class="ap-spoiler__body">they lived</div>', $html);
         $this->assertStringContainsString('style="color:#ff0000"', $html);
         $this->assertStringContainsString('red', $html);
+    }
+
+    public function testSpoilerFormatMarkupToDetails(): void
+    {
+        $block = static function (string $label, string $body): string {
+            return '<details class="ap-spoiler">'
+                . '<summary class="ap-spoiler__summary">' . $label . '</summary>'
+                . '<div class="ap-spoiler__body">' . $body . '</div>'
+                . '</details>';
+        };
+
+        $plain = AP_Content_Format::format('[spoiler]hidden plot[/spoiler]');
+        $this->assertStringContainsString($block('Spoiler', 'hidden plot'), $plain);
+        $this->assertStringNotContainsString('[spoiler]', $plain);
+
+        $eq = AP_Content_Format::format('[spoiler=Ending]they lived[/spoiler]');
+        $this->assertStringContainsString($block('Ending', 'they lived'), $eq);
+        $this->assertStringNotContainsString('[spoiler', $eq);
+
+        $quoted = AP_Content_Format::format('[spoiler title="Finale"]they lived[/spoiler]');
+        $this->assertStringContainsString($block('Finale', 'they lived'), $quoted);
+        $this->assertStringNotContainsString('[spoiler', $quoted);
+
+        $single = AP_Content_Format::format("[spoiler title='Twist']secret[/spoiler]");
+        $this->assertStringContainsString($block('Twist', 'secret'), $single);
+        $this->assertStringNotContainsString('[spoiler', $single);
+    }
+
+    public function testSpoilerDefaultLabelAndTitleAttribute(): void
+    {
+        $plain = AP_Content_Format::format('[spoiler]hidden plot[/spoiler]');
+        $this->assertStringContainsString('<details class="ap-spoiler">', $plain);
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Spoiler</summary>', $plain);
+        $this->assertStringContainsString('<div class="ap-spoiler__body">hidden plot</div>', $plain);
+        $this->assertStringNotContainsString('[spoiler]', $plain);
+
+        $attr = AP_Content_Format::format('[spoiler title="Finale"]they lived[/spoiler]');
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Finale</summary>', $attr);
+        $this->assertStringContainsString('<div class="ap-spoiler__body">they lived</div>', $attr);
+        $this->assertStringNotContainsString('[spoiler', $attr);
+    }
+
+    public function testSpoilerEmptyBodyRendersNothing(): void
+    {
+        $empty = AP_Content_Format::format('[spoiler][/spoiler]');
+        $this->assertStringNotContainsString('<details', $empty);
+        $this->assertStringNotContainsString('ap-spoiler', $empty);
+
+        $blank = AP_Content_Format::format("[spoiler=Label]\n  \n[/spoiler]");
+        $this->assertStringNotContainsString('<details', $blank);
+        $this->assertStringNotContainsString('Label', $blank);
+
+        $titled = AP_Content_Format::format('[spoiler title="Nope"]   [/spoiler]');
+        $this->assertStringNotContainsString('<details', $titled);
+        $this->assertStringNotContainsString('Nope', $titled);
+    }
+
+    public function testSpoilerIsFormatPathNotShortcode(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-shortcode.php';
+        AP_Shortcode::registerCore();
+        $this->assertFalse(AP_Shortcode::exists('spoiler'));
+
+        $html = AP_Content_Format::format('[spoiler]secret[/spoiler]');
+        $expanded = AP_Shortcode::doShortcode($html);
+        $this->assertSame($html, $expanded);
+        $this->assertStringContainsString('<details class="ap-spoiler">', $expanded);
+        $this->assertEquals(1, substr_count($expanded, '<details'));
+    }
+
+    public function testSpoilerInnerMarkupAndOneNestedLevel(): void
+    {
+        $html = AP_Content_Format::format('[spoiler]see [b]this[/b][/spoiler]');
+        $this->assertStringContainsString('<div class="ap-spoiler__body">see <strong>this</strong></div>', $html);
+
+        $nested = AP_Content_Format::format(
+            '[spoiler]outer [spoiler=Inner]secret[/spoiler] tail[/spoiler]'
+        );
+        $this->assertEquals(2, substr_count($nested, '<details class="ap-spoiler">'));
+        $this->assertStringContainsString('<summary class="ap-spoiler__summary">Inner</summary>', $nested);
+        $this->assertStringContainsString('<div class="ap-spoiler__body">secret</div>', $nested);
+        $this->assertStringContainsString('outer', $nested);
+        $this->assertStringContainsString('tail', $nested);
+        $this->assertStringNotContainsString('[spoiler', $nested);
+    }
+
+    public function testStripSpoilersBbcodeAndHtmlDoNotLeakInnerText(): void
+    {
+        $bb = AP_Content_Format::stripSpoilers(
+            'Visible intro [spoiler=Ending]they lived happily[/spoiler] outro'
+        );
+        $this->assertSame('Visible intro [Spoiler] outro', $bb);
+        $this->assertStringNotContainsString('they lived happily', $bb);
+
+        $titled = AP_Content_Format::stripSpoilers(
+            'Lead [spoiler title="Finale"]secret ending[/spoiler] tail'
+        );
+        $this->assertSame('Lead [Spoiler] tail', $titled);
+        $this->assertStringNotContainsString('secret ending', $titled);
+
+        $plain = AP_Content_Format::stripSpoilers('[spoiler]hidden plot[/spoiler]');
+        $this->assertSame('[Spoiler]', $plain);
+        $this->assertStringNotContainsString('hidden plot', $plain);
+
+        $emptyPlaceholder = AP_Content_Format::stripSpoilers(
+            'Keep [spoiler]drop me[/spoiler] this',
+            ''
+        );
+        $this->assertSame('Keep  this', $emptyPlaceholder);
+        $this->assertStringNotContainsString('drop me', $emptyPlaceholder);
+
+        $nested = AP_Content_Format::stripSpoilers(
+            'Start [spoiler]outer [spoiler=Inner]nested secret[/spoiler] tail[/spoiler] end'
+        );
+        $this->assertSame('Start [Spoiler] end', $nested);
+        $this->assertStringNotContainsString('nested secret', $nested);
+        $this->assertStringNotContainsString('outer', $nested);
+
+        $siblings = AP_Content_Format::stripSpoilers(
+            '[spoiler]alpha[/spoiler] and [spoiler]beta[/spoiler]'
+        );
+        $this->assertSame('[Spoiler] and [Spoiler]', $siblings);
+        $this->assertStringNotContainsString('alpha', $siblings);
+        $this->assertStringNotContainsString('beta', $siblings);
+
+        $html = AP_Content_Format::format('[spoiler=Ending]they lived[/spoiler] after');
+        $strippedHtml = AP_Content_Format::stripSpoilers($html);
+        $this->assertStringNotContainsString('they lived', $strippedHtml);
+        $this->assertStringContainsString('[Spoiler]', $strippedHtml);
+        $this->assertStringContainsString('after', $strippedHtml);
+
+        $rawHtml = '<p>Lead</p><details class="ap-spoiler">'
+            . '<summary class="ap-spoiler__summary">Ending</summary>'
+            . '<div class="ap-spoiler__body">hidden plot</div></details><p>Tail</p>';
+        $fromHtml = AP_Content_Format::stripSpoilers($rawHtml);
+        $this->assertStringNotContainsString('hidden plot', $fromHtml);
+        $this->assertStringContainsString('[Spoiler]', $fromHtml);
+        $this->assertStringContainsString('Lead', $fromHtml);
+        $this->assertStringContainsString('Tail', $fromHtml);
+        $plainHtml = trim(preg_replace('/\s+/u', ' ', strip_tags($fromHtml)) ?? '');
+        $this->assertSame('Lead [Spoiler] Tail', $plainHtml);
+
+        $otherDetails = AP_Content_Format::stripSpoilers(
+            '<details><summary>Notes</summary>keep this</details>'
+        );
+        $this->assertStringContainsString('keep this', $otherDetails);
+        $this->assertStringNotContainsString('[Spoiler]', $otherDetails);
+
+        $viaHelper = ap_strip_spoilers('Safe [spoiler]leaked[/spoiler] text');
+        $this->assertSame('Safe [Spoiler] text', $viaHelper);
+        $this->assertStringNotContainsString('leaked', $viaHelper);
     }
 }

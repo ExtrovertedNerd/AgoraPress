@@ -126,6 +126,54 @@ final class TemplateTagsTest extends TestCase
         $this->assertStringNotContainsString('<World>', $out);
     }
 
+    public function testExcerptStripsSpoilerInnerText(): void
+    {
+        $id = AP_Post::insert([
+            'post_title' => 'Spoiler Excerpt',
+            'post_content' => 'Safe lead [spoiler]the butler did it[/spoiler] and more words here.',
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $post = AP_Post::get($id, $this->db);
+        $this->assertInstanceOf(AP_Post::class, $post);
+
+        $excerpt = ap_get_the_excerpt($post, 20);
+        $this->assertStringNotContainsString('the butler did it', $excerpt);
+        $this->assertStringContainsString('[Spoiler]', $excerpt);
+        $this->assertStringContainsString('Safe lead', $excerpt);
+
+        $manualId = AP_Post::insert([
+            'post_title' => 'Manual Excerpt Spoiler',
+            'post_content' => 'Unused body [spoiler]body secret[/spoiler]',
+            'post_excerpt' => 'Card [spoiler]excerpt secret[/spoiler] blurb',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $manual = AP_Post::get($manualId, $this->db);
+        $this->assertInstanceOf(AP_Post::class, $manual);
+        $manualExcerpt = ap_get_the_excerpt($manual);
+        $this->assertSame('Card [Spoiler] blurb', $manualExcerpt);
+        $this->assertStringNotContainsString('excerpt secret', $manualExcerpt);
+        $this->assertStringNotContainsString('body secret', $manualExcerpt);
+
+        $htmlId = AP_Post::insert([
+            'post_title' => 'HTML Spoiler Excerpt',
+            'post_content' => '<p>Lead</p><details class="ap-spoiler">'
+                . '<summary class="ap-spoiler__summary">Ending</summary>'
+                . '<div class="ap-spoiler__body">html excerpt leak</div>'
+                . '</details><p>Tail</p>',
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $htmlPost = AP_Post::get($htmlId, $this->db);
+        $this->assertInstanceOf(AP_Post::class, $htmlPost);
+        $htmlExcerpt = ap_get_the_excerpt($htmlPost, 20);
+        $this->assertSame('Lead [Spoiler] Tail', $htmlExcerpt);
+        $this->assertStringNotContainsString('html excerpt leak', $htmlExcerpt);
+    }
+
     public function testPermalinkAndDate(): void
     {
         $id = AP_Post::insert([

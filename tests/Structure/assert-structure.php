@@ -99,6 +99,7 @@ $requiredPaths = [
     'ap-includes/class-ap-formatting.php',
     'ap-includes/class-ap-editor.php',
     'ap-includes/css/ap-editor.css',
+    'ap-includes/css/ap-spoiler.css',
     'ap-includes/js/ap-editor.js',
     'ap-includes/class-ap-media.php',
     'ap-includes/class-ap-options.php',

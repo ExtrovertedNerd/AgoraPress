@@ -141,10 +141,18 @@ function ap_get_the_excerpt(AP_Post|int|null $post = null, int $words = 55): str
 
     $excerpt = trim((string) $obj->post_excerpt);
     if ($excerpt !== '') {
+        if (function_exists('ap_strip_spoilers')) {
+            $excerpt = trim(ap_strip_spoilers($excerpt));
+        }
+
         return $excerpt;
     }
 
-    $text = trim(ap_strip_all_tags((string) $obj->post_content));
+    $text = (string) $obj->post_content;
+    if (function_exists('ap_strip_spoilers')) {
+        $text = ap_strip_spoilers($text);
+    }
+    $text = trim(ap_strip_all_tags($text));
     if ($text === '') {
         return '';
     }

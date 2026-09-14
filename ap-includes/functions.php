@@ -8559,6 +8559,22 @@ function ap_is_safe_url(string $url): bool
     return AP_Content_Format::isSafeUrl($url);
 }
 
+/**
+ * Replace spoiler inner text so snippets cannot leak hidden content.
+ *
+ * Default replacement is `[Spoiler]`. Pass `''` to drop the block.
+ *
+ * @see AP_Content_Format::stripSpoilers()
+ */
+function ap_strip_spoilers(string $content, string $placeholder = '[Spoiler]'): string
+{
+    if (!class_exists('AP_Content_Format', false)) {
+        require_once __DIR__ . '/class-ap-content-format.php';
+    }
+
+    return AP_Content_Format::stripSpoilers($content, $placeholder);
+}
+
 // -----------------------------------------------------------------------------
 // Escaping & sanitization (output / input helpers)
 // -----------------------------------------------------------------------------

@@ -518,6 +518,11 @@ function ap_bootstrap(): void
         AP_Media::registerContentImageCss();
     }
 
+    // Spoilers: core CSS on ap_enqueue_scripts (closed body unreadable).
+    if (class_exists('AP_Content_Format', false) && method_exists('AP_Content_Format', 'registerAssets')) {
+        AP_Content_Format::registerAssets();
+    }
+
     // Media: site icon (favicon) link tags on ap_head when site_icon option is set.
     if (class_exists('AP_Media', false) && method_exists('AP_Media', 'registerSiteIconTags')) {
         AP_Media::registerSiteIconTags();

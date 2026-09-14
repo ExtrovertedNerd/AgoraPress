@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Spoiler color-scheme fixture (light, no Agora)</title>
+  <!--
+    Custom light page: color-scheme light + dark text.
+    Core CSS must inherit (not force color-scheme: dark on every html/body).
+  -->
+  <style>
+    html, body {
+      color-scheme: light;
+      background: #f4f5f7;
+      color: #1c1f26;
+    }
+    details > * { display: block; }
+    summary { display: block; outline: none; }
+  </style>
+  <link rel="stylesheet" href="../../../ap-includes/css/ap-spoiler.css">
+</head>
+<body>
+  <details class="ap-spoiler" data-ap-spoiler-fixture="closed-light">
+    <summary class="ap-spoiler__summary">Spoiler</summary>
+    <div class="ap-spoiler__body">secret plot</div>
+  </details>
+  <details class="ap-spoiler" open data-ap-spoiler-fixture="open-light">
+    <summary class="ap-spoiler__summary">Spoiler</summary>
+    <div class="ap-spoiler__body">revealed plot</div>
+  </details>
+</body>
+</html>

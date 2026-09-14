@@ -165,6 +165,89 @@ final class ForumSearchGuardTest extends TestCase
         $this->assertNotEmpty($postsOnly['posts']);
     }
 
+    public function testSearchSnippetStripsSpoilerInnerText(): void
+    {
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $this->forumId,
+            'topic_title' => 'SpoilerSearchToken thread',
+            'content' => 'Visible lead SpoilerSearchToken [spoiler]hidden search secret[/spoiler] tail',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+
+        $replyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => '<p>Reply lead SpoilerSearchToken</p><details class="ap-spoiler">'
+                . '<summary class="ap-spoiler__summary">Spoiler</summary>'
+                . '<div class="ap-spoiler__body">html search leak</div>'
+                . '</details><p>reply tail</p>',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
+
+        $posts = AP_Forum::search('SpoilerSearchToken', [
+            'type' => 'posts',
+            'approved_only' => true,
+        ], $this->db);
+        $this->assertGreaterThanOrEqual(1, $posts['total']);
+        $this->assertNotEmpty($posts['results']);
+
+        $snippets = [];
+        foreach ($posts['results'] as $row) {
+            if (!is_array($row) || ($row['result_type'] ?? '') !== 'post') {
+                continue;
+            }
+            $snippets[] = (string) ($row['snippet'] ?? '');
+        }
+        $this->assertNotEmpty($snippets);
+        $joined = implode("\n", $snippets);
+        $this->assertStringNotContainsString('hidden search secret', $joined);
+        $this->assertStringNotContainsString('html search leak', $joined);
+        $this->assertStringContainsString('[Spoiler]', $joined);
+        $this->assertStringContainsString('Visible lead', $joined);
+        $this->assertStringContainsString('Reply lead', $joined);
+
+        $hiddenHits = AP_Forum::search('hidden search secret', [
+            'type' => 'posts',
+            'approved_only' => true,
+        ], $this->db);
+        $this->assertGreaterThanOrEqual(1, $hiddenHits['total']);
+        foreach ($hiddenHits['results'] as $row) {
+            if (!is_array($row) || ($row['result_type'] ?? '') !== 'post') {
+                continue;
+            }
+            $this->assertStringNotContainsString(
+                'hidden search secret',
+                (string) ($row['snippet'] ?? '')
+            );
+        }
+
+        $titled = AP_Forum::createTopic([
+            'forum_id' => $this->forumId,
+            'topic_title' => 'Safe title [spoiler]title secret[/spoiler] end',
+            'content' => 'body without token',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $titled);
+
+        $topics = AP_Forum::search('title secret', [
+            'type' => 'topics',
+            'approved_only' => true,
+        ], $this->db);
+        $topicSnippets = [];
+        foreach ($topics['results'] as $row) {
+            if (!is_array($row) || ($row['result_type'] ?? '') !== 'topic') {
+                continue;
+            }
+            $topicSnippets[] = (string) ($row['snippet'] ?? '');
+        }
+        $this->assertNotEmpty($topicSnippets);
+        $topicJoined = implode("\n", $topicSnippets);
+        $this->assertStringNotContainsString('title secret', $topicJoined);
+        $this->assertStringContainsString('[Spoiler]', $topicJoined);
+        $this->assertStringContainsString('Safe title', $topicJoined);
+    }
+
     public function testSearchExcludesUnapprovedAndDeleted(): void
     {
         $approved = AP_Forum::createTopic([

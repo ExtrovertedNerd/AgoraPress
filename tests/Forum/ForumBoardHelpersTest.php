@@ -628,10 +628,68 @@ final class ForumBoardHelpersTest extends TestCase
         $this->assertSame($replyId, (int) $row['last_post']['post_id']);
         $this->assertSame($topicId, (int) $row['last_post']['topic_id']);
         $this->assertSame($this->readerId, (int) $row['last_post']['author_id']);
+        $this->assertSame('Latest reply', $row['last_post']['excerpt']);
 
         $viaHelper = ap_forum_to_display_row($forum, $this->db, $preload);
         $this->assertSame($row['last_post']['title'], $viaHelper['last_post']['title'] ?? null);
         $this->assertSame($row['icon_type'], $viaHelper['icon_type']);
+        $this->assertSame('Latest reply', $viaHelper['last_post']['excerpt'] ?? null);
+    }
+
+    public function testLastPostExcerptStripsSpoilerInnerText(): void
+    {
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $this->forumId,
+            'topic_title' => 'Spoiler last-post thread',
+            'content' => 'OP [spoiler]opening secret[/spoiler]',
+            'poster_id' => $this->authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+
+        $replyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => 'Safe blurb [spoiler]the butler did it[/spoiler] after',
+            'poster_id' => $this->readerId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
+
+        $forum = AP_Forum::getForum($this->forumId, $this->db);
+        $this->assertNotNull($forum);
+        $preload = AP_Forum::buildForumRowPreload([$forum], $this->db);
+        $this->assertArrayHasKey($replyId, $preload['posts']);
+
+        $row = AP_Forum::forumToDisplayRow($forum, $this->db, $preload);
+        $this->assertIsArray($row['last_post']);
+        $excerpt = (string) ($row['last_post']['excerpt'] ?? '');
+        $this->assertSame('Safe blurb [Spoiler] after', $excerpt);
+        $this->assertStringNotContainsString('the butler did it', $excerpt);
+        $this->assertStringNotContainsString('opening secret', $excerpt);
+
+        $htmlReplyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => '<p>Lead</p><details class="ap-spoiler">'
+                . '<summary class="ap-spoiler__summary">Ending</summary>'
+                . '<div class="ap-spoiler__body">html last-post leak</div>'
+                . '</details><p>Tail</p>',
+            'poster_id' => $this->readerId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $htmlReplyId);
+
+        $forum = AP_Forum::getForum($this->forumId, $this->db);
+        $this->assertNotNull($forum);
+        $htmlRow = AP_Forum::forumToDisplayRow($forum, $this->db);
+        $htmlExcerpt = (string) ($htmlRow['last_post']['excerpt'] ?? '');
+        $this->assertSame('Lead [Spoiler] Tail', $htmlExcerpt);
+        $this->assertStringNotContainsString('html last-post leak', $htmlExcerpt);
+
+        $topicRow = AP_Forum::topicToDisplayRow(
+            AP_Forum::getTopic($topicId, $this->db),
+            $this->db
+        );
+        $this->assertIsArray($topicRow['last_post']);
+        $topicExcerpt = (string) ($topicRow['last_post']['excerpt'] ?? '');
+        $this->assertSame('Lead [Spoiler] Tail', $topicExcerpt);
+        $this->assertStringNotContainsString('html last-post leak', $topicExcerpt);
     }
 
     public function testClosedForumRowAndEmptyStateHelpers(): void

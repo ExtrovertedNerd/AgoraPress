@@ -280,4 +280,56 @@ final class FeedTest extends TestCase
         $url = ap_get_feed_link('atom', $this->db);
         $this->assertStringContainsString('atom', $url);
     }
+
+    public function testRssAndAtomStripSpoilerInnerText(): void
+    {
+        AP_Post::insert([
+            'post_title' => 'Spoiler Feed Post',
+            'post_content' => 'Open line [spoiler]the murderer is the butler[/spoiler] close line',
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_date' => '2026-06-01 09:00:00',
+            'post_date_gmt' => '2026-06-01 09:00:00',
+        ], $this->db);
+
+        $rss = AP_Feed::buildRss2($this->db);
+        $this->assertStringContainsString('Spoiler Feed Post', $rss);
+        $this->assertStringNotContainsString('the murderer is the butler', $rss);
+        $this->assertStringContainsString('[Spoiler]', $rss);
+        $this->assertStringContainsString('Open line', $rss);
+
+        $atom = AP_Feed::buildAtom($this->db);
+        $this->assertStringNotContainsString('the murderer is the butler', $atom);
+        $this->assertStringContainsString('[Spoiler]', $atom);
+
+        AP_Post::insert([
+            'post_title' => 'Spoiler Manual Excerpt',
+            'post_content' => 'Body [spoiler]body leak[/spoiler]',
+            'post_excerpt' => 'Summary [spoiler]excerpt leak[/spoiler] done',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_date' => '2026-06-02 09:00:00',
+            'post_date_gmt' => '2026-06-02 09:00:00',
+        ], $this->db);
+        $rss2 = AP_Feed::buildRss2($this->db);
+        $this->assertStringNotContainsString('excerpt leak', $rss2);
+        $this->assertStringContainsString('Summary [Spoiler] done', $rss2);
+
+        AP_Post::insert([
+            'post_title' => 'Spoiler HTML Feed Post',
+            'post_content' => '<p>Open html</p><details class="ap-spoiler">'
+                . '<summary class="ap-spoiler__summary">Spoiler</summary>'
+                . '<div class="ap-spoiler__body">html feed leak</div></details><p>close html</p>',
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_date' => '2026-06-03 09:00:00',
+            'post_date_gmt' => '2026-06-03 09:00:00',
+        ], $this->db);
+        $rss3 = AP_Feed::buildRss2($this->db);
+        $this->assertStringNotContainsString('html feed leak', $rss3);
+        $this->assertStringContainsString('Open html', $rss3);
+        $this->assertStringContainsString('[Spoiler]', $rss3);
+    }
 }

@@ -2101,9 +2101,19 @@ class AP_Forum
             return [];
         }
         $topics = self::getTopics($forumId, $args, $db);
+        $postIds = [];
+        foreach ($topics as $topic) {
+            $pid = (int) ($topic->last_post_id ?? 0);
+            if ($pid > 0) {
+                $postIds[$pid] = $pid;
+            }
+        }
+        $preload = [
+            'posts' => self::getPostsByIds(array_values($postIds), $db),
+        ];
         $out = [];
         foreach ($topics as $topic) {
-            $out[] = self::topicToDisplayRow($topic, $db);
+            $out[] = self::topicToDisplayRow($topic, $db, $preload);
         }
 
         if (class_exists('AP_Forum_Read', false)) {
@@ -2897,25 +2907,30 @@ class AP_Forum
         }
 
         $results = [];
+        $topicPostIds = [];
         foreach ($topics as $topic) {
-            $row = self::topicToDisplayRow($topic, $db);
+            $pid = (int) ($topic->last_post_id ?? 0);
+            if ($pid > 0) {
+                $topicPostIds[$pid] = $pid;
+            }
+        }
+        $topicPreload = [
+            'posts' => self::getPostsByIds(array_values($topicPostIds), $db),
+        ];
+        foreach ($topics as $topic) {
+            $row = self::topicToDisplayRow($topic, $db, $topicPreload);
             $row['result_type'] = 'topic';
-            $row['snippet'] = (string) ($topic->topic_title ?? '');
+            $row['snippet'] = self::spoilerSafeBlurb((string) ($topic->topic_title ?? ''), 0, 160);
             $results[] = $row;
         }
         foreach ($posts as $post) {
             $row = self::postToDisplayRow($post, 0, $db);
             $row['result_type'] = 'post';
-            $snippet = (string) ($post->post_subject ?? '');
-            if ($snippet === '') {
-                $raw = (string) ($post->post_content ?? '');
-                if (function_exists('mb_substr')) {
-                    $snippet = mb_substr($raw, 0, 160);
-                } else {
-                    $snippet = substr($raw, 0, 160);
-                }
+            $raw = (string) ($post->post_content ?? '');
+            if (trim($raw) === '') {
+                $raw = (string) ($post->post_subject ?? '');
             }
-            $row['snippet'] = $snippet;
+            $row['snippet'] = self::spoilerSafeBlurb($raw, 0, 160);
             $topic = self::getTopic((int) $post->topic_id, $db);
             $row['topic_title'] = $topic !== null ? (string) $topic->topic_title : '';
             $row['url'] = $topic !== null
@@ -3457,11 +3472,12 @@ class AP_Forum
      * - topics / topic_count: denormalized approved topic count
      * - posts / post_count: denormalized **opening posts + replies** (not replies-only;
      *   same definition as board footer Total Posts — see class docblock)
-     * - last_post: null when empty, else title, author, time, url (+ ids)
+     * - last_post: null when empty, else title, author, time, url, excerpt (+ ids)
      *
      * @param array{
      *   topics?: array<int, object>,
-     *   authors?: array<int, string>
+     *   authors?: array<int, string>,
+     *   posts?: array<int, object>
      * } $preload Optional batch maps from {@see buildForumRowPreload()} (avoids N+1).
      *
      * @return array<string, mixed>
@@ -3511,7 +3527,8 @@ class AP_Forum
      *
      * @param array{
      *   topics?: array<int, object>,
-     *   authors?: array<int, string>
+     *   authors?: array<int, string>,
+     *   posts?: array<int, object>
      * } $preload
      *
      * @return array{
@@ -3520,6 +3537,7 @@ class AP_Forum
      *   time: string,
      *   date: string,
      *   url: string,
+     *   excerpt: string,
      *   post_id: int,
      *   topic_id: int,
      *   author_id: int
@@ -3586,6 +3604,8 @@ class AP_Forum
             }
         }
 
+        $excerpt = self::lastPostExcerptFromPreload($postId, $db, $preload);
+
         return [
             'title' => $title,
             'author' => $author,
@@ -3593,6 +3613,7 @@ class AP_Forum
             // Alias used by older theme markup (agora forum.php).
             'date' => $time,
             'url' => $lastUrl,
+            'excerpt' => $excerpt,
             'post_id' => $postId,
             'topic_id' => $topicId,
             'author_id' => $authorId,
@@ -3617,29 +3638,39 @@ class AP_Forum
      *
      * @param list<object> $forums
      *
-     * @return array{topics: array<int, object>, authors: array<int, string>}
+     * @return array{
+     *   topics: array<int, object>,
+     *   authors: array<int, string>,
+     *   posts: array<int, object>
+     * }
      */
     public static function buildForumRowPreload(array $forums, ?AP_DB $db = null): array
     {
         $topicIds = [];
         $authorIds = [];
+        $postIds = [];
         foreach ($forums as $forum) {
             if (!is_object($forum)) {
                 continue;
             }
             $tid = (int) ($forum->last_topic_id ?? 0);
             $aid = (int) ($forum->last_poster_id ?? 0);
+            $pid = (int) ($forum->last_post_id ?? 0);
             if ($tid > 0) {
                 $topicIds[$tid] = $tid;
             }
             if ($aid > 0) {
                 $authorIds[$aid] = $aid;
             }
+            if ($pid > 0) {
+                $postIds[$pid] = $pid;
+            }
         }
 
         return [
             'topics' => self::getTopicsByIds(array_values($topicIds), $db),
             'authors' => self::getAuthorDisplayNames(array_values($authorIds), $db),
+            'posts' => self::getPostsByIds(array_values($postIds), $db),
         ];
     }
 
@@ -3683,6 +3714,118 @@ class AP_Forum
         }
 
         return $out;
+    }
+
+    /**
+     * @param list<int> $postIds
+     *
+     * @return array<int, object>
+     */
+    public static function getPostsByIds(array $postIds, ?AP_DB $db = null): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($id): int => (int) $id, $postIds),
+            static fn (int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        try {
+            $db = self::resolveDb($db);
+        } catch (Throwable) {
+            return [];
+        }
+
+        $table = $db->quoteIdentifier($db->table('forum_posts'));
+        $ph = implode(', ', array_fill(0, count($ids), '?'));
+        try {
+            $rows = $db->getResults(
+                'SELECT * FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('post_id') . ' IN (' . $ph . ')',
+                $ids
+            );
+        } catch (Throwable) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $normalized = self::normalizePostRow($row);
+            $out[(int) $normalized->post_id] = $normalized;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Spoiler-stripped last-post blurb from a preloaded post map (or one fetch).
+     *
+     * @param array{posts?: array<int, object>} $preload
+     */
+    private static function lastPostExcerptFromPreload(int $postId, ?AP_DB $db, array $preload): string
+    {
+        if ($postId < 1) {
+            return '';
+        }
+
+        $post = null;
+        $postMap = is_array($preload['posts'] ?? null) ? $preload['posts'] : null;
+        if ($postMap !== null) {
+            $hit = $postMap[$postId] ?? null;
+            $post = is_object($hit) ? $hit : null;
+        } else {
+            try {
+                $post = self::getPost($postId, $db);
+            } catch (Throwable) {
+                $post = null;
+            }
+        }
+        if ($post === null) {
+            return '';
+        }
+
+        return self::spoilerSafeBlurb((string) ($post->post_content ?? ''));
+    }
+
+    /**
+     * Spoiler-stripped plain-text blurb for last-post columns and search snippets.
+     *
+     * @param int $words Word cap; 0 = none
+     * @param int $chars Character cap after word trim; 0 = none
+     */
+    private static function spoilerSafeBlurb(string $content, int $words = 40, int $chars = 0): string
+    {
+        if (function_exists('ap_strip_spoilers')) {
+            $content = ap_strip_spoilers($content);
+        } elseif (class_exists('AP_Content_Format', false)) {
+            $content = AP_Content_Format::stripSpoilers($content);
+        }
+        $text = trim(strip_tags($content));
+        if ($text === '') {
+            return '';
+        }
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+        if ($words > 0) {
+            $parts = preg_split('/\s+/u', $text, $words + 1) ?: [];
+            if (count($parts) > $words) {
+                $parts = array_slice($parts, 0, $words);
+                $text = implode(' ', $parts) . '…';
+            } else {
+                $text = implode(' ', $parts);
+            }
+        }
+        if ($chars > 0) {
+            if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+                if (mb_strlen($text) > $chars) {
+                    $text = rtrim(mb_substr($text, 0, max(0, $chars - 1))) . '…';
+                }
+            } elseif (strlen($text) > $chars) {
+                $text = rtrim(substr($text, 0, max(0, $chars - 1))) . '…';
+            }
+        }
+
+        return $text;
     }
 
     /**
@@ -3757,9 +3900,13 @@ class AP_Forum
      * - posts / post_count: opening post + replies (`reply_count + 1`) — same
      *   meaning as forum-row and board-footer “Posts” columns
      *
+     * @param array{
+     *   posts?: array<int, object>
+     * } $preload Optional last-post objects from {@see getPostsByIds()}.
+     *
      * @return array<string, mixed>
      */
-    public static function topicToDisplayRow(object $topic, ?AP_DB $db = null): array
+    public static function topicToDisplayRow(object $topic, ?AP_DB $db = null, array $preload = []): array
     {
         $type = self::normalizeTopicType((string) $topic->topic_type);
         $status = (string) $topic->topic_status;
@@ -3817,7 +3964,7 @@ class AP_Forum
             'last_date' => $lastTime,
             'last_author' => $lastAuthor,
             'last_poster_id' => (int) $topic->last_poster_id,
-            // Nested last_post for parity with forum rows (title / author / time / url).
+            // Nested last_post for parity with forum rows (title / author / time / url / excerpt).
             'last_post' => $lastPostId > 0 || $lastTime !== ''
                 ? [
                     'title' => (string) $topic->topic_title,
@@ -3825,6 +3972,9 @@ class AP_Forum
                     'time' => $lastTime,
                     'date' => $lastTime,
                     'url' => $lastUrl,
+                    'excerpt' => $lastPostId > 0
+                        ? self::lastPostExcerptFromPreload($lastPostId, $db, $preload)
+                        : '',
                     'post_id' => $lastPostId,
                     'topic_id' => (int) $topic->topic_id,
                     'author_id' => (int) $topic->last_poster_id,

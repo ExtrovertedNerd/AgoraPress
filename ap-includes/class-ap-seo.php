@@ -483,8 +483,14 @@ class AP_Seo
     {
         $excerpt = trim((string) $post->post_excerpt);
         if ($excerpt === '') {
-            $excerpt = trim(strip_tags((string) $post->post_content));
+            $excerpt = (string) $post->post_content;
         }
+        if (function_exists('ap_strip_spoilers')) {
+            $excerpt = ap_strip_spoilers($excerpt);
+        } elseif (class_exists('AP_Content_Format', false)) {
+            $excerpt = AP_Content_Format::stripSpoilers($excerpt);
+        }
+        $excerpt = trim(strip_tags($excerpt));
         if ($excerpt === '') {
             return '';
         }

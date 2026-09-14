@@ -29,17 +29,20 @@ final class EditorTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-editor.php';
         require_once $this->root . '/ap-includes/functions.php';
         AP_Editor::reset();
+        AP_Content_Format::resetAssets();
     }
 
     protected function tearDown(): void
     {
         AP_Editor::reset();
+        AP_Content_Format::resetAssets();
     }
 
     public function testAssetFilesExist(): void
     {
         $this->assertFileIsReadable($this->root . '/ap-includes/class-ap-editor.php');
         $this->assertFileIsReadable($this->root . '/ap-includes/css/ap-editor.css');
+        $this->assertFileIsReadable($this->root . '/ap-includes/css/ap-spoiler.css');
         $this->assertFileIsReadable($this->root . '/ap-includes/js/ap-editor.js');
     }
 
@@ -116,8 +119,94 @@ final class EditorTest extends TestCase
     public function testVisualButtonsIncludeCoreFormatting(): void
     {
         $ids = array_column(AP_Editor::buttons('visual'), 'id');
-        foreach (['bold', 'italic', 'underline', 'link', 'h2', 'h3', 'quote', 'ul', 'ol', 'code', 'hr', 'emoji'] as $need) {
-            $this->assertContains($need, $ids, "Missing visual button {$need}");
+        $need = [
+            'bold', 'italic', 'underline', 'link', 'h2', 'h3', 'quote',
+            'spoiler', 'ul', 'ol', 'code', 'hr', 'emoji',
+        ];
+        foreach ($need as $id) {
+            $this->assertContains($id, $ids, "Missing visual button {$id}");
+        }
+    }
+
+    public function testSpoilerButtonWrapsVisualAndInsertsShortcodeInText(): void
+    {
+        $spoiler = null;
+        foreach (AP_Editor::buttons('visual') as $btn) {
+            if (is_array($btn) && ($btn['id'] ?? '') === 'spoiler') {
+                $spoiler = $btn;
+                break;
+            }
+        }
+        $this->assertIsArray($spoiler);
+        $this->assertSame('Spoiler', $spoiler['label']);
+        $this->assertSame('Spoiler', $spoiler['title']);
+        $this->assertSame('visual-spoiler', $spoiler['cmd']);
+        $this->assertSame('[spoiler]', $spoiler['wrap-open']);
+        $this->assertSame('[/spoiler]', $spoiler['wrap-close']);
+
+        $html = AP_Editor::render([
+            'id' => 'content',
+            'name' => 'post_content',
+            'mode' => 'visual',
+        ]);
+        $this->assertMatchesRegularExpression(
+            '/<button\b[^>]*data-ap-editor-btn="spoiler"[^>]*>\s*Spoiler\s*</',
+            $html
+        );
+        $this->assertStringContainsString('data-ap-editor-cmd="visual-spoiler"', $html);
+        $this->assertStringContainsString('data-ap-editor-wrap-open="[spoiler]"', $html);
+        $this->assertStringContainsString('data-ap-editor-wrap-close="[/spoiler]"', $html);
+        $this->assertStringContainsString('aria-label="Spoiler"', $html);
+
+        $js = (string) file_get_contents($this->root . '/ap-includes/js/ap-editor.js');
+        $this->assertStringContainsString('visual-spoiler', $js);
+        $this->assertStringContainsString('wrapSelectionAsSpoiler', $js);
+        $this->assertStringContainsString('class="ap-spoiler"', $js);
+        $this->assertStringContainsString('ap-spoiler__summary', $js);
+        $this->assertStringContainsString('ap-spoiler__body', $js);
+        $this->assertStringContainsString('handleTextCommand', $js);
+        $this->assertStringContainsString('wrapTextareaSelection', $js);
+        $this->assertStringContainsString('data-ap-editor-wrap-open', $js);
+        $this->assertStringContainsString('[spoiler]', $js);
+        $this->assertStringContainsString('[/spoiler]', $js);
+        $this->assertStringContainsString("getActiveMode(wrap) === 'html'", $js);
+        $this->assertStringContainsString('handleTextCommand(btn, wrap)', $js);
+    }
+
+    public function testSpoilerToolbarIsSharedOnPostPageCommentForum(): void
+    {
+        $files = [
+            'ap-admin/includes/class-ap-admin-post-edit.php' => ['AP_Editor::render', 'modeForContext', 'post_content'],
+            'ap-admin/comment.php' => ['ap_editor(', "modeForContext('comment')"],
+            'ap-content/themes/agora/single.php' => ['ap_editor(', "modeForContext('comment')"],
+            'ap-content/themes/agora/forum-view.php' => ['ap_editor(', "modeForContext('forum')"],
+            'ap-content/themes/agora/topic.php' => ['ap_editor(', "modeForContext('forum')"],
+        ];
+        foreach ($files as $rel => $needles) {
+            $src = (string) file_get_contents($this->root . '/' . $rel);
+            $this->assertNotSame('', $src, 'Missing compose surface ' . $rel);
+            foreach ($needles as $needle) {
+                $this->assertStringContainsString(
+                    $needle,
+                    $src,
+                    $rel . ' should share AP_Editor (' . $needle . ')'
+                );
+            }
+        }
+
+        // One widget: the Spoiler control is present whenever the toolbar renders.
+        foreach (['post', 'page', 'comment', 'forum'] as $context) {
+            $this->assertSame('visual', AP_Editor::modeForContext($context));
+            $html = AP_Editor::render([
+                'id' => $context . '_body',
+                'name' => $context . '_body',
+                'mode' => AP_Editor::modeForContext($context),
+            ]);
+            $this->assertStringContainsString(
+                'data-ap-editor-btn="spoiler"',
+                $html,
+                'Spoiler toolbar missing for context ' . $context
+            );
         }
     }
 
@@ -187,8 +276,9 @@ final class EditorTest extends TestCase
         $this->assertStringContainsString('data-ap-editor-emoji-picker', $html);
         $this->assertStringContainsString('data-ap-emoji="1"', $html);
         $this->assertStringContainsString('aria-haspopup="dialog"', $html);
-        // Assets printed once with the control.
+        // Assets printed once with the control (spoiler CSS for visual <details>).
         $this->assertStringContainsString('ap-editor.css', $html);
+        $this->assertStringContainsString('ap-spoiler.css', $html);
         $this->assertStringContainsString('ap-editor.js', $html);
         $this->assertTrue(AP_Editor::assetsWereEnqueued());
     }
@@ -250,8 +340,10 @@ final class EditorTest extends TestCase
         $a = AP_Editor::render(['id' => 'a', 'name' => 'a']);
         $b = AP_Editor::render(['id' => 'b', 'name' => 'b']);
         $this->assertStringContainsString('ap-editor.css', $a);
+        $this->assertStringContainsString('ap-spoiler.css', $a);
         // Second render must not re-print link/script tags.
         $this->assertStringNotContainsString('ap-editor.css', $b);
+        $this->assertStringNotContainsString('ap-spoiler.css', $b);
         $this->assertStringContainsString('id="b"', $b);
     }
 

@@ -68,6 +68,9 @@ def test_editor_class_api() -> None:
         "data-ap-editor-surface",
         "data-ap-editor-mode-switch",
         "data-ap-editor-set-mode",
+        "visual-spoiler",
+        "wrap-open",
+        "[spoiler]",
         "Not a block",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-editor.php"
@@ -174,6 +177,82 @@ def test_wired_into_post_page_comment_forum_editors() -> None:
     assert "ap_editor" in single or "AP_Editor" in single
     assert "ap-comment-form" in single
     assert 'name="comment"' in single or "name=\"comment\"" in single
+
+    comment = (ROOT / "ap-admin" / "comment.php").read_text(encoding="utf-8")
+    assert "ap_editor" in comment or "AP_Editor" in comment
+    assert "comment_content" in comment
+    assert "modeForContext('comment')" in comment
+
+
+def test_spoiler_toolbar_wraps_visual_and_inserts_shortcode() -> None:
+    """Toolbar Spoiler: Visual wraps selection; Text inserts [spoiler]…[/spoiler]."""
+    editor_test = PHPUNIT.read_text(encoding="utf-8")
+    assert "function testSpoilerButtonWrapsVisualAndInsertsShortcodeInText" in editor_test
+    assert "function testSpoilerToolbarIsSharedOnPostPageCommentForum" in editor_test
+
+    php = EDITOR.read_text(encoding="utf-8")
+    assert "'id' => 'spoiler'" in php
+    assert "'cmd' => 'visual-spoiler'" in php
+    assert "'wrap-open' => '[spoiler]'" in php
+    assert "'wrap-close' => '[/spoiler]'" in php
+    assert "wrap-open" in php
+    assert "wrap-close" in php
+
+    js = JS.read_text(encoding="utf-8")
+    assert "visual-spoiler" in js
+    assert "wrapSelectionAsSpoiler" in js
+    assert 'class="ap-spoiler"' in js
+    assert "ap-spoiler__summary" in js
+    assert "ap-spoiler__body" in js
+    assert "handleTextCommand" in js
+    assert "wrapTextareaSelection" in js
+    assert "data-ap-editor-wrap-open" in js
+
+    php_bin = _php_bin()
+    script = r"""
+require_once __DIR__ . '/ap-includes/class-ap-editor.php';
+$ids = array_column(AP_Editor::buttons('visual'), 'id');
+if (!in_array('spoiler', $ids, true)) { fwrite(STDERR, "no spoiler button\n"); exit(1); }
+$html = AP_Editor::render(['id' => 't', 'name' => 't', 'mode' => 'visual']);
+if (strpos($html, 'data-ap-editor-btn="spoiler"') === false) {
+    fwrite(STDERR, "missing spoiler btn\n"); exit(1);
+}
+if (strpos($html, 'data-ap-editor-cmd="visual-spoiler"') === false) {
+    fwrite(STDERR, "missing visual-spoiler cmd\n"); exit(1);
+}
+if (strpos($html, 'data-ap-editor-wrap-open="[spoiler]"') === false) {
+    fwrite(STDERR, "missing wrap-open\n"); exit(1);
+}
+if (strpos($html, 'data-ap-editor-wrap-close="[/spoiler]"') === false) {
+    fwrite(STDERR, "missing wrap-close\n"); exit(1);
+}
+foreach (['post', 'page', 'comment', 'forum'] as $ctx) {
+    if (AP_Editor::modeForContext($ctx) !== 'visual') {
+        fwrite(STDERR, "context not visual: $ctx\n"); exit(1);
+    }
+    $ctxHtml = AP_Editor::render([
+        'id' => $ctx . '_body',
+        'name' => $ctx . '_body',
+        'mode' => AP_Editor::modeForContext($ctx),
+    ]);
+    if (strpos($ctxHtml, 'data-ap-editor-btn="spoiler"') === false) {
+        fwrite(STDERR, "missing spoiler btn for $ctx\n"); exit(1);
+    }
+    if (strpos($ctxHtml, '>Spoiler<') === false && !preg_match('/data-ap-editor-btn="spoiler"[^>]*>\s*Spoiler\s*</', $ctxHtml)) {
+        fwrite(STDERR, "missing Spoiler label for $ctx\n"); exit(1);
+    }
+}
+echo "ok\n";
+"""
+    result = subprocess.run(
+        [php_bin, "-r", script],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "ok" in result.stdout
 
 
 def test_css_has_surface_rules() -> None:

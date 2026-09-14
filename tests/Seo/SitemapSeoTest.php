@@ -361,6 +361,55 @@ final class SitemapSeoTest extends TestCase
         $this->assertSame('summary', $meta['twitter:card']);
     }
 
+    public function testOpenGraphDescriptionStripsSpoilerInnerText(): void
+    {
+        $id = AP_Post::insert([
+            'post_title' => 'OG Spoiler Article',
+            'post_content' => 'Safe OG lead [spoiler]hidden ending for crawlers[/spoiler] after.',
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_date' => '2026-05-02 12:00:00',
+            'post_date_gmt' => '2026-05-02 12:00:00',
+        ], $this->db);
+
+        $q = new AP_Query(['p' => $id], $this->db);
+        $meta = AP_Seo::getOpenGraphMeta($q, $this->db);
+        $desc = (string) ($meta['og:description'] ?? '');
+        $this->assertStringNotContainsString('hidden ending for crawlers', $desc);
+        $this->assertStringContainsString('[Spoiler]', $desc);
+        $this->assertStringContainsString('Safe OG lead', $desc);
+        $this->assertSame($desc, (string) ($meta['twitter:description'] ?? ''));
+
+        $manualId = AP_Post::insert([
+            'post_title' => 'OG Manual Spoiler',
+            'post_content' => 'Body [spoiler]body leak[/spoiler]',
+            'post_excerpt' => 'Card [spoiler]og excerpt leak[/spoiler] blurb',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $manualQ = new AP_Query(['p' => $manualId], $this->db);
+        $manualMeta = AP_Seo::getOpenGraphMeta($manualQ, $this->db);
+        $manualDesc = (string) ($manualMeta['og:description'] ?? '');
+        $this->assertSame('Card [Spoiler] blurb', $manualDesc);
+        $this->assertStringNotContainsString('og excerpt leak', $manualDesc);
+
+        $htmlId = AP_Post::insert([
+            'post_title' => 'OG HTML Spoiler',
+            'post_content' => '<p>OG html lead</p><details class="ap-spoiler">'
+                . '<summary class="ap-spoiler__summary">Spoiler</summary>'
+                . '<div class="ap-spoiler__body">og html leak</div></details><p>after</p>',
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+        ], $this->db);
+        $htmlQ = new AP_Query(['p' => $htmlId], $this->db);
+        $htmlMeta = AP_Seo::getOpenGraphMeta($htmlQ, $this->db);
+        $htmlDesc = (string) ($htmlMeta['og:description'] ?? '');
+        $this->assertSame('OG html lead [Spoiler] after', $htmlDesc);
+        $this->assertStringNotContainsString('og html leak', $htmlDesc);
+    }
+
     public function testPrintHeadTagsOutputsCanonicalAndOg(): void
     {
         $id = AP_Post::insert([

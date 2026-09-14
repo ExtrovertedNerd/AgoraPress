@@ -164,6 +164,91 @@
         insertHtml('<' + tagName + '>' + escaped + '</' + tagName + '>');
     }
 
+    /**
+     * Visual: wrap the current selection in native <details class="ap-spoiler">.
+     * Empty selection still inserts a spoiler so the author can type inside.
+     */
+    function wrapSelectionAsSpoiler() {
+        var inner = '\u200b';
+        var sel = window.getSelection ? window.getSelection() : null;
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            var range = sel.getRangeAt(0);
+            var tmp = document.createElement('div');
+            tmp.appendChild(range.cloneContents());
+            var html = tmp.innerHTML;
+            if (!isEmptyHtml(html)) {
+                inner = html;
+            }
+            range.deleteContents();
+            try {
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } catch (e) { /* selection restore is best-effort */ }
+        }
+        insertHtml(
+            '<details class="ap-spoiler">'
+            + '<summary class="ap-spoiler__summary">Spoiler</summary>'
+            + '<div class="ap-spoiler__body">' + inner + '</div>'
+            + '</details>'
+        );
+    }
+
+    /**
+     * Text mode: wrap the textarea selection with a shortcode pair.
+     * Empty selection inserts the pair and leaves the caret between tags.
+     */
+    function wrapTextareaSelection(ta, open, close) {
+        if (!ta) {
+            return;
+        }
+        var value = ta.value || '';
+        var start = typeof ta.selectionStart === 'number' ? ta.selectionStart : value.length;
+        var end = typeof ta.selectionEnd === 'number' ? ta.selectionEnd : value.length;
+        if (end < start) {
+            var swap = start;
+            start = end;
+            end = swap;
+        }
+        var selected = value.slice(start, end);
+        ta.value = value.slice(0, start) + open + selected + close + value.slice(end);
+        var innerStart = start + String(open).length;
+        var innerEnd = innerStart + selected.length;
+        try {
+            ta.selectionStart = innerStart;
+            ta.selectionEnd = innerEnd;
+        } catch (eSel) { /* ignore */ }
+        try {
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+        } catch (eInput) { /* older browsers */ }
+    }
+
+    function handleTextCommand(btn, wrap) {
+        var ta = getTextarea(wrap);
+        if (!ta) {
+            return;
+        }
+        var cmd = btn.getAttribute('data-ap-editor-cmd') || '';
+        var open = btn.getAttribute('data-ap-editor-wrap-open') || '';
+        var close = btn.getAttribute('data-ap-editor-wrap-close') || '';
+        if (cmd === 'visual-spoiler') {
+            if (open === '') {
+                open = '[spoiler]';
+            }
+            if (close === '') {
+                close = '[/spoiler]';
+            }
+        }
+        if (open === '' && close === '') {
+            return;
+        }
+        wrapTextareaSelection(ta, open, close);
+        try {
+            ta.focus({ preventScroll: true });
+        } catch (e) {
+            ta.focus();
+        }
+    }
+
     function getEmojiPicker(fromEl) {
         var wrap = closestWrap(fromEl);
         if (!wrap) {
@@ -262,6 +347,9 @@
             case 'visual-code':
                 wrapSelectionWithTag('code');
                 break;
+            case 'visual-spoiler':
+                wrapSelectionAsSpoiler();
+                break;
             case 'visual-img': {
                 var imgUrl = promptUrl('https://');
                 if (imgUrl === null) {
@@ -329,7 +417,11 @@
             }
             e.preventDefault();
             var wrap = closestWrap(toolbar);
-            if (!wrap || getActiveMode(wrap) === 'html') {
+            if (!wrap) {
+                return;
+            }
+            if (getActiveMode(wrap) === 'html') {
+                handleTextCommand(btn, wrap);
                 return;
             }
             var surface = getSurface(wrap);
@@ -635,7 +727,9 @@
         sync: syncSurfaceToTextarea,
         setMode: setMode,
         getMode: getActiveMode,
-        placeCaretAtEnd: placeCaretAtEnd
+        placeCaretAtEnd: placeCaretAtEnd,
+        wrapSelectionAsSpoiler: wrapSelectionAsSpoiler,
+        wrapTextareaSelection: wrapTextareaSelection
     };
 
     if (document.readyState === 'loading') {

@@ -224,6 +224,49 @@ def test_structure_assert_includes_new_paths() -> None:
         assert needle in src, f"Expected {needle!r} in assert-structure.php"
 
 
+def test_excerpt_and_feed_do_not_leak_spoilers() -> None:
+    """SPEC: excerpts and RSS/Atom omit spoiler inner text."""
+    template = (ROOT / "tests" / "Template" / "TemplateTagsTest.php").read_text(
+        encoding="utf-8"
+    )
+    assert "function testExcerptStripsSpoilerInnerText" in template
+    assert "the butler did it" in template
+    assert "html excerpt leak" in template
+
+    feed = (ROOT / "tests" / "Feed" / "FeedTest.php").read_text(encoding="utf-8")
+    assert "function testRssAndAtomStripSpoilerInnerText" in feed
+    assert "the murderer is the butler" in feed
+    assert "html feed leak" in feed
+
+    phpunit = ROOT / "vendor" / "bin" / "phpunit"
+    if not phpunit.is_file():
+        return
+    result = subprocess.run(
+        [
+            _php_bin(),
+            str(phpunit),
+            "--configuration",
+            str(ROOT / "phpunit.xml.dist"),
+            "--colors=never",
+            "--filter",
+            "testExcerptStripsSpoilerInnerText|testRssAndAtomStripSpoilerInnerText",
+            str(ROOT / "tests" / "Template" / "TemplateTagsTest.php"),
+            str(ROOT / "tests" / "Feed" / "FeedTest.php"),
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stdout)
+        sys.stderr.write(result.stderr)
+    assert result.returncode == 0, "Excerpt/feed spoiler leak PHPUnit cases failed"
+    summary = result.stdout or ""
+    assert "OK (" in summary, "Excerpt/feed spoiler PHPUnit produced no OK summary:\n" + summary
+
+
 def test_empty_name_category_list_phpunit_cases() -> None:
     """Empty-name terms are absent from HTML; all-empty lists are blank."""
     src = (ROOT / "tests" / "Template" / "TemplateTagsTest.php").read_text(

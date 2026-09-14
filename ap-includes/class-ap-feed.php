@@ -162,7 +162,7 @@ class AP_Feed
             $guid = $link !== '' ? $link : ('post-' . (int) $post->ID);
             $body = $useExcerpt
                 ? self::excerptForFeed($post)
-                : (string) $post->post_content;
+                : self::stripSpoilers((string) $post->post_content);
             $desc = self::excerptForFeed($post);
 
             $xml .= "    <item>\n";
@@ -220,7 +220,7 @@ class AP_Feed
             $pub = self::atomDate((string) $post->post_date_gmt, (string) $post->post_date);
             $body = $useExcerpt
                 ? self::excerptForFeed($post)
-                : (string) $post->post_content;
+                : self::stripSpoilers((string) $post->post_content);
             $summary = self::excerptForFeed($post);
 
             $xml .= "  <entry>\n";
@@ -658,7 +658,7 @@ class AP_Feed
         if ($firstId > 0) {
             $post = AP_Forum::getPost($firstId, $db);
             if ($post !== null && (int) ($post->post_approved ?? 1) === 1) {
-                $full = (string) ($post->post_content ?? '');
+                $full = self::stripSpoilers((string) ($post->post_content ?? ''));
             }
         }
         $summary = self::textExcerpt($full);
@@ -689,7 +689,7 @@ class AP_Feed
         if ($pid > 0 && $link !== '') {
             $link .= (str_contains($link, '#') ? '' : '#post-' . $pid);
         }
-        $full = (string) ($post->post_content ?? '');
+        $full = self::stripSpoilers((string) ($post->post_content ?? ''));
         $summary = self::textExcerpt($full);
 
         return [
@@ -792,15 +792,30 @@ class AP_Feed
     {
         $excerpt = trim((string) $post->post_excerpt);
         if ($excerpt !== '') {
-            return $excerpt;
+            return trim(self::stripSpoilers($excerpt));
         }
 
         return self::textExcerpt((string) $post->post_content);
     }
 
+    /**
+     * Shared spoiler strip for feed summaries and full bodies.
+     */
+    private static function stripSpoilers(string $content): string
+    {
+        if (function_exists('ap_strip_spoilers')) {
+            return ap_strip_spoilers($content);
+        }
+        if (class_exists('AP_Content_Format', false)) {
+            return AP_Content_Format::stripSpoilers($content);
+        }
+
+        return $content;
+    }
+
     private static function textExcerpt(string $html): string
     {
-        $text = trim(strip_tags($html));
+        $text = trim(strip_tags(self::stripSpoilers($html)));
         if ($text === '') {
             return '';
         }

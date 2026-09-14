@@ -35,8 +35,26 @@ class AP_Content_Format
 
     public const MODE_PLAIN = 'plain';
 
+    /** Stylesheet handle for native spoiler CSS (front-end + editor). */
+    public const STYLE_HANDLE = 'ap-spoiler';
+
+    /** Placeholder that replaces spoiler inner text on snippet surfaces. */
+    public const SPOILER_PLACEHOLDER = '[Spoiler]';
+
+    /** In-memory token so nested strip passes do not treat the placeholder as BBCode. */
+    private const SPOILER_STRIP_TOKEN = '@@APSTRIPSPOILER@@';
+
     /** @var list<string> */
     private static array $placeholders = [];
+
+    /** Whether ap_enqueue_scripts was hooked this request. */
+    private static bool $styleHooked = false;
+
+    /** Whether spoiler CSS was enqueued via AP_Assets this request. */
+    private static bool $styleEnqueued = false;
+
+    /** Whether spoiler CSS link tags were printed this request. */
+    private static bool $stylePrinted = false;
 
     /**
      * Format content for safe HTML display.
@@ -236,7 +254,9 @@ class AP_Content_Format
             'cite' => $common,
             'code' => $common,
             'del' => $common,
+            // Native spoilers: keep <details>/<summary> and inner allow-listed markup.
             'details' => $common + ['open' => true],
+            'div' => $common,
             'em' => $common,
             'h1' => $common,
             'h2' => $common,
@@ -340,6 +360,36 @@ class AP_Content_Format
         $mode = strtolower(trim($mode));
 
         return in_array($mode, self::modes(), true) ? $mode : self::MODE_AUTO;
+    }
+
+    /**
+     * Replace spoiler blocks so inner text cannot leak into plain-text surfaces.
+     *
+     * Handles stored BBCode (`[spoiler]…[/spoiler]`, `[spoiler=Label]`,
+     * `[spoiler title="Label"]`) and rendered `<details class="ap-spoiler">`.
+     * Nested spoilers: innermost first, then one extra pass (same as convert).
+     *
+     * Used by excerpts, feeds, Open Graph, search snippets, and forum last-post blurbs.
+     *
+     * @param string $placeholder Replaces each spoiler block. Empty string drops it.
+     */
+    public static function stripSpoilers(
+        string $content,
+        string $placeholder = self::SPOILER_PLACEHOLDER
+    ): string {
+        $content = str_replace("\0", '', $content);
+        if ($content === '') {
+            return '';
+        }
+
+        $content = self::stripSpoilerBbcode($content);
+        $content = self::stripSpoilerHtml($content);
+
+        if ($content === '') {
+            return '';
+        }
+
+        return str_replace(self::SPOILER_STRIP_TOKEN, $placeholder, $content);
     }
 
     // -------------------------------------------------------------------------
@@ -606,21 +656,8 @@ class AP_Content_Format
             $text = $next;
         }
 
-        // [spoiler] / [spoiler=title]
-        $text = (string) preg_replace_callback(
-            '/\[spoiler(?:=([^\]]+))?\](.*?)\[\/spoiler\]/is',
-            static function (array $m): string {
-                $title = trim((string) ($m[1] ?? ''), " \t\"'");
-                if ($title === '') {
-                    $title = 'Spoiler';
-                }
-                $titleEsc = htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-                $inner = (string) ($m[2] ?? '');
-
-                return '<details class="ap-spoiler"><summary>' . $titleEsc . '</summary>' . $inner . '</details>';
-            },
-            $text
-        );
+        // [spoiler] / [spoiler=Label] / [spoiler title="Label"] — format path only.
+        $text = self::convertSpoilers($text);
 
         // [color=#hex|name]text[/color]
         $text = (string) preg_replace_callback(
@@ -689,6 +726,131 @@ class AP_Content_Format
         );
 
         return $text;
+    }
+
+    /**
+     * Convert spoiler BBCode to native details/summary. Empty body is dropped.
+     *
+     * One conversion path: called from convertBbcode only (not a shortcode).
+     * Nested spoilers: one extra innermost pass.
+     */
+    private static function convertSpoilers(string $text): string
+    {
+        // Innermost first: body may not contain another [spoiler opening tag.
+        $pattern = '/\[spoiler(?:'
+            . '\s+title\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s\]]+))'
+            . '|=([^\]]+)'
+            . ')?\s*\]((?:(?!\[spoiler\b).)*?)\[\/spoiler\]/is';
+
+        $callback = static function (array $m): string {
+            $title = '';
+            foreach ([1, 2, 3, 4] as $i) {
+                if (isset($m[$i]) && $m[$i] !== '') {
+                    $title = (string) $m[$i];
+                    break;
+                }
+            }
+            $title = trim($title, " \t\"'");
+            if ($title === '') {
+                $title = 'Spoiler';
+            }
+            $inner = (string) ($m[5] ?? '');
+            if (trim($inner) === '') {
+                return '';
+            }
+            // Keep the details block as one wrapLooseParagraphs unit.
+            $inner = preg_replace("/\n{2,}/", "\n", $inner) ?? $inner;
+            $titleEsc = htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            // Placeholder so Markdown __bold__ cannot eat BEM class names.
+            $html = '<details class="ap-spoiler">'
+                . '<summary class="ap-spoiler__summary">' . $titleEsc . '</summary>'
+                . '<div class="ap-spoiler__body">' . $inner . '</div>'
+                . '</details>';
+
+            return self::storePlaceholder($html);
+        };
+
+        for ($i = 0; $i < 2; $i++) {
+            $next = (string) preg_replace_callback($pattern, $callback, $text);
+            if ($next === $text) {
+                break;
+            }
+            $text = $next;
+        }
+
+        return $text;
+    }
+
+    /**
+     * Replace BBCode spoiler blocks with {@see SPOILER_STRIP_TOKEN} (innermost first).
+     */
+    private static function stripSpoilerBbcode(string $text): string
+    {
+        // Innermost first: body may not contain another [spoiler opening tag.
+        $pattern = '/\[spoiler(?:'
+            . '\s+title\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s\]]+))'
+            . '|=([^\]]+)'
+            . ')?\s*\]((?:(?!\[spoiler\b).)*?)\[\/spoiler\]/is';
+
+        for ($i = 0; $i < 2; $i++) {
+            $next = (string) preg_replace($pattern, self::SPOILER_STRIP_TOKEN, $text);
+            if ($next === $text) {
+                break;
+            }
+            $text = $next;
+        }
+
+        return $text;
+    }
+
+    /**
+     * Replace rendered `<details class="ap-spoiler">` with {@see SPOILER_STRIP_TOKEN}.
+     *
+     * Innermost `<details>` first so nested spoilers collapse to one token.
+     * Non-spoiler details are left intact (inner spoilers already tokenized).
+     */
+    private static function stripSpoilerHtml(string $html): string
+    {
+        $pattern = '/<details\b([^>]*)>((?:(?!<details\b).)*?)<\/details>/is';
+
+        $callback = static function (array $m): string {
+            $attrs = (string) ($m[1] ?? '');
+            $inner = (string) ($m[2] ?? '');
+            if (self::htmlDetailsIsSpoiler($attrs)) {
+                // Spaces so strip_tags on adjacent block tags does not glue words.
+                return ' ' . self::SPOILER_STRIP_TOKEN . ' ';
+            }
+
+            return '<details' . $attrs . '>' . $inner . '</details>';
+        };
+
+        for ($i = 0; $i < 2; $i++) {
+            $next = (string) preg_replace_callback($pattern, $callback, $html);
+            if ($next === $html) {
+                break;
+            }
+            $html = $next;
+        }
+
+        return $html;
+    }
+
+    /**
+     * Whether a `<details>` open-tag attribute blob is a native spoiler.
+     */
+    private static function htmlDetailsIsSpoiler(string $openTagAttrs): bool
+    {
+        if (preg_match('/\bclass\s*=\s*(["\'])([^"\']*)\1/i', $openTagAttrs, $m) === 1) {
+            $class = (string) $m[2];
+        } elseif (preg_match('/\bclass\s*=\s*([^\s"\'=<>`]+)/i', $openTagAttrs, $m) === 1) {
+            $class = (string) $m[1];
+        } else {
+            return false;
+        }
+
+        $tokens = preg_split('/\s+/', trim($class)) ?: [];
+
+        return in_array('ap-spoiler', $tokens, true);
     }
 
     private static function isSafeColor(string $color): bool
@@ -930,19 +1092,7 @@ class AP_Content_Format
         $attrPattern = '/([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*'
             . '(?:"([^"]*)"|\'([^\']*)\'|([^\s"\'=<>`]+))/';
         $matched = preg_match_all($attrPattern, $rawAttrs, $matches, PREG_SET_ORDER);
-        if ($matched === false || $matches === []) {
-            // Boolean attributes without values (e.g. open on details).
-            if (preg_match_all('/\b([a-zA-Z_:][-a-zA-Z0-9_:.]*)\b/', $rawAttrs, $bm) > 0) {
-                foreach ($bm[1] as $name) {
-                    $name = strtolower((string) $name);
-                    if ($name === 'open' && isset($attrSpec['open'])) {
-                        $out .= ' open';
-                    }
-                }
-            }
-
-            return $out;
-        }
+        $matches = ($matched === false) ? [] : $matches;
 
         foreach ($matches as $m) {
             $name = strtolower((string) $m[1]);
@@ -998,6 +1148,18 @@ class AP_Content_Format
             $out .= ' ' . $name . '="' . $esc . '"';
         }
 
+        // Boolean attributes (details open) even when mixed with class="...".
+        if (
+            isset($attrSpec['open'])
+            && $attrSpec['open']
+            && preg_match('/\sopen(?:=|\s|$)/', $out) !== 1
+        ) {
+            $bare = preg_replace($attrPattern, ' ', $rawAttrs) ?? $rawAttrs;
+            if (preg_match('/(?:^|\s)open(?:\s|$)/i', $bare) === 1) {
+                $out .= ' open';
+            }
+        }
+
         // If target=_blank, ensure rel has noopener noreferrer.
         if (str_contains($out, 'target="_blank"') && !str_contains($out, ' rel=')) {
             $out .= ' rel="noopener noreferrer"';
@@ -1029,5 +1191,107 @@ class AP_Content_Format
         }
 
         return self::isSafeColor(trim($m[1]));
+    }
+
+    // -------------------------------------------------------------------------
+    // Spoiler stylesheet (closed body unreadable; open follows color-scheme)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Hook spoiler CSS onto the front-end enqueue action (idempotent).
+     */
+    public static function registerAssets(): void
+    {
+        if (self::$styleHooked) {
+            return;
+        }
+        self::$styleHooked = true;
+
+        if (!function_exists('ap_add_action')) {
+            return;
+        }
+
+        // After default theme enqueue (10) so hide + color-scheme inherit win the cascade.
+        ap_add_action('ap_enqueue_scripts', [self::class, 'enqueueAssets'], 20);
+    }
+
+    /**
+     * Enqueue core spoiler CSS via AP_Assets (front-end).
+     */
+    public static function enqueueAssets(): void
+    {
+        if (self::$styleEnqueued) {
+            return;
+        }
+        self::$styleEnqueued = true;
+
+        $ver = defined('AP_VERSION') ? (string) AP_VERSION : false;
+        $css = self::styleUrl();
+
+        if (function_exists('ap_enqueue_style')) {
+            ap_enqueue_style(self::STYLE_HANDLE, $css, [], $ver);
+        } elseif (class_exists('AP_Assets', false)) {
+            AP_Assets::enqueueStyle(self::STYLE_HANDLE, $css, [], $ver);
+        }
+    }
+
+    /**
+     * Print the spoiler stylesheet link once (admin / late-render fallback).
+     */
+    public static function printStyle(): void
+    {
+        if (self::$stylePrinted) {
+            return;
+        }
+        // Head enqueue already printed the link (id="ap-spoiler-css").
+        if (function_exists('ap_style_is') && ap_style_is(self::STYLE_HANDLE, 'done')) {
+            self::$stylePrinted = true;
+
+            return;
+        }
+        self::$stylePrinted = true;
+
+        $ver = defined('AP_VERSION') ? (string) AP_VERSION : '';
+        $css = self::styleUrl();
+        $escUrl = static function (string $u): string {
+            return function_exists('ap_esc_url')
+                ? ap_esc_url($u)
+                : htmlspecialchars($u, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        };
+
+        $q = $ver !== '' ? '?v=' . rawurlencode($ver) : '';
+        echo '<link rel="stylesheet" href="' . $escUrl($css) . $q
+            . '" id="ap-spoiler-css">' . "\n";
+    }
+
+    /**
+     * Whether spoiler CSS was enqueued or printed (tests).
+     */
+    public static function styleWasEnqueued(): bool
+    {
+        return self::$styleEnqueued || self::$stylePrinted;
+    }
+
+    /**
+     * Reset spoiler asset flags (tests).
+     */
+    public static function resetAssets(): void
+    {
+        self::$styleHooked = false;
+        self::$styleEnqueued = false;
+        self::$stylePrinted = false;
+    }
+
+    /**
+     * Public URL for ap-includes/css/ap-spoiler.css.
+     */
+    private static function styleUrl(): string
+    {
+        $path = 'ap-includes/css/ap-spoiler.css';
+        if (function_exists('ap_site_url')) {
+            return ap_site_url($path);
+        }
+
+        return '/' . $path;
     }
 }
