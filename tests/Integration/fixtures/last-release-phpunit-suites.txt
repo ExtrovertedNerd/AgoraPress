@@ -1,5 +1,6 @@
-# PHPUnit suites shipped in v0.3.9-beta.
+# PHPUnit suites shipped in v0.3.9-beta (115 files).
 # Do not remove a row to hide a failure. Adding files is fine.
+# Do not shrink this list below 115.
 tests/Admin/AdminAnalyticsTest.php
 tests/Admin/AdminCapabilityTest.php
 tests/Admin/AdminCommentsTest.php

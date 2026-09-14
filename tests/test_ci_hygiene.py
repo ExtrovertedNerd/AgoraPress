@@ -37,7 +37,7 @@ def _paths_from_fixture(name: str) -> list[str]:
 def test_github_workflow_hard_fails_phpunit_phpcs_phpstan() -> None:
     assert CI_YML.is_file(), "Missing .github/workflows/ci.yml"
     text = CI_YML.read_text(encoding="utf-8")
-    assert re.search(r"continue-on-error\s*:\s*true", text, flags=re.I) is None
+    assert re.search(r"continue-on-error", text, flags=re.I) is None
     assert "composer test" in text
     assert "composer cs:check" in text
     assert "composer analyse" in text
@@ -117,6 +117,33 @@ def test_does_not_delete_preexisting_pytest_files() -> None:
         "Do not delete pre-existing pytest files to look green: "
         + ", ".join(missing)
     )
+
+
+def test_last_release_fixture_cannot_shrink_or_empty_suites() -> None:
+    phpunit = _paths_from_fixture("last-release-phpunit-suites.txt")
+    pytest_files = _paths_from_fixture("last-release-pytest-files.txt")
+    assert phpunit == list(dict.fromkeys(phpunit)), (
+        "Do not pad the last-release PHPUnit lock with duplicate rows"
+    )
+    assert pytest_files == list(dict.fromkeys(pytest_files)), (
+        "Do not pad the last-release pytest lock with duplicate rows"
+    )
+    assert len(phpunit) >= 115, (
+        "Do not shrink the v0.3.9-beta PHPUnit lock to look green"
+    )
+    assert len(pytest_files) >= 93, (
+        "Do not shrink the v0.3.9-beta pytest lock to look green"
+    )
+    for relative in phpunit:
+        src = (ROOT / relative).read_text(encoding="utf-8")
+        assert re.search(r"function\s+test", src, flags=re.I), (
+            f"Do not empty last-release suite {relative} to look green"
+        )
+    for relative in pytest_files:
+        src = (ROOT / relative).read_text(encoding="utf-8")
+        assert re.search(r"^def test_", src, flags=re.M), (
+            f"Do not empty last-release pytest file {relative} to look green"
+        )
 
 
 def test_phpstan_does_not_hide_core_or_raise_level_to_look_green() -> None:

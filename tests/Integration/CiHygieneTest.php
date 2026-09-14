@@ -34,7 +34,7 @@ final class CiHygieneTest extends TestCase
         $raw = (string) file_get_contents($path);
 
         $this->assertDoesNotMatchRegularExpression(
-            '/continue-on-error\s*:\s*true/i',
+            '/continue-on-error/i',
             $raw,
             'CI must not soft-fail jobs without tracked debt'
         );
@@ -180,6 +180,80 @@ final class CiHygieneTest extends TestCase
         );
     }
 
+    public function testLastReleaseFixtureCannotShrinkOrEmptySuites(): void
+    {
+        $phpunit = $this->pathsFromFixture('last-release-phpunit-suites.txt');
+        $pytest = $this->pathsFromFixture('last-release-pytest-files.txt');
+
+        $this->assertSame(
+            $phpunit,
+            array_values(array_unique($phpunit)),
+            'Do not pad the last-release PHPUnit lock with duplicate rows'
+        );
+        $this->assertSame(
+            $pytest,
+            array_values(array_unique($pytest)),
+            'Do not pad the last-release pytest lock with duplicate rows'
+        );
+        $this->assertGreaterThanOrEqual(
+            115,
+            count($phpunit),
+            'Do not shrink the v0.3.9-beta PHPUnit lock to look green'
+        );
+        $this->assertGreaterThanOrEqual(
+            93,
+            count($pytest),
+            'Do not shrink the v0.3.9-beta pytest lock to look green'
+        );
+
+        foreach ($phpunit as $relative) {
+            $src = (string) file_get_contents($this->root . '/' . $relative);
+            $this->assertMatchesRegularExpression(
+                '/function\s+test/i',
+                $src,
+                "Do not empty last-release suite {$relative} to look green"
+            );
+        }
+        foreach ($pytest as $relative) {
+            $src = (string) file_get_contents($this->root . '/' . $relative);
+            $this->assertMatchesRegularExpression(
+                '/^def test_/m',
+                $src,
+                "Do not empty last-release pytest file {$relative} to look green"
+            );
+        }
+    }
+
+    public function testPhpunitStillDiscoversLastReleaseSuites(): void
+    {
+        $phpunit = $this->root . '/vendor/bin/phpunit';
+        if (!is_file($phpunit)) {
+            $this->markTestSkipped('vendor/bin/phpunit not installed');
+        }
+
+        $config = $this->root . '/phpunit.xml.dist';
+        $cmd = escapeshellarg(PHP_BINARY !== '' ? PHP_BINARY : 'php')
+            . ' ' . escapeshellarg($phpunit)
+            . ' --configuration=' . escapeshellarg($config)
+            . ' --list-tests'
+            . ' 2>&1';
+
+        $output = [];
+        $exit = 0;
+        exec($cmd, $output, $exit);
+        $body = implode("\n", $output);
+
+        $this->assertSame(0, $exit, "phpunit --list-tests failed:\n{$body}");
+        foreach ($this->pathsFromFixture('last-release-phpunit-suites.txt') as $relative) {
+            $class = basename($relative, '.php');
+            $this->assertStringContainsString(
+                $class,
+                $body,
+                "PHPUnit must still discover last-release suite {$relative}"
+            );
+        }
+    }
+
     public function testPhpstanDoesNotHideCoreOrRaiseLevelToLookGreen(): void
     {
         $path = $this->root . '/phpstan.neon.dist';
@@ -224,7 +298,7 @@ final class CiHygieneTest extends TestCase
     /**
      * @return list<string>
      */
-    private function missingPathsFromFixture(string $name): array
+    private function pathsFromFixture(string $name): array
     {
         $path = $this->root . '/tests/Integration/fixtures/' . $name;
         $this->assertFileIsReadable($path, 'Missing CI hygiene fixture: ' . $name);
@@ -239,8 +313,16 @@ final class CiHygieneTest extends TestCase
         }
         $this->assertNotEmpty($relativePaths, $name . ' must list last-release tests');
 
+        return $relativePaths;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function missingPathsFromFixture(string $name): array
+    {
         $missing = [];
-        foreach ($relativePaths as $relative) {
+        foreach ($this->pathsFromFixture($name) as $relative) {
             if (!is_file($this->root . '/' . $relative)) {
                 $missing[] = $relative;
             }

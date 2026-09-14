@@ -1,5 +1,6 @@
-# Pytest files shipped in v0.3.9-beta.
+# Pytest files shipped in v0.3.9-beta (93 files).
 # Do not remove a row to hide a failure. Adding files is fine.
+# Do not shrink this list below 93.
 tests/test_admin_analytics.py
 tests/test_admin_capabilities.py
 tests/test_admin_dashboard.py
