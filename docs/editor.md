@@ -1,7 +1,7 @@
 # AgoraPress Visual Editor
 
-This is the **visual editor contract** for AgoraPress **`0.3.9-beta`** (schema
-`AP_DB_VERSION` **12**). The core content editor is a **lightweight classic
+This is the **visual editor contract** for AgoraPress **`0.3.10-beta`** (schema
+`AP_DB_VERSION` **13**). The core content editor is a **lightweight classic
 visual WYSIWYG**. Full block / Gutenberg / FSE editors remain a **non-goal for
 core** (see [vision-compliance.md](vision-compliance.md)) — they are **not in core**.
 

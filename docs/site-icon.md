@@ -1,7 +1,7 @@
 # Site Icon (favicon pack)
 
-This is the **favicon pack guide** for AgoraPress **`0.3.9-beta`** (schema
-`AP_DB_VERSION` **12**). Admins set one **site icon** under **Settings → General**.
+This is the **favicon pack guide** for AgoraPress **`0.3.10-beta`** (schema
+`AP_DB_VERSION` **13**). Admins set one **site icon** under **Settings → General**.
 Core stores an attachment ID, generates a standard favicon pack (pixel sizes +
 optional ICO), and prints `<link rel="icon">` / `apple-touch-icon` tags on the
 front end via `ap_head`. Browsers pick the best asset; core does **not** sniff

@@ -1,7 +1,7 @@
 # Security and privacy
 
-This is the **hardening and privacy guide** for AgoraPress **`0.3.9-beta`**
-(schema `AP_DB_VERSION` **12**). It describes the security model **as built**:
+This is the **hardening and privacy guide** for AgoraPress **`0.3.10-beta`**
+(schema `AP_DB_VERSION` **13**). It describes the security model **as built**:
 PDO prepared statements, HMAC nonces, Argon2id passwords, rate limits,
 `php` / `smtp` outbound mail, a first-party public-register gate, reserved
 logins as **anti-squat** (not 2FA), production deny rules, no telemetry,

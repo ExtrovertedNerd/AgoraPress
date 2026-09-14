@@ -1,7 +1,7 @@
 # Installing AgoraPress
 
-This is the **installer depth guide** for AgoraPress **`0.3.9-beta`** (schema
-`AP_DB_VERSION` **12**). It describes the four install paths **as built**: web
+This is the **installer depth guide** for AgoraPress **`0.3.10-beta`** (schema
+`AP_DB_VERSION` **13**). It describes the four install paths **as built**: web
 installer, CLI installer, Docker Compose, and a hand-written
 `ap-config-sample.php`.
 
@@ -55,7 +55,7 @@ Full table: [README — Requirements](../README.md#requirements).
 | **Disk** | PHP must be able to create `ap-config.php` and write `ap-content/` (including `uploads/`) |
 
 Default table prefix: **`ap_`** (changeable at install). Schema target:
-`AP_DB_VERSION` **12**.
+`AP_DB_VERSION` **13**.
 
 The installer (`AP_Requirements`) will not continue while a **required** check
 fails. The CLI can pass `--skip-requirements` if you know what you are doing;
@@ -206,7 +206,7 @@ succeeds. Uncheck the box for an empty site.
 **What “Run installation” does** (same core path as the CLI: `AP_Installer::run`):
 
 1. Connects with the submitted credentials (does not read `ap-config.php`).
-2. Applies schema migrations through `AP_DB_VERSION` **12**.
+2. Applies schema migrations through `AP_DB_VERSION` **13**.
 3. Seeds options (site title, URL, modules **on**, plain permalinks, analytics
    **off**, `AP_DEBUG` **false** in the generated config, default theme
    **agora**, and the other installer defaults).

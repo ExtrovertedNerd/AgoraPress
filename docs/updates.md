@@ -1,7 +1,7 @@
 # Updating AgoraPress
 
-This is the **core update guide** for AgoraPress **`0.3.9-beta`** (schema
-`AP_DB_VERSION` **12**). It describes the public `version.json` endpoint,
+This is the **core update guide** for AgoraPress **`0.3.10-beta`** (schema
+`AP_DB_VERSION` **13**). It describes the public `version.json` endpoint,
 one-click **Tools → Update Core**, `php bin/package-release.php` artifacts,
 what an update **does not** overwrite, and the installed-site CLI verbs
 `php ap-cli core check-update` and `php ap-cli db migrate`.
@@ -111,8 +111,8 @@ field — ready to serve as-is):
 
 ```json
 {
-  "version": "0.3.9-beta",
-  "download_url": "https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.9-beta.zip",
+  "version": "0.3.10-beta",
+  "download_url": "https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.10-beta.zip",
   "changelog_url": "https://agorapress.extrovertednerd.com/changelog",
   "sha256": "64-character lowercase hex",
   "released": "YYYY-MM-DD"
@@ -275,17 +275,17 @@ php ap-cli core version
 **Check again**). Typical stdout:
 
 ```text
-current: 0.3.9-beta
-remote: 0.3.9-beta
+current: 0.3.10-beta
+remote: 0.3.10-beta
 update: none
-download: https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.9-beta.zip
+download: https://agorapress.extrovertednerd.com/download/AgoraPress-0.3.10-beta.zip
 changelog: https://agorapress.extrovertednerd.com/changelog
 ```
 
 When the endpoint is offline, disabled, or the cache is empty:
 
 ```text
-current: 0.3.9-beta
+current: 0.3.10-beta
 remote: unavailable (offline, disabled, or cache empty)
 update: unknown
 ```
@@ -301,7 +301,7 @@ That still exits `0`. Two different version verbs:
 
 Applies pending numbered migrations under
 `ap-includes/schema/migrations/` until the database matches
-`AP_DB_VERSION` (**12** for this tree). Used after a **manual** file
+`AP_DB_VERSION` (**13** for this tree). Used after a **manual** file
 deploy, and as a recovery step if one-click updated files but migration
 failed.
 
@@ -370,7 +370,7 @@ Build the zip that one-click update and fresh installs consume:
 ```bash
 php bin/package-release.php
 php bin/package-release.php --output-dir=/tmp/dist
-php bin/package-release.php --version=0.3.9-beta
+php bin/package-release.php --version=0.3.10-beta
 php bin/package-release.php --prefix=AgoraPress
 php bin/package-release.php --dry-run
 php bin/package-release.php --json
@@ -422,7 +422,7 @@ you host a private mirror, change those fields before serving the JSON
    Tools → Update Core shows the new `AP_VERSION`.
 2. Confirm `php ap-cli core version` has `db_version_applied` equal to
    `db_version_target`, and `php ap-cli db check` has `needs_migration: no`
-   with `schema_current` equal to `AP_DB_VERSION` (**12** on this tree).
+   with `schema_current` equal to `AP_DB_VERSION` (**13** on this tree).
 3. **Tools → Site Health** (or `php ap-cli site health`).
 4. If the admin shell changed, refresh or log in again (the success notice
    says so).

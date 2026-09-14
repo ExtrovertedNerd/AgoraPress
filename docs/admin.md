@@ -1,7 +1,7 @@
 # Admin Control Panel (`/ap-admin/`)
 
-This is the **operator map of `/ap-admin/`** for AgoraPress **`0.3.9-beta`**
-(schema `AP_DB_VERSION` **12**). It describes the Control Panel **as built**:
+This is the **operator map of `/ap-admin/`** for AgoraPress **`0.3.10-beta`**
+(schema `AP_DB_VERSION` **13**). It describes the Control Panel **as built**:
 screens grouped by task, the capability that gates each area, the voluntary
 Hall of Fame handshake, and the unobtrusive donation link. It does **not**
 invent screens, menus, or options.

@@ -1,11 +1,11 @@
 # Database schema
 
-This is the **schema guide** for AgoraPress **`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
+This is the **schema guide** for AgoraPress **`0.3.10-beta`** (schema `AP_DB_VERSION` **13**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
 
 AgoraPress uses a **versioned migration system**. Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**. Operator apply path: [install.md](install.md) (fresh) and [updates.md](updates.md) / `php ap-cli db migrate` ([cli.md](cli.md)). Forum column semantics: [forums.md](forums.md). Local analytics options: [admin.md](admin.md).
 
 **Source:** `ap-includes/schema/migrations/`, `class-ap-migrator.php`, `class-ap-migration.php`, `class-ap-db.php`  
-**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **12**, AgoraPress `0.3.9-beta`)
+**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **13**, AgoraPress `0.3.10-beta`)
 
 Do not invent tables. If a base name is not in this file and not in `ap_all_base_tables()`, it is **not in core**.
 
@@ -55,6 +55,7 @@ php ap-cli db check
 | 10 | `0010_analytics_tables.php` | `analytics_hits`, `analytics_daily` |
 | 11 | `0011_forum_likes_stats.php` | `forum_post_likes`; `forum_posts.like_count` |
 | 12 | `0012_topic_type_enum.php` | **No new table.** Enum backfill only. Canonical `topics.topic_type` values `standard` \| `sticky` \| `announcement` \| `rules`. Backfills `normal`→`standard`, `announce`/`global`→`announcement`, empty/unknown→`standard`. `sticky` is unchanged. `rules` is new (no legacy source). Column default becomes `standard` where the driver supports it (MySQL/MariaDB `MODIFY`; PostgreSQL `SET DEFAULT`; SQLite leaves DEFAULT to the application). Extra types are **not in core**. |
+| 13 | `0013_topic_subscriptions.php` | `topic_subscriptions` (`user_id`, `topic_id`, `created_at`; unique `(user_id, topic_id)`; index on `topic_id`). Seeds `forum_topic_notify_enabled` `'0'`, `forum_notify_max_per_minute` `'4'`. Does **not** backfill usermeta `forum_notify_email`. Unread tables unchanged. |
 
 Also created by the migrator infrastructure: **`{prefix}schema_migrations`**.
 
@@ -262,6 +263,18 @@ Who’s online / session presence (`AP_Online`).
 
 Per-user last-read markers for unread tracking (`AP_Forum_Read`). Usermeta `forum_last_mark` may complement “mark all read”.
 
+### topic_subscriptions
+
+Opt-in per-topic reply mail watches (`AP_Forum_Notify`). Schema **13**. Not unread tracking (`topic_track` / `forum_track`). Depth: [forums.md](forums.md#topic-email-notifications).
+
+| Column | Notes |
+|--------|-------|
+| `user_id` | Composite primary key with `topic_id` (unique pair) |
+| `topic_id` | Indexed for reply fan-out |
+| `created_at` | Insert time |
+
+Site option `forum_topic_notify_enabled` default **off**. Per-minute cap `forum_notify_max_per_minute` default `4`. Missing usermeta `forum_notify_email` is off.
+
 ### analytics_hits
 
 Raw page-view hits for local admin analytics (no third-party phone-home).
@@ -326,7 +339,7 @@ users ──┬── posts / postmeta
         ├── usermeta (caps, sessions, avatar)
         ├── group_members → groups → forum_permissions → forums
         ├── topics / forum_posts / messages
-        ├── topic_track / forum_track / online
+        ├── topic_track / forum_track / topic_subscriptions / online
         └── warnings / bans
 
 analytics_hits / analytics_daily  (optional local analytics; path or object_id → posts)
