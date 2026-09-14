@@ -1,7 +1,10 @@
 <?php
 
 /**
- * Tests for ap_comments_template() file location (theme then core fallback).
+ * Tests for ap_comments_template(): locate, fallback form, applicability.
+ *
+ * SPEC minimum: no theme file still renders a form; non-singular prints
+ * nothing; Agora single.php still has exactly one Leave-a-comment form.
  *
  * @package AgoraPress
  */
@@ -274,6 +277,41 @@ final class CommentsTemplateTest extends TestCase
         $this->assertStringContainsString('ap-comments--compat', $html);
         $this->assertStringContainsString('id="comments"', $html);
         $this->assertStringContainsString('Leave a comment', $html);
+        $this->assertStringContainsString('value="ap_comment_post"', $html);
+        $this->assertStringContainsString('id="respond"', $html);
+        $this->assertSame(1, substr_count($html, 'value="ap_comment_post"'));
+        $this->assertSame(1, substr_count($html, 'id="respond"'));
+    }
+
+    public function testNoThemeFileStillRendersFallbackForm(): void
+    {
+        $theme = $this->tempThemes . '/bare-theme';
+        $this->assertFileDoesNotExist($theme . '/comments.php');
+        $this->writeThemeSingleCallingCommentsTemplate($theme);
+
+        $this->assertSame(
+            realpath(ap_comments_compat_file()),
+            realpath(ap_locate_comments_template(null, $this->db))
+        );
+
+        $this->seedLoopPost(['post_content' => 'Bare single body']);
+
+        ob_start();
+        AP_Theme::render($GLOBALS['ap_query'], $this->db);
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('SINGLE_START', $html);
+        $this->assertStringContainsString('Bare single body', $html);
+        $this->assertStringContainsString('SINGLE_END', $html);
+        $this->assertStringContainsString('ap-comments--compat', $html);
+        $this->assertStringContainsString('Leave a comment', $html);
+        $this->assertStringContainsString('value="ap_comment_post"', $html);
+        $this->assertStringContainsString('name="ap_comment_action"', $html);
+        $this->assertStringContainsString('id="respond"', $html);
+        $this->assertStringContainsString('ap-editor', $html);
+        $this->assertSame(1, substr_count($html, 'value="ap_comment_post"'));
+        $this->assertSame(1, substr_count($html, 'id="respond"'));
+        $this->assertSame(1, substr_count($html, 'Leave a comment'));
     }
 
     public function testCommentsTemplateLoadsThemeFile(): void
@@ -384,6 +422,52 @@ final class CommentsTemplateTest extends TestCase
 
         $this->assertFalse(ap_post_type_supports('page', 'comments'));
         $this->assertSame('', $this->renderCommentsTemplate());
+    }
+
+    public function testNonSingularPrintsEmptyCommentsMarkup(): void
+    {
+        $theme = $this->tempThemes . '/solo-theme';
+        $this->assertTrue(mkdir($theme, 0700, true));
+        file_put_contents($theme . '/style.css', "/*\nTheme Name: Solo\n*/\n");
+        file_put_contents($theme . '/index.php', "<?php echo 'SOLO_INDEX';\n");
+        file_put_contents($theme . '/comments.php', "<?php echo 'THEME_COMMENTS_LOADED';\n");
+
+        AP_Theme::setThemesRootOverride($this->tempThemes);
+        AP_Theme::setActiveOverride('solo-theme', 'solo-theme');
+
+        $post = $this->seedLoopPost(['post_content' => 'Non-singular body']);
+
+        $home = $this->setMainQuery(['post_type' => 'post']);
+        $this->assertTrue($home->is_home);
+        $this->assertFalse($home->is_singular);
+        $GLOBALS['ap_post'] = $post;
+        $this->assertSame('', $this->renderCommentsTemplate());
+
+        $search = $this->setMainQuery([
+            's' => 'Discuss',
+            'post_type' => 'post',
+        ]);
+        $this->assertTrue($search->is_search);
+        $this->assertFalse($search->is_singular);
+        $GLOBALS['ap_post'] = $post;
+        $this->assertSame('', $this->renderCommentsTemplate());
+
+        $this->loadAgoraRenderDeps();
+        $this->useAgoraTheme();
+        $agoraHome = $this->setMainQuery(['post_type' => 'post']);
+        $this->assertFalse($agoraHome->is_singular);
+
+        ob_start();
+        AP_Theme::render($GLOBALS['ap_query'], $this->db);
+        $rendered = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Discuss', $rendered);
+        $this->assertStringNotContainsString('THEME_COMMENTS_LOADED', $rendered);
+        $this->assertStringNotContainsString('id="respond"', $rendered);
+        $this->assertStringNotContainsString('value="ap_comment_post"', $rendered);
+        $this->assertStringNotContainsString('Leave a comment', $rendered);
+        $this->assertStringNotContainsString('ap-comments--compat', $rendered);
+        $this->assertStringNotContainsString('ap-comment-form', $rendered);
     }
 
     public function testFallbackListsApprovedCommentsOnly(): void
@@ -576,6 +660,7 @@ final class CommentsTemplateTest extends TestCase
         $this->assertSame(1, substr_count($html, 'value="ap_comment_post"'));
         $this->assertSame(1, substr_count($html, 'Leave a comment'));
         $this->assertSame(1, substr_count($html, 'id="comments"'));
+        $this->assertSame(1, substr_count($html, 'name="ap_comment_action"'));
         $this->assertStringContainsString('id="agora-comment-content"', $html);
         $this->assertStringNotContainsString('ap-comments--compat', $html);
     }
@@ -661,6 +746,25 @@ final class CommentsTemplateTest extends TestCase
         }
         AP_Theme::setThemesRootOverride($this->tempThemes);
         AP_Theme::setActiveOverride('bare-theme', 'bare-theme');
+    }
+
+    /**
+     * @param non-empty-string $themeDir
+     */
+    private function writeThemeSingleCallingCommentsTemplate(string $themeDir): void
+    {
+        file_put_contents(
+            $themeDir . '/single.php',
+            "<?php\n"
+            . "echo 'SINGLE_START';\n"
+            . "if (function_exists('ap_the_content')) {\n"
+            . "    ap_the_content();\n"
+            . "}\n"
+            . "if (function_exists('ap_comments_template')) {\n"
+            . "    ap_comments_template();\n"
+            . "}\n"
+            . "echo 'SINGLE_END';\n"
+        );
     }
 
     private function loadAgoraRenderDeps(): void

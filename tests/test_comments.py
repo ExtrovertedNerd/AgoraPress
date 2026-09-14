@@ -35,6 +35,7 @@ def test_comment_files_exist() -> None:
         ADMIN / "edit-comments.php",
         ADMIN / "includes" / "class-ap-comments-list-table.php",
         ROOT / "tests" / "Comment" / "CommentModelTest.php",
+        ROOT / "tests" / "Comment" / "CommentsTemplateTest.php",
         ROOT / "tests" / "Database" / "CommentsCommentmetaMigrationTest.php",
         ROOT / "tests" / "Admin" / "AdminCommentsTest.php",
     ]
@@ -215,6 +216,24 @@ def test_structure_script_lists_comments() -> None:
     assert "edit-comments.php" in src
     assert "class-ap-comments-list-table.php" in src
     assert "theme-compat/comments.php" in src
+
+
+# SPEC “Tests (minimum)” for ap_comments_template().
+SPEC_COMMENTS_TEMPLATE_PHPUNIT = [
+    "testNoThemeFileStillRendersFallbackForm",
+    "testNonSingularPrintsEmptyCommentsMarkup",
+    "testAgoraSingleRendersExactlyOneCommentForm",
+]
+
+
+def test_phpunit_comments_template_spec_cases_exist() -> None:
+    """SPEC: no theme file → fallback form; non-singular → empty; Agora single one form."""
+    src = (ROOT / "tests" / "Comment" / "CommentsTemplateTest.php").read_text(
+        encoding="utf-8"
+    )
+    for method in SPEC_COMMENTS_TEMPLATE_PHPUNIT:
+        needle = f"function {method}"
+        assert needle in src, f"Expected {needle!r} in CommentsTemplateTest.php"
 
 
 def test_phpunit_comments_suite_runs() -> None:
