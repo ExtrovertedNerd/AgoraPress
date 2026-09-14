@@ -14,8 +14,12 @@ meta-caps are in [roles.md](roles.md).
 
 **Source (as built):** `ap-admin/` entry scripts, `ap-admin/admin-bootstrap.php`,
 `ap-admin/includes/class-ap-admin.php` (`AP_Admin`),
+`ap-admin/includes/class-ap-admin-post-edit.php` (`AP_Admin_Post_Edit`),
+`ap-admin/includes/class-ap-posts-list-table.php`,
 `ap-admin/includes/class-ap-admin-terms.php` (`AP_Admin_Terms`),
+`ap-admin/includes/class-ap-admin-user-edit.php` (`AP_Admin_User_Edit`),
 `ap-admin/edit-tags.php`, `ap-admin/options-writing.php`,
+`ap-admin/options-forums.php`,
 `ap-includes/class-ap-taxonomy.php` (`AP_Taxonomy`),
 `ap-includes/class-ap-settings.php` (`AP_Settings`),
 `ap-includes/class-ap-admin-menu.php` (`AP_Admin_Menu`),
@@ -24,6 +28,7 @@ meta-caps are in [roles.md](roles.md).
 `ap-includes/class-ap-mail.php` (`AP_Mail`),
 `ap-includes/class-ap-smtp.php` (`AP_SMTP`),
 `ap-includes/class-ap-registration.php` (`AP_Registration`),
+`ap-includes/class-ap-forum-notify.php` (`AP_Forum_Notify`),
 `ap-admin/admin-header.php`, `ap-admin/admin-footer.php`.
 
 There is **no** Gutenberg / block editor in the ACP, **no** official plugin or
@@ -193,11 +198,11 @@ also 403 with “The Blog module is disabled…” when Blog is off.
 
 | Task | Menu | Cap | Notes |
 |------|------|-----|-------|
-| List / bulk-edit posts | Posts (`edit.php?post_type=post`) | `edit_posts` | Blog module. Status views, bulk trash/delete. |
-| Write / edit a post | Add New / Edit (`post-new.php`, `post.php`) | `edit_posts` / meta `edit_post` | Visual editor is classic WYSIWYG — [editor.md](editor.md). No blocks in core. |
+| List / bulk-edit posts | Posts (`edit.php?post_type=post`) | `edit_posts` | Blog module. Status views, bulk trash/delete. Quick Edit can set Author when the actor has `edit_others_posts`. |
+| Write / edit a post | Add New / Edit (`post-new.php`, `post.php`) | `edit_posts` / meta `edit_post` | Visual editor is classic WYSIWYG — [editor.md](editor.md). No blocks in core. Author `<select>` only with `edit_others_posts` — [Author](#author-posts-and-pages). |
 | Revisions | `revision.php?post=` | meta `edit_post` / `edit_page` | List, restore, delete autosaves. Post type must support revisions. |
-| List / bulk-edit pages | Pages (`edit.php?post_type=page`) | `edit_pages` | Static Pages module. Hierarchical. |
-| Write / edit a page | `post-new.php?post_type=page`, `post.php` | `edit_pages` / meta `edit_page` | |
+| List / bulk-edit pages | Pages (`edit.php?post_type=page`) | `edit_pages` | Static Pages module. Hierarchical. Quick Edit can set Author when the actor has `edit_others_pages`. |
+| Write / edit a page | `post-new.php?post_type=page`, `post.php` | `edit_pages` / meta `edit_page` | Author `<select>` only with `edit_others_pages` — [Author](#author-posts-and-pages). |
 | Categories | Categories (`edit-tags.php?taxonomy=category`) | `manage_categories` | Blog module. Default badge, **Set as default**, delete rules: [Default post category](#default-post-category). |
 | Tags | Tags (`edit-tags.php?taxonomy=post_tag`) | `manage_categories` | Blog module. No default-category badge or **Set as default**. |
 | Comments | Comments (`edit-comments.php`) | `moderate_comments` | Views: All / Pending / Approved / Spam / Trash. Bulk + row: approve, spam, trash, delete. |
@@ -208,6 +213,42 @@ also 403 with “The Blog module is disabled…” when Blog is off.
 
 Site Icon is **not** a Media screen. It lives on Settings → General
 ([site-icon.md](site-icon.md)).
+
+---
+
+## Author (posts and pages)
+
+**Screens:** Add New / Edit (`post-new.php`, `post.php`) for **posts** and
+**pages**; Quick Edit on Posts / Pages (`edit.php`, POST `action=quick_edit`).
+**Cap to see and set:** `edit_others_posts` (posts) or `edit_others_pages`
+(pages). There is **no** new capability.
+
+**Source:** `ap-admin/includes/class-ap-admin-post-edit.php`
+(`AP_Admin_Post_Edit`), `ap-admin/includes/class-ap-posts-list-table.php`,
+`AP_Admin::editOthersCapabilityForPostType()`.
+
+The sidebar metabox is titled **Author** (`ap-metabox-author`). The control
+is `<select name="post_author" id="post_author">`. Authors editing their
+own post do **not** have `edit_others_posts` / `edit_others_pages` and do
+**not** see the field. Contributors without those caps never see it either.
+
+| Rule | As built |
+|------|----------|
+| Who sees it | Logged-in actors for whom `AP_Admin_Post_Edit::canAssignAuthor()` is true (`edit_others_posts` or `edit_others_pages`). |
+| Options | Living, active users (`user_status` = 0) who can **own** that type: `edit_posts` for posts, `edit_pages` for pages (`authorCandidates()`). Label is display name, else login, else the numeric id. Ordered by display name. Pending verification and forum-banned accounts are omitted. Deleted users are not in the table and do not appear. |
+| Current author | Stays in the `<select>` even if that account is inactive or lost the ownership cap, so Edit can keep the selection. |
+| Add New | Insert persists the posted id when the actor may assign a living owner of that type. Otherwise the logged-in user. |
+| Edit | Update persists the posted id when allowed. Otherwise the existing `post_author`. An empty author column is elevated to the logged-in user. The save path does **not** unset `post_author` when one already exists. |
+| Crafted POST | A missing field, a non-digit string, an array, id `0`, an unknown id, a pending/banned account, or a user who cannot own that type is ignored. Create falls back to the logged-in user; update keeps the existing author. |
+| Quick Edit | Same assignment rules. Row action **Quick Edit**; no-JS opens `?quick_edit={id}`. POST `action=quick_edit`, nonce `quick-edit-{id}`. Title and status always; Author only when the actor may assign. Does not rewrite content, taxonomies, or page attributes. |
+| CLI | `php ap-cli post update --author=` — [cli.md](cli.md). Same living-owner rules; missing / ineligible ids leave the current author unchanged. |
+
+Not this picker: forum **topic-starter** reassignment (Topics list Author
+is a display column), comment author on `comment.php` (`comment_author` is
+the commenter’s display name), or media owner.
+
+Generic examples only (`example.com`). Do not name private hosts, persona
+mailboxes, or live fleet inventory here.
 
 ---
 
@@ -296,11 +337,13 @@ for hierarchy, topic types, likes, ACL, PMs, and module-off behaviour:
 | Groups | Groups (`forum-groups.php`) | `manage_forums` | Named groups and membership; used with per-forum ACL. |
 
 Site-wide forum defaults (guests, attachments, flood, search, online/unread,
-PMs, signatures, topic email notifications (default off), spam) are
+PMs, signatures, **Allow topic email notifications** (default off), spam) are
 **Settings → Forums** (`options-forums.php`, cap `manage_options`), not the
-Forums menu. Not on that screen (CLI only —
-[cli.md](cli.md) / [forums.md](forums.md)): `forum_attachment_max_per_post`,
-`forum_attachment_user_quota`, `forum_online_window`.
+Forums menu. Depth for that checkbox:
+[Topic email notifications](#topic-email-notifications). Not on that screen
+(CLI only — [cli.md](cli.md) / [forums.md](forums.md)):
+`forum_attachment_max_per_post`, `forum_attachment_user_quota`,
+`forum_online_window`, `forum_notify_max_per_minute` (default **4**).
 
 ---
 
@@ -351,8 +394,8 @@ without `edit_users` redirects to Profile.
 |------|------|-----|-------|
 | All users | Users (`users.php`) | `list_users` | Filter by role; bulk / row delete (not the sole administrator). Pending email-verification accounts show a **Pending** label. **Activate** (row action, cap `edit_users`, nonce `activate-user-{id}`) sets `user_status` to 0 and clears the activation key without the emailed link. It does **not** lift a forum ban. There is **no** bulk activate and **no** list-row resend (resend is Users → Edit or the public `resend` form). |
 | Add user | `user-new.php` | `create_users` | Login, email, password, role. Nonce `create-user`. Public-register reserved logins (locked list + `reserved_usernames` extras + filter `ap_reserved_usernames`) **are** allowed here. |
-| Edit another user | `user-edit.php?user_id=` | `edit_users` | Profile fields, role, password. Cannot demote the last administrator. Role is **not** editable on Profile. Pending accounts: separate form (so it does not save other field changes) with **Resend verification** (`ap_resend_verification`) and **Activate account** (`ap_activate_account`). Admin resend skips the public 60-second cooldown and reports success as “Verification email sent.” (`message` `verification_resent`) or the honest send-failure copy. Activate uses `AP_Registration::activatePendingUser()` — same as the list row action. |
-| Own profile | Profile (`profile.php`) | `read` | Any logged-in ACP user. Display name, email, avatar upload, signature, admin color-mode preference (usermeta `ap_admin_color_mode`). Changing password revokes other sessions. |
+| Edit another user | `user-edit.php?user_id=` | `edit_users` | Profile fields, role, password. Cannot demote the last administrator. Role is **not** editable on Profile. Pending accounts: separate form (so it does not save other field changes) with **Resend verification** (`ap_resend_verification`) and **Activate account** (`ap_activate_account`). Admin resend skips the public 60-second cooldown and reports success as “Verification email sent.” (`message` `verification_resent`) or the honest send-failure copy. Activate uses `AP_Registration::activatePendingUser()` — same as the list row action. When the Forum module is on: **Email this member about topics they subscribe to** (`forum_notify_email`) plus a Subscriptions list — [Topic email notifications](#topic-email-notifications). |
+| Own profile | Profile (`profile.php`) | `read` | Any logged-in ACP user. Display name, email, avatar upload, signature, admin color-mode preference (usermeta `ap_admin_color_mode`). Changing password revokes other sessions. When the Forum module is on: **Email me about topics I subscribe to** (usermeta `forum_notify_email`, default off) plus a Subscriptions list (title + Unsubscribe). Users → Add omits this fieldset. |
 
 Default role for self-registration is Settings → General (`default_role`).
 Core roles and comment-ownership caps: [roles.md](roles.md).
@@ -376,6 +419,7 @@ These options have **no** dedicated Settings screen — use
 - `version_check_enabled` (installer default `1`)
 - `rest_api_enabled` (default on — [rest.md](rest.md))
 - `blog_public`, `sitemap_enabled`, `open_graph_enabled` (default on)
+- `forum_notify_max_per_minute` (default **4**; topic-notify send cap, not `rate_limit_mail`)
 
 ---
 
@@ -395,8 +439,54 @@ with `manage_options` accepted as a fallback).
 | Media | Media Settings (`options-media.php`) | Thumbnail / medium / large sizes, crop, `uploads_use_yearmonth_folders`. |
 | Permalinks | Permalinks (`options-permalink.php`) | `permalink_structure` (Plain `''`, Day and name `/%year%/%monthnum%/%day%/%postname%/`, Month and name, Numeric `/archives/%post_id%`, Post name `/%postname%/`, or custom), `category_base`, `tag_base`. Saving regenerates rewrite rules. Server `try_files` / `mod_rewrite`: [rewrites.md](rewrites.md). |
 | Privacy | Privacy (`options-privacy.php`) | Public Privacy Policy page (`wp_page_for_privacy_policy`). Links to Export / Erase Personal Data. |
-| Forums | Forums (`options-forums.php`) | Forum module (403 when off). Topics/posts per page, guest view/post, PMs, attachments (max size / allowed types), flood interval, approval, search, online, unread, signatures, **Allow topic email notifications** (`forum_topic_notify_enabled`, default off), spam blacklist / max links. Per-forum ACL is on **Forums → Edit**, not here. |
+| Forums | Forums (`options-forums.php`) | Forum module (403 when off). Topics/posts per page, guest view/post, PMs, attachments (max size / allowed types), flood interval, approval, search, online, unread, signatures, **Allow topic email notifications** (`forum_topic_notify_enabled`, default off — [section below](#topic-email-notifications)), spam blacklist / max links. Per-forum ACL is on **Forums → Edit**, not here. `forum_notify_max_per_minute` is **not** on this screen. |
 | Hall of Fame | Hall of Fame (`options-hall-of-fame.php`) | Voluntary domain handshake — [section below](#hall-of-fame-handshake). |
+
+---
+
+## Topic email notifications
+
+**Screen:** Settings → Forums (`options-forums.php`) · **Cap:**
+`manage_options` · **Module:** Forum must be on (otherwise HTTP 403:
+“The Forum module is disabled. Enable it under Settings → Modules.”).
+
+**Source:** `ap-admin/options-forums.php` (Features fieldset),
+`AP_Options::updateForumSettings()`, `AP_Settings` group `forums`
+(`forum_topic_notify_enabled` default `'0'`),
+`ap-includes/class-ap-forum-notify.php` (`AP_Forum_Notify`).
+
+Nonce group `forums` (`ap_settings_forums`). Save:
+`AP_Options::updateForumSettings()`. Unchecked checkboxes are omitted from
+POST and stored `'0'`.
+
+The site master is a checkbox in **Features**:
+
+| Field / option | As built |
+|----------------|----------|
+| Allow topic email notifications (`forum_topic_notify_enabled`) | Checkbox `name="forum_topic_notify_enabled"` value `1`. Default **off** (`'0'`). Sanitizer `AP_Settings::sanitizeCheckbox()`. Missing option = off. Description on the screen: “Off by default. When off, members do not see Subscribe controls, replies do not enqueue notify mail, and the site does not send topic-notify messages.” |
+
+When the site switch is **off**: no Subscribe / Unsubscribe chrome, no
+reply enqueue, no notify send. Turning it **on** does not send mail by
+itself. Three gates, all default **off**:
+
+1. This site option (`forum_topic_notify_enabled`).
+2. Usermeta `forum_notify_email` — Profile **Email me about topics I subscribe to** (default off). Users → Edit: **Email this member about topics they subscribe to**. Shown when the Forum module is on (`AP_Admin_User_Edit::shouldShowForumNotifyFields()`), even if this site switch is off. Hidden when the Forum module is off; a Profile save in that state does **not** wipe stored meta. Users → Add omits the fieldset.
+3. Per-topic Subscribe on the topic view (logged in, site on, can `view_forum`). Compose checkbox **Notify me of replies**, default off. Start or reply without that checkbox does **not** auto-watch.
+
+Mail still uses [Settings → Mail](#mail) From / Reply-To (`AP_Mail::send()`,
+**text/plain**). Notify has its own per-minute cap
+(`forum_notify_max_per_minute`, default **4**) — **CLI only**, not on this
+screen — and does **not** consume `rate_limit_mail` (verification / reset /
+test). Front Subscribe / Unsubscribe, `{prefix}topic_subscriptions`, the
+cron worker, and the signed one-click unsubscribe:
+[forums.md](forums.md).
+
+Not on Settings → Forums: guest watches, board-wide watches, blog
+comment-subscription mail, HTML newsletters, push, auto-watch on visit, or
+a control for `forum_notify_max_per_minute`.
+
+Generic examples only (`example.com`). Do not name private hosts, persona
+mailboxes, or live fleet inventory here.
 
 ---
 
@@ -410,7 +500,10 @@ Outbound API is `AP_Mail::send()` (`ap_mail()`). Native SMTP client
 (`AP_SMTP`: AUTH PLAIN / AUTH LOGIN, STARTTLS `tls` usually port 587, SMTPS
 `ssl` usually port 465). **No** PHPMailer and **no** Composer runtime mail
 library. Bodies are **text/plain** — no HTML templates, no newsletters, no
-comment-subscription mail.
+comment-subscription mail. Topic-reply notify (when Settings → Forums
+**Allow topic email notifications** is on) still uses this From / Reply-To
+and does **not** consume the verification `rate_limit_mail` bucket —
+[Topic email notifications](#topic-email-notifications).
 
 **Source:** `ap-includes/class-ap-mail.php`, `ap-includes/class-ap-smtp.php`,
 `ap-admin/options-mail.php`. Filter `ap_mail_send` (plugin transport swap):
@@ -580,8 +673,8 @@ post-type / meta-cap exceptions). Administrators have all of them. See
 | Area | Capability |
 |------|------------|
 | Enter ACP / Dashboard / Profile | `read` |
-| Posts | `edit_posts` (row: `edit_post` / `delete_post`; publish: `publish_posts`) |
-| Pages | `edit_pages` (row: `edit_page` / `delete_page`; publish: `publish_pages`) |
+| Posts | `edit_posts` (row: `edit_post` / `delete_post`; publish: `publish_posts`; Author picker: `edit_others_posts`) |
+| Pages | `edit_pages` (row: `edit_page` / `delete_page`; publish: `publish_pages`; Author picker: `edit_others_pages`) |
 | Categories / tags | `manage_categories` |
 | Comments list | `moderate_comments` (row edit: `edit_comment`) |
 | Media | `upload_files` |
@@ -622,6 +715,10 @@ Do not tell operators these exist in `/ap-admin/`:
 - Mail settings stuffed into Settings → General (they live on Settings → Mail)
 - A magic `value="0"` Default Post Category option (“— Uncategorized / site default —”)
 - An immortal Uncategorized slug (once another category is the default, Uncategorized can be deleted)
+- Forum topic-starter reassignment from the Posts / Pages Author picker (not that screen)
+- Comment-author user reassignment from that picker (`comment.php` Author is the display name)
+- A Settings field for `forum_notify_max_per_minute` (CLI only)
+- Guest topic watches, board-wide watches, or auto-watch on start / reply / visit
 
 If a plugin registered an extra sidebar item via `ap_register_admin_page()`,
 that page is **that plugin**, not core.

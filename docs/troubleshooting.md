@@ -1,7 +1,7 @@
 # Troubleshooting
 
 This is the **symptom → check** guide for AgoraPress **`0.3.9-beta`** (schema
-`AP_DB_VERSION` **12**). It describes common failures **as built**. Start
+`AP_DB_VERSION` **13**). It describes common failures **as built**. Start
 here when a site misbehaves; follow the linked topic guide for depth.
 
 This file does **not** invent a ticket system, remote log collector, or
@@ -21,8 +21,12 @@ the shipped code, say it is **not in core**.
 `ap-includes/class-ap-taxonomy.php`, `ap-includes/class-ap-editor.php`,
 `ap-includes/css/ap-editor.css`,
 `ap-includes/functions.php` (`ap_handle_comment_form_post`),
+`ap-includes/template-tags.php` (`ap_comments_template`),
+`ap-includes/theme-compat/comments.php`,
+`ap-includes/class-ap-forum-notify.php`,
 `ap-admin/user-edit.php`, `ap-admin/admin-header.php`,
 `ap-admin/login.php`, `ap-admin/options-mail.php`,
+`ap-admin/options-forums.php`,
 `ap-admin/options-modules.php`, `ap-admin/options-permalink.php`,
 `ap-admin/options-writing.php`, `ap-admin/edit-tags.php`,
 `ap-admin/includes/class-ap-admin-terms.php`,
@@ -72,8 +76,10 @@ host configuration.
 | Classic WP theme looks broken | Compat layer is for **classic PHP** themes. Block / FSE (`theme.json`, HTML under `templates/`) is out of scope | [compatibility.md](compatibility.md) |
 | REST 404 on `/ap-json/` or `?rest_route=` | Front controller (pretty `/ap-json/…`) **and** option `rest_api_enabled` | Distinguish a web-server HTML 404 from JSON `rest_disabled` / `rest_no_route` / `rest_module_disabled`. [rest.md](rest.md) |
 | Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.9-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
+| No Leave-a-comment form on a single post | Theme never called `ap_comments_template()`. Core does **not** auto-inject | [No comment form](#no-comment-form). Agora `single.php` already calls it once. |
 | Login rejected / “too many attempts” / “verify your email” | Rate limit (`rate_limited`) or `require_email_verification` — not a broken `session.save_path` | [Login fails](#login-fails), [security.md](security.md), [roles.md](roles.md) |
 | Verification mail never arrives (reset / test too) | SMTP (or PHP `mail()`) on **Settings → Mail**; check the **spam** folder (new sending server); Site Health `mail_last_error` | [Mail not arriving](#mail-not-arriving) |
+| Topic reply mail never arrives | Three gates, all default **off**: site option, user option, per-topic **Subscribe**; then **Settings → Mail** and **spam** | [Topic notify mail missing](#topic-notify-mail-missing). Not blog comment-subscription mail (still **not in core**). |
 | Admin screens look “old schema” after a zip/rsync, or Update Core is greyed | `php ap-cli db check` then `php ap-cli db migrate`. Pre-flight: `version_check_enabled`, ZipArchive, writable root | [updates.md](updates.md) |
 | Cannot delete Uncategorized | It is the **current default** (or the last remaining category). Set another category as default first | [Cannot delete Uncategorized](#cannot-delete-uncategorized), [admin.md](admin.md#default-post-category) |
 | Editor toolbar invisible on a dark theme | Page `color-scheme: dark` + core `--ap-editor-*` / system colors (`Canvas` / `CanvasText`). Not Agora-only CSS | [Editor toolbar invisible on a dark theme](#editor-toolbar-invisible-on-a-dark-theme), [editor.md](editor.md#contrast-contract) |
@@ -353,6 +359,10 @@ If comments still do not save on 0.3.9-beta, check the blog module, the
 post’s comment status, rate limits, and the `comment_error=` token — not a
 missing `AP_User::get()` method.
 
+If the **form itself is missing** (no Leave-a-comment chrome on a custom
+theme), that is a different check:
+[No comment form](#no-comment-form).
+
 ### ACP Edit User (since 0.3.6-beta)
 
 **Users → Edit** (`user-edit.php?user_id=ID`) shows the **selected**
@@ -364,6 +374,59 @@ user, you are not on 0.3.6-beta or later. Check `AP_VERSION` (Dashboard, or
 `php ap-cli version`) and update ([updates.md](updates.md)).
 
 Do not treat older war stories as current product behaviour.
+
+---
+
+## No comment form
+
+**Symptom:** a single blog post shows the article and **no**
+Leave-a-comment form (and often no comment list). Default **Agora** on a
+post still has **exactly one** form.
+
+**Cause:** the active theme never called `ap_comments_template()`. Core
+does **not** auto-inject a comment form after `ap_the_content()`, and it
+does **not** load `comments.php` from the template hierarchy. Themes that
+never call the helper get no form.
+
+This is **not** a rewrite 404, **not** “comments do not save”
+([Logged-in comments and Edit User](#logged-in-comments-and-edit-user)),
+and **not** a missing POST endpoint.
+
+**Fix:** call the helper from `single.php` after the article:
+
+```php
+if (function_exists('ap_comments_template')) {
+    ap_comments_template();
+}
+```
+
+Ship theme `comments.php` (child then parent) or omit it and use the core
+fallback `ap-includes/theme-compat/comments.php`. Optional `$file` is a
+readable `.php` path or a theme-relative PHP file; parent-directory
+segments (`..`) are rejected.
+
+Split the “no form” **kind** before patching core:
+
+| What you see | Meaning | Check |
+|--------------|---------|--------|
+| Custom theme: post body prints, no comments chrome | Theme never called `ap_comments_template()` | Add the one-liner. Core will **not** auto-append it |
+| Agora single post: exactly one Leave-a-comment form | Expected. `single.php` already calls the helper once (theme `comments.php`) | Do **not** add a second call |
+| Agora **page**: no comment form | Core `page` type does **not** support `comments`. Agora `page.php` does **not** call the helper | Not a bug |
+| Home / archive / search / feed: no form | Helper prints nothing when not a singular view, or on 404 / feed | Expected |
+| Blog module off | Helper prints nothing (`ap_module_blog`) | [Forum / blog / pages missing](#forum--blog--pages-missing) |
+| Comments closed **and** no approved list | Helper prints nothing | Post `comment_status`; Settings → Discussion |
+| Comments closed **with** an approved list | Fallback still lists comments and prints “Comments are closed.” — no form | Expected |
+| Form present, `comment_registration` on, guest | Fallback prints log-in-to-comment, not the editor | Settings → Discussion |
+| Form present, submit fails | Handler ran | [Logged-in comments and Edit User](#logged-in-comments-and-edit-user) |
+
+The fallback form posts `ap_comment_action=ap_comment_post` through
+`ap_handle_comment_form_post()` — the same handler Agora uses. Do **not**
+invent a second comments POST endpoint.
+
+Depth: [themes.md](themes.md#comments-template).
+
+Generic examples only (`example.com`). Do not name private hosts, persona
+mailboxes, or live fleet inventory here.
 
 ---
 
@@ -437,8 +500,80 @@ a test message (Site Health never transmits data off-site).
    enumeration). A real `send()` failure is reported honestly.
 
 PHP `mail()` delivery depends on the host MTA. There is **no** PHPMailer
-in core, **no** HTML mail, and **no** comment-subscription mail. Depth:
+in core, **no** HTML mail, and **no** blog comment-subscription mail.
+Topic-reply notify is a **separate** opt-in path (three gates, default
+off) that still uses this From / Reply-To:
+[Topic notify mail missing](#topic-notify-mail-missing). Depth:
 [admin.md](admin.md#mail), [security.md](security.md#outbound-mail).
+
+---
+
+## Topic notify mail missing
+
+**Symptom:** a member expected email when a **reply** landed in a topic
+they subscribed to, and nothing arrived (or they never saw **Subscribe**).
+
+This is **not** verification / reset / test mail
+([Mail not arriving](#mail-not-arriving)) and **not** blog
+comment-subscription mail (that is **not in core**). Unread badges
+(`topic_track` / `forum_track`) are a different table and do **not**
+send mail.
+
+**First:** the three gates, all default **off**. Mail is sent only when
+**all** of these are true, the reply is **approved**, the recipient still
+has `view_forum`, they have a usable email, and they are **not** the
+poster:
+
+| Gate | Surface | Default |
+|------|---------|---------|
+| 1. Site master | **Settings → Forums:** **Allow topic email notifications** (`forum_topic_notify_enabled`) | **off** |
+| 2. User master | Profile: **Email me about topics I subscribe to** (`forum_notify_email`). Users → Edit: **Email this member about topics they subscribe to** | **off** |
+| 3. Per-topic watch | Topic **Subscribe** / **Unsubscribe**, or compose **Notify me of replies** (default off) | no row in `{prefix}topic_subscriptions` |
+
+Then the transport: **Settings → Mail**, then the recipient’s **spam**
+folder. Topic-notify bodies are **text/plain**. From / Reply-To follow
+Settings → Mail. A newly configured sending server is often untrusted —
+same spam check as verification mail.
+
+Site switch **off**: no Subscribe / Unsubscribe chrome, no compose
+checkbox, no reply enqueue, no notify send. Turning it **on** does not
+send mail by itself. Visiting a topic, starting a topic, or replying
+**without** the checkbox does **not** auto-watch.
+
+Split the “no mail” **kind** before raising `rate_limit_mail`:
+
+| What you see | Meaning | Check |
+|--------------|---------|--------|
+| No **Subscribe** button on the topic | Site master off, guest, or no `view_forum` | Settings → Forums. Guests never qualify |
+| **Subscribe** works; Profile checkbox was off | First Subscribe **flips** `forum_notify_email` **on** with notice `topic_subscribed_email_on` (compose: `topic_created_email_on` / `reply_posted_email_on`) | Expected. Do **not** treat a refuse-and-point-at-Profile path as current |
+| Subscribed, user master on, still no mail | Poster is excluded; pending reply; lost `view_forum`; empty/bad address | The worker drops those rows and keeps the watch |
+| Reply just posted; mail “should have” left in that request | Reply POST only **enqueues** `AP_Cron` hook `ap_forum_topic_notify` (`topic_id` + `reply_post_id`). No N SMTP in the POST | `php ap-cli cron event run` (or wait for spawn). `php ap-cli cron event list` |
+| Forum module off | No chrome; Profile notify fieldset hidden | [Forum / blog / pages missing](#forum--blog--pages-missing) |
+| Schema older than **13** | `{prefix}topic_subscriptions` missing | `php ap-cli db migrate`. [schema.md](schema.md) |
+| “Too many attempts” on **verification** / reset / test | That is `rate_limit_mail` (20/hour) | Notify uses its **own** per-minute cap (`forum_notify_max_per_minute`, default **4**, CLI only). It does **not** consume `rate_limit_mail` |
+| Transport error / nothing in the mailbox | SMTP or PHP `mail()` never delivered | Same checks as [Mail not arriving](#mail-not-arriving): Settings → Mail, Site Health `mail_last_error`, **spam** folder. Failed notify send does **not** claim success and does **not** delete the subscription |
+
+Confirm:
+
+1. **Settings → Forums** → **Allow topic email notifications** is on.
+2. Profile **Email me about topics I subscribe to** is on (Users → Edit
+   for another account).
+3. The member used **Subscribe** on that topic (or checked **Notify me of
+   replies** on compose). Profile **Subscriptions** lists the title.
+4. **Settings → Mail** From / transport (example From
+   `noreply@example.com`, SMTP host `smtp.example.com`). **Send test
+   email to admin_email** proves the transport independently of notify.
+5. Check the **spam** folder.
+
+There is **no** guest watch, **no** board-wide watch, **no** blog
+comment-subscription mail, **no** HTML newsletter, and **no** auto-watch
+on visit. Depth: [forums.md](forums.md#topic-email-notifications),
+[admin.md](admin.md#topic-email-notifications),
+[admin.md](admin.md#mail).
+
+Generic examples only (`example.com`, `noreply@example.com`,
+`smtp.example.com`). Do not name private hosts, persona mailboxes, or
+live fleet inventory here.
 
 ---
 
@@ -611,7 +746,7 @@ One-click apply is **Tools → Update Core** only. There is **no**
 
 | What you see | Check |
 |--------------|--------|
-| Site Health “pending migration(s)” | `php ap-cli db migrate`. Target is `AP_DB_VERSION` **12**. [schema.md](schema.md) |
+| Site Health “pending migration(s)” | `php ap-cli db migrate`. Target is `AP_DB_VERSION` **13**. [schema.md](schema.md) |
 | `Files were updated but database migration failed: …` | Files already on the new tree; finish with `db migrate` (no automatic file rollback). |
 | Front-end 503 “Site briefly unavailable” / “AgoraPress is installing an update.” | Live `.maintenance` lock. Older than **30 minutes** is ignored. |
 | Pre-flight greyed | `version_check_enabled` (default on), outbound HTTP GET of public `version.json` (**no site identity**), writable site root, PHP `ZipArchive`, cURL or `allow_url_fopen`, writable temp dir. |
@@ -627,6 +762,8 @@ Depth: [updates.md](updates.md).
 | White screen / PHP fatals on a public host | `AP_DEBUG` / `AP_DEBUG_DISPLAY` / `AP_DEBUG_LOG` in `ap-config.php` must stay **false** in production. Site Health flags debug on. Staging only. With `AP_DEBUG` + `AP_DEBUG_LOG`, PHP logs to `ap-content/debug.log`. |
 | Installer cannot write config | Site root must be writable so PHP can **create** `ap-config.php`. [install.md](install.md#permissions) |
 | REST cookie POST/PUT/DELETE 403 | `rest_cookie_invalid_nonce` — `X-AP-Nonce` for action `ap_rest`. |
+| No Leave-a-comment form on a custom theme | Call `ap_comments_template()` from `single.php`. Core does **not** auto-inject. [No comment form](#no-comment-form) |
+| Topic reply mail never arrives | Site option, user option, **Subscribe**, **Settings → Mail**, then **spam**. [Topic notify mail missing](#topic-notify-mail-missing) |
 
 ---
 
@@ -642,7 +779,9 @@ Do not invent these while diagnosing:
 - `php ap-cli module …`
 - Two-factor authentication, a bundled WAF, or Fail2ban
 - A user self-service privacy portal
-- PHPMailer, HTML mail, newsletters, or comment-subscription mail
+- PHPMailer, HTML mail, newsletters, or blog comment-subscription mail (topic-reply notify is opt-in; three gates, default off)
+- Auto-inject of a comment form into themes that never call `ap_comments_template()`
+- Guest topic watches, board-wide watches, or auto-watch on visit / start / reply
 - A public group Join button on default Agora (Forums → Groups is the roster)
 - Forum ACL applied to blog posts or static pages
 - An immortal Uncategorized slug (once another category is the default, Uncategorized can be deleted)
@@ -665,15 +804,16 @@ is **not in core**.
 | [rewrites.md](rewrites.md) | Front controller, `try_files`, `?p=` vs pretty |
 | [updates.md](updates.md) | `version.json`, Update Core, `db migrate` |
 | [cli.md](cli.md) | Built-in `ap-cli` groups, flags, exit codes |
-| [admin.md](admin.md) | `/ap-admin/` screens including Site Health and default category |
+| [admin.md](admin.md) | `/ap-admin/` screens including Site Health, Mail, and Settings → Forums notify |
 | [editor.md](editor.md) | Visual editor contrast (`color-scheme`, `--ap-editor-*`) |
-| [forums.md](forums.md) | Forum module, **This group only**, listing hygiene |
+| [forums.md](forums.md#topic-email-notifications) | Forum module, **This group only**, topic email notify |
 | [roles.md](roles.md) | Caps, comment ownership |
 | [rest.md](rest.md) | `/ap-json/`, `ap/v1`, `rest_api_enabled` |
 | [security.md](security.md) | Sessions, nonces, deny rules |
 | [site-icon.md](site-icon.md) | Favicon pack, GD/Imagick |
 | [compatibility.md](compatibility.md) | Classic PHP themes; block/FSE out of scope |
 | [schema.md](schema.md) | Pending migrations / “old schema” after update |
+| [themes.md](themes.md#comments-template) | `ap_comments_template()`; core does **not** auto-inject a form |
 | [plugins.md](plugins.md) · [themes.md](themes.md) | Zip installers, drop-in paths |
 | [hooks.md](hooks.md) | Selected actions/filters (grep for the rest) |
 | [bot_handbook.md](bot_handbook.md) | Trusted-agent operating model |

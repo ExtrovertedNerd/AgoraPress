@@ -133,6 +133,11 @@ final class DocsPresenceTest extends TestCase
         'agora_visitor_color_preview',
         '--ap-editor-bg',
         'Set as default',
+        'ap_comments_template',
+        'forum_notify_max_per_minute',
+        'edit_others_posts',
+        'ap-spoiler',
+        'topic_subscriptions',
     ];
 
     protected function setUp(): void
@@ -528,6 +533,10 @@ final class DocsPresenceTest extends TestCase
                 'ensureDefaultCategory',
                 'set-default-tag-',
                 'Default Post Category',
+                'edit_others_posts',
+                'Allow topic email notifications',
+                'forum_topic_notify_enabled',
+                'canAssignAuthor',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -725,6 +734,12 @@ final class DocsPresenceTest extends TestCase
                 '/forums/feed/',
                 'getListableForums',
                 'no public Join',
+                'topic_subscriptions',
+                'forum_topic_notify_enabled',
+                'AP_Forum_Notify',
+                'Three gates',
+                'ap_forum_unsub',
+                'processQueuedReply',
             ] as $needle
         ) {
             $this->assertStringContainsString(

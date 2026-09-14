@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Core | `AP_VERSION` **0.3.9-beta** |
-| Schema | `AP_DB_VERSION` **12** |
+| Schema | `AP_DB_VERSION` **13** |
 | Table prefix | default `ap_` (`$table_prefix` in `ap-config.php`) |
 | Control Panel | `/ap-admin/` |
 | REST prefix | `/ap-json/` · namespace `ap/v1` |
@@ -91,6 +91,7 @@
 | `forum_attachment_max_per_post` | `5` | **CLI only** — not on Settings → Forums | [forums.md](forums.md) |
 | `forum_attachment_user_quota` | `10485760` | **CLI only** — not on Settings → Forums | [forums.md](forums.md) |
 | `forum_online_window` | `900` | **CLI only** — not on Settings → Forums | [forums.md](forums.md) |
+| `forum_notify_max_per_minute` | `4` (clamped 1–60) | **CLI only** — not on Settings → Forums; own topic-notify cap (not `rate_limit_mail`) | [forums.md](forums.md#topic-email-notifications) · [admin.md](admin.md#topic-email-notifications) |
 
 | Default post category | As built | Guide |
 |-----------------------|----------|-------|
@@ -141,7 +142,7 @@
 | `forum_online_enabled` | `1` | [forums.md](forums.md) |
 | `forum_unread_tracking_enabled` | `1` | [forums.md](forums.md) |
 | `forum_signatures_enabled` | `1` | [forums.md](forums.md) |
-| `forum_topic_notify_enabled` | `0` | [forums.md](forums.md) |
+| `forum_topic_notify_enabled` | `0` (off: no Subscribe chrome, no enqueue, no send) | [forums.md](forums.md#topic-email-notifications) · [admin.md](admin.md#topic-email-notifications) |
 | `forum_flood_interval` | `30` | [forums.md](forums.md) |
 | `forum_spam_max_links` | `5` | [forums.md](forums.md) |
 | `forum_spam_blacklist` | `''` | [forums.md](forums.md) |
@@ -192,19 +193,19 @@
 | `rate_limit_upload_max` | `40` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_upload_window` | `600` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_upload_lockout` | `300` | **no ACP screen** | [security.md](security.md) |
-| `rate_limit_mail_max` | `20` | **no ACP screen** (outbound `mail` action) | [security.md](security.md#outbound-mail) |
-| `rate_limit_mail_window` | `3600` | **no ACP screen** (outbound `mail` action) | [security.md](security.md#outbound-mail) |
-| `rate_limit_mail_lockout` | `3600` | **no ACP screen** (outbound `mail` action) | [security.md](security.md#outbound-mail) |
+| `rate_limit_mail_max` | `20` | **no ACP screen** (outbound `mail` action: verification / reset / test; **not** topic notify) | [security.md](security.md#outbound-mail) |
+| `rate_limit_mail_window` | `3600` | **no ACP screen** (outbound `mail` action: verification / reset / test; **not** topic notify) | [security.md](security.md#outbound-mail) |
+| `rate_limit_mail_lockout` | `3600` | **no ACP screen** (outbound `mail` action: verification / reset / test; **not** topic notify) | [security.md](security.md#outbound-mail) |
 
 | CLI-only options | Command | Guide |
 |------------------|---------|-------|
-| `rest_api_enabled`, `version_check_enabled`, `blog_public`, `sitemap_enabled`, `open_graph_enabled`, `forum_attachment_max_per_post`, `forum_attachment_user_quota`, `forum_online_window` | `php ap-cli option get\|set` | [cli.md](cli.md#option) |
+| `rest_api_enabled`, `version_check_enabled`, `blog_public`, `sitemap_enabled`, `open_graph_enabled`, `forum_attachment_max_per_post`, `forum_attachment_user_quota`, `forum_online_window`, `forum_notify_max_per_minute` | `php ap-cli option get\|set` | [cli.md](cli.md#option) |
 
 ## Schema
 
 | | |
 |---|---|
-| Target | `AP_DB_VERSION` **12** (`ap-includes/version.php`) |
+| Target | `AP_DB_VERSION` **13** (`ap-includes/version.php`) |
 | Prefix | default `ap_` — physical names `{prefix}{base}` |
 | Drivers | MySQL 8+ / MariaDB 10.6+ (production), SQLite (demos), PostgreSQL |
 | Apply | installer, or `php ap-cli db migrate` |
@@ -225,7 +226,7 @@
 | 10 | `0010_analytics_tables.php` | `analytics_hits`, `analytics_daily` |
 | 11 | `0011_forum_likes_stats.php` | `forum_post_likes`; `forum_posts.like_count` |
 | 12 | `0012_topic_type_enum.php` | **No new table.** Canonical `topics.topic_type` `standard` \| `sticky` \| `announcement` \| `rules` |
-| 13 | `0013_topic_subscriptions.php` | `topic_subscriptions` (unique `(user_id, topic_id)`; index on `topic_id`). Unread tables unchanged. |
+| 13 | `0013_topic_subscriptions.php` | `topic_subscriptions` (`user_id`, `topic_id`, `created_at`; unique `(user_id, topic_id)`; index on `topic_id`). Seeds `forum_topic_notify_enabled` `'0'`, `forum_notify_max_per_minute` `'4'`. Does **not** backfill usermeta `forum_notify_email`. Unread tables unchanged. |
 
 | Core base (`ap_core_base_tables()`) | Forum base (`ap_forum_base_tables()`) |
 |-------------------------------------|---------------------------------------|
@@ -293,6 +294,32 @@
 | `rules` | Rules topic | [forums.md](forums.md) |
 | Schema 12 backfill | `normal`→`standard`, `announce`/`global`→`announcement`. Extra types are **not in core** | [schema.md](schema.md) |
 
+## Topic email notifications
+
+| Gate | Key | Default | Surface | Guide |
+|------|-----|---------|---------|-------|
+| 1. Site master | option `forum_topic_notify_enabled` | **off** (`'0'`) | Settings → Forums: **Allow topic email notifications.** Off: no chrome, no enqueue, no send | [admin.md](admin.md#topic-email-notifications) |
+| 2. User master | usermeta `forum_notify_email` | **off** (`'0'`; missing = off) | Profile: **Email me about topics I subscribe to.** Users → Edit: **Email this member about topics they subscribe to.** Users → Add omits the fieldset | [admin.md](admin.md#topic-email-notifications) · [forums.md](forums.md#topic-email-notifications) |
+| 3. Per-topic watch | `{prefix}topic_subscriptions` | no row | Topic **Subscribe** / **Unsubscribe**, or compose **Notify me of replies** (default off) | [forums.md](forums.md#topic-email-notifications) |
+
+| Piece | As built | Guide |
+|-------|----------|-------|
+| Three gates | All default **off**. Mail only when every gate is on | [forums.md](forums.md#topic-email-notifications) |
+| Class | `AP_Forum_Notify` (`ap-includes/class-ap-forum-notify.php`) | [forums.md](forums.md#topic-email-notifications) |
+| Mail when | Site on **and** user on **and** subscribed **and** reply approved **and** recipient still `view_forum` **and** usable email **and** not the poster | [forums.md](forums.md#topic-email-notifications) |
+| Chrome | Gate 1 + logged in + `view_forum`. Does **not** require the user master. Guests never qualify | [forums.md](forums.md#topic-email-notifications) |
+| Auto-watch | **No.** Visit / start / reply does not subscribe unless **Subscribe** or compose `notify_replies` | [forums.md](forums.md#topic-email-notifications) |
+| First Subscribe (master off) | Flip `forum_notify_email` **on** with a notice (`topic_subscribed_email_on`). Do **not** refuse | [forums.md](forums.md#topic-email-notifications) |
+| Table | `{prefix}topic_subscriptions` (`user_id`, `topic_id`, `created_at`). Unique `(user_id, topic_id)`. Index `topic_id`. Schema **13**. **Not** `topic_track` / `forum_track` | [forums.md](forums.md#topic-email-notifications) |
+| Drop rows | Unsubscribe; user deleted; topic **hard**-deleted. Soft-delete keeps watches. Failed send does **not** drop the subscription | [forums.md](forums.md#topic-email-notifications) |
+| Enqueue | Approved reply POST → `AP_Cron` hook `ap_forum_topic_notify` (`topic_id` + `reply_post_id`). No N SMTP in the request. `createReply()` itself does **not** enqueue | [forums.md](forums.md#topic-email-notifications) |
+| Worker | `AP_Forum_Notify::processQueuedReply()`. Drops poster, user-master off, lost `view_forum`, bad addresses. Digest same `(user, topic)` when several unsent replies exist | [forums.md](forums.md#topic-email-notifications) |
+| Rate cap | Own bucket transient `ap_fn_rpm` (60s). Option `forum_notify_max_per_minute` default **4** (**CLI only**). `AP_Mail::send()` with `skip_rate_limit` — does **not** consume `rate_limit_mail` | [forums.md](forums.md#topic-email-notifications) |
+| Mail | `text/plain`. Subject `[{site name}] New reply in {topic title}` (digest: `{n} new replies`). Body: title, reply author, spoiler-stripped excerpt, absolute URL, signed unsubscribe. From / Reply-To: Settings → Mail | [forums.md](forums.md#topic-email-notifications) · [admin.md](admin.md#mail) |
+| Unsubscribe token | Query `ap_forum_unsub` (HMAC, `user_id` + `topic_id`, 45-day TTL). No session. Drops **that** watch only; never turns the user master off | [forums.md](forums.md#topic-email-notifications) |
+| Profile list | Title + **Unsubscribe**. Empty: “No topic subscriptions.” Forum module on (even if site switch off). No Agora front-end forum-account page | [admin.md](admin.md#topic-email-notifications) |
+| Not this | Guest watches; board-wide watches; blog-comment subscriptions; HTML newsletters; push; auto-watch on visit; reusing `topic_track`; consuming `rate_limit_mail`; a Settings → Forums field for `forum_notify_max_per_minute` | [forums.md](forums.md#topic-email-notifications) |
+
 ## `ap-cli` verbs
 
 | Group | Usage as registered | Needs install | Subcommands | Guide |
@@ -306,7 +333,7 @@
 | `plugin` | `plugin <list\|activate\|deactivate>` | yes | list (`--format=json`), activate, deactivate. **No install/zip** | [cli.md](cli.md#plugin) |
 | `theme` | `theme <list\|activate>` | yes | list, activate. **No install/zip** | [cli.md](cli.md#theme) |
 | `user` | `user <list\|get\|create>` | yes | list / get / create. **No** `user update` / `user delete`. Create **may** use reserved logins | [cli.md](cli.md#user) |
-| `post` | `post <list\|get\|create\|update>` | yes | `--type=post\|page`; `--file` **local filesystem only**. Create defaults: **post → draft**, **page → publish**. **No** `post delete` | [cli.md](cli.md#post) |
+| `post` | `post <list\|get\|create\|update>` | yes | `--type=post\|page`; `--file` **local filesystem only**. Create defaults: **post → draft**, **page → publish**. Update `--author=` living owner of that type. **No** `post delete` | [cli.md](cli.md#post) |
 | `cache` | `cache flush` | yes | flush (default) | [cli.md](cli.md#cache-flush) |
 | `cron` | `cron event <list\|run>` | yes | aliases: `cron list`, `cron run`. Bare `cron` is usage | [cli.md](cli.md#cron) |
 | `rewrite` | `rewrite flush` | yes | flush (default). **No** `rewrite list` | [cli.md](cli.md#rewrite-flush) |
@@ -384,10 +411,10 @@
 |------|------|-----|-------|
 | `login.php` | Login / register / lost password / reset / verify email / resend (`?action=` allowlist) | no login required | [admin.md](admin.md#sign-in) · [admin.md](admin.md#public-registration) |
 | `index.php` | Dashboard | `read` | [admin.md](admin.md#dashboard) |
-| `profile.php` | Own profile | `read` | [admin.md](admin.md#users) |
-| `edit.php` | Posts/pages list (`?post_type=`) | `edit_posts` / `edit_pages` | [admin.md](admin.md#content) |
-| `post-new.php` | Add post/page | same | [admin.md](admin.md#content) |
-| `post.php` | Edit row | meta `edit_post` / `edit_page` | [admin.md](admin.md#content) |
+| `profile.php` | Own profile | `read` | [admin.md](admin.md#users) · Forum notify fieldset: [admin.md](admin.md#topic-email-notifications) |
+| `edit.php` | Posts/pages list (`?post_type=`) | `edit_posts` / `edit_pages` | [admin.md](admin.md#content) · Quick Edit Author: [admin.md](admin.md#author-posts-and-pages) |
+| `post-new.php` | Add post/page | same | [admin.md](admin.md#content) · Author picker: [admin.md](admin.md#author-posts-and-pages) |
+| `post.php` | Edit row | meta `edit_post` / `edit_page` | [admin.md](admin.md#content) · Author picker: [admin.md](admin.md#author-posts-and-pages) |
 | `revision.php` | Revisions | same meta cap | [admin.md](admin.md#content) |
 | `edit-comments.php` | Comments list | `moderate_comments` | [admin.md](admin.md#content) |
 | `comment.php` | Single comment | meta `edit_comment` | [admin.md](admin.md#content) |
@@ -400,7 +427,7 @@
 | `plugins.php` | Plugins + **plugin zip installer** (`install_plugins`) | `activate_plugins` | [admin.md](admin.md#plugin-zip-installer) · [plugins.md](plugins.md#plugin-installer) |
 | `users.php` | Users list (pending **Activate** needs `edit_users`) | `list_users` | [admin.md](admin.md#users) |
 | `user-new.php` | Add user (reserved logins **allowed**) | `create_users` | [admin.md](admin.md#users) |
-| `user-edit.php` | Edit selected account (pending **Resend verification** / **Activate account**) | `edit_users` | [admin.md](admin.md#users) |
+| `user-edit.php` | Edit selected account (pending **Resend verification** / **Activate account**) | `edit_users` | [admin.md](admin.md#users) · Forum notify fieldset: [admin.md](admin.md#topic-email-notifications) |
 | `forums.php` `forum-edit.php` | Forum tree / edit (**This group only** / `group_only`) | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md#this-group-only-group_only) |
 | `forum-groups.php` | Groups + ACL | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
 | `forum-topics.php` `forum-moderation.php` | Topics / mod queue | `moderate_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
@@ -413,7 +440,7 @@
 | `options-permalink.php` | Permalinks | `manage_options` | [admin.md](admin.md#settings) · [rewrites.md](rewrites.md) |
 | `options-privacy.php` | Privacy policy page | `manage_privacy_options` (`manage_options` fallback) | [admin.md](admin.md#settings) |
 | `options-modules.php` | Pages / Blog / Forum toggles | `manage_options` | [admin.md](admin.md#settings) |
-| `options-forums.php` | Forum settings | `manage_options` | [admin.md](admin.md#settings) · [forums.md](forums.md) |
+| `options-forums.php` | Forum settings | `manage_options` | [admin.md](admin.md#settings) · [forums.md](forums.md) · **Allow topic email notifications**: [admin.md](admin.md#topic-email-notifications) |
 | `options-hall-of-fame.php` | Voluntary handshake (join / leave / dismiss) | `manage_options` | [admin.md](admin.md#hall-of-fame-handshake) |
 | `analytics.php` | Tools → Analytics | `manage_options` | [admin.md](admin.md#tools) |
 | `site-health.php` | Tools → Site Health (outbound-mail last error; does **not** send) | `view_site_health` (`manage_options` fallback) | [admin.md](admin.md#tools) · [troubleshooting.md](troubleshooting.md#mail-not-arriving) |
@@ -432,8 +459,25 @@
 | REST master switch | `php ap-cli option set rest_api_enabled 0` | [rest.md](rest.md) |
 | Version check | `php ap-cli option set version_check_enabled 0` | [updates.md](updates.md) |
 | `blog_public`, `sitemap_enabled`, `open_graph_enabled` | `php ap-cli option` | [cli.md](cli.md) |
+| Topic-notify send cap `forum_notify_max_per_minute` | `php ap-cli option set forum_notify_max_per_minute N` | [forums.md](forums.md#topic-email-notifications) |
 | Roles / capabilities editor | **not in core** | [roles.md](roles.md) |
 | Users → Ban / suspend | **not in core** (forum Moderation has bans) | [roles.md](roles.md) |
+
+## ACP author picker
+
+| Rule | As built | Guide |
+|------|----------|-------|
+| Screens | Add New / Edit (`post-new.php`, `post.php`) for **posts** and **pages**; Quick Edit on Posts / Pages (`edit.php`, POST `action=quick_edit`) | [admin.md](admin.md#author-posts-and-pages) |
+| Cap | `edit_others_posts` / `edit_others_pages`. **No** new capability. Authors editing their own post do **not** see it | [admin.md](admin.md#author-posts-and-pages) |
+| Control | Sidebar metabox **Author** (`ap-metabox-author`); `<select name="post_author" id="post_author">` | [admin.md](admin.md#author-posts-and-pages) |
+| Options | Living, active users (`user_status` = 0) who can own that type (`edit_posts` / `edit_pages`). Pending / banned omitted. Current author stays listed even if inactive | [admin.md](admin.md#author-posts-and-pages) |
+| Insert | Persists posted id when the actor may assign a living owner; otherwise the logged-in user | [admin.md](admin.md#author-posts-and-pages) |
+| Update | Persists posted id when allowed; otherwise existing `post_author`. Does **not** unset `post_author` | [admin.md](admin.md#author-posts-and-pages) |
+| Crafted POST | Forbidden / unknown / inactive / non-owner id ignored. Create → logged-in user; edit → keep existing | [admin.md](admin.md#author-posts-and-pages) |
+| Quick Edit | Same assignment rules. Author field only when the actor may assign. Nonce `quick-edit-{id}` | [admin.md](admin.md#author-posts-and-pages) |
+| CLI | `php ap-cli post update --author=` — living owner of that type; ineligible id leaves current author (exit `2`) | [cli.md](cli.md#post) |
+| Source | `AP_Admin_Post_Edit::canAssignAuthor()` / `authorCandidates()` | [admin.md](admin.md#author-posts-and-pages) |
+| Not this | Forum topic-starter reassignment; comment-author user reassignment (`comment.php` Author is the display name); media owner | [admin.md](admin.md#author-posts-and-pages) |
 
 ## Default Agora schemes
 
@@ -464,6 +508,8 @@
 |-------|----------|-------|
 | Widget | `AP_Editor` (`ap-includes/class-ap-editor.php`) | [editor.md](editor.md) |
 | CSS | `ap-includes/css/ap-editor.css` — `color-scheme: inherit` | [editor.md](editor.md#contrast-contract) |
+| Spoiler CSS | `ap-includes/css/ap-spoiler.css` — `color-scheme: inherit`; **no** `ap-includes/js/ap-spoiler.js` | [editor.md](editor.md#spoilers) · [themes.md](themes.md#spoiler-css) |
+| Spoiler button | Toolbar **Spoiler** (`id` `spoiler`, command `visual-spoiler`) on post, page, comment, and forum | [editor.md](editor.md#spoilers) |
 | Dark hosts | `color-scheme: dark` on `html`/`body`; `html.agora-mode-dark` / `body.agora-mode-dark`; `[data-ap-color-mode=dark]` | [editor.md](editor.md#contrast-contract) · [themes.md](themes.md#editor-contrast) |
 | Pairing | Chrome `Canvas` / `CanvasText`; surface `Field` / `FieldText` | [editor.md](editor.md#contrast-contract) |
 | Buttons | `currentColor`; isolation vs theme `button { color: inherit }` | [editor.md](editor.md#contrast-contract) |
@@ -477,6 +523,40 @@
 | `--ap-editor-surface` | Visual surface + textarea background (`Field`) | [themes.md](themes.md#editor-contrast) |
 | `--ap-editor-border` | Chrome border | [themes.md](themes.md#editor-contrast) |
 | `--ap-on-accent` | Active Visual \| Text chip text (fallback `#fff`) | [themes.md](themes.md#editor-contrast) |
+
+## Spoilers
+
+| Piece | As built | Guide |
+|-------|----------|-------|
+| Conversion | `AP_Content_Format` (BBCode → HTML). **Not** an `AP_Shortcode` handler named `spoiler` | [editor.md](editor.md#spoilers) |
+| Stored BBCode | `[spoiler]hidden[/spoiler]`, `[spoiler=Label]hidden[/spoiler]`, `[spoiler title="Label"]hidden[/spoiler]` (single-quoted `title='Label'` too) | [editor.md](editor.md#spoilers) |
+| Stored HTML | Native `<details class="ap-spoiler">` (Visual button, or Text HTML source) | [editor.md](editor.md#spoilers) |
+| Output | `<details class="ap-spoiler">` + `<summary class="ap-spoiler__summary">` + `<div class="ap-spoiler__body">` | [editor.md](editor.md#spoilers) · [themes.md](themes.md#spoiler-css) |
+| Default label | **Spoiler**. Empty / whitespace-only body → nothing | [editor.md](editor.md#spoilers) |
+| Nested | Innermost first, then one extra pass (one nesting level) | [editor.md](editor.md#spoilers) |
+| Toolbar Visual | Wraps selection in `<details class="ap-spoiler">`. Always inserts label **Spoiler** (no prompt) | [editor.md](editor.md#spoilers) |
+| Toolbar Text | Wraps with `[spoiler]` … `[/spoiler]` (`data-ap-editor-wrap-open` / `wrap-close`) | [editor.md](editor.md#spoilers) |
+| Surfaces | Post, page, comment, and forum compose (`AP_Editor`) | [editor.md](editor.md#spoilers) |
+| CSS | `ap-includes/css/ap-spoiler.css` (`color-scheme: inherit`). Closed body `display: none` (not hover-only). Open body follows page `color-scheme`. Native keyboard | [themes.md](themes.md#spoiler-css) · [editor.md](editor.md#spoilers) |
+| kses | Keeps `details` / `summary` / `class` / `open` plus allow-listed inner markup | [editor.md](editor.md#spoilers) |
+| Snippets | `AP_Content_Format::stripSpoilers()` / `ap_strip_spoilers()`. Default placeholder **`[Spoiler]`**; pass `''` to drop. Used in excerpts, feeds, Open Graph, search snippets, forum last-post blurbs, notify excerpts | [editor.md](editor.md#spoilers) · [forums.md](forums.md#topic-email-notifications) |
+| JavaScript | Works with JavaScript off (native `<details>`). **No** `ap-includes/js/ap-spoiler.js` | [editor.md](editor.md#spoilers) |
+| Not this | Per-forum “everything in this room is spoilered” flag; hover-only reveal; Visual label prompt; a second spoiler shortcode | [editor.md](editor.md#spoilers) |
+
+## Comments template
+
+| Piece | As built | Guide |
+|-------|----------|-------|
+| Helper | `ap_comments_template( ?string $file = null )` in `ap-includes/template-tags.php` | [themes.md](themes.md#comments-template) |
+| Prints | Approved comment list + Leave-a-comment form | [themes.md](themes.md#comments-template) |
+| Auto-inject | **No.** `ap_the_content()` prints the post body only. Themes that never call the helper get no form | [themes.md](themes.md#comments-template) |
+| Empty (no markup) | Blog module off; not singular / 404 / feed; no current post; post type does not support `comments` (core `page` does **not**); comments closed **and** no approved list | [themes.md](themes.md#comments-template) |
+| Locate | 1. `$file` if readable `.php` with no `..` 2. Theme `comments.php` (child then parent) 3. Core fallback `ap-includes/theme-compat/comments.php` | [themes.md](themes.md#comments-template) |
+| Fallback | Approved list or “No comments yet.”; closed copy; log-in-to-comment when `comment_registration` and guest; else form + `AP_Editor` (context `comment`) | [themes.md](themes.md#comments-template) |
+| POST | `ap_comment_action=ap_comment_post` via `ap_handle_comment_form_post()` — same handler Agora uses. **No** second endpoint | [themes.md](themes.md#comments-template) |
+| Agora | `single.php` calls `ap_comments_template()` **once** (theme `comments.php`). Exactly one form. `page.php` does **not** call it | [themes.md](themes.md#comments-template) · [editor.md](editor.md) |
+| Hierarchy | `comments.php` is **not** in `AP_Theme::getHierarchy()` | [themes.md](themes.md#comments-template) |
+| Not this | Auto-append after `ap_the_content`; a form on themes that never call the helper; page comments in core; a second comments POST handler | [themes.md](themes.md#comments-template) |
 
 ## Install and updates
 
@@ -531,6 +611,7 @@
 | `ap_registration_verify_captcha` | filter | Verify posted captcha/guard data — [hooks.md](hooks.md#users--registration) · [admin.md](admin.md#public-registration) |
 | `ap_registration_captcha_fields` | action | Extra markup for a plugin-supplied visible mode — [admin.md](admin.md#public-registration) |
 | `agora_color_scheme` | filter | Resolved slug only (`agora_filter_color_scheme()`). Invalid returns keep the slug. **Never** writes the site option — [themes.md](themes.md#visitor-color-scheme-preview) |
+| `ap_forum_topic_notify` | cron | Queued topic-notify worker (`topic_id` + `reply_post_id`). Reply POST schedules only — [forums.md](forums.md#topic-email-notifications) |
 | Plugin ACP pages | — | [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp) (`ap_register_admin_page`) |
 | REST registration | — | [rest.md](rest.md) (`ap_rest_api_init`) |
 | CLI registration | — | [cli.md](cli.md) (`ap_cli_init`) |
@@ -554,6 +635,11 @@
 | Extra core roles beyond administrator / editor / author / contributor / subscriber | [roles.md](roles.md) |
 | Extra topic types beyond `standard` \| `sticky` \| `announcement` \| `rules` | [forums.md](forums.md) |
 | PHPMailer / Composer mail library; HTML mail / newsletters / comment-subscription mail | [admin.md](admin.md#mail) |
+| Per-forum spoiler flag; hover-only spoilers; `AP_Shortcode` handler named `spoiler`; `ap-includes/js/ap-spoiler.js` | [editor.md](editor.md#spoilers) |
+| Auto-inject comment form / auto-append after `ap_the_content` | [themes.md](themes.md#comments-template) |
+| Guest watches, board-wide watches, auto-watch on visit / start / reply | [forums.md](forums.md#topic-email-notifications) |
+| Topic notify consuming `rate_limit_mail`; Settings field for `forum_notify_max_per_minute` | [forums.md](forums.md#topic-email-notifications) |
+| Forum topic-starter or comment-author reassignment from the Posts / Pages Author picker | [admin.md](admin.md#author-posts-and-pages) |
 | Google / hCaptcha / Turnstile widgets | [security.md](security.md#public-registration-gate) |
 | A second docs index (`docs/index.md`) or a Bot-only tree | [README.md](README.md) |
 | Private hosts, persona mailboxes, live fleet inventory | [README.md](README.md#public-safe-rule) · [bot_handbook.md](bot_handbook.md#public-safe-rule) |

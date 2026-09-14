@@ -479,11 +479,15 @@ final class DeveloperDocsTest extends TestCase
                 '/(?im)^##\s+Schema\s*$/',
                 '/(?im)^##\s+Roles and capabilities\s*$/',
                 '/(?im)^##\s+Forum topic types\s*$/',
+                '/(?im)^##\s+Topic email notifications\s*$/',
                 '/(?im)^##\s+`ap-cli` verbs\s*$/',
                 '/(?im)^##\s+REST resources/',
                 '/(?im)^##\s+Admin screens/',
+                '/(?im)^##\s+ACP author picker\s*$/',
                 '/(?im)^##\s+Default Agora schemes\s*$/',
                 '/(?im)^##\s+Visual editor\s*$/',
+                '/(?im)^##\s+Spoilers\s*$/',
+                '/(?im)^##\s+Comments template\s*$/',
                 '/(?im)^##\s+Install and updates\s*$/',
                 '/(?im)^##\s+Rewrites\s*$/',
                 '/(?im)^##\s+Hooks\s*$/',
@@ -579,6 +583,12 @@ final class DeveloperDocsTest extends TestCase
                 'hCaptcha',
                 'AP_MAIL_FROM_EMAIL',
                 'AP_SMTP_HOST',
+                'forum_notify_max_per_minute',
+                'forum_topic_notify_enabled',
+                'ap_comments_template',
+                'edit_others_posts',
+                'ap-spoiler',
+                '0013_topic_subscriptions.php',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -819,6 +829,91 @@ final class DeveloperDocsTest extends TestCase
                 'persona mailboxes',
                 'live fleet inventory',
                 'example.com',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/features_and_functions.md missing: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('features_and_functions.md', $text);
+    }
+
+    public function testCatalogCoversSpoilersAuthorNotifyAndCommentsTemplate(): void
+    {
+        $text = $this->readDoc('features_and_functions.md');
+        foreach (
+            [
+                '/(?im)^##\s+Spoilers\s*$/',
+                '/(?im)^##\s+ACP author picker\s*$/',
+                '/(?im)^##\s+Topic email notifications\s*$/',
+                '/(?im)^##\s+Comments template\s*$/',
+            ] as $pattern
+        ) {
+            $this->assertMatchesRegularExpression(
+                $pattern,
+                $text,
+                "features_and_functions.md missing heading: {$pattern}"
+            );
+        }
+        foreach (
+            [
+                '[spoiler]',
+                '[spoiler=Label]',
+                '[spoiler title="Label"]',
+                '<details class="ap-spoiler">',
+                'ap-spoiler__summary',
+                'ap-spoiler__body',
+                'ap-includes/css/ap-spoiler.css',
+                'ap-includes/js/ap-spoiler.js',
+                'AP_Content_Format',
+                'AP_Shortcode',
+                'ap_strip_spoilers',
+                'stripSpoilers',
+                '[Spoiler]',
+                'visual-spoiler',
+                'data-ap-editor-wrap-open',
+                'display: none',
+                'hover-only',
+                'JavaScript off',
+                'edit_others_posts',
+                'edit_others_pages',
+                'ap-metabox-author',
+                'name="post_author"',
+                'canAssignAuthor',
+                'authorCandidates',
+                'php ap-cli post update --author=',
+                'quick-edit-',
+                'topic-starter',
+                'Allow topic email notifications',
+                'forum_topic_notify_enabled',
+                'forum_notify_email',
+                'Email me about topics I subscribe to',
+                'Notify me of replies',
+                'topic_subscriptions',
+                '0013_topic_subscriptions.php',
+                'forum_notify_max_per_minute',
+                'AP_Forum_Notify',
+                'Three gates',
+                'ap_forum_topic_notify',
+                'processQueuedReply',
+                'skip_rate_limit',
+                'ap_fn_rpm',
+                'ap_forum_unsub',
+                'topic_subscribed_email_on',
+                'rate_limit_mail',
+                'text/plain',
+                'ap_comments_template',
+                'ap-includes/theme-compat/comments.php',
+                'ap_the_content',
+                'ap_comment_action=ap_comment_post',
+                'ap_handle_comment_form_post',
+                'AP_Theme::getHierarchy',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -2003,6 +2098,12 @@ final class DeveloperDocsTest extends TestCase
                 'ensureDefaultCategory',
                 'Default Post Category',
                 'set-default-tag-',
+                'edit_others_posts',
+                'edit_others_pages',
+                'Allow topic email notifications',
+                'forum_topic_notify_enabled',
+                'Email me about topics I subscribe to',
+                'forum_notify_email',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -2082,6 +2183,100 @@ final class DeveloperDocsTest extends TestCase
                 $needle,
                 $text,
                 "docs/admin.md must document default category: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('admin.md', $text);
+    }
+
+    public function testAdminDocCoversAuthorField(): void
+    {
+        $text = $this->readDoc('admin.md');
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Author \\(posts and pages\\)\\s*$/',
+            $text
+        );
+        foreach (
+            [
+                'edit_others_posts',
+                'edit_others_pages',
+                'post_author',
+                '<select name="post_author"',
+                'ap-metabox-author',
+                'AP_Admin_Post_Edit',
+                'canAssignAuthor',
+                'authorCandidates',
+                'editOthersCapabilityForPostType',
+                'Living, active',
+                'user_status',
+                'edit_posts',
+                'edit_pages',
+                'does **not** unset `post_author`',
+                'Crafted POST',
+                'Quick Edit',
+                'action=quick_edit',
+                'quick-edit-',
+                '?quick_edit={id}',
+                'php ap-cli post update --author=',
+                'topic-starter',
+                'comment_author',
+                '**no** new capability',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/admin.md must document Author field: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('admin.md', $text);
+    }
+
+    public function testAdminDocCoversForumTopicNotify(): void
+    {
+        $text = $this->readDoc('admin.md');
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Topic email notifications\\s*$/',
+            $text
+        );
+        foreach (
+            [
+                'Allow topic email notifications',
+                'forum_topic_notify_enabled',
+                'options-forums.php',
+                'Features',
+                'name="forum_topic_notify_enabled"',
+                'AP_Options::updateForumSettings()',
+                'AP_Forum_Notify',
+                'sanitizeCheckbox',
+                'Off by default. When off, members do not see Subscribe controls, replies do not enqueue notify mail, and the site does not send topic-notify messages.',
+                'no Subscribe / Unsubscribe chrome, no',
+                'Three gates',
+                'forum_notify_email',
+                'Email me about topics I subscribe to',
+                'Email this member about topics they subscribe to',
+                'shouldShowForumNotifyFields',
+                'Notify me of replies',
+                'does **not** auto-watch',
+                'forum_notify_max_per_minute',
+                'rate_limit_mail',
+                'CLI only',
+                'view_forum',
+                'guest watches',
+                'comment-subscription mail',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/admin.md must document Settings → Forums notify: {$needle}"
             );
         }
         $this->assertNoPrivateMarkers('admin.md', $text);
@@ -2175,6 +2370,10 @@ final class DeveloperDocsTest extends TestCase
                 '/forums/feed/',
                 'getListableForums',
                 'no public Join',
+                'AP_Forum_Notify',
+                'topic_subscriptions',
+                'forum_topic_notify_enabled',
+                'Notify me of replies',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -2190,6 +2389,87 @@ final class DeveloperDocsTest extends TestCase
                 "docs/forums.md must not contain private marker: {$banned}"
             );
         }
+    }
+
+    public function testForumsDocCoversTopicEmailNotify(): void
+    {
+        $text = $this->readDoc('forums.md');
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Topic email notifications\\s*$/',
+            $text
+        );
+        foreach (
+            [
+                '/(?im)^###\\s+Three gates/',
+                '/(?im)^###\\s+Subscribe \\/ Unsubscribe/',
+                '/(?im)^###\\s+Profile list\\s*$/',
+                '/(?im)^###\\s+Schema 13/',
+                '/(?im)^###\\s+Mail worker\\s*$/',
+            ] as $heading
+        ) {
+            $this->assertMatchesRegularExpression(
+                $heading,
+                $text,
+                "docs/forums.md must have heading matching {$heading}"
+            );
+        }
+        foreach (
+            [
+                'Allow topic email notifications',
+                'forum_topic_notify_enabled',
+                'forum_notify_email',
+                'Email me about topics I subscribe to',
+                'Email this member about topics they subscribe to',
+                'Three gates',
+                '{prefix}topic_subscriptions',
+                '0013_topic_subscriptions.php',
+                'unique `(user_id, topic_id)`',
+                'topic_track',
+                'forum_track',
+                'AP_Forum_Notify',
+                'ap_forum_subscribe_topic',
+                'ap_forum_unsubscribe_topic',
+                'ap_forum_topic_subscribe_form_html',
+                'Notify me of replies',
+                'name="notify_replies"',
+                'ap_forum_notify_compose_checkbox_html',
+                'does **not** auto-watch',
+                'enableUserNotifyOnSubscribe',
+                'topic_subscribed_email_on',
+                'renderForumNotifyFieldset',
+                'shouldShowForumNotifyFields',
+                'No topic subscriptions',
+                'ap_unsubscribe_topic',
+                'AP_DB_VERSION',
+                'deleteForUser',
+                'deleteForTopic',
+                'AP_Cron',
+                'ap_forum_topic_notify',
+                'processQueuedReply',
+                'createReply',
+                'ap_forum_post_approved',
+                'rate_limit_mail',
+                'skip_rate_limit',
+                'forum_notify_max_per_minute',
+                'text/plain',
+                '[{site name}] New reply in {topic title}',
+                'ap_forum_unsub',
+                'topic_unsubscribe_invalid',
+                'guest watches',
+                'view_forum',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/forums.md must document topic email notify: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('forums.md', $text);
     }
 
     public function testRolesDocCoversCapabilitySurfaces(): void
@@ -2548,6 +2828,13 @@ final class DeveloperDocsTest extends TestCase
                 'Editor toolbar invisible',
                 'color-scheme: dark',
                 '--ap-editor-bg',
+                'No comment form',
+                'ap_comments_template',
+                'Topic notify mail missing',
+                'Allow topic email notifications',
+                'Email me about topics I subscribe to',
+                'forum_topic_notify_enabled',
+                'forum_notify_email',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -2652,6 +2939,63 @@ final class DeveloperDocsTest extends TestCase
                 "troubleshooting.md must document Uncategorized delete / editor contrast: {$needle}"
             );
         }
+        $this->assertNoPrivateMarkers('troubleshooting.md', $text);
+    }
+
+    public function testTroubleshootingCoversCommentsTemplateAndTopicNotify(): void
+    {
+        $text = $this->readDoc('troubleshooting.md');
+        $this->assertMatchesRegularExpression('/(?im)^##\\s+No comment form\\s*$/', $text);
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Topic notify mail missing\\s*$/',
+            $text
+        );
+        foreach (
+            [
+                'No comment form',
+                'ap_comments_template()',
+                'ap_the_content()',
+                'auto-inject',
+                'Leave-a-comment',
+                'single.php',
+                'page.php',
+                'ap-includes/theme-compat/comments.php',
+                'comments.php',
+                'ap_handle_comment_form_post',
+                'exactly one',
+                'Topic notify mail missing',
+                'Allow topic email notifications',
+                'forum_topic_notify_enabled',
+                'Email me about topics I subscribe to',
+                'forum_notify_email',
+                'Subscribe',
+                'Settings → Mail',
+                'spam',
+                'three gates',
+                'topic_subscriptions',
+                'rate_limit_mail',
+                'forum_notify_max_per_minute',
+                'php ap-cli cron event run',
+                'noreply@example.com',
+                'smtp.example.com',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+                'themes.md',
+                'forums.md',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "troubleshooting.md must document comments helper / topic notify: {$needle}"
+            );
+        }
+        $this->assertStringContainsStringIgnoringCase('auto-inject', $text);
+        $this->assertStringContainsStringIgnoringCase('Settings → Forums', $text);
+        $this->assertStringContainsStringIgnoringCase('Settings → Mail', $text);
+        $this->assertStringContainsStringIgnoringCase('spam', $text);
         $this->assertNoPrivateMarkers('troubleshooting.md', $text);
     }
 

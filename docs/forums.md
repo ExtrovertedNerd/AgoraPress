@@ -1,11 +1,12 @@
 # Forums
 
 This is the **operator and integrator guide** for AgoraPress’s first-class
-forum module at **`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). It describes
+forum module at **`0.3.9-beta`** (schema `AP_DB_VERSION` **13**). It describes
 the hierarchy, topic types, two-pane topic view, likes, moderation, groups and
 per-forum ACL (including the **This group only** preset), listing hygiene,
 attachments, private messages, search, flood guards, online/unread tracking,
-and board stats **as built**.
+opt-in topic email notify, and board stats **as built**. Generic examples
+only (`example.com`).
 
 The compact landing-page bullets are in
 [`../README.md`](../README.md). Admin screen map:
@@ -21,6 +22,7 @@ forum ACL relationship: [roles.md](roles.md). Pretty URLs:
 `class-ap-forum-stats.php` (`AP_Forum_Stats`),
 `class-ap-forum-guard.php` (`AP_Forum_Guard`),
 `class-ap-forum-read.php` (`AP_Forum_Read`),
+`class-ap-forum-notify.php` (`AP_Forum_Notify`),
 `class-ap-forum-attachment.php` (`AP_Forum_Attachment`),
 `class-ap-group.php` (`AP_Group`),
 `class-ap-feed.php` (`AP_Feed`),
@@ -30,6 +32,7 @@ forum ACL relationship: [roles.md](roles.md). Pretty URLs:
 `class-ap-online.php` (`AP_Online`),
 `ap-admin/forums.php`, `forum-edit.php`, `forum-topics.php`,
 `forum-moderation.php`, `forum-groups.php`, `options-forums.php`,
+`profile.php`, `user-edit.php`,
 default Agora templates `forum.php` / `forum-view.php` / `topic.php` /
 `forum-search.php`.
 
@@ -46,10 +49,10 @@ Forums are an **independent module**, not a post type. Option
 Fresh install seeds it **on**. At least one of Static Pages, Blog, and Forum
 must stay on.
 
-Dedicated tables (migrations 5–9, 11–12) hold forums, topics, posts, groups,
-ACL, messages, likes, unread marks, and presence. Accounts, capabilities,
-options, and media stay in the CMS tables. Forum posts are **not** blog
-`comments`.
+Dedicated tables (migrations 5–9, 11–13) hold forums, topics, posts, groups,
+ACL, messages, likes, unread marks, presence, and topic email subscriptions.
+Accounts, capabilities, options, and media stay in the CMS tables. Forum
+posts are **not** blog `comments`.
 
 | Layer | What it does |
 |-------|----------------|
@@ -57,6 +60,7 @@ options, and media stay in the CMS tables. Forum posts are **not** blog
 | Model | `AP_Forum` is hierarchy / topics / posts / search / URLs. |
 | ACL | `AP_Forum_Permissions` + `AP_Group` (per-forum, by user level). Never applied to blog posts or pages. |
 | ACP | Forums / Topics / Moderation / Groups (`manage_forums` or `moderate_forums`) plus Settings → Forums (`manage_options`). |
+| Notify | `AP_Forum_Notify`: three gates, `{prefix}topic_subscriptions`, cron worker. Unread tables stay unread tracking. |
 | REST | Read-only `GET /ap-json/ap/v1/forums` and `/topics` — [rest.md](rest.md). |
 
 Installer sample content (when sample content is enabled) seeds a **Community**
@@ -139,6 +143,7 @@ Query var `ap_forum_notice` (and same-request flash via
 | `topic_subscribed` / `topic_unsubscribed` | Subscribed to this topic. / Unsubscribed from this topic. |
 | `topic_subscribed_email_on` | Subscribed to this topic. Email notifications for topics you subscribe to are now on. |
 | `topic_created_email_on` / `reply_posted_email_on` | Topic created. / Reply posted. Plus the same email-on sentence when compose **Notify me of replies** flipped the user master. Pending start/reply keep `topic_pending` / `reply_pending`. |
+| `topic_unsubscribe_invalid` | This unsubscribe link is invalid or has expired. (Signed one-click token.) |
 
 Like failures that stay on the page: `login_required` → “Log in to like posts.”;
 `forbidden` → “You do not have permission to like this post.”
@@ -236,7 +241,9 @@ Logged-in readers get a **First unread post** jump when
 `first_unread_post_id` is set (`AP_Forum_Read::markTopicReadOnView()` runs
 before the watermark advances). `?quote={postId}` prefills the reply box
 with BBCode citation (`AP_Forum::getQuoteMarkupForPost()`). Topic views
-increment on a successful topic view.
+increment on a successful topic view. When topic email notify is on,
+logged-in viewers with `view_forum` get **Subscribe** / **Unsubscribe**
+on the topic toolbar — [Topic email notifications](#topic-email-notifications).
 
 The visual editor on new-topic / reply is the same classic WYSIWYG as the
 rest of core (`AP_Editor::modeForContext('forum')`) — [editor.md](editor.md).
@@ -588,6 +595,200 @@ API also has `AP_Forum_Read::markForumRead()` /
 `forum_last_mark`. Default Agora **does not** ship a “Mark all as read”
 or “Mark forum read” control.
 
+Unread rows are **not** watches. Topic email notify uses a different
+table — [Topic email notifications](#topic-email-notifications).
+
+---
+
+## Topic email notifications
+
+Opt-in mail when a **reply** lands in a topic the member subscribed to.
+Three gates, all default **off**. Unread tracking (`topic_track` /
+`forum_track`) is a different table and is **not** reused.
+
+**Source (as built):** `ap-includes/class-ap-forum-notify.php`
+(`AP_Forum_Notify`), `AP_Forum_Front` Subscribe POST, Agora `topic.php` /
+`forum-view.php`, ACP Profile / Users → Edit
+(`AP_Admin_User_Edit::renderForumNotifyFieldset()`), migration
+`0013_topic_subscriptions.php`. Outbound API remains `AP_Mail::send()`
+(**text/plain**). From / Reply-To follow Settings → Mail. ACP site
+switch: [admin.md](admin.md#topic-email-notifications).
+
+Generic examples only (`example.com`). Do not document private hosts,
+persona mailboxes, or live fleet inventory here.
+
+### Three gates (all default off)
+
+Mail is sent only when **all** of these are true, the reply is
+**approved**, the recipient still has `view_forum`, they have a usable
+email, and they are **not** the poster:
+
+| Gate | Key | Default | Surface |
+|------|-----|---------|---------|
+| 1. Site master | option `forum_topic_notify_enabled` | **off** (`'0'`) | Settings → Forums: **Allow topic email notifications.** |
+| 2. User master | usermeta `forum_notify_email` | **off** (`'0'`; missing row = off) | Profile: **Email me about topics I subscribe to.** Users → Edit: **Email this member about topics they subscribe to.** |
+| 3. Per-topic watch | `{prefix}topic_subscriptions` | no row | Topic **Subscribe** / **Unsubscribe**, or compose **Notify me of replies**. |
+
+Site switch **off**: no Subscribe / Unsubscribe chrome, no compose
+checkbox, no reply enqueue, no notify send (`AP_Forum_Notify::isEnabled()`
+/ `shouldShowChrome()`). Turning it **on** does not send mail by itself.
+
+Chrome (gate 1 + logged in + `view_forum`) does **not** require the user
+master. The user master gates **mail**, not the button. Guests never
+qualify (`ap_forum_viewer_may_subscribe()`).
+
+### Subscribe / Unsubscribe (topic view)
+
+When chrome may show, default Agora puts **Subscribe** / **Unsubscribe**
+on the topic toolbar (`ap_forum_topic_subscribe_form_html()`). POST
+`ap_forum_action`:
+
+| Action | Nonce | Button |
+|--------|-------|--------|
+| `ap_forum_subscribe_topic` | `ap_forum_subscribe_topic_{topic_id}` | **Subscribe** |
+| `ap_forum_unsubscribe_topic` | `ap_forum_unsubscribe_topic_{topic_id}` | **Unsubscribe** |
+
+Hidden `topic_id`. Site off, guests, and viewers without `view_forum`
+are rejected. Visiting a topic does **not** auto-watch.
+
+### Compose checkbox
+
+Field `name="notify_replies"` (`AP_Forum_Notify::POST_NOTIFY_REPLIES`;
+alias `ap_notify_replies` is also accepted). Default **off** (missing /
+empty / `'0'`). Agora new-topic (`forum-view.php`) and reply
+(`topic.php`) call `ap_forum_notify_compose_checkbox_html()`. Empty
+markup when chrome is off, or when the member is already subscribed to
+that topic (so start/reply cannot look like a toggle). Never checked
+unless a theme passes `checked`.
+
+Start or reply **without** the checkbox does not auto-watch and does not
+flip the user master. With the checkbox on, `AP_Forum_Front` calls
+`AP_Forum_Notify::maybeSubscribeFromCompose()` after a successful start
+or reply.
+
+### First Subscribe with the user master off
+
+**Choice:** flip `forum_notify_email` **on** with a notice. Do **not**
+refuse and point at Profile. Subscribe chrome is visible with the master
+off on purpose, so a refuse would make the button a trap.
+
+Storage `AP_Forum_Notify::subscribe()` does **not** flip the master.
+The topic Subscribe POST and the compose checkbox call
+`enableUserNotifyOnSubscribe()` after a successful watch. Notices:
+
+| Code | When |
+|------|------|
+| `topic_subscribed` | Topic Subscribe; user master was already on |
+| `topic_subscribed_email_on` | Topic Subscribe flipped the user master |
+| `topic_created_email_on` / `reply_posted_email_on` | Compose checkbox flipped the user master (approved start/reply only) |
+
+Pending start/reply keep `topic_pending` / `reply_pending` even if the
+checkbox was on. Unsubscribe (topic button, Profile, or signed link)
+**never** turns the user master off. The member can turn it off again on
+Profile.
+
+### Profile list
+
+When the Forum module is on (`AP_Admin_User_Edit::shouldShowForumNotifyFields()`),
+even if the site switch is off:
+
+| Screen | Label |
+|--------|-------|
+| Profile (`profile.php`, cap `read`) | **Email me about topics I subscribe to** |
+| Users → Edit (`user-edit.php`, cap `edit_users`) | **Email this member about topics they subscribe to** |
+
+Users → Add omits the fieldset. Hidden when the Forum module is off; a
+Profile save in that state does **not** wipe stored meta. Fieldset class
+`ap-forum-notify-fieldset`, legend **Forum notifications**.
+
+**Subscriptions** (`ap_forum_list_topic_subscriptions()` /
+`AP_Forum_Notify::listForUserWithTitles()`): topic title (linked when a
+URL exists) + **Unsubscribe**. Empty copy: “No topic subscriptions.”
+Missing topics keep fallback title `Topic #{id}` so an orphaned row can
+still be dropped. Unsubscribe is a dedicated submit
+(`name="ap_unsubscribe_topic"`) so it does **not** save other profile
+fields. Default Agora does **not** ship a front-end “forum account”
+page for this list.
+
+### Schema 13 (`{prefix}topic_subscriptions`)
+
+Migration `0013_topic_subscriptions.php` (idempotent `CREATE TABLE IF NOT
+EXISTS`). Target `AP_DB_VERSION` **13**. Seeds site options when missing
+(`forum_topic_notify_enabled` `'0'`, `forum_notify_max_per_minute` `'4'`).
+Does **not** backfill usermeta `forum_notify_email` (missing = off).
+`topic_track` / `forum_track` are unchanged.
+
+| Column | Notes |
+|--------|-------|
+| `user_id` | Composite primary key with `topic_id` (unique pair) |
+| `topic_id` | Indexed for reply fan-out |
+| `created_at` | Insert time (`gmdate` on write) |
+
+Helpers: `ap_forum_subscribe_topic()`, `ap_forum_unsubscribe_topic()`,
+`ap_forum_user_subscribed_to_topic()`, `ap_forum_list_topic_subscriptions()`.
+Subscribe is idempotent. Guests (user id below 1) are rejected.
+
+Rows drop when:
+
+- the member unsubscribes (topic button, Profile, or signed mail link)
+- the user is deleted (`AP_Forum_Notify::deleteForUser()` from `AP_User`)
+- the topic is **hard**-deleted (`AP_Forum::deleteTopic($id, true)` →
+  `deleteForTopic()`)
+
+Soft-delete leaves watches in place. Failed notify send does **not**
+delete the subscription.
+
+### Mail worker
+
+An **approved** reply POST (`AP_Forum_Front`) enqueues `topic_id` +
+`reply_post_id` on `AP_Cron` hook `ap_forum_topic_notify`. It does **not**
+send mail and does **not** spawn cron in that request (no N SMTP). A
+duplicate `(topic, reply)` pair that is already scheduled is treated as
+success. Site master off → no enqueue.
+
+`AP_Forum::createReply()` itself does **not** enqueue (imports stay
+silent). Pending replies enqueue later on `ap_forum_post_approved`. The
+topic starter (first post) never enqueues.
+
+Worker `AP_Forum_Notify::processQueuedReply()`
+(`ap_forum_notify_process_queued_reply()`):
+
+1. Site off, missing/unapproved reply, topic starter, or a reply already
+   bundled into a digest → no-op.
+2. For each watcher: drop the poster, user-master off, lost `view_forum`,
+   and unusable addresses (`isEligibleRecipient()`).
+3. Several still-queued replies for the same `(user, topic)` collapse
+   into one digest. If that grouping cannot run (one valid reply, compose
+   failure), per-reply mail for this event still goes through the same
+   cap.
+4. `AP_Forum_Notify::send()` → `AP_Mail::send()` one `text/plain`
+   message at a time with `skip_rate_limit` so verification / reset /
+   test quota is untouched.
+5. Own per-minute bucket (transient `ap_fn_rpm`, 60-second window).
+   Option `forum_notify_max_per_minute` default **4** (clamped 1–60).
+   **CLI only** (`php ap-cli option get|set forum_notify_max_per_minute`)
+   — not a field on Settings → Forums. Cap exhausted → stop; remaining
+   subscribers keep their watch.
+6. Failed `AP_Mail::send()` returns false, refunds the notify slot, does
+   not claim digest siblings, and does not delete the subscription.
+
+| Mail | As built |
+|------|----------|
+| Content-Type | `text/plain; charset=UTF-8` |
+| Single subject | `[{site name}] New reply in {topic title}` |
+| Digest subject | `[{site name}] {n} new replies in {topic title}` |
+| Body | Title, reply author, spoiler-stripped excerpt (40 words via `ap_strip_spoilers` / `AP_Content_Format::stripSpoilers`), absolute topic URL, signed unsubscribe |
+| From / Reply-To | Settings → Mail |
+
+One-click unsubscribe: query `ap_forum_unsub` (HMAC token, `user_id` +
+`topic_id`, 45-day TTL). No session. Drops **that** watch only; never
+turns the user master off. `index.php` honors the query before render.
+Valid → `ap_forum_notice=topic_unsubscribed`. Invalid or expired →
+`topic_unsubscribe_invalid`.
+
+Not in this worker: guest watches, board-wide watches, blog-comment
+mail, HTML newsletters, push, auto-watch on visit.
+
 ---
 
 ## Board stats
@@ -620,7 +821,10 @@ Features (PMs, search, who’s online, unread, signatures, **Allow topic
 email notifications** — `forum_topic_notify_enabled`, default **off**;
 off means no Subscribe chrome, no reply enqueue, no notify send),
 Attachments, Moderation & anti-spam. Per-forum visibility is **not** on
-this screen — it is Forums → Edit (`forum_access_level`).
+this screen — it is Forums → Edit (`forum_access_level`). Depth for
+Subscribe, the Profile list, schema 13, and the mail worker:
+[Topic email notifications](#topic-email-notifications).
+`forum_notify_max_per_minute` is **not** on this screen.
 
 When the site switch is on, the first **Subscribe** on a topic — or
 compose **Notify me of replies** — while the member’s **Email me about
@@ -685,6 +889,7 @@ Option `ap_module_forum` = `0`:
 | POST create/reply/like/… | Notice “The forum module is disabled.” |
 | REST forum/topic handlers | **404** `rest_module_disabled` (`Forum module is disabled.`; route still registered) |
 | PMs, unread, online | `isAvailable()` is false |
+| Profile notify fieldset | Hidden (`shouldShowForumNotifyFields`); stored `forum_notify_email` and subscription rows are kept |
 | Sitemap `forums` provider | Omitted |
 
 Turning the module off does **not** drop tables or delete topics. Turn it
@@ -706,6 +911,7 @@ Full column lists: [schema.md](schema.md#forum-tables-dedicated).
 | 9 | `topic_track`, `forum_track` |
 | 11 | `forum_post_likes`; `forum_posts.like_count` |
 | 12 | Topic type enum `standard` \| `sticky` \| `announcement` \| `rules` + backfill |
+| 13 | `topic_subscriptions` (unique `(user_id, topic_id)`; index on `topic_id`). Options `forum_topic_notify_enabled` default off, `forum_notify_max_per_minute` default 4. Unread tables unchanged. |
 
 Prefix default `ap_`. Helpers: `ap_forum_base_tables()`.
 
@@ -744,6 +950,17 @@ Do not tell operators these exist in AgoraPress core:
   two guest options are stored; `userCan()` does not read them)
 - Display options on Settings → Forums driving Agora’s 20-item paging
   (filters `ap_forum_topics_per_page` / `ap_forum_posts_per_page` do)
+- Guest watches, board-wide watches, blog-comment subscriptions, HTML
+  notify mail, newsletters, or push
+- Auto-watch on visit, start, or reply (only **Subscribe** or compose
+  **Notify me of replies**)
+- Reusing `topic_track` / `forum_track` as a watch list
+- Topic notify consuming `rate_limit_mail` (own bucket
+  `forum_notify_max_per_minute`)
+- A Settings → Forums control for `forum_notify_max_per_minute` (CLI
+  only)
+- A front-end forum-account subscription list (ACP Profile / Users →
+  Edit only)
 - Ranks UI, polls, bookmarks, custom BBCode packs, or phpBB style
   download
 - Forum ACL applied to blog posts or static pages
@@ -757,6 +974,8 @@ Do not tell operators these exist in AgoraPress core:
 | Need | Doc |
 |------|-----|
 | ACP screen map | [admin.md](admin.md#forums) |
+| Settings → Forums notify option | [admin.md](admin.md#topic-email-notifications) |
+| Mail From / Reply-To | [admin.md](admin.md#mail) |
 | Roles, `manage_forums` / `moderate_forums` | [roles.md](roles.md) |
 | `/forums/` rewrite rules | [rewrites.md](rewrites.md) |
 | REST `ap/v1` forums/topics | [rest.md](rest.md) |
@@ -765,7 +984,7 @@ Do not tell operators these exist in AgoraPress core:
 | Selected forum hooks | [hooks.md](hooks.md) |
 | Flood vs login rate limits | [security.md](security.md) |
 | Module-off 404s | [troubleshooting.md](troubleshooting.md) |
-| Visual editor on reply | [editor.md](editor.md) |
+| Visual editor on reply; spoiler strip in notify excerpts | [editor.md](editor.md) |
 | phpBB / WXR import | [admin.md](admin.md) |
 | Enable the Forum module after install | [install.md](install.md) |
 | There is **no** `php ap-cli forum` verb | [cli.md](cli.md) |

@@ -110,6 +110,11 @@ CATALOG_TOKENS = (
     "agora_visitor_color_preview",
     "--ap-editor-bg",
     "Set as default",
+    "ap_comments_template",
+    "forum_notify_max_per_minute",
+    "edit_others_posts",
+    "ap-spoiler",
+    "topic_subscriptions",
 )
 
 ADD_COMMAND = re.compile(
@@ -431,6 +436,10 @@ def test_admin_doc_matches_acp_as_built(docs_root: Path) -> None:
         "ensureDefaultCategory",
         "set-default-tag-",
         "Default Post Category",
+        "edit_others_posts",
+        "Allow topic email notifications",
+        "forum_topic_notify_enabled",
+        "canAssignAuthor",
     ):
         assert needle in text, f"docs/admin.md should mention: {needle}"
 
@@ -591,6 +600,12 @@ def test_forums_doc_matches_module_as_built(docs_root: Path) -> None:
         "/forums/feed/",
         "getListableForums",
         "no public Join",
+        "topic_subscriptions",
+        "forum_topic_notify_enabled",
+        "AP_Forum_Notify",
+        "Three gates",
+        "ap_forum_unsub",
+        "processQueuedReply",
     ):
         assert needle in text, f"docs/forums.md should mention: {needle}"
 

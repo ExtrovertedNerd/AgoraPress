@@ -422,11 +422,15 @@ def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> Non
         r"(?im)^##\s+Schema\s*$",
         r"(?im)^##\s+Roles and capabilities\s*$",
         r"(?im)^##\s+Forum topic types\s*$",
+        r"(?im)^##\s+Topic email notifications\s*$",
         r"(?im)^##\s+`ap-cli` verbs\s*$",
         r"(?im)^##\s+REST resources",
         r"(?im)^##\s+Admin screens",
+        r"(?im)^##\s+ACP author picker\s*$",
         r"(?im)^##\s+Default Agora schemes\s*$",
         r"(?im)^##\s+Visual editor\s*$",
+        r"(?im)^##\s+Spoilers\s*$",
+        r"(?im)^##\s+Comments template\s*$",
         r"(?im)^##\s+Install and updates\s*$",
         r"(?im)^##\s+Rewrites\s*$",
         r"(?im)^##\s+Hooks\s*$",
@@ -518,6 +522,12 @@ def test_features_and_functions_catalog_is_tables_lookup(docs_root: Path) -> Non
         "hCaptcha",
         "AP_MAIL_FROM_EMAIL",
         "AP_SMTP_HOST",
+        "forum_notify_max_per_minute",
+        "forum_topic_notify_enabled",
+        "ap_comments_template",
+        "edit_others_posts",
+        "ap-spoiler",
+        "0013_topic_subscriptions.php",
     ):
         assert phrase in text, f"features_and_functions.md missing: {phrase}"
 
@@ -648,6 +658,96 @@ def test_catalog_covers_default_category_preview_and_editor(docs_root: Path) -> 
         "persona mailboxes",
         "live fleet inventory",
         "example.com",
+    ):
+        assert needle in text, f"docs/features_and_functions.md missing: {needle}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, (
+            f"docs/features_and_functions.md must not contain private marker: {banned}"
+        )
+
+
+def test_catalog_covers_spoilers_author_notify_and_comments_template(
+    docs_root: Path,
+) -> None:
+    """SPEC: catalog rows for spoilers, ACP author, topic notify, comments helper."""
+    text = (docs_root / "features_and_functions.md").read_text(encoding="utf-8")
+    for heading in (
+        r"(?im)^##\s+Spoilers\s*$",
+        r"(?im)^##\s+ACP author picker\s*$",
+        r"(?im)^##\s+Topic email notifications\s*$",
+        r"(?im)^##\s+Comments template\s*$",
+    ):
+        assert re.search(heading, text), (
+            f"features_and_functions.md missing heading: {heading}"
+        )
+    for needle in (
+        "[spoiler]",
+        "[spoiler=Label]",
+        '[spoiler title="Label"]',
+        '<details class="ap-spoiler">',
+        "ap-spoiler__summary",
+        "ap-spoiler__body",
+        "ap-includes/css/ap-spoiler.css",
+        "ap-includes/js/ap-spoiler.js",
+        "AP_Content_Format",
+        "AP_Shortcode",
+        "ap_strip_spoilers",
+        "stripSpoilers",
+        "[Spoiler]",
+        "visual-spoiler",
+        "data-ap-editor-wrap-open",
+        "display: none",
+        "hover-only",
+        "JavaScript off",
+        "edit_others_posts",
+        "edit_others_pages",
+        "ap-metabox-author",
+        'name="post_author"',
+        "canAssignAuthor",
+        "authorCandidates",
+        "php ap-cli post update --author=",
+        "quick-edit-",
+        "topic-starter",
+        "Allow topic email notifications",
+        "forum_topic_notify_enabled",
+        "forum_notify_email",
+        "Email me about topics I subscribe to",
+        "Notify me of replies",
+        "topic_subscriptions",
+        "0013_topic_subscriptions.php",
+        "forum_notify_max_per_minute",
+        "AP_Forum_Notify",
+        "Three gates",
+        "ap_forum_topic_notify",
+        "processQueuedReply",
+        "skip_rate_limit",
+        "ap_fn_rpm",
+        "ap_forum_unsub",
+        "topic_subscribed_email_on",
+        "rate_limit_mail",
+        "text/plain",
+        "ap_comments_template",
+        "ap-includes/theme-compat/comments.php",
+        "ap_the_content",
+        "ap_comment_action=ap_comment_post",
+        "ap_handle_comment_form_post",
+        "AP_Theme::getHierarchy",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
     ):
         assert needle in text, f"docs/features_and_functions.md missing: {needle}"
     lower = text.lower()
@@ -1733,6 +1833,12 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "ensuredefaultcategory",
         "default post category",
         "set-default-tag-",
+        "edit_others_posts",
+        "edit_others_pages",
+        "allow topic email notifications",
+        "forum_topic_notify_enabled",
+        "email me about topics i subscribe to",
+        "forum_notify_email",
     ):
         assert phrase in lower, f"admin.md missing: {phrase}"
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
@@ -1813,6 +1919,112 @@ def test_admin_doc_covers_default_category(docs_root: Path) -> None:
         "live fleet inventory",
     ):
         assert needle in text, f"docs/admin.md must document default category: {needle!r}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, (
+            f"docs/admin.md must not contain private marker: {banned}"
+        )
+
+
+def test_admin_doc_covers_author_field(docs_root: Path) -> None:
+    """SPEC: admin.md documents the ACP Author picker on Add New / Edit."""
+    text = (docs_root / "admin.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^##\s+Author \(posts and pages\)\s*$", text)
+    for needle in (
+        "edit_others_posts",
+        "edit_others_pages",
+        "post_author",
+        '<select name="post_author"',
+        "ap-metabox-author",
+        "AP_Admin_Post_Edit",
+        "canAssignAuthor",
+        "authorCandidates",
+        "editOthersCapabilityForPostType",
+        "Living, active",
+        "user_status",
+        "edit_posts",
+        "edit_pages",
+        "does **not** unset `post_author`",
+        "Crafted POST",
+        "Quick Edit",
+        "action=quick_edit",
+        "quick-edit-",
+        "?quick_edit={id}",
+        "php ap-cli post update --author=",
+        "topic-starter",
+        "comment_author",
+        "**no** new capability",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, f"docs/admin.md must document Author field: {needle!r}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, (
+            f"docs/admin.md must not contain private marker: {banned}"
+        )
+
+
+def test_admin_doc_covers_forum_topic_notify(docs_root: Path) -> None:
+    """SPEC: admin.md documents Settings → Forums Allow topic email notifications."""
+    text = (docs_root / "admin.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^##\s+Topic email notifications\s*$", text)
+    for needle in (
+        "Allow topic email notifications",
+        "forum_topic_notify_enabled",
+        "options-forums.php",
+        "Features",
+        'name="forum_topic_notify_enabled"',
+        "AP_Options::updateForumSettings()",
+        "AP_Forum_Notify",
+        "sanitizeCheckbox",
+        "Off by default. When off, members do not see Subscribe controls, replies do not enqueue notify mail, and the site does not send topic-notify messages.",
+        "no Subscribe / Unsubscribe chrome, no",
+        "Three gates",
+        "forum_notify_email",
+        "Email me about topics I subscribe to",
+        "Email this member about topics they subscribe to",
+        "shouldShowForumNotifyFields",
+        "Notify me of replies",
+        "does **not** auto-watch",
+        "forum_notify_max_per_minute",
+        "rate_limit_mail",
+        "CLI only",
+        "view_forum",
+        "guest watches",
+        "comment-subscription mail",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, (
+            f"docs/admin.md must document Settings → Forums notify: {needle!r}"
+        )
     lower = text.lower()
     for banned in (
         "roland",
@@ -1920,10 +2132,97 @@ def test_forums_doc_content(docs_root: Path) -> None:
         "/forums/feed/",
         "getlistableforums",
         "no public join",
+        "ap_forum_notify",
+        "topic_subscriptions",
+        "forum_topic_notify_enabled",
+        "notify me of replies",
     ):
         assert phrase in lower, f"forums.md missing: {phrase}"
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
         assert banned not in lower, f"docs/forums.md must not contain private marker: {banned}"
+
+
+def test_forums_doc_covers_topic_email_notify(docs_root: Path) -> None:
+    """SPEC: forums.md documents Subscribe, profile list, three gates, schema 13, mail worker."""
+    text = (docs_root / "forums.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^##\s+Topic email notifications\s*$", text)
+    for heading in (
+        r"(?im)^###\s+Three gates",
+        r"(?im)^###\s+Subscribe / Unsubscribe",
+        r"(?im)^###\s+Profile list\s*$",
+        r"(?im)^###\s+Schema 13",
+        r"(?im)^###\s+Mail worker\s*$",
+    ):
+        assert re.search(heading, text), (
+            f"docs/forums.md must have heading matching {heading}"
+        )
+    for needle in (
+        "Allow topic email notifications",
+        "forum_topic_notify_enabled",
+        "forum_notify_email",
+        "Email me about topics I subscribe to",
+        "Email this member about topics they subscribe to",
+        "Three gates",
+        "{prefix}topic_subscriptions",
+        "0013_topic_subscriptions.php",
+        "unique `(user_id, topic_id)`",
+        "topic_track",
+        "forum_track",
+        "AP_Forum_Notify",
+        "ap_forum_subscribe_topic",
+        "ap_forum_unsubscribe_topic",
+        "ap_forum_topic_subscribe_form_html",
+        "Notify me of replies",
+        'name="notify_replies"',
+        "ap_forum_notify_compose_checkbox_html",
+        "does **not** auto-watch",
+        "enableUserNotifyOnSubscribe",
+        "topic_subscribed_email_on",
+        "renderForumNotifyFieldset",
+        "shouldShowForumNotifyFields",
+        "No topic subscriptions",
+        "ap_unsubscribe_topic",
+        "AP_DB_VERSION",
+        "deleteForUser",
+        "deleteForTopic",
+        "AP_Cron",
+        "ap_forum_topic_notify",
+        "processQueuedReply",
+        "createReply",
+        "ap_forum_post_approved",
+        "rate_limit_mail",
+        "skip_rate_limit",
+        "forum_notify_max_per_minute",
+        "text/plain",
+        "[{site name}] New reply in {topic title}",
+        "ap_forum_unsub",
+        "topic_unsubscribe_invalid",
+        "guest watches",
+        "view_forum",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, (
+            f"docs/forums.md must document topic email notify: {needle!r}"
+        )
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, (
+            f"docs/forums.md must not contain private marker: {banned}"
+        )
 
 
 def test_roles_doc_content(docs_root: Path) -> None:
@@ -2247,6 +2546,13 @@ def test_troubleshooting_doc_content(docs_root: Path) -> None:
         "editor toolbar invisible",
         "color-scheme: dark",
         "--ap-editor-bg",
+        "no comment form",
+        "ap_comments_template",
+        "topic notify mail missing",
+        "allow topic email notifications",
+        "email me about topics i subscribe to",
+        "forum_topic_notify_enabled",
+        "forum_notify_email",
     ):
         assert phrase in lower, f"troubleshooting.md missing: {phrase}"
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
@@ -2325,6 +2631,70 @@ def test_troubleshooting_covers_uncategorized_delete_and_editor_contrast(
     assert "private hosts" in lower
     assert "persona mailboxes" in lower
     assert "live fleet inventory" in lower
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, f"docs/troubleshooting.md must not contain private marker: {banned}"
+
+
+def test_troubleshooting_covers_comments_template_and_topic_notify(
+    docs_root: Path,
+) -> None:
+    """SPEC: no comment form → helper; notify mail missing → three gates + Mail + spam."""
+    text = (docs_root / "troubleshooting.md").read_text(encoding="utf-8")
+    lower = text.lower()
+    assert re.search(r"(?im)^##\s+No comment form\s*$", text)
+    assert re.search(r"(?im)^##\s+Topic notify mail missing\s*$", text)
+    for needle in (
+        "No comment form",
+        "ap_comments_template()",
+        "ap_the_content()",
+        "auto-inject",
+        "Leave-a-comment",
+        "single.php",
+        "page.php",
+        "ap-includes/theme-compat/comments.php",
+        "comments.php",
+        "ap_handle_comment_form_post",
+        "exactly one",
+        "Topic notify mail missing",
+        "Allow topic email notifications",
+        "forum_topic_notify_enabled",
+        "Email me about topics I subscribe to",
+        "forum_notify_email",
+        "Subscribe",
+        "Settings → Mail",
+        "spam",
+        "three gates",
+        "topic_subscriptions",
+        "rate_limit_mail",
+        "forum_notify_max_per_minute",
+        "php ap-cli cron event run",
+        "noreply@example.com",
+        "smtp.example.com",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+        "themes.md",
+        "forums.md",
+    ):
+        assert needle in text, (
+            f"troubleshooting.md must document comments helper / topic notify: {needle!r}"
+        )
+    assert "auto-inject" in lower
+    assert "settings → forums" in lower
+    assert "settings → mail" in lower
+    assert "spam" in lower
     for banned in (
         "roland",
         "stallboy",
