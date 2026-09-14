@@ -1,10 +1,10 @@
 # Theme hierarchy & theme API
 
-This is the **theme integrator guide** for AgoraPress **`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). It describes the native template hierarchy, default **Agora** theme, assets, Theme Options, and the ACP zip installer **as built**.
+This is the **theme integrator guide** for AgoraPress **`0.3.9-beta`** (schema `AP_DB_VERSION` **12**). It describes the native template hierarchy, default **Agora** theme, assets, Theme Options, the ACP zip installer, `ap_comments_template()`, and core spoiler CSS **as built**.
 
-AgoraPress themes are **pure PHP templates** with a classic WordPress-inspired hierarchy. Block / Full Site Editing themes (`theme.json`, HTML block templates) are **out of scope** for the native loader (see [compatibility](compatibility.md)) — they are **not in core**. Operator screens: [admin.md](admin.md). Activate from the shell: [cli.md](cli.md). Forum templates: [forums.md](forums.md).
+AgoraPress themes are **pure PHP templates** with a classic WordPress-inspired hierarchy. Block / Full Site Editing themes (`theme.json`, HTML block templates) are **out of scope** for the native loader (see [compatibility](compatibility.md)) — they are **not in core**. Operator screens: [admin.md](admin.md). Activate from the shell: [cli.md](cli.md). Forum templates: [forums.md](forums.md). Core does **not** auto-inject a comment form into themes that never call `ap_comments_template()`.
 
-**Source:** `ap-includes/class-ap-theme.php`, `template-tags.php`, `class-ap-assets.php`  
+**Source:** `ap-includes/class-ap-theme.php`, `template-tags.php`, `class-ap-assets.php`, `theme-compat/comments.php`, `ap-includes/css/ap-spoiler.css`  
 **Default theme:** `ap-content/themes/agora/`
 
 ## Directory layout
@@ -20,6 +20,7 @@ ap-content/themes/
     ├── sidebar.php
     ├── single.php
     ├── page.php
+    ├── comments.php       # Optional; loaded only by ap_comments_template()
     ├── screenshot.png     # Optional preview
     └── …
 ```
@@ -187,7 +188,8 @@ Native tags live in `ap-includes/template-tags.php` (examples):
 | Tag | Purpose |
 |-----|---------|
 | `ap_the_title` / `ap_get_the_title` | Title |
-| `ap_the_content` / `ap_get_the_content` | Content (filters `ap_the_content`) |
+| `ap_the_content` / `ap_get_the_content` | Content (filters `ap_the_content`). Does **not** load comments. |
+| `ap_comments_template` | Comment list + Leave-a-comment form. Opt-in; [no auto-inject](#comments-template). |
 | `ap_the_excerpt` / `ap_get_the_excerpt` | Excerpt |
 | `ap_the_permalink` / `ap_get_the_permalink` | Permalink |
 | `ap_the_date` / `ap_the_author` | Meta |
@@ -197,6 +199,81 @@ Native tags live in `ap-includes/template-tags.php` (examples):
 | Loop helpers | Via query / `have_posts`-style APIs in tags + compat |
 
 Always escape when printing raw values; content filters may return HTML intentionally.
+
+## Comments template
+
+One call renders the approved comment list and the Leave-a-comment form.
+Core does **not** auto-inject that markup into themes that never call the helper.
+`ap_the_content()` prints the post body only — it does **not** auto-append comments.
+
+```php
+ap_comments_template( ?string $file = null );
+```
+
+Typical theme one-liner (after the article on a singular post view):
+
+```php
+if (function_exists('ap_comments_template')) {
+    ap_comments_template();
+}
+```
+
+Optional `$file`: a readable `.php` path (absolute) or a theme-relative PHP file
+(`comments.php`, `partials/discussion.php`, …). Parent-directory segments (`..`)
+are rejected.
+
+**Source:** `ap-includes/template-tags.php` (`ap_comments_template()`,
+`ap_locate_comments_template()`, `ap_comments_compat_file()`).
+
+`comments.php` is **not** in `AP_Theme::getHierarchy()`. Hierarchy load of
+`single.php` / `page.php` does not pull it in. It loads only when a template
+calls `ap_comments_template()`.
+
+### When it prints nothing
+
+`ap_comments_template()` returns without markup when any of these hold:
+
+- Blog module off (`ap_module_blog`)
+- Not a singular view, or 404, or feed
+- No current post, or the post type does not support `comments` (core `page` does **not**)
+- Comments closed **and** there is no approved list to show
+
+### Locate order
+
+1. `$file` if it is a readable `.php` file with no `..` segments
+2. Theme stack via `ap_locate_template()`: theme-relative `$file` (when given), then `comments.php` (child then parent)
+3. Core fallback `ap-includes/theme-compat/comments.php`
+
+### Fallback (`theme-compat/comments.php`)
+
+When the active theme (child then parent) does not ship a readable `comments.php`:
+
+- Approved list (or “No comments yet.”)
+- “Comments are closed.” when `comment_status` is closed but a list still exists
+- Log-in-to-comment when Settings → Discussion option `comment_registration` is on and the viewer is a guest
+- Leave-a-comment form with `AP_Editor` (context `comment`) otherwise
+
+The form posts `ap_comment_action=ap_comment_post` through the same handler
+Agora uses (`ap_handle_comment_form_post()` in `ap-includes/functions.php`).
+Do **not** invent a second POST endpoint.
+
+### Agora
+
+`ap-content/themes/agora/single.php` calls `ap_comments_template()` **once**,
+after the article. Agora ships `comments.php`, so that file loads instead of
+the fallback. The result is **exactly one** Leave-a-comment form. Agora
+`page.php` does **not** call the helper.
+
+### Not this
+
+- Auto-inject / auto-append after `ap_the_content` on every singular view
+- A comment form on themes that never call `ap_comments_template()`
+- Page comments in core (the `page` type does not support `comments`)
+- A second comments POST handler
+- Loading `comments.php` from the template hierarchy without the helper
+
+Generic examples only (`example.com`). Do not name private hosts, persona
+mailboxes, or live fleet inventory here.
 
 ## Menus & sidebars
 
@@ -235,6 +312,7 @@ Current stylesheet version: **0.3.10** (`AGORA_THEME_VERSION` / `style.css` head
 | Long strings | `overflow-wrap: anywhere` so unbroken strings (e.g. Monero addresses) wrap instead of stretching the layout |
 | Custom CSS | Appearance → Theme Options → Additional CSS (`custom_css` / `AP_Theme::printCustomCss` on `ap_head`) |
 | Templates | Blog + forum templates, landmarks, reduced-motion / contrast support |
+| Comments | `single.php` calls `ap_comments_template()` once (theme `comments.php`). Core does **not** auto-inject. `page.php` does not call it. |
 | Post categories | Linked names in entry meta on blog lists, archives, search, and single posts; single posts also list them after the content (`Posted in`) |
 | Nav | Primary + footer menu locations; fallbacks list published pages and useful login/register links when open |
 
@@ -328,6 +406,52 @@ Agora’s six schemes still win when present. `body.agora-theme` maps:
 
 Dark Agora schemes use light accents; `--ap-on-accent` keeps the active Visual \| Text chip readable. Do **not** add site-specific theme CSS to core.
 
+## Spoiler CSS
+
+Published spoilers are native `<details class="ap-spoiler">` (toolbar and stored
+markup: [editor.md](editor.md#spoilers)). Core ships the stylesheet; themes do
+**not** need to enqueue it. Themes that call `ap_head()` already receive it.
+
+| Piece | As built |
+|-------|----------|
+| File | `ap-includes/css/ap-spoiler.css` |
+| Handle | `ap-spoiler` (`AP_Content_Format::STYLE_HANDLE`) |
+| Enqueue | `AP_Content_Format::registerAssets()` on `ap_enqueue_scripts` at priority **20** (after default theme CSS) |
+| Print fallback | `AP_Content_Format::printStyle()` with `id="ap-spoiler-css"` when a late editor render missed head |
+| JS | **None.** There is no `ap-includes/js/ap-spoiler.js`. Works with JavaScript off. |
+
+Markup (one conversion path — format, not a second shortcode wrap):
+
+```html
+<details class="ap-spoiler">
+  <summary class="ap-spoiler__summary">Label</summary>
+  <div class="ap-spoiler__body">…</div>
+</details>
+```
+
+**Closed vs open**
+
+- Closed body is unreadable: `display: none` on
+  `.ap-spoiler:not([open]) > .ap-spoiler__body` (and closed `::details-content`).
+  **Not** hover-only.
+- Open body follows the page `color-scheme` (`color-scheme: inherit` on
+  `.ap-spoiler`; no forced light/dark paint).
+- Dark hosts re-assert `color-scheme: dark` on `.ap-spoiler` for
+  `html.agora-mode-dark` / `body.agora-mode-dark` and `[data-ap-color-mode=dark]`.
+- Native `<summary>` keyboard (Enter / Space) with a `:focus-visible` ring.
+  No images, icon fonts, or background images.
+
+Do **not** set `details > * { display: block }` (or similar resets) without
+excluding `.ap-spoiler`. That would leak closed inner text. Do **not** add
+site-specific spoiler CSS to core.
+
+Custom themes that set `color-scheme: dark` on `html` or `body` already satisfy
+the open-body contract; optional restyle of the **open** summary is fine.
+Closed hide rules stay core.
+
+Generic examples only (`example.com`). Do not name private hosts, persona
+mailboxes, or live fleet inventory here.
+
 ## Theme Options (ACP)
 
 Appearance → **Theme Options** (`theme-options.php`, cap `edit_theme_options`) is the shared screen for theme settings. Core always provides **Additional CSS**. When the active stylesheet is **`agora`**, the same screen also exposes the six color-scheme radios and the **Allow visitors to preview color schemes** checkbox (`agora_visitor_color_preview`). Themes declare more options with the Settings API (WordPress-compatible names when the Classic WP compatibility layer is loaded). Operator map: [admin.md](admin.md).
@@ -420,6 +544,7 @@ CLI conversion report for classic WP themes: see [compatibility](compatibility.m
 5. Register menus/sidebars if used  
 6. Activate via admin or `php ap-cli theme activate my-theme`  
 7. For a dark front-end, set `color-scheme: dark` on `html` or `body` and use light text. Optional `--ap-editor-*` tokens gold-plate the visual editor; they are **not** required when `color-scheme` is set. Agora already maps those tokens for its six schemes.  
+8. To show comments on a post, call `ap_comments_template()` from `single.php`. Core does **not** auto-inject a form. Ship `comments.php` or use the core fallback. Do not fight closed spoiler hide rules in theme CSS.  
 
 ## Related docs
 
@@ -431,6 +556,8 @@ CLI conversion report for classic WP themes: see [compatibility](compatibility.m
 | Classic WP shim; block/FSE out of scope | [compatibility.md](compatibility.md) |
 | `ap_enqueue_scripts`, `ap_head`, template filters | [hooks.md](hooks.md) |
 | Front-end comment/forum editor; `--ap-editor-*` / `color-scheme` | [editor.md](editor.md#contrast-contract) · [tokens](#editor-contrast) |
+| `ap_comments_template()` (no auto-inject) | [this page](#comments-template) |
+| Published spoiler CSS (`ap-spoiler`) | [this page](#spoiler-css) · [editor.md](editor.md#spoilers) |
 | Pretty permalinks / front controller | [rewrites.md](rewrites.md) |
 | Site Icon in `ap_head` | [site-icon.md](site-icon.md) |
 | Plugin zip installer (parallel surface) | [plugins.md](plugins.md) |

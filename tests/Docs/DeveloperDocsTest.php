@@ -1334,6 +1334,57 @@ final class DeveloperDocsTest extends TestCase
         );
     }
 
+    public function testThemesDocCoversCommentsTemplateAndSpoilerCss(): void
+    {
+        $text = $this->readDoc('themes.md');
+        $this->assertMatchesRegularExpression('/(?im)^##\\s+Comments template\\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^##\\s+Spoiler CSS\\s*$/', $text);
+        foreach (
+            [
+                'ap_comments_template()',
+                'ap_comments_template( ?string $file = null )',
+                'comments.php',
+                'ap-includes/theme-compat/comments.php',
+                'ap_the_content',
+                'auto-inject',
+                'auto-append',
+                'single.php',
+                'page.php',
+                'Leave-a-comment',
+                'AP_Editor',
+                'ap_handle_comment_form_post',
+                'ap_comment_action',
+                'ap_comment_post',
+                'exactly one',
+                'does not support',
+                'ap-includes/css/ap-spoiler.css',
+                'ap-includes/js/ap-spoiler.js',
+                'AP_Content_Format',
+                'ap_enqueue_scripts',
+                'color-scheme: inherit',
+                'display: none',
+                '.ap-spoiler:not([open]) > .ap-spoiler__body',
+                'hover-only',
+                'JavaScript off',
+                ':focus-visible',
+                'agora-mode-dark',
+                'data-ap-color-mode',
+                'STYLE_HANDLE',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/themes.md must document comments helper / spoiler CSS: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('themes.md', $text);
+    }
+
     public function testPluginsDocCoversApi(): void
     {
         $text = $this->readDoc('plugins.md');

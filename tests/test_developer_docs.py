@@ -1164,6 +1164,63 @@ def test_themes_doc_covers_schemes_preview_and_editor(docs_root: Path) -> None:
     assert "agorapress.extrovertednerd.com" not in lower
 
 
+def test_themes_doc_covers_comments_template_and_spoiler_css(docs_root: Path) -> None:
+    """SPEC: themes.md documents ap_comments_template(), spoiler CSS, no auto-inject."""
+    text = (docs_root / "themes.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^##\s+Comments template\s*$", text)
+    assert re.search(r"(?im)^##\s+Spoiler CSS\s*$", text)
+    for needle in (
+        "ap_comments_template()",
+        "ap_comments_template( ?string $file = null )",
+        "comments.php",
+        "ap-includes/theme-compat/comments.php",
+        "ap_the_content",
+        "auto-inject",
+        "auto-append",
+        "single.php",
+        "page.php",
+        "Leave-a-comment",
+        "AP_Editor",
+        "ap_handle_comment_form_post",
+        "ap_comment_action",
+        "ap_comment_post",
+        "exactly one",
+        "does not support",
+        "ap-includes/css/ap-spoiler.css",
+        "ap-includes/js/ap-spoiler.js",
+        "AP_Content_Format",
+        "ap_enqueue_scripts",
+        "color-scheme: inherit",
+        "display: none",
+        ".ap-spoiler:not([open]) > .ap-spoiler__body",
+        "hover-only",
+        "JavaScript off",
+        ":focus-visible",
+        "agora-mode-dark",
+        "data-ap-color-mode",
+        "STYLE_HANDLE",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, f"docs/themes.md must document comments helper / spoiler CSS: {needle!r}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, f"docs/themes.md must not contain private marker: {banned}"
+
+
 def test_plugins_doc_content(docs_root: Path) -> None:
     text = (docs_root / "plugins.md").read_text(encoding="utf-8").lower()
     for phrase in (
