@@ -584,11 +584,18 @@ php ap-cli post update --id=15 --title="New title"
 php ap-cli post update --slug=about --type=page --file=./about.html
 php ap-cli post update --id=15 --status=publish
 php ap-cli post update --id=15 --name=hello-world
+php ap-cli post update --id=15 --author=4
 ```
 
 Select with `--id` or `--slug` (same rules as `get`). Change at least one
-of: `--title`, `--file`, `--status`, `--name` / `--post_name` (rename).
-`--slug` is **only** a locator here; it does not rename.
+of: `--title`, `--file`, `--status`, `--name` / `--post_name` (rename),
+`--author`. `--slug` is **only** a locator here; it does not rename.
+
+`--author=` sets `post_author` to a living, active user who can own that
+type (`edit_posts` for posts, `edit_pages` for pages). `--author` alone is
+enough to change. Bare `--author` or a non-positive id → exit `1`. Missing
+user, banned/pending account, or a user who cannot own the type → exit `2`
+and the current author is left unchanged.
 
 No fields to change, empty `--title`/`--status`/`--name` when passed, or
 no selector → exit `1`. Not found → exit `2`. Success stdout:

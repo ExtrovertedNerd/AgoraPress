@@ -221,6 +221,67 @@ $ap_hof_footer_url = class_exists('AP_Admin', false)
             }
         });
     }
+
+    // Posts / pages list Quick Edit (inline; no-JS uses ?quick_edit=).
+    var listTable = document.querySelector('form.ap-list-table-form .ap-list-table');
+    if (listTable) {
+        function closeQuickEdit() {
+            listTable.querySelectorAll('.ap-quick-edit-row').forEach(function (row) {
+                row.hidden = true;
+                row.classList.remove('is-open');
+            });
+            listTable.querySelectorAll('tr.is-quick-editing').forEach(function (row) {
+                row.classList.remove('is-quick-editing');
+                row.style.display = '';
+            });
+        }
+
+        function openQuickEdit(id) {
+            var dataRow = document.getElementById('post-' + id);
+            var editRow = document.getElementById('edit-' + id);
+            if (!editRow) {
+                return;
+            }
+            closeQuickEdit();
+            if (dataRow) {
+                dataRow.classList.add('is-quick-editing');
+            }
+            editRow.hidden = false;
+            editRow.classList.add('is-open');
+            var first = editRow.querySelector('input[name="post_title"]');
+            if (first && typeof first.focus === 'function') {
+                first.focus();
+                if (typeof first.select === 'function') {
+                    first.select();
+                }
+            }
+        }
+
+        document.querySelectorAll('a.editinline').forEach(function (link) {
+            link.addEventListener('click', function (e) {
+                var tr = link.closest('tr');
+                if (!tr || !tr.id || tr.id.indexOf('post-') !== 0) {
+                    return;
+                }
+                e.preventDefault();
+                openQuickEdit(tr.id.slice(5));
+            });
+        });
+        listTable.querySelectorAll('a.ap-quick-edit-cancel').forEach(function (link) {
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                closeQuickEdit();
+            });
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape') {
+                return;
+            }
+            if (listTable.querySelector('.ap-quick-edit-row.is-open')) {
+                closeQuickEdit();
+            }
+        });
+    }
 })();
 </script>
 </body>

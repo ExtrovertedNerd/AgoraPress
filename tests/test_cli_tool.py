@@ -42,6 +42,9 @@ def test_cli_class_defines_expected_api() -> None:
     assert "cmdUser" in src
     assert "Reserved public-register logins are allowed" in src
     assert "cmdPost" in src
+    assert "--author" in src
+    assert "parseCliAuthorId" in src
+    assert "resolveCliPostAuthor" in src
     assert "cmdCron" in src
     assert "cmdSite" in src
     assert "ap_cli_init" in src
@@ -170,6 +173,7 @@ def test_cli_help_post() -> None:
     assert "list" in combined
     assert "create" in combined
     assert "update" in combined
+    assert "author" in combined
 
 
 def test_cli_help_lists_post_command() -> None:

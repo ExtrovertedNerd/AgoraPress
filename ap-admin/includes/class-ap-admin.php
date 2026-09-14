@@ -208,6 +208,16 @@ class AP_Admin
     }
 
     /**
+     * Capability required to assign another user as author of this type.
+     *
+     * Custom types fall back to edit_others_posts until type-specific caps land.
+     */
+    public static function editOthersCapabilityForPostType(string $postType): string
+    {
+        return $postType === 'page' ? 'edit_others_pages' : 'edit_others_posts';
+    }
+
+    /**
      * Map of admin screen basenames → required capability for screen access.
      *
      * Screens whose cap depends on query args (edit.php, post.php, …) are omitted

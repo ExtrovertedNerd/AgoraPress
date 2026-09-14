@@ -1200,6 +1200,39 @@ form.ap-list-table-form {
     visibility: visible;
 }
 
+.ap-list-table tr.is-quick-editing {
+    display: none;
+}
+
+.ap-quick-edit-row.is-open {
+    display: table-row;
+}
+
+.ap-quick-edit {
+    margin: 0.35rem 0;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--ap-border);
+    background: var(--ap-surface-2);
+}
+
+.ap-quick-edit legend {
+    font-weight: 600;
+    padding: 0 0.35rem;
+}
+
+.ap-quick-edit-field {
+    margin: 0.45rem 0;
+}
+
+.ap-quick-edit-field label {
+    display: inline-block;
+    min-width: 5rem;
+}
+
+.ap-quick-edit-actions {
+    margin: 0.75rem 0 0.15rem;
+}
+
 /* Always show row actions on touch / coarse pointers and small screens */
 @media (hover: none), (max-width: 782px) {
     .row-actions {

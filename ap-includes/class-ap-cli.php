@@ -712,7 +712,8 @@ class AP_Cli
             'post',
             [self::class, 'cmdPost'],
             'Manage posts and pages (list, get, create, update)',
-            'post <list|get|create|update> [--type=post|page] [--id=N] [--slug=…] [--title=…] [--file=path] [--status=…]',
+            'post <list|get|create|update> [--type=post|page] [--id=N] [--slug=…]'
+            . ' [--title=…] [--file=path] [--status=…] [--author=N]',
             true
         );
         self::addCommand(
@@ -1592,10 +1593,24 @@ class AP_Cli
             }
             $data['post_content'] = $read;
         }
+        if (array_key_exists('author', $assoc)) {
+            $authorId = self::parseCliAuthorId($assoc['author'], $err);
+            if ($authorId === null) {
+                return self::EXIT_USAGE;
+            }
+            $resolved = self::resolveCliPostAuthor($authorId, (string) $post->post_type, $err);
+            if ($resolved === null) {
+                return self::EXIT_ERROR;
+            }
+            $data['post_author'] = $resolved;
+        }
 
         if ($data === []) {
-            $err('Usage: post update (--id=N | --slug=SLUG [--type=post|page]) [--title=…] [--file=PATH] [--status=…] [--name=NEW_SLUG]');
-            $err('Provide at least one field to change: --title, --file, --status, or --name.');
+            $err(
+                'Usage: post update (--id=N | --slug=SLUG [--type=post|page])'
+                . ' [--title=…] [--file=PATH] [--status=…] [--name=NEW_SLUG] [--author=ID]'
+            );
+            $err('Provide at least one field to change: --title, --file, --status, --name, or --author.');
 
             return self::EXIT_USAGE;
         }
@@ -1685,7 +1700,8 @@ class AP_Cli
         }
 
         $usage = $forUpdate
-            ? 'Usage: post update (--id=N | --slug=SLUG [--type=post|page]) [--title=…] [--file=PATH] [--status=…] [--name=NEW_SLUG]'
+            ? 'Usage: post update (--id=N | --slug=SLUG [--type=post|page])'
+                . ' [--title=…] [--file=PATH] [--status=…] [--name=NEW_SLUG] [--author=ID]'
             : 'Usage: post get (--id=N | --slug=SLUG [--type=post|page])';
         $err($usage);
         $err('Provide --id or --slug to select a post/page.');
@@ -1757,6 +1773,64 @@ class AP_Cli
         $err('Invalid --type "' . $typeRaw . '" (allowed: post, page).');
 
         return null;
+    }
+
+    /**
+     * Positive user id from --author=, or null on usage error.
+     *
+     * @param string|bool $raw
+     * @param callable(string): void $err
+     */
+    private static function parseCliAuthorId(string|bool $raw, callable $err): ?int
+    {
+        if (is_bool($raw) || $raw === '') {
+            $err('Invalid --author (expected a positive user id).');
+
+            return null;
+        }
+        $raw = trim($raw);
+        if ($raw === '' || !ctype_digit($raw) || (int) $raw < 1) {
+            $err('Invalid --author (expected a positive user id).');
+
+            return null;
+        }
+
+        return (int) $raw;
+    }
+
+    /**
+     * Living, active user who may own this post type (edit_posts / edit_pages).
+     *
+     * @param callable(string): void $err
+     */
+    private static function resolveCliPostAuthor(int $authorId, string $postType, callable $err): ?int
+    {
+        if (!class_exists('AP_User', false) || !class_exists('AP_Roles', false)) {
+            $err('User API is not available.');
+
+            return null;
+        }
+
+        $user = AP_User::getById($authorId);
+        if ($user === null) {
+            $err('Author not found: ID ' . $authorId);
+
+            return null;
+        }
+        if ($user->user_status !== 0) {
+            $err('Author ID ' . $authorId . ' is not an active user.');
+
+            return null;
+        }
+
+        $ownCap = $postType === 'page' ? 'edit_pages' : 'edit_posts';
+        if (!AP_Roles::userCan($authorId, $ownCap)) {
+            $err('User ID ' . $authorId . ' cannot own this ' . $postType . '.');
+
+            return null;
+        }
+
+        return $authorId;
     }
 
     /**

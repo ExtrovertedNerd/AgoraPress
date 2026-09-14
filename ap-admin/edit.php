@@ -26,8 +26,23 @@ if (in_array($rowAction, ['trash', 'untrash', 'delete'], true) && isset($_GET['p
     AP_Admin::redirect($redirect);
 }
 
-// Bulk actions via POST.
+// Quick Edit and bulk actions via POST.
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $postedAction = (string) ($_POST['action'] ?? $_POST['action2'] ?? '');
+    if ($postedAction === 'quick_edit') {
+        $result = AP_Admin_Post_Edit::processQuickEdit($_POST);
+        $redirect = AP_Admin::url('edit.php', array_filter([
+            'post_type' => $postType,
+            'post_status' => (string) ($_POST['list_status'] ?? '') ?: null,
+            's' => (string) ($_POST['s'] ?? '') ?: null,
+            'cat' => ((int) ($_POST['cat'] ?? 0)) > 0 ? (int) $_POST['cat'] : null,
+            'message' => $result['message_key'] !== ''
+                ? $result['message_key']
+                : ($result['ok'] ? 'updated' : 'error'),
+        ]));
+        AP_Admin::redirect($redirect);
+    }
+
     $result = $listTable->processBulkAction($_POST);
     if ($result['message_key'] !== '' || $result['ok']) {
         $redirect = AP_Admin::url('edit.php', array_filter([

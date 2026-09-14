@@ -1728,6 +1728,7 @@ final class DeveloperDocsTest extends TestCase
                 'post get',
                 'post create',
                 'post update',
+                '--author',
                 'cache flush',
                 'cron event list',
                 'cron event run',

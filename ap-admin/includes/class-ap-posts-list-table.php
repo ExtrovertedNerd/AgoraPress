@@ -41,8 +41,20 @@ class AP_Posts_List_Table
 
     public string $order = 'DESC';
 
+    /** Actor for Quick Edit author assignment (0 = resolve current user). */
+    public int $actorId = 0;
+
+    /** Post id whose Quick Edit row should render open (from ?quick_edit=). */
+    public int $quickEditId = 0;
+
     /** @var array<string, int> status => count */
     public array $statusCounts = [];
+
+    /** @var list<int> */
+    private array $quickEditOwnerIds = [];
+
+    /** @var list<AP_User>|null */
+    private ?array $authorCandidatesCache = null;
 
     private ?AP_DB $db;
 
@@ -72,6 +84,10 @@ class AP_Posts_List_Table
         $allowedOrderby = ['date', 'title', 'modified', 'menu_order', 'id'];
         $this->orderby = in_array($orderby, $allowedOrderby, true) ? $orderby : 'date';
         $this->order = strtoupper((string) ($request['order'] ?? 'DESC')) === 'ASC' ? 'ASC' : 'DESC';
+        $this->quickEditId = max(0, (int) ($request['quick_edit'] ?? 0));
+        if ($this->actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $this->actorId = ap_get_current_user_id($this->resolveDb());
+        }
 
         // Hierarchical pages default to menu_order ASC when not searching / not trash.
         if (
@@ -415,17 +431,18 @@ class AP_Posts_List_Table
     public function render(): string
     {
         $type = ap_esc_attr($this->postType);
-        $actionUrl = ap_esc_url(AP_Admin::url('edit.php', ['post_type' => $this->postType]));
+        $actionUrl = AP_Admin::url('edit.php', ['post_type' => $this->postType]);
         $bulk = $this->getBulkActions();
         $columns = $this->getColumns();
 
         $html = '';
+        $this->quickEditOwnerIds = [];
         $catFilter = $this->renderCategoryFilter();
         if ($catFilter !== '') {
             $html .= '<div class="ap-tablenav ap-tablenav-filters">' . $catFilter . '</div>';
         }
 
-        $html .= '<form method="post" action="' . $actionUrl . '" class="ap-list-table-form">';
+        $html .= '<form method="post" action="' . ap_esc_url($actionUrl) . '" class="ap-list-table-form">';
         $html .= ap_nonce_field('bulk-posts', '_ap_nonce', false);
         $html .= '<input type="hidden" name="post_type" value="' . $type . '" />';
         if ($this->statusView !== 'all') {
@@ -481,6 +498,7 @@ class AP_Posts_List_Table
         $html .= '</div>';
 
         $html .= '</form>';
+        $html .= $this->renderQuickEditOwnerForms($actionUrl);
 
         return $html;
     }
@@ -504,7 +522,12 @@ class AP_Posts_List_Table
             }
         }
 
-        $row = '<tr id="post-' . $id . '" class="status-' . ap_esc_attr($post->post_status) . '">';
+        $openQuickEdit = $this->quickEditId === $id && $post->post_status !== 'trash';
+        $rowClass = 'status-' . ap_esc_attr($post->post_status);
+        if ($openQuickEdit) {
+            $rowClass .= ' is-quick-editing';
+        }
+        $row = '<tr id="post-' . $id . '" class="' . $rowClass . '">';
         foreach ($columns as $key => $label) {
             switch ($key) {
                 case 'cb':
@@ -552,6 +575,24 @@ class AP_Posts_List_Table
             }
         }
         $row .= '</tr>';
+        if ($post->post_status !== 'trash' && class_exists('AP_Admin_Post_Edit', false)) {
+            $formId = 'ap-quick-edit-form-' . $id;
+            $row .= AP_Admin_Post_Edit::renderQuickEditRow($post, $this->actorId, [
+                'colspan' => count($columns),
+                'open' => $openQuickEdit,
+                'form_id' => $formId,
+                'cancel_url' => AP_Admin::url('edit.php', $this->listQueryArgs()),
+                'list_status' => $this->statusView,
+                'search' => $this->search,
+                'cat' => $this->catId,
+                'author_users' => AP_Admin_Post_Edit::canAssignAuthor(
+                    $this->actorId,
+                    $this->postType,
+                    $this->resolveDb()
+                ) ? $this->authorUsersForRow((int) $post->post_author) : [],
+            ], $this->resolveDb());
+            $this->quickEditOwnerIds[] = $id;
+        }
 
         return $row;
     }
@@ -577,6 +618,10 @@ class AP_Posts_List_Table
             ])) . '">Delete Permanently</a>';
         } else {
             $actions['edit'] = '<a href="' . ap_esc_url($editUrl) . '">Edit</a>';
+            $actions['inline'] = '<a href="' . ap_esc_url(AP_Admin::url(
+                'edit.php',
+                $this->listQueryArgs(['quick_edit' => $id])
+            )) . '" class="editinline">Quick Edit</a>';
             $actions['trash'] = '<a class="submitdelete" href="' . ap_esc_url(AP_Admin::url('edit.php', [
                 'post_type' => $this->postType,
                 'action' => 'trash',
@@ -591,6 +636,86 @@ class AP_Posts_List_Table
         }
 
         return '<div class="row-actions">' . implode(' | ', $parts) . '</div>';
+    }
+
+    /**
+     * Query args that keep the current list view (status / search / category).
+     *
+     * @param array<string, mixed> $extra
+     *
+     * @return array<string, mixed>
+     */
+    private function listQueryArgs(array $extra = []): array
+    {
+        $query = ['post_type' => $this->postType];
+        if ($this->statusView !== 'all') {
+            $query['post_status'] = $this->statusView;
+        }
+        if ($this->search !== '') {
+            $query['s'] = $this->search;
+        }
+        if ($this->catId > 0) {
+            $query['cat'] = $this->catId;
+        }
+
+        return $extra === [] ? $query : array_merge($query, $extra);
+    }
+
+    /**
+     * Sibling owner forms for Quick Edit fields (HTML form="" association).
+     */
+    private function renderQuickEditOwnerForms(string $actionUrl): string
+    {
+        if ($this->quickEditOwnerIds === [] || !class_exists('AP_Admin_Post_Edit', false)) {
+            return '';
+        }
+
+        $html = '';
+        foreach ($this->quickEditOwnerIds as $id) {
+            $html .= AP_Admin_Post_Edit::renderQuickEditOwnerForm($id, $actionUrl);
+        }
+
+        return $html;
+    }
+
+    /**
+     * Living owners of this type, plus the row's current author when missing.
+     *
+     * @return list<AP_User>
+     */
+    private function authorUsersForRow(int $includeId): array
+    {
+        if ($this->authorCandidatesCache === null) {
+            if (!class_exists('AP_Admin_Post_Edit', false)) {
+                $this->authorCandidatesCache = [];
+            } else {
+                $this->authorCandidatesCache = AP_Admin_Post_Edit::authorCandidates(
+                    $this->postType,
+                    0,
+                    $this->resolveDb()
+                );
+            }
+        }
+
+        $users = $this->authorCandidatesCache;
+        if ($includeId < 1) {
+            return $users;
+        }
+        foreach ($users as $user) {
+            if ($user->ID === $includeId) {
+                return $users;
+            }
+        }
+        if (!class_exists('AP_User', false)) {
+            return $users;
+        }
+        $extra = AP_User::getById($includeId, $this->resolveDb());
+        if ($extra === null) {
+            return $users;
+        }
+        $users[] = $extra;
+
+        return $users;
     }
 
     /**

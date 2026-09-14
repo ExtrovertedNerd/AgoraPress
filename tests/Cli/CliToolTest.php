@@ -810,6 +810,154 @@ final class CliToolTest extends TestCase
         $this->assertStringContainsString('Hello world', (string) $post->post_content);
     }
 
+    public function testPostUpdateAuthorReassignsLivingOwner(): void
+    {
+        $this->bootSqliteCore();
+        $db = $GLOBALS['apdb'];
+        $this->assertInstanceOf(AP_DB::class, $db);
+
+        $authorId = $this->createCliUser('cliauthor', 'author');
+        $editorId = $this->createCliUser('clieditor', 'editor');
+
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            ['type' => 'post', 'title' => 'Author reassignment'],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $post = AP_Post::getBySlug('author-reassignment', 'post', $db);
+        $this->assertNotNull($post);
+        $postId = (int) $post->ID;
+
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['update'],
+            ['id' => (string) $postId, 'author' => (string) $authorId],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $this->assertStringContainsString('Updated post ID ' . $postId, implode("\n", $this->stdout));
+        $updated = AP_Post::get($postId, $db);
+        $this->assertNotNull($updated);
+        $this->assertSame($authorId, (int) $updated->post_author);
+        $this->assertSame('Author reassignment', (string) $updated->post_title);
+
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            ['type' => 'page', 'title' => 'Page author', 'slug' => 'page-author'],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $page = AP_Post::getBySlug('page-author', 'page', $db);
+        $this->assertNotNull($page);
+
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['update'],
+            ['id' => (string) $page->ID, 'author' => (string) $editorId],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $page = AP_Post::get((int) $page->ID, $db);
+        $this->assertNotNull($page);
+        $this->assertSame($editorId, (int) $page->post_author);
+    }
+
+    public function testPostUpdateAuthorRejectsInvalidAndIneligible(): void
+    {
+        $this->bootSqliteCore();
+        $db = $GLOBALS['apdb'];
+        $this->assertInstanceOf(AP_DB::class, $db);
+
+        $authorId = $this->createCliUser('clibadauthor', 'author');
+        $subId = $this->createCliUser('clisub', 'subscriber');
+        $bannedId = $this->createCliUser('clibanned', 'author');
+        $ban = AP_User::update($bannedId, ['user_status' => 1], $db);
+        $this->assertTrue($ban['ok']);
+
+        $code = AP_Cli::cmdPost(
+            ['create'],
+            ['type' => 'post', 'title' => 'Keep author'],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $post = AP_Post::getBySlug('keep-author', 'post', $db);
+        $this->assertNotNull($post);
+        $postId = (int) $post->ID;
+
+        $assign = AP_Cli::cmdPost(
+            ['update'],
+            ['id' => (string) $postId, 'author' => (string) $authorId],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $assign, implode("\n", $this->stderr));
+
+        $cases = [
+            [true, AP_Cli::EXIT_USAGE, 'Invalid --author'],
+            ['0', AP_Cli::EXIT_USAGE, 'Invalid --author'],
+            ['nope', AP_Cli::EXIT_USAGE, 'Invalid --author'],
+            ['999999', AP_Cli::EXIT_ERROR, 'not found'],
+            [(string) $subId, AP_Cli::EXIT_ERROR, 'cannot own'],
+            [(string) $bannedId, AP_Cli::EXIT_ERROR, 'not an active user'],
+        ];
+        foreach ($cases as [$author, $expected, $needle]) {
+            $this->stdout = [];
+            $this->stderr = [];
+            $code = AP_Cli::cmdPost(
+                ['update'],
+                ['id' => (string) $postId, 'author' => $author],
+                $this->captureOut(),
+                $this->captureErr()
+            );
+            $this->assertSame(
+                $expected,
+                $code,
+                'author=' . var_export($author, true) . ' stderr=' . implode("\n", $this->stderr)
+            );
+            $this->assertStringContainsString($needle, implode("\n", $this->stderr));
+            $kept = AP_Post::get($postId, $db);
+            $this->assertNotNull($kept);
+            $this->assertSame($authorId, (int) $kept->post_author);
+        }
+
+        $this->stdout = [];
+        $this->stderr = [];
+        $pageCode = AP_Cli::cmdPost(
+            ['create'],
+            ['type' => 'page', 'title' => 'Not for authors', 'slug' => 'not-for-authors'],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $pageCode, implode("\n", $this->stderr));
+        $page = AP_Post::getBySlug('not-for-authors', 'page', $db);
+        $this->assertNotNull($page);
+        $before = (int) $page->post_author;
+
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['update'],
+            ['id' => (string) $page->ID, 'author' => (string) $authorId],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_ERROR, $code);
+        $this->assertStringContainsString('cannot own this page', implode("\n", $this->stderr));
+        $page = AP_Post::get((int) $page->ID, $db);
+        $this->assertNotNull($page);
+        $this->assertSame($before, (int) $page->post_author);
+    }
+
     public function testPostGetMissingTargetFails(): void
     {
         $this->bootSqliteCore();
@@ -918,6 +1066,7 @@ final class CliToolTest extends TestCase
         $this->assertStringContainsString('list', $combined);
         $this->assertStringContainsString('create', $combined);
         $this->assertStringContainsString('update', $combined);
+        $this->assertStringContainsString('--author', $combined);
     }
 
     public function testEntryScriptExistsAndIsCli(): void
@@ -968,5 +1117,20 @@ final class CliToolTest extends TestCase
         exec($cmd . ' 2>&1', $output, $exit);
         $this->assertSame(AP_Cli::EXIT_NOT_INSTALLED, $exit);
         $this->assertStringContainsString('not installed', implode("\n", $output));
+    }
+
+    private function createCliUser(string $login, string $role): int
+    {
+        $db = $GLOBALS['apdb'];
+        $this->assertInstanceOf(AP_DB::class, $db);
+        $created = AP_User::create([
+            'user_login' => $login,
+            'user_email' => $login . '@example.test',
+            'password' => 'password123',
+            'role' => $role,
+        ], $db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors'] ?? []));
+
+        return (int) $created['id'];
     }
 }

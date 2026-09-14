@@ -229,6 +229,9 @@ final class AdminCapabilityTest extends TestCase
         $this->assertSame('edit_page', AP_Admin::editMetaCapForPostType('page'));
         $this->assertSame('delete_post', AP_Admin::deleteMetaCapForPostType('post'));
         $this->assertSame('publish_pages', AP_Admin::publishCapabilityForPostType('page'));
+        $this->assertSame('edit_others_posts', AP_Admin::editOthersCapabilityForPostType('post'));
+        $this->assertSame('edit_others_pages', AP_Admin::editOthersCapabilityForPostType('page'));
+        $this->assertSame('edit_others_posts', AP_Admin::editOthersCapabilityForPostType('custom'));
     }
 
     public function testMenuFilteredByRole(): void
@@ -301,6 +304,603 @@ final class AdminCapabilityTest extends TestCase
         $this->assertTrue($result['ok'], implode('; ', $result['errors']));
         $this->assertNotNull($result['post']);
         $this->assertSame('pending', $result['post']->post_status);
+    }
+
+    public function testAuthorSelectOnlyWithEditOthersCapability(): void
+    {
+        $adminId = $this->createUser('authseladmin', 'administrator');
+        $editorId = $this->createUser('autheseleditor', 'editor');
+        $authorId = $this->createUser('authselauthor', 'author');
+        $contribId = $this->createUser('authselcontrib', 'contributor');
+
+        $this->assertTrue(AP_Admin_Post_Edit::canAssignAuthor($adminId, 'post', $this->db));
+        $this->assertTrue(AP_Admin_Post_Edit::canAssignAuthor($adminId, 'page', $this->db));
+        $this->assertTrue(AP_Admin_Post_Edit::canAssignAuthor($editorId, 'post', $this->db));
+        $this->assertTrue(AP_Admin_Post_Edit::canAssignAuthor($editorId, 'page', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::canAssignAuthor($authorId, 'post', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::canAssignAuthor($authorId, 'page', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::canAssignAuthor($contribId, 'post', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::canAssignAuthor(0, 'post', $this->db));
+
+        $postNewAdmin = AP_Admin_Post_Edit::renderForm(null, 'post', $adminId, $this->db);
+        $this->assertStringContainsString('<select name="post_author"', $postNewAdmin);
+        $this->assertStringContainsString('id="post_author"', $postNewAdmin);
+        $this->assertStringContainsString('ap-metabox-author', $postNewAdmin);
+
+        $pageNewAdmin = AP_Admin_Post_Edit::renderForm(null, 'page', $adminId, $this->db);
+        $this->assertStringContainsString('<select name="post_author"', $pageNewAdmin);
+
+        $postNewEditor = AP_Admin_Post_Edit::renderForm(null, 'post', $editorId, $this->db);
+        $this->assertStringContainsString('<select name="post_author"', $postNewEditor);
+        $pageNewEditor = AP_Admin_Post_Edit::renderForm(null, 'page', $editorId, $this->db);
+        $this->assertStringContainsString('<select name="post_author"', $pageNewEditor);
+
+        $postNewAuthor = AP_Admin_Post_Edit::renderForm(null, 'post', $authorId, $this->db);
+        $this->assertStringNotContainsString('name="post_author"', $postNewAuthor);
+        $this->assertStringNotContainsString('ap-metabox-author', $postNewAuthor);
+
+        $pageNewAuthor = AP_Admin_Post_Edit::renderForm(null, 'page', $authorId, $this->db);
+        $this->assertStringNotContainsString('name="post_author"', $pageNewAuthor);
+
+        $postNewContrib = AP_Admin_Post_Edit::renderForm(null, 'post', $contribId, $this->db);
+        $this->assertStringNotContainsString('name="post_author"', $postNewContrib);
+
+        $ownPostId = AP_Post::insert([
+            'post_title' => 'Author own post',
+            'post_content' => 'x',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $ownPostId);
+        $ownPost = AP_Post::get($ownPostId, $this->db);
+        $this->assertNotNull($ownPost);
+
+        $ownHtml = AP_Admin_Post_Edit::renderForm($ownPost, 'post', $authorId, $this->db);
+        $this->assertStringNotContainsString('name="post_author"', $ownHtml);
+
+        $editAsAdmin = AP_Admin_Post_Edit::renderForm($ownPost, 'post', $adminId, $this->db);
+        $this->assertStringContainsString('<select name="post_author"', $editAsAdmin);
+        $this->assertStringContainsString(
+            'value="' . $authorId . '" selected',
+            $editAsAdmin
+        );
+
+        $editAsEditor = AP_Admin_Post_Edit::renderForm($ownPost, 'post', $editorId, $this->db);
+        $this->assertStringContainsString('<select name="post_author"', $editAsEditor);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'Admin page',
+            'post_content' => 'p',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $adminId,
+        ], $this->db);
+        $page = AP_Post::get($pageId, $this->db);
+        $this->assertNotNull($page);
+        $pageEdit = AP_Admin_Post_Edit::renderForm($page, 'page', $adminId, $this->db);
+        $this->assertStringContainsString('<select name="post_author"', $pageEdit);
+        $pageEditAuthor = AP_Admin_Post_Edit::renderForm($page, 'page', $authorId, $this->db);
+        $this->assertStringNotContainsString('name="post_author"', $pageEditAuthor);
+    }
+
+    public function testAuthorCandidatesAreLivingActiveOwners(): void
+    {
+        $adminId = $this->createUser('acandadmin', 'administrator');
+        $editorId = $this->createUser('acandeditor', 'editor');
+        $authorId = $this->createUser('acandauthor', 'author');
+        $contribId = $this->createUser('acandcontrib', 'contributor');
+        $subId = $this->createUser('acandsub', 'subscriber');
+
+        $pendingId = $this->createUser('acandpending', 'author');
+        $pendingUpdate = AP_User::update($pendingId, ['user_status' => 1], $this->db);
+        $this->assertTrue($pendingUpdate['ok']);
+
+        $bannedId = $this->createUser('acandbanned', 'editor');
+        $bannedUpdate = AP_User::update($bannedId, ['user_status' => 1], $this->db);
+        $this->assertTrue($bannedUpdate['ok']);
+
+        $goneId = $this->createUser('acandgone', 'author');
+        $this->assertTrue(AP_User::delete($goneId, $this->db));
+
+        $this->assertTrue(AP_Admin_Post_Edit::userCanOwnPostType($adminId, 'post', $this->db));
+        $this->assertTrue(AP_Admin_Post_Edit::userCanOwnPostType($editorId, 'post', $this->db));
+        $this->assertTrue(AP_Admin_Post_Edit::userCanOwnPostType($authorId, 'post', $this->db));
+        $this->assertTrue(AP_Admin_Post_Edit::userCanOwnPostType($contribId, 'post', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType($subId, 'post', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType($pendingId, 'post', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType($bannedId, 'post', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType($goneId, 'post', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType(0, 'post', $this->db));
+
+        $this->assertTrue(AP_Admin_Post_Edit::userCanOwnPostType($adminId, 'page', $this->db));
+        $this->assertTrue(AP_Admin_Post_Edit::userCanOwnPostType($editorId, 'page', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType($authorId, 'page', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType($contribId, 'page', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType($subId, 'page', $this->db));
+        $this->assertFalse(AP_Admin_Post_Edit::userCanOwnPostType($pendingId, 'page', $this->db));
+
+        $postIds = $this->idsOf(AP_Admin_Post_Edit::authorCandidates('post', 0, $this->db));
+        foreach ([$adminId, $editorId, $authorId, $contribId] as $id) {
+            $this->assertContains($id, $postIds);
+        }
+        foreach ([$subId, $pendingId, $bannedId, $goneId] as $id) {
+            $this->assertNotContains($id, $postIds);
+        }
+
+        $pageIds = $this->idsOf(AP_Admin_Post_Edit::authorCandidates('page', 0, $this->db));
+        $this->assertContains($adminId, $pageIds);
+        $this->assertContains($editorId, $pageIds);
+        foreach ([$authorId, $contribId, $subId, $pendingId, $bannedId, $goneId] as $id) {
+            $this->assertNotContains($id, $pageIds);
+        }
+
+        // Edit screen keeps the current author visible even after a ban.
+        $withBanned = $this->idsOf(
+            AP_Admin_Post_Edit::authorCandidates('post', $bannedId, $this->db)
+        );
+        $this->assertContains($bannedId, $withBanned);
+
+        $htmlPost = AP_Admin_Post_Edit::renderForm(null, 'post', $adminId, $this->db);
+        $postOptions = $this->optionValuesFromSelect($htmlPost, 'post_author');
+        foreach ([$adminId, $editorId, $authorId, $contribId] as $id) {
+            $this->assertContains($id, $postOptions);
+        }
+        foreach ([$subId, $pendingId, $bannedId, $goneId] as $id) {
+            $this->assertNotContains($id, $postOptions);
+        }
+
+        $htmlPage = AP_Admin_Post_Edit::renderForm(null, 'page', $adminId, $this->db);
+        $pageOptions = $this->optionValuesFromSelect($htmlPage, 'post_author');
+        $this->assertContains($adminId, $pageOptions);
+        $this->assertContains($editorId, $pageOptions);
+        foreach ([$authorId, $contribId, $subId] as $id) {
+            $this->assertNotContains($id, $pageOptions);
+        }
+    }
+
+    public function testInsertPersistsChosenAuthorWhenAllowed(): void
+    {
+        $adminId = $this->createUser('insadmin', 'administrator');
+        $editorId = $this->createUser('inseditor', 'editor');
+        $authorId = $this->createUser('insauthor', 'author');
+        $contribId = $this->createUser('inscontrib', 'contributor');
+
+        $nonce = ap_create_nonce('new-post', $adminId);
+        $asAuthor = AP_Admin_Post_Edit::save([
+            'post_title' => 'By other author',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $authorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => $nonce,
+        ], $adminId, $this->db);
+        $this->assertTrue($asAuthor['ok'], implode('; ', $asAuthor['errors']));
+        $this->assertNotNull($asAuthor['post']);
+        $this->assertSame($authorId, (int) $asAuthor['post']->post_author);
+
+        $editorNonce = ap_create_nonce('new-post', $editorId);
+        $asContrib = AP_Admin_Post_Edit::save([
+            'post_title' => 'Editor assigns contrib',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $contribId,
+            'save_action' => 'draft',
+            '_ap_nonce' => $editorNonce,
+        ], $editorId, $this->db);
+        $this->assertTrue($asContrib['ok'], implode('; ', $asContrib['errors']));
+        $this->assertNotNull($asContrib['post']);
+        $this->assertSame($contribId, (int) $asContrib['post']->post_author);
+
+        $pageNonce = ap_create_nonce('new-post', $adminId);
+        $page = AP_Admin_Post_Edit::save([
+            'post_title' => 'Page by editor',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $editorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => $pageNonce,
+        ], $adminId, $this->db);
+        $this->assertTrue($page['ok'], implode('; ', $page['errors']));
+        $this->assertNotNull($page['post']);
+        $this->assertSame($editorId, (int) $page['post']->post_author);
+    }
+
+    public function testInsertUsesLoggedInUserWhenAuthorAssignmentNotAllowed(): void
+    {
+        $authorId = $this->createUser('insownauthor', 'author');
+        $otherId = $this->createUser('insotherauthor', 'author');
+        $contribId = $this->createUser('insowncontrib', 'contributor');
+        $targetId = $this->createUser('inscontribtarget', 'author');
+
+        $nonce = ap_create_nonce('new-post', $authorId);
+        $result = AP_Admin_Post_Edit::save([
+            'post_title' => 'Cannot reassign',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $otherId,
+            'save_action' => 'draft',
+            '_ap_nonce' => $nonce,
+        ], $authorId, $this->db);
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertNotNull($result['post']);
+        $this->assertSame($authorId, (int) $result['post']->post_author);
+
+        $contribNonce = ap_create_nonce('new-post', $contribId);
+        $asContrib = AP_Admin_Post_Edit::save([
+            'post_title' => 'Contrib cannot reassign',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $targetId,
+            'save_action' => 'draft',
+            '_ap_nonce' => $contribNonce,
+        ], $contribId, $this->db);
+        $this->assertTrue($asContrib['ok'], implode('; ', $asContrib['errors']));
+        $this->assertNotNull($asContrib['post']);
+        $this->assertSame($contribId, (int) $asContrib['post']->post_author);
+    }
+
+    public function testInsertIgnoresCraftedForbiddenAuthorId(): void
+    {
+        $adminId = $this->createUser('inscraftadmin', 'administrator');
+        $authorId = $this->createUser('inscraftauthor', 'author');
+        $subId = $this->createUser('inscraftsub', 'subscriber');
+
+        $asSub = AP_Admin_Post_Edit::save([
+            'post_title' => 'Not a subscriber post',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $subId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($asSub['ok'], implode('; ', $asSub['errors']));
+        $this->assertNotNull($asSub['post']);
+        $this->assertSame($adminId, (int) $asSub['post']->post_author);
+
+        $page = AP_Admin_Post_Edit::save([
+            'post_title' => 'Not an author page',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $authorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($page['ok'], implode('; ', $page['errors']));
+        $this->assertNotNull($page['post']);
+        $this->assertSame($adminId, (int) $page['post']->post_author);
+
+        $unknown = AP_Admin_Post_Edit::save([
+            'post_title' => 'Unknown author id',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => 999999,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($unknown['ok'], implode('; ', $unknown['errors']));
+        $this->assertNotNull($unknown['post']);
+        $this->assertSame($adminId, (int) $unknown['post']->post_author);
+
+        $missing = AP_Admin_Post_Edit::save([
+            'post_title' => 'No author field',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($missing['ok'], implode('; ', $missing['errors']));
+        $this->assertNotNull($missing['post']);
+        $this->assertSame($adminId, (int) $missing['post']->post_author);
+
+        $asArray = AP_Admin_Post_Edit::save([
+            'post_title' => 'Array author field',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => [$subId],
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($asArray['ok'], implode('; ', $asArray['errors']));
+        $this->assertNotNull($asArray['post']);
+        $this->assertSame($adminId, (int) $asArray['post']->post_author);
+
+        $bannedId = $this->createUser('inscraftbanned', 'author');
+        $bannedUpdate = AP_User::update($bannedId, ['user_status' => 1], $this->db);
+        $this->assertTrue($bannedUpdate['ok']);
+        $asBanned = AP_Admin_Post_Edit::save([
+            'post_title' => 'Banned author id',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $bannedId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($asBanned['ok'], implode('; ', $asBanned['errors']));
+        $this->assertNotNull($asBanned['post']);
+        $this->assertSame($adminId, (int) $asBanned['post']->post_author);
+    }
+
+    public function testUpdatePersistsPostedAuthorWhenAllowed(): void
+    {
+        $adminId = $this->createUser('updadmin', 'administrator');
+        $editorId = $this->createUser('updeditor', 'editor');
+        $authorId = $this->createUser('updauthor', 'author');
+        $otherAuthorId = $this->createUser('updotherauthor', 'author');
+        $contribId = $this->createUser('updcontrib', 'contributor');
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Owned by author',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+
+        $asOther = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Reassigned by admin',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $otherAuthorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($asOther['ok'], implode('; ', $asOther['errors']));
+        $this->assertNotNull($asOther['post']);
+        $this->assertSame($otherAuthorId, (int) $asOther['post']->post_author);
+        $this->assertSame('Reassigned by admin', $asOther['post']->post_title);
+
+        $asContrib = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Reassigned by editor',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $contribId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $editorId),
+        ], $editorId, $this->db);
+        $this->assertTrue($asContrib['ok'], implode('; ', $asContrib['errors']));
+        $this->assertNotNull($asContrib['post']);
+        $this->assertSame($contribId, (int) $asContrib['post']->post_author);
+
+        $keep = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Title only',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($keep['ok'], implode('; ', $keep['errors']));
+        $this->assertNotNull($keep['post']);
+        $this->assertSame($contribId, (int) $keep['post']->post_author);
+        $this->assertSame('Title only', $keep['post']->post_title);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'Admin page',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $adminId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $pageId);
+
+        $page = AP_Admin_Post_Edit::save([
+            'post_ID' => $pageId,
+            'post_title' => 'Page by editor',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $editorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $pageId, $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($page['ok'], implode('; ', $page['errors']));
+        $this->assertNotNull($page['post']);
+        $this->assertSame($editorId, (int) $page['post']->post_author);
+    }
+
+    public function testUpdateKeepsExistingAuthorWhenAssignmentNotAllowed(): void
+    {
+        $authorId = $this->createUser('updnocapauthor', 'author');
+        $otherId = $this->createUser('updnocapother', 'author');
+        $contribId = $this->createUser('updnocapcontrib', 'contributor');
+        $targetId = $this->createUser('updnocaptarget', 'author');
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Author own draft',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+
+        $result = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Still mine',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $otherId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $authorId),
+        ], $authorId, $this->db);
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertNotNull($result['post']);
+        $this->assertSame($authorId, (int) $result['post']->post_author);
+        $this->assertSame('Still mine', $result['post']->post_title);
+
+        $contribPostId = AP_Post::insert([
+            'post_title' => 'Contrib own draft',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $contribId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $contribPostId);
+
+        $asContrib = AP_Admin_Post_Edit::save([
+            'post_ID' => $contribPostId,
+            'post_title' => 'Contrib cannot reassign',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $targetId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $contribPostId, $contribId),
+        ], $contribId, $this->db);
+        $this->assertTrue($asContrib['ok'], implode('; ', $asContrib['errors']));
+        $this->assertNotNull($asContrib['post']);
+        $this->assertSame($contribId, (int) $asContrib['post']->post_author);
+    }
+
+    public function testUpdateIgnoresCraftedForbiddenAuthorId(): void
+    {
+        $adminId = $this->createUser('updcraftadmin', 'administrator');
+        $authorId = $this->createUser('updcraftauthor', 'author');
+        $subId = $this->createUser('updcraftsub', 'subscriber');
+        $bannedId = $this->createUser('updcraftbanned', 'author');
+        $bannedUpdate = AP_User::update($bannedId, ['user_status' => 1], $this->db);
+        $this->assertTrue($bannedUpdate['ok']);
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Keep this author',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+
+        $asSub = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Not a subscriber post',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $subId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($asSub['ok'], implode('; ', $asSub['errors']));
+        $this->assertNotNull($asSub['post']);
+        $this->assertSame($authorId, (int) $asSub['post']->post_author);
+
+        $unknown = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Unknown author id',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => 999999,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($unknown['ok'], implode('; ', $unknown['errors']));
+        $this->assertNotNull($unknown['post']);
+        $this->assertSame($authorId, (int) $unknown['post']->post_author);
+
+        $asBanned = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Banned author id',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $bannedId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($asBanned['ok'], implode('; ', $asBanned['errors']));
+        $this->assertNotNull($asBanned['post']);
+        $this->assertSame($authorId, (int) $asBanned['post']->post_author);
+
+        $asArray = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Array author field',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => [$subId],
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($asArray['ok'], implode('; ', $asArray['errors']));
+        $this->assertNotNull($asArray['post']);
+        $this->assertSame($authorId, (int) $asArray['post']->post_author);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'Admin page stays admin',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $adminId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $pageId);
+
+        $page = AP_Admin_Post_Edit::save([
+            'post_ID' => $pageId,
+            'post_title' => 'Not an author page',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $authorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $pageId, $adminId),
+        ], $adminId, $this->db);
+        $this->assertTrue($page['ok'], implode('; ', $page['errors']));
+        $this->assertNotNull($page['post']);
+        $this->assertSame($adminId, (int) $page['post']->post_author);
+    }
+
+    /**
+     * @param list<AP_User> $users
+     *
+     * @return list<int>
+     */
+    private function idsOf(array $users): array
+    {
+        $ids = [];
+        foreach ($users as $user) {
+            $ids[] = $user->ID;
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function optionValuesFromSelect(string $html, string $name): array
+    {
+        if (
+            preg_match(
+                '/<select name="' . preg_quote($name, '/') . '"[^>]*>(.*?)<\/select>/s',
+                $html,
+                $block
+            ) !== 1
+        ) {
+            return [];
+        }
+        preg_match_all('/<option value="(\d+)"/', $block[1], $opts);
+
+        return array_map('intval', $opts[1] ?? []);
     }
 
     public function testAuthorCanCreateAndPublishOwnPost(): void

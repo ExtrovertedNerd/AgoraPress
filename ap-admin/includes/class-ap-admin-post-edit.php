@@ -179,9 +179,7 @@ class AP_Admin_Post_Edit
             'post_type' => $postType,
             'post_password' => $password,
             'comment_status' => $commentStatus,
-            'post_author' => $userId > 0
-                ? $userId
-                : (int) ($input['post_author'] ?? 0),
+            'post_author' => $userId > 0 ? $userId : 0,
         ];
 
         if ($slug !== '') {
@@ -216,6 +214,7 @@ class AP_Admin_Post_Edit
         }
 
         if ($isNew) {
+            $data['post_author'] = self::authorForInsert($userId, $postType, $input, $db);
             $newId = AP_Post::insert($data, $db);
             if ($newId < 1) {
                 return [
@@ -249,10 +248,7 @@ class AP_Admin_Post_Edit
             ];
         }
 
-        // Keep original author unless elevating empty.
-        if ($existing->post_author > 0) {
-            unset($data['post_author']);
-        }
+        $data['post_author'] = self::authorForUpdate($userId, $postType, $input, $existing, $db);
 
         $ok = AP_Post::update($id, $data, $db);
         if (!$ok) {
@@ -627,6 +623,228 @@ class AP_Admin_Post_Edit
     }
 
     /**
+     * Save title / status / author from the posts-list Quick Edit form.
+     *
+     * Does not rewrite content, taxonomies, or page attributes. Author
+     * assignment uses the same rules as the full edit screen.
+     *
+     * @param array<string, mixed> $input Typically $_POST.
+     *
+     * @return array{ok: bool, message_key: string, errors: list<string>, id: int}
+     */
+    public static function processQuickEdit(array $input, ?AP_DB $db = null, int $actorId = 0): array
+    {
+        $id = (int) ($input['post_ID'] ?? $input['post'] ?? 0);
+        if ($id < 1) {
+            return ['ok' => false, 'message_key' => '', 'errors' => [], 'id' => 0];
+        }
+
+        $db = $db ?? ap_db();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+
+        $nonce = (string) ($input['_ap_nonce'] ?? '');
+        if (!ap_check_nonce($nonce, 'quick-edit-' . $id, $actorId > 0 ? $actorId : null)) {
+            return [
+                'ok' => false,
+                'message_key' => 'nonce',
+                'errors' => ['Security check failed.'],
+                'id' => $id,
+            ];
+        }
+
+        $existing = AP_Post::get($id, $db);
+        if ($existing === null) {
+            return [
+                'ok' => false,
+                'message_key' => 'not_found',
+                'errors' => ['That item could not be found.'],
+                'id' => $id,
+            ];
+        }
+
+        $postedType = AP_Admin::resolvePostType((string) ($input['post_type'] ?? ''), $existing->post_type);
+        if ($postedType !== $existing->post_type) {
+            return [
+                'ok' => false,
+                'message_key' => 'not_found',
+                'errors' => ['That item could not be found.'],
+                'id' => $id,
+            ];
+        }
+
+        $metaCap = AP_Admin::editMetaCapForPostType($existing->post_type);
+        if (!AP_Admin::userCan($actorId, $metaCap, $id, $db)) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to edit this item.'],
+                'id' => $id,
+            ];
+        }
+
+        $data = [];
+        if (array_key_exists('post_title', $input)) {
+            $data['post_title'] = ap_sanitize_text_field((string) $input['post_title']);
+        }
+
+        if (array_key_exists('post_status', $input) && is_string($input['post_status'])) {
+            $status = self::normalizeStatus($input['post_status']);
+            $publicish = in_array($status, ['publish', 'private', 'future'], true);
+            if ($publicish) {
+                $prev = (string) $existing->post_status;
+                $needsPublishCheck = !in_array($prev, ['publish', 'private', 'future'], true)
+                    || $prev !== $status;
+                if ($needsPublishCheck) {
+                    $pubCap = AP_Admin::publishCapabilityForPostType($existing->post_type);
+                    if (!AP_Admin::userCan($actorId, $pubCap, null, $db)) {
+                        $status = 'pending';
+                    }
+                }
+            }
+            $data['post_status'] = $status;
+        }
+
+        $data['post_author'] = self::authorForUpdate($actorId, $existing->post_type, $input, $existing, $db);
+
+        $ok = AP_Post::update($id, $data, $db);
+        if (!$ok) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => ['Could not update the post.'],
+                'id' => $id,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'message_key' => 'updated',
+            'errors' => [],
+            'id' => $id,
+        ];
+    }
+
+    /**
+     * Empty owner <form> for a Quick Edit row (HTML form="" association).
+     *
+     * The posts list is already a bulk-actions form, so Quick Edit fields
+     * live in a table row and submit through this sibling form.
+     */
+    public static function renderQuickEditOwnerForm(int $postId, string $actionUrl): string
+    {
+        if ($postId < 1) {
+            return '';
+        }
+
+        $formId = 'ap-quick-edit-form-' . $postId;
+
+        return '<form id="' . ap_esc_attr($formId) . '" method="post" action="'
+            . ap_esc_url($actionUrl) . '" class="ap-quick-edit-owner" hidden></form>';
+    }
+
+    /**
+     * Inline Quick Edit row: title, status, and Author when allowed.
+     *
+     * Fields use the HTML `form` attribute so they do not nest inside the
+     * bulk-actions form. $args['form_id'] must match the owner form id.
+     *
+     * @param array{
+     *   colspan: int,
+     *   open?: bool,
+     *   form_id: string,
+     *   cancel_url: string,
+     *   list_status?: string,
+     *   search?: string,
+     *   cat?: int,
+     *   author_users?: list<AP_User>
+     * } $args
+     */
+    public static function renderQuickEditRow(
+        AP_Post $post,
+        int $actorId,
+        array $args,
+        ?AP_DB $db = null
+    ): string {
+        $id = (int) $post->ID;
+        if ($id < 1 || $post->post_status === 'trash') {
+            return '';
+        }
+
+        $colspan = max(1, (int) ($args['colspan'] ?? 1));
+        $open = !empty($args['open']);
+        $formId = (string) ($args['form_id'] ?? ('ap-quick-edit-form-' . $id));
+        $cancelUrl = (string) ($args['cancel_url'] ?? '');
+        $listStatus = (string) ($args['list_status'] ?? '');
+        $search = (string) ($args['search'] ?? '');
+        $cat = (int) ($args['cat'] ?? 0);
+        /** @var list<AP_User> $authorUsers */
+        $authorUsers = is_array($args['author_users'] ?? null) ? $args['author_users'] : [];
+
+        $formAttr = ap_esc_attr($formId);
+        $rowClass = 'ap-quick-edit-row' . ($open ? ' is-open' : '');
+        $html = '<tr id="edit-' . $id . '" class="' . $rowClass . '"';
+        if (!$open) {
+            $html .= ' hidden';
+        }
+        $html .= '>';
+        $html .= '<td colspan="' . $colspan . '">';
+        $html .= '<fieldset class="ap-quick-edit">';
+        $html .= '<legend>Quick Edit</legend>';
+
+        $html .= '<input type="hidden" form="' . $formAttr . '" name="action" value="quick_edit" />';
+        $html .= '<input type="hidden" form="' . $formAttr . '" name="post_ID" value="' . $id . '" />';
+        $html .= '<input type="hidden" form="' . $formAttr . '" name="post_type" value="'
+            . ap_esc_attr($post->post_type) . '" />';
+        if ($listStatus !== '' && $listStatus !== 'all') {
+            $html .= '<input type="hidden" form="' . $formAttr . '" name="list_status" value="'
+                . ap_esc_attr($listStatus) . '" />';
+        }
+        if ($search !== '') {
+            $html .= '<input type="hidden" form="' . $formAttr . '" name="s" value="'
+                . ap_esc_attr($search) . '" />';
+        }
+        if ($cat > 0) {
+            $html .= '<input type="hidden" form="' . $formAttr . '" name="cat" value="' . $cat . '" />';
+        }
+
+        $nonce = ap_create_nonce('quick-edit-' . $id, $actorId > 0 ? $actorId : null);
+        $html .= '<input type="hidden" form="' . $formAttr . '" id="ap-qe-nonce-' . $id
+            . '" name="_ap_nonce" value="' . ap_esc_attr($nonce) . '" />';
+
+        $html .= '<p class="ap-quick-edit-field"><label for="ap-qe-title-' . $id . '">Title</label> ';
+        $html .= '<input type="text" form="' . $formAttr . '" name="post_title" id="ap-qe-title-'
+            . $id . '" value="' . ap_esc_attr($post->post_title) . '" class="regular-text" /></p>';
+
+        $html .= '<p class="ap-quick-edit-field"><label for="ap-qe-status-' . $id . '">Status</label> ';
+        $html .= self::renderStatusSelect($post->post_status, [
+            'id' => 'ap-qe-status-' . $id,
+            'form' => $formId,
+        ]);
+        $html .= '</p>';
+
+        if (self::canAssignAuthor($actorId, $post->post_type, $db)) {
+            $html .= '<p class="ap-quick-edit-field ap-quick-edit-author">';
+            $html .= '<label for="ap-qe-author-' . $id . '">Author</label> ';
+            $html .= self::renderAuthorSelect((int) $post->post_author, $post->post_type, $db, [
+                'id' => 'ap-qe-author-' . $id,
+                'form' => $formId,
+                'users' => $authorUsers,
+            ]);
+            $html .= '</p>';
+        }
+
+        $html .= '<p class="ap-quick-edit-actions">';
+        $html .= '<button type="submit" form="' . $formAttr . '" class="button button-primary">Update</button> ';
+        $html .= '<a class="ap-quick-edit-cancel" href="' . ap_esc_url($cancelUrl) . '">Cancel</a>';
+        $html .= '</p>';
+        $html .= '</fieldset></td></tr>';
+
+        return $html;
+    }
+
+    /**
      * Render the edit form HTML.
      *
      * @param array<string, mixed> $extra Optional extras (parent options already built, etc.).
@@ -655,6 +873,10 @@ class AP_Admin_Post_Edit
             : $post->comment_status;
         $parent = $isNew ? 0 : $post->post_parent;
         $menuOrder = $isNew ? 0 : $post->menu_order;
+        $currentAuthor = $userId;
+        if (!$isNew && $post instanceof AP_Post && $post->post_author > 0) {
+            $currentAuthor = (int) $post->post_author;
+        }
         $pageTemplate = 'default';
         $sticky = false;
         $showInNav = true;
@@ -809,6 +1031,11 @@ class AP_Admin_Post_Edit
             . 'class="button button-primary">' . $primaryLabel . '</button>';
         $html .= '</div>';
         $html .= '</div></div>';
+
+        // Author picker: only for actors who may edit others' posts/pages.
+        if (self::canAssignAuthor($userId, $postType, $db)) {
+            $html .= self::renderAuthorMetabox($currentAuthor, $postType, $db);
+        }
 
         // Revisions metabox
         if (!$isNew && AP_Post::typeSupports($postType, 'revisions') && $db instanceof AP_DB) {
@@ -1035,7 +1262,280 @@ class AP_Admin_Post_Edit
         return $html;
     }
 
-    private static function renderStatusSelect(string $current): string
+    /**
+     * Whether the actor may set the author of a post or page in the ACP.
+     *
+     * Gated by edit_others_posts / edit_others_pages. Authors editing their
+     * own content do not have those caps and do not see the Author field.
+     */
+    public static function canAssignAuthor(int $userId, string $postType, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+
+        $cap = AP_Admin::editOthersCapabilityForPostType($postType);
+
+        return AP_Admin::userCan($userId, $cap, null, $db);
+    }
+
+    /**
+     * Author id to stamp on insert.
+     *
+     * When the actor may assign authors, persist a posted living owner of
+     * this type. Otherwise (no cap, missing field, or a crafted id they
+     * may not assign) use the logged-in user.
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function authorForInsert(
+        int $actorId,
+        string $postType,
+        array $input,
+        AP_DB $db
+    ): int {
+        return self::resolvePostedAuthor($actorId, $postType, $input, $db, max(0, $actorId));
+    }
+
+    /**
+     * Author id to stamp on update.
+     *
+     * When the actor may assign authors, persist a posted living owner of
+     * this type. Otherwise keep the existing author. An empty author
+     * column is elevated to the logged-in user.
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function authorForUpdate(
+        int $actorId,
+        string $postType,
+        array $input,
+        AP_Post $existing,
+        AP_DB $db
+    ): int {
+        $fallback = (int) $existing->post_author;
+        if ($fallback < 1) {
+            $fallback = max(0, $actorId);
+        }
+
+        return self::resolvePostedAuthor($actorId, $postType, $input, $db, $fallback);
+    }
+
+    /**
+     * Posted author when the actor may assign a living owner of this type.
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function resolvePostedAuthor(
+        int $actorId,
+        string $postType,
+        array $input,
+        AP_DB $db,
+        int $fallback
+    ): int {
+        if (!self::canAssignAuthor($actorId, $postType, $db)) {
+            return $fallback;
+        }
+
+        $posted = self::postedAuthorId($input);
+        if ($posted > 0 && self::userCanOwnPostType($posted, $postType, $db)) {
+            return $posted;
+        }
+
+        return $fallback;
+    }
+
+    /**
+     * Positive author id from a form bag, or 0 when missing or crafted.
+     *
+     * Only a positive integer or digit string is accepted. Arrays and
+     * other non-scalar values are ignored so a crafted POST cannot
+     * coerce to user 1 via `(int) array`.
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function postedAuthorId(array $input): int
+    {
+        if (!array_key_exists('post_author', $input)) {
+            return 0;
+        }
+
+        $raw = $input['post_author'];
+        if (is_int($raw)) {
+            return $raw > 0 ? $raw : 0;
+        }
+        if (is_string($raw) && $raw !== '' && ctype_digit($raw)) {
+            $id = (int) $raw;
+
+            return $id > 0 ? $id : 0;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Whether a living, active user may own this post type.
+     *
+     * Posts require edit_posts; pages require edit_pages. Missing users,
+     * pending verification, and forum-banned accounts (user_status !== 0)
+     * cannot own content.
+     */
+    public static function userCanOwnPostType(int $userId, string $postType, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || !class_exists('AP_User', false)) {
+            return false;
+        }
+
+        $user = AP_User::getById($userId, $db);
+        if ($user === null || $user->user_status !== 0) {
+            return false;
+        }
+
+        return self::userHasOwnCap($userId, $postType, $db);
+    }
+
+    /**
+     * Sidebar Author metabox with a <select> of assignable users.
+     */
+    private static function renderAuthorMetabox(int $selected, string $postType, ?AP_DB $db): string
+    {
+        $html = '<div class="ap-metabox ap-metabox-author">';
+        $html .= '<h3 class="ap-metabox-title">Author</h3>';
+        $html .= '<div class="ap-metabox-body">';
+        $html .= '<p><label for="post_author" class="screen-reader-text">Author</label>';
+        $html .= self::renderAuthorSelect($selected, $postType, $db);
+        $html .= '</p>';
+        $html .= '</div></div>';
+
+        return $html;
+    }
+
+    /**
+     * Author <select> of living, active users who can own this type.
+     *
+     * @param array{
+     *   name?: string,
+     *   id?: string,
+     *   form?: string,
+     *   users?: list<AP_User>
+     * } $args
+     */
+    private static function renderAuthorSelect(
+        int $selected,
+        string $postType,
+        ?AP_DB $db,
+        array $args = []
+    ): string {
+        $name = (string) ($args['name'] ?? 'post_author');
+        $idAttr = (string) ($args['id'] ?? 'post_author');
+        $form = (string) ($args['form'] ?? '');
+        $html = '<select name="' . ap_esc_attr($name) . '" id="' . ap_esc_attr($idAttr) . '"';
+        if ($form !== '') {
+            $html .= ' form="' . ap_esc_attr($form) . '"';
+        }
+        $html .= '>';
+        /** @var list<AP_User>|null $preset */
+        $preset = isset($args['users']) && is_array($args['users']) ? $args['users'] : null;
+        $users = $preset !== null && $preset !== []
+            ? $preset
+            : self::authorCandidates($postType, $selected, $db);
+        $selectedFound = false;
+        foreach ($users as $user) {
+            $label = $user->display_name !== '' ? $user->display_name : $user->user_login;
+            if ($label === '') {
+                $label = (string) $user->ID;
+            }
+            $isSelected = $selected === $user->ID;
+            if ($isSelected) {
+                $selectedFound = true;
+            }
+            $html .= '<option value="' . (int) $user->ID . '"'
+                . ($isSelected ? ' selected' : '') . '>'
+                . ap_esc_html($label) . '</option>';
+        }
+        if (!$selectedFound) {
+            $html .= '<option value="' . max(0, $selected) . '" selected>'
+                . ap_esc_html($selected > 0 ? (string) $selected : '(none)')
+                . '</option>';
+        }
+        $html .= '</select>';
+
+        return $html;
+    }
+
+    /**
+     * Living, active users who may own this post type.
+     *
+     * Ownership is edit_posts (posts) or edit_pages (pages). Pending or
+     * banned accounts (user_status !== 0) are omitted. Deleted users are
+     * not in the table and do not appear.
+     *
+     * $includeId, when greater than 0, stays in the list even if that
+     * account is inactive or lost the ownership cap, so an edit screen
+     * can keep the current author selected.
+     *
+     * @return list<AP_User>
+     */
+    public static function authorCandidates(
+        string $postType,
+        int $includeId = 0,
+        ?AP_DB $db = null
+    ): array {
+        $db = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        if (!$db instanceof AP_DB || !class_exists('AP_User', false)) {
+            return [];
+        }
+
+        $users = AP_User::query([
+            'orderby' => 'display_name',
+            'order' => 'ASC',
+            'number' => 0,
+        ], $db);
+
+        $out = [];
+        $seen = [];
+        foreach ($users as $user) {
+            $id = $user->ID;
+            if ($id < 1 || isset($seen[$id])) {
+                continue;
+            }
+            $eligible = $user->user_status === 0
+                && self::userHasOwnCap($id, $postType, $db);
+            if (!$eligible && $id !== $includeId) {
+                continue;
+            }
+            $seen[$id] = true;
+            $out[] = $user;
+        }
+
+        if ($includeId > 0 && !isset($seen[$includeId])) {
+            $extra = AP_User::getById($includeId, $db);
+            if ($extra !== null) {
+                $out[] = $extra;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Primitive ownership cap for this type (edit_posts / edit_pages).
+     */
+    private static function userHasOwnCap(int $userId, string $postType, ?AP_DB $db): bool
+    {
+        if ($userId < 1 || !class_exists('AP_Roles', false)) {
+            return false;
+        }
+
+        $ownCap = AP_Admin::editCapabilityForPostType($postType);
+
+        return AP_Roles::userCan($userId, $ownCap, null, $db);
+    }
+
+    /**
+     * @param array{name?: string, id?: string, form?: string} $args
+     */
+    private static function renderStatusSelect(string $current, array $args = []): string
     {
         $options = [
             'draft' => 'Draft',
@@ -1044,7 +1544,14 @@ class AP_Admin_Post_Edit
             'private' => 'Private',
             'future' => 'Scheduled',
         ];
-        $html = '<select name="post_status" id="post_status">';
+        $name = (string) ($args['name'] ?? 'post_status');
+        $idAttr = (string) ($args['id'] ?? 'post_status');
+        $form = (string) ($args['form'] ?? '');
+        $html = '<select name="' . ap_esc_attr($name) . '" id="' . ap_esc_attr($idAttr) . '"';
+        if ($form !== '') {
+            $html .= ' form="' . ap_esc_attr($form) . '"';
+        }
+        $html .= '>';
         foreach ($options as $value => $label) {
             $sel = $current === $value ? ' selected' : '';
             $html .= '<option value="' . ap_esc_attr($value) . '"' . $sel . '>'

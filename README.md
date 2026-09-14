@@ -226,10 +226,11 @@ php ap-cli post create --type=page --title="About" --slug=about --file=./about.h
 php ap-cli post create --type=post --title="Hello" --file=./hello.html --status=publish
 php ap-cli post update --slug=about --type=page --file=./about.html
 php ap-cli post update --id=123 --title="New title"
+php ap-cli post update --id=123 --author=4
 php ap-cli help post
 ```
 
-Defaults on create: **posts → draft**, **pages → publish**. Update only changes fields you pass (`--title`, `--file`, `--status`, `--name` for rename).
+Defaults on create: **posts → draft**, **pages → publish**. Update only changes fields you pass (`--title`, `--file`, `--status`, `--name` for rename, `--author`).
 
 Global flags: `--path=/var/www/site`, `--url=https://example.com`, `--skip-plugins`, `--skip-themes`.  
 Exit codes: `0` ok · `1` usage · `2` error · `3` not installed.

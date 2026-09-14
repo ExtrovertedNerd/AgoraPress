@@ -1456,6 +1456,7 @@ def test_cli_doc_content(docs_root: Path) -> None:
         "post get",
         "post create",
         "post update",
+        "--author",
         "cache flush",
         "cron event list",
         "cron event run",

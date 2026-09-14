@@ -32,6 +32,7 @@ def test_admin_capability_helpers_exist() -> None:
         "function editMetaCapForPostType",
         "function deleteMetaCapForPostType",
         "function publishCapabilityForPostType",
+        "function editOthersCapabilityForPostType",
         "function screenCapabilities",
         "function registeredScreenCapabilities",
         "function capabilityForScreen",
@@ -90,10 +91,21 @@ def test_handlers_check_permissions() -> None:
             "userCan",
             "permission",
             "publishCapabilityForPostType",
+            "canAssignAuthor",
+            "authorCandidates",
+            "userCanOwnPostType",
+            "edit_others_posts",
+            "edit_others_pages",
+            "edit_posts",
+            "edit_pages",
+            "ap-metabox-author",
+            "post_author",
         ],
         ADMIN / "includes" / "class-ap-posts-list-table.php": [
             "userCan",
             "deleteMetaCapForPostType",
+            "canAssignAuthor",
+            "Quick Edit",
         ],
         ADMIN / "includes" / "class-ap-admin-media.php": [
             "upload_files",
@@ -131,6 +143,12 @@ def test_phpunit_capability_suite_exists() -> None:
     assert "AdminCapabilityTest" in src
     assert "testSubscriberCannotCreatePost" in src
     assert "testContributorPublishDowngradesToPending" in src
+    assert "testInsertPersistsChosenAuthorWhenAllowed" in src
+    assert "testInsertUsesLoggedInUserWhenAuthorAssignmentNotAllowed" in src
+    assert "testInsertIgnoresCraftedForbiddenAuthorId" in src
+    assert "testUpdatePersistsPostedAuthorWhenAllowed" in src
+    assert "testUpdateKeepsExistingAuthorWhenAssignmentNotAllowed" in src
+    assert "testUpdateIgnoresCraftedForbiddenAuthorId" in src
 
 
 def test_admin_capability_runtime_via_phpunit() -> None:

@@ -480,6 +480,8 @@ final class AdminPostsTest extends TestCase
         $this->assertStringContainsString('name="post_status"', $html);
         $this->assertStringContainsString('name="visibility"', $html);
         $this->assertStringContainsString('name="sticky"', $html);
+        $this->assertStringContainsString('<select name="post_author"', $html);
+        $this->assertStringContainsString('ap-metabox-author', $html);
         $this->assertStringContainsString('_ap_nonce', $html);
         // Classic visual editor toolbar (Visual | Text; never blocks).
         $this->assertStringContainsString('ap-editor__toolbar', $html);
@@ -489,6 +491,7 @@ final class AdminPostsTest extends TestCase
         $this->assertStringContainsString('ap-editor.js', $html);
 
         $pageHtml = AP_Admin_Post_Edit::renderForm(null, 'page', $this->actorId, $this->db);
+        $this->assertStringContainsString('<select name="post_author"', $pageHtml);
         $this->assertStringContainsString('name="post_parent"', $pageHtml);
         $this->assertStringContainsString('name="menu_order"', $pageHtml);
         $this->assertStringContainsString('Page Attributes', $pageHtml);
@@ -501,6 +504,147 @@ final class AdminPostsTest extends TestCase
             '/id="show_in_nav"[^>]*checked|checked[^>]*id="show_in_nav"/',
             $pageHtml
         );
+    }
+
+    public function testQuickEditRendersAuthorSelectOnlyWithEditOthersCap(): void
+    {
+        $authorId = $this->createUser('qeauthor', 'author');
+        $postId = AP_Post::insert([
+            'post_title' => 'QE Own Post',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+
+        $adminTable = new AP_Posts_List_Table('post', $this->db);
+        $adminTable->actorId = $this->actorId;
+        $adminTable->prepareItems(['post_status' => 'all']);
+        $adminHtml = $adminTable->render();
+        $this->assertStringContainsString('Quick Edit', $adminHtml);
+        $this->assertStringContainsString('class="editinline"', $adminHtml);
+        $this->assertStringContainsString('ap-quick-edit-form-' . $postId, $adminHtml);
+        $this->assertStringContainsString('name="post_author"', $adminHtml);
+        $this->assertStringContainsString('ap-quick-edit-author', $adminHtml);
+        $this->assertStringContainsString('id="ap-qe-author-' . $postId . '"', $adminHtml);
+        $this->assertStringContainsString(
+            'form="ap-quick-edit-form-' . $postId . '"',
+            $adminHtml
+        );
+
+        $authorTable = new AP_Posts_List_Table('post', $this->db);
+        $authorTable->actorId = $authorId;
+        $authorTable->prepareItems(['post_status' => 'all']);
+        $authorHtml = $authorTable->render();
+        $this->assertStringContainsString('Quick Edit', $authorHtml);
+        $this->assertStringContainsString('ap-quick-edit-form-' . $postId, $authorHtml);
+        $this->assertStringNotContainsString('name="post_author"', $authorHtml);
+        $this->assertStringNotContainsString('ap-quick-edit-author', $authorHtml);
+    }
+
+    public function testQuickEditPersistsAuthorWhenAllowed(): void
+    {
+        $ownerId = $this->createUser('qeowner', 'author');
+        $otherId = $this->createUser('qeother', 'author');
+        $postId = AP_Post::insert([
+            'post_title' => 'QE Reassign',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $ownerId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+
+        $result = AP_Admin_Post_Edit::processQuickEdit([
+            'post_ID' => $postId,
+            'post_type' => 'post',
+            'post_title' => 'QE Reassigned',
+            'post_status' => 'draft',
+            'post_author' => $otherId,
+            '_ap_nonce' => ap_create_nonce('quick-edit-' . $postId, $this->actorId),
+        ], $this->db, $this->actorId);
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $updated = AP_Post::get($postId, $this->db);
+        $this->assertNotNull($updated);
+        $this->assertSame($otherId, (int) $updated->post_author);
+        $this->assertSame('QE Reassigned', $updated->post_title);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'QE Page',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $this->actorId,
+        ], $this->db);
+        $editorId = $this->createUser('qeeditor', 'editor');
+        $pageResult = AP_Admin_Post_Edit::processQuickEdit([
+            'post_ID' => $pageId,
+            'post_type' => 'page',
+            'post_title' => 'QE Page',
+            'post_status' => 'draft',
+            'post_author' => $editorId,
+            '_ap_nonce' => ap_create_nonce('quick-edit-' . $pageId, $this->actorId),
+        ], $this->db, $this->actorId);
+        $this->assertTrue($pageResult['ok'], implode('; ', $pageResult['errors']));
+        $page = AP_Post::get($pageId, $this->db);
+        $this->assertNotNull($page);
+        $this->assertSame($editorId, (int) $page->post_author);
+    }
+
+    public function testQuickEditKeepsAuthorWhenAssignmentNotAllowedOrCrafted(): void
+    {
+        $ownerId = $this->createUser('qenocap', 'author');
+        $otherId = $this->createUser('qenocaptarget', 'author');
+        $subId = $this->createUser('qesub', 'subscriber');
+        $postId = AP_Post::insert([
+            'post_title' => 'QE Keep Author',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $ownerId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+
+        $asOwner = AP_Admin_Post_Edit::processQuickEdit([
+            'post_ID' => $postId,
+            'post_type' => 'post',
+            'post_title' => 'Still mine',
+            'post_status' => 'draft',
+            'post_author' => $otherId,
+            '_ap_nonce' => ap_create_nonce('quick-edit-' . $postId, $ownerId),
+        ], $this->db, $ownerId);
+        $this->assertTrue($asOwner['ok'], implode('; ', $asOwner['errors']));
+        $kept = AP_Post::get($postId, $this->db);
+        $this->assertNotNull($kept);
+        $this->assertSame($ownerId, (int) $kept->post_author);
+        $this->assertSame('Still mine', $kept->post_title);
+
+        $asSub = AP_Admin_Post_Edit::processQuickEdit([
+            'post_ID' => $postId,
+            'post_type' => 'post',
+            'post_title' => 'Not a subscriber post',
+            'post_status' => 'draft',
+            'post_author' => $subId,
+            '_ap_nonce' => ap_create_nonce('quick-edit-' . $postId, $this->actorId),
+        ], $this->db, $this->actorId);
+        $this->assertTrue($asSub['ok'], implode('; ', $asSub['errors']));
+        $ignored = AP_Post::get($postId, $this->db);
+        $this->assertNotNull($ignored);
+        $this->assertSame($ownerId, (int) $ignored->post_author);
+
+        $unknown = AP_Admin_Post_Edit::processQuickEdit([
+            'post_ID' => $postId,
+            'post_type' => 'post',
+            'post_title' => 'Unknown author',
+            'post_status' => 'draft',
+            'post_author' => 999999,
+            '_ap_nonce' => ap_create_nonce('quick-edit-' . $postId, $this->actorId),
+        ], $this->db, $this->actorId);
+        $this->assertTrue($unknown['ok'], implode('; ', $unknown['errors']));
+        $still = AP_Post::get($postId, $this->db);
+        $this->assertNotNull($still);
+        $this->assertSame($ownerId, (int) $still->post_author);
     }
 
     public function testSavePageShowInNavigationControl(): void
@@ -749,5 +893,18 @@ final class AdminPostsTest extends TestCase
                 $this->assertTrue($item['active']);
             }
         }
+    }
+
+    private function createUser(string $login, string $role): int
+    {
+        $created = AP_User::create([
+            'user_login' => $login,
+            'user_email' => $login . '@example.test',
+            'password' => 'password123',
+            'role' => $role,
+        ], $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors'] ?? []));
+
+        return (int) $created['id'];
     }
 }

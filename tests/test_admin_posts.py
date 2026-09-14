@@ -58,6 +58,8 @@ def test_admin_classes_define_core_api() -> None:
         "function getColumns",
         "function getBulkActions",
         "function getViews",
+        "Quick Edit",
+        "authorCandidates",
     ):
         assert needle in list_src, f"Expected {needle!r} in list table"
 
@@ -69,6 +71,8 @@ def test_admin_classes_define_core_api() -> None:
         "function save",
         "function renderForm",
         "function processRowAction",
+        "function processQuickEdit",
+        "function renderQuickEditRow",
         "function processRestoreRevision",
         "function processDeleteRevision",
         "function renderRevisionsList",
@@ -76,6 +80,14 @@ def test_admin_classes_define_core_api() -> None:
         "post_parent",
         "page_template",
         "visibility",
+        "post_author",
+        "edit_others_posts",
+        "edit_pages",
+        "function authorCandidates",
+        "function userCanOwnPostType",
+        "function authorForInsert",
+        "function authorForUpdate",
+        "function postedAuthorId",
         "AP_Editor",
     ):
         assert needle in edit_src, f"Expected {needle!r} in edit class"
