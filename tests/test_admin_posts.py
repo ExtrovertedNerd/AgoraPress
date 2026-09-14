@@ -19,6 +19,7 @@ INCLUDES = ROOT / "ap-includes"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
 BOOTSTRAP = ROOT / "ap-includes" / "bootstrap.php"
 FUNCTIONS = ROOT / "ap-includes" / "functions.php"
+PHPUNIT_POSTS = ROOT / "tests" / "Admin" / "AdminPostsTest.php"
 
 
 def _php_bin() -> str:
@@ -139,6 +140,44 @@ def test_structure_assert_lists_admin_screens() -> None:
         "class-ap-nonce.php",
     ):
         assert needle in src, f"Expected {needle!r} in assert-structure.php"
+
+
+def test_phpunit_author_assignment_cases_exist() -> None:
+    assert PHPUNIT_POSTS.is_file(), "Missing AdminPostsTest.php"
+    src = PHPUNIT_POSTS.read_text(encoding="utf-8")
+    for needle in (
+        "function testCreateAsOtherAuthor",
+        "function testUpdateAsOtherAuthor",
+        "function testNoCapCannotReassignAuthor",
+        "function testCraftedPostAuthorIgnored",
+    ):
+        assert needle in src, f"Expected {needle!r} in AdminPostsTest.php"
+
+
+def test_author_assignment_runtime_via_phpunit() -> None:
+    """Run the ACP author picker save cases when vendor is present."""
+    phpunit = ROOT / "vendor" / "bin" / "phpunit"
+    if not phpunit.is_file():
+        return
+    result = subprocess.run(
+        [
+            _php_bin(),
+            str(phpunit),
+            "--configuration",
+            str(ROOT / "phpunit.xml.dist"),
+            "--filter",
+            "testCreateAsOtherAuthor|testUpdateAsOtherAuthor|"
+            "testNoCapCannotReassignAuthor|testCraftedPostAuthorIgnored",
+            str(PHPUNIT_POSTS),
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, combined
+    assert "OK" in (result.stdout or "")
 
 
 def test_list_and_save_via_php() -> None:

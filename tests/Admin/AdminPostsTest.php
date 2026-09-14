@@ -506,6 +506,285 @@ final class AdminPostsTest extends TestCase
         );
     }
 
+    public function testCreateAsOtherAuthor(): void
+    {
+        $authorId = $this->createUser('createasother', 'author');
+        $created = AP_Admin_Post_Edit::save([
+            'post_title' => 'Create as other',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => (string) $authorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+        $this->assertNotNull($created['post']);
+        $this->assertSame($authorId, (int) $created['post']->post_author);
+        $this->assertNotSame($this->actorId, (int) $created['post']->post_author);
+
+        $stored = AP_Post::get((int) $created['id'], $this->db);
+        $this->assertNotNull($stored);
+        $this->assertSame($authorId, (int) $stored->post_author);
+
+        $editorId = $this->createUser('createasothereditor', 'editor');
+        $page = AP_Admin_Post_Edit::save([
+            'post_title' => 'Page as other',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $editorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($page['ok'], implode('; ', $page['errors']));
+        $this->assertNotNull($page['post']);
+        $this->assertSame($editorId, (int) $page['post']->post_author);
+        $pageStored = AP_Post::get((int) $page['id'], $this->db);
+        $this->assertNotNull($pageStored);
+        $this->assertSame($editorId, (int) $pageStored->post_author);
+    }
+
+    public function testUpdateAsOtherAuthor(): void
+    {
+        $ownerId = $this->createUser('updateasotherowner', 'author');
+        $otherId = $this->createUser('updateasother', 'author');
+        $postId = AP_Post::insert([
+            'post_title' => 'Owned',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $ownerId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+
+        $updated = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Reassigned',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => (string) $otherId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($updated['ok'], implode('; ', $updated['errors']));
+        $this->assertNotNull($updated['post']);
+        $this->assertSame($otherId, (int) $updated['post']->post_author);
+        $this->assertSame('Reassigned', $updated['post']->post_title);
+
+        $stored = AP_Post::get($postId, $this->db);
+        $this->assertNotNull($stored);
+        $this->assertSame($otherId, (int) $stored->post_author);
+        $this->assertSame('Reassigned', $stored->post_title);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'Admin page',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $this->actorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $pageId);
+        $editorId = $this->createUser('updateasothereditor', 'editor');
+        $page = AP_Admin_Post_Edit::save([
+            'post_ID' => $pageId,
+            'post_title' => 'Page reassigned',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $editorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $pageId, $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($page['ok'], implode('; ', $page['errors']));
+        $this->assertNotNull($page['post']);
+        $this->assertSame($editorId, (int) $page['post']->post_author);
+        $pageStored = AP_Post::get($pageId, $this->db);
+        $this->assertNotNull($pageStored);
+        $this->assertSame($editorId, (int) $pageStored->post_author);
+    }
+
+    public function testNoCapCannotReassignAuthor(): void
+    {
+        $authorId = $this->createUser('nocapauthor', 'author');
+        $otherId = $this->createUser('nocapother', 'author');
+        $this->assertFalse(AP_Admin_Post_Edit::canAssignAuthor($authorId, 'post', $this->db));
+
+        $created = AP_Admin_Post_Edit::save([
+            'post_title' => 'Cannot reassign on create',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $otherId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $authorId),
+        ], $authorId, $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+        $this->assertNotNull($created['post']);
+        $this->assertSame($authorId, (int) $created['post']->post_author);
+        $this->assertNotSame($otherId, (int) $created['post']->post_author);
+
+        $postId = (int) $created['id'];
+        $updated = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Still mine',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $otherId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $authorId),
+        ], $authorId, $this->db);
+        $this->assertTrue($updated['ok'], implode('; ', $updated['errors']));
+        $this->assertNotNull($updated['post']);
+        $this->assertSame($authorId, (int) $updated['post']->post_author);
+        $this->assertSame('Still mine', $updated['post']->post_title);
+
+        $stored = AP_Post::get($postId, $this->db);
+        $this->assertNotNull($stored);
+        $this->assertSame($authorId, (int) $stored->post_author);
+        $this->assertSame('Still mine', $stored->post_title);
+    }
+
+    public function testCraftedPostAuthorIgnored(): void
+    {
+        $authorId = $this->createUser('craftedauthor', 'author');
+        $subId = $this->createUser('craftedsub', 'subscriber');
+
+        $asSub = AP_Admin_Post_Edit::save([
+            'post_title' => 'Crafted subscriber on create',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $subId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($asSub['ok'], implode('; ', $asSub['errors']));
+        $this->assertNotNull($asSub['post']);
+        $this->assertSame($this->actorId, (int) $asSub['post']->post_author);
+
+        $unknown = AP_Admin_Post_Edit::save([
+            'post_title' => 'Unknown author on create',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => 999999,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($unknown['ok'], implode('; ', $unknown['errors']));
+        $this->assertNotNull($unknown['post']);
+        $this->assertSame($this->actorId, (int) $unknown['post']->post_author);
+
+        $asArray = AP_Admin_Post_Edit::save([
+            'post_title' => 'Array author on create',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => [$authorId],
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($asArray['ok'], implode('; ', $asArray['errors']));
+        $this->assertNotNull($asArray['post']);
+        $this->assertSame($this->actorId, (int) $asArray['post']->post_author);
+
+        $pageAsAuthor = AP_Admin_Post_Edit::save([
+            'post_title' => 'Author cannot own a page',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $authorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('new-post', $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($pageAsAuthor['ok'], implode('; ', $pageAsAuthor['errors']));
+        $this->assertNotNull($pageAsAuthor['post']);
+        $this->assertSame($this->actorId, (int) $pageAsAuthor['post']->post_author);
+
+        $postId = AP_Post::insert([
+            'post_title' => 'Keep this author',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $authorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $postId);
+
+        $updateSub = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Crafted subscriber on update',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => $subId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($updateSub['ok'], implode('; ', $updateSub['errors']));
+        $this->assertNotNull($updateSub['post']);
+        $this->assertSame($authorId, (int) $updateSub['post']->post_author);
+
+        $updateUnknown = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Unknown author on update',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => 999999,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($updateUnknown['ok'], implode('; ', $updateUnknown['errors']));
+        $this->assertNotNull($updateUnknown['post']);
+        $this->assertSame($authorId, (int) $updateUnknown['post']->post_author);
+
+        $updateArray = AP_Admin_Post_Edit::save([
+            'post_ID' => $postId,
+            'post_title' => 'Array author on update',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'post',
+            'post_author' => [$subId],
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $postId, $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($updateArray['ok'], implode('; ', $updateArray['errors']));
+        $this->assertNotNull($updateArray['post']);
+        $this->assertSame($authorId, (int) $updateArray['post']->post_author);
+
+        $stored = AP_Post::get($postId, $this->db);
+        $this->assertNotNull($stored);
+        $this->assertSame($authorId, (int) $stored->post_author);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'Page stays admin',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $this->actorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $pageId);
+        $pageUpdate = AP_Admin_Post_Edit::save([
+            'post_ID' => $pageId,
+            'post_title' => 'Not an author page',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $authorId,
+            'save_action' => 'draft',
+            '_ap_nonce' => ap_create_nonce('update-post-' . $pageId, $this->actorId),
+        ], $this->actorId, $this->db);
+        $this->assertTrue($pageUpdate['ok'], implode('; ', $pageUpdate['errors']));
+        $this->assertNotNull($pageUpdate['post']);
+        $this->assertSame($this->actorId, (int) $pageUpdate['post']->post_author);
+        $pageStored = AP_Post::get($pageId, $this->db);
+        $this->assertNotNull($pageStored);
+        $this->assertSame($this->actorId, (int) $pageStored->post_author);
+    }
+
     public function testQuickEditRendersAuthorSelectOnlyWithEditOthersCap(): void
     {
         $authorId = $this->createUser('qeauthor', 'author');
