@@ -71,13 +71,21 @@ def test_class_api_and_defaults() -> None:
         "function unsubscribe",
         "function listForUser",
         "function listForUserWithTitles",
+        "function listForTopic",
         "function deleteForUser",
         "function deleteForTopic",
         "function wantsNotifyOnCompose",
         "function maybeSubscribeFromCompose",
+        "function processQueuedReply",
+        "function isEligibleRecipient",
+        "function usableRecipientEmail",
+        "function composeReplyMail",
+        "function maybeHandleSignedUnsubscribe",
+        "QUERY_UNSUBSCRIBE",
         "POST_NOTIFY_REPLIES",
         "topic_subscriptions",
         "rate_limit_mail",
+        "skip_rate_limit",
     ):
         assert needle in src, f"AP_Forum_Notify missing {needle!r}"
 
@@ -100,6 +108,9 @@ def test_bootstrap_and_functions_wiring() -> None:
     assert "function ap_forum_notify_enqueue_reply" in functions
     assert "function ap_forum_notify_maybe_enqueue_approved_reply" in functions
     assert "function ap_forum_notify_send" in functions
+    assert "function ap_forum_notify_process_queued_reply" in functions
+    assert "function ap_forum_notify_is_eligible_recipient" in functions
+    assert "function ap_forum_notify_handle_unsubscribe" in functions
     assert "function ap_forum_notify_max_per_minute" in functions
     assert "function ap_forum_user_notify_enabled" in functions
     assert "function ap_forum_set_user_notify_enabled" in functions

@@ -115,6 +115,11 @@ def test_registration_and_media_wire_limits() -> None:
     assert "consumeOutboundQuota" in mail
     assert "ACTION_MAIL" in mail
     assert "checkMail" in mail
+    assert "skip_rate_limit" in mail
+
+    phpunit = PHPUNIT.read_text(encoding="utf-8")
+    assert "testMailSendSkipRateLimitDoesNotConsumeQuota" in phpunit
+    assert "skip_rate_limit" in phpunit
 
 
 def test_phpunit_rate_limit_suite() -> None:

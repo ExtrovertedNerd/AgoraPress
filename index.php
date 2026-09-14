@@ -77,6 +77,20 @@ if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
             exit(0);
         }
     }
+    // One-click topic-notify unsubscribe (HMAC token; no session).
+    if (class_exists('AP_Forum_Notify', false)) {
+        try {
+            $apForumUnsubRedirect = AP_Forum_Notify::maybeHandleSignedUnsubscribe();
+            if (is_string($apForumUnsubRedirect) && $apForumUnsubRedirect !== '') {
+                if (!headers_sent()) {
+                    header('Location: ' . $apForumUnsubRedirect, true, 302);
+                }
+                exit(0);
+            }
+        } catch (Throwable) {
+            // Fall through to normal render.
+        }
+    }
     // Forum create-topic / reply forms (POST → redirect before render).
     if (class_exists('AP_Forum_Front', false) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         try {

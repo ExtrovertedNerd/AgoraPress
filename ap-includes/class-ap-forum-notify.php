@@ -36,13 +36,20 @@
  * enqueue when they are later approved. `createReply()` itself does not
  * enqueue (imports stay silent).
  *
+ * The cron worker ({@see processQueuedReply()}) drops the poster, users
+ * with the master off, members who lost `view_forum`, and bad addresses,
+ * then {@see AP_Mail::send()} one `text/plain` message at a time with a
+ * signed unsubscribe link. That send skips `rate_limit_mail`. Own
+ * per-minute cap and digest grouping are later increments.
+ *
  * @package AgoraPress
  */
 
 declare(strict_types=1);
 
 /**
- * Site options, per-user master, per-topic subscription rows, and reply enqueue.
+ * Site options, per-user master, per-topic subscription rows, reply enqueue,
+ * and the cron mail worker.
  */
 class AP_Forum_Notify
 {
@@ -80,11 +87,25 @@ class AP_Forum_Notify
 
     /**
      * Cron hook for a queued reply notify (`topic_id`, `reply_post_id`).
-     * Worker delivery is a later increment; enqueue still no-ops when the
-     * site master is off. The reply POST schedules only — it does not spawn
-     * cron or send mail.
+     * {@see processQueuedReply()} is the worker. Enqueue still no-ops when
+     * the site master is off. The reply POST schedules only — it does not
+     * spawn cron or send mail.
      */
     public const CRON_HOOK = 'ap_forum_topic_notify';
+
+    /**
+     * Query argument on one-click unsubscribe URLs (`user_id` + `topic_id`).
+     * HMAC token; no session required.
+     */
+    public const QUERY_UNSUBSCRIBE = 'ap_forum_unsub';
+
+    /**
+     * Signed unsubscribe TTL in seconds (45 days; SPEC requires 30+).
+     */
+    public const UNSUBSCRIBE_TTL = 3888000;
+
+    /** Word cap for the spoiler-stripped reply excerpt in notify mail. */
+    public const EXCERPT_WORDS = 40;
 
     /**
      * Compose POST field for "Notify me of replies". Absent / empty = off.
@@ -240,25 +261,181 @@ class AP_Forum_Notify
                         // Enqueue must never break moderation approval.
                     }
                 },
+                'cron' => static function (mixed $topicId = 0, mixed $replyPostId = 0): void {
+                    $db = (isset($GLOBALS['apdb']) && $GLOBALS['apdb'] instanceof AP_DB)
+                        ? $GLOBALS['apdb']
+                        : null;
+                    try {
+                        self::processQueuedReply((int) $topicId, (int) $replyPostId, $db);
+                    } catch (Throwable) {
+                        // Worker must never break cron.
+                    }
+                },
             ];
         }
         if (
-            function_exists('ap_has_action')
-            && ap_has_action('ap_forum_post_approved', self::$hookCallbacks['approved'])
+            !function_exists('ap_has_action')
+            || !ap_has_action('ap_forum_post_approved', self::$hookCallbacks['approved'])
         ) {
-            return;
+            ap_add_action('ap_forum_post_approved', self::$hookCallbacks['approved'], 10, 2);
         }
-        ap_add_action('ap_forum_post_approved', self::$hookCallbacks['approved'], 10, 2);
+        if (
+            !function_exists('ap_has_action')
+            || !ap_has_action(self::CRON_HOOK, self::$hookCallbacks['cron'])
+        ) {
+            ap_add_action(self::CRON_HOOK, self::$hookCallbacks['cron'], 10, 2);
+        }
+    }
+
+    /**
+     * Cron worker: filter subscribers and send one text/plain mail each.
+     *
+     * Drops the poster, user-master off, lost `view_forum`, and unusable
+     * addresses. Does not consume `rate_limit_mail`. Failed
+     * {@see AP_Mail::send()} does not delete the subscription. Site master
+     * off, missing/unapproved replies, and the topic starter are no-ops.
+     *
+     * @return int Number of successful sends.
+     */
+    public static function processQueuedReply(int $topicId, int $replyPostId, ?AP_DB $db = null): int
+    {
+        if ($topicId < 1 || $replyPostId < 1) {
+            return 0;
+        }
+        if (!self::isEnabled($db)) {
+            return 0;
+        }
+        if (!class_exists('AP_Forum', false)) {
+            return 0;
+        }
+
+        $topic = AP_Forum::getTopic($topicId, $db);
+        $post = AP_Forum::getPost($replyPostId, $db);
+        if ($topic === null || $post === null) {
+            return 0;
+        }
+        if ((int) ($post->topic_id ?? 0) !== $topicId) {
+            return 0;
+        }
+        if ((int) ($post->post_approved ?? 0) !== 1) {
+            return 0;
+        }
+        if ((int) ($topic->first_post_id ?? 0) === $replyPostId) {
+            return 0;
+        }
+
+        $forumId = (int) ($topic->forum_id ?? 0);
+        $posterId = (int) ($post->poster_id ?? 0);
+        $sent = 0;
+        foreach (self::listForTopic($topicId, $db) as $row) {
+            $userId = (int) ($row->user_id ?? 0);
+            if (!self::isEligibleRecipient($userId, $forumId, $posterId, $db)) {
+                continue;
+            }
+            $email = self::usableRecipientEmail($userId, $db);
+            if ($email === '') {
+                continue;
+            }
+            $composed = self::composeReplyMail($topic, $post, $userId, $db);
+            if ($composed === null) {
+                continue;
+            }
+            $ok = self::send(
+                $email,
+                $composed['subject'],
+                $composed['message'],
+                ['Content-Type' => 'text/plain; charset=UTF-8'],
+                $db
+            );
+            if ($ok) {
+                $sent++;
+            }
+        }
+
+        return $sent;
+    }
+
+    /**
+     * Whether this subscriber should receive mail for a reply in $forumId.
+     *
+     * False for guests, the poster, user-master off, lost `view_forum`,
+     * and unusable addresses. Does not inspect the site master.
+     */
+    public static function isEligibleRecipient(
+        int $userId,
+        int $forumId,
+        int $posterId,
+        ?AP_DB $db = null
+    ): bool {
+        if ($userId < 1 || $forumId < 1) {
+            return false;
+        }
+        if ($posterId > 0 && $userId === $posterId) {
+            return false;
+        }
+        if (!self::isUserNotifyEnabled($userId, $db)) {
+            return false;
+        }
+        if (
+            class_exists('AP_Forum_Permissions', false)
+            && !AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db)
+        ) {
+            return false;
+        }
+
+        return self::usableRecipientEmail($userId, $db) !== '';
+    }
+
+    /**
+     * Usable RFC address for $userId, or empty when missing / invalid.
+     *
+     * Deleted users, blank `user_email`, and non-addresses are dropped.
+     */
+    public static function usableRecipientEmail(int $userId, ?AP_DB $db = null): string
+    {
+        if ($userId < 1) {
+            return '';
+        }
+
+        $email = '';
+        if (class_exists('AP_User', false)) {
+            $user = AP_User::getById($userId, $db);
+            if ($user === null) {
+                return '';
+            }
+            $email = trim((string) ($user->user_email ?? ''));
+        } else {
+            try {
+                $db = self::resolveDb($db);
+                $raw = $db->getVar(
+                    'SELECT user_email FROM ' . $db->quoteIdentifier($db->table('users'))
+                    . ' WHERE ID = ? LIMIT 1',
+                    [$userId]
+                );
+                $email = is_string($raw) ? trim($raw) : '';
+            } catch (Throwable) {
+                return '';
+            }
+        }
+        if ($email === '') {
+            return '';
+        }
+        if (class_exists('AP_User', false) && !AP_User::isValidEmail($email)) {
+            return '';
+        }
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return '';
+        }
+
+        return $email;
     }
 
     /**
      * Outbound notify choke point. Site master off → no send (does not call
      * {@see AP_Mail::send()} and does not consume `rate_limit_mail`).
      *
-     * Delivery (digest, unsubscribe token, own per-minute cap) is the mail
-     * worker increment. Do not call {@see AP_Mail::send()} from here until
-     * that worker owns the cap — {@see AP_Mail::send()} consumes the
-     * verification / reset / test bucket.
+     * When the site master is on, sends `text/plain` via {@see AP_Mail::send()}
+     * with `skip_rate_limit` so verification / reset / test quota is untouched.
      *
      * @param string|list<string>   $to
      * @param array<string, string> $headers
@@ -286,10 +463,187 @@ class AP_Forum_Notify
             return false;
         }
 
-        // Signature reserved for the worker. $headers is unused until then.
-        unset($headers);
+        if (!class_exists('AP_Mail', false)) {
+            return false;
+        }
 
-        return false;
+        $headers['Content-Type'] = 'text/plain; charset=UTF-8';
+
+        return AP_Mail::send($to, $subject, $message, $headers, [
+            'skip_rate_limit' => true,
+        ]);
+    }
+
+    /**
+     * Subject + text/plain body for one reply, including a signed unsubscribe URL.
+     *
+     * @return array{subject: string, message: string}|null
+     */
+    public static function composeReplyMail(
+        object $topic,
+        object $post,
+        int $userId,
+        ?AP_DB $db = null
+    ): ?array {
+        $topicId = (int) ($topic->topic_id ?? 0);
+        if ($topicId < 1 || $userId < 1) {
+            return null;
+        }
+
+        $title = trim((string) ($topic->topic_title ?? ''));
+        if ($title === '') {
+            $title = 'Topic #' . $topicId;
+        }
+        $unsubUrl = self::unsubscribeUrl($userId, $topicId, $db);
+        if ($unsubUrl === '') {
+            return null;
+        }
+
+        $site = self::siteName($db);
+        $author = self::replyAuthorLabel($post, $db);
+        $excerpt = self::replyExcerpt($post);
+        $topicUrl = '';
+        if (class_exists('AP_Forum', false)) {
+            $topicUrl = self::absolutizeUrl(AP_Forum::topicUrl($topic), $db);
+        }
+
+        $lines = [
+            $title,
+            '',
+            $author . ' posted a reply.',
+        ];
+        if ($excerpt !== '') {
+            $lines[] = '';
+            $lines[] = $excerpt;
+        }
+        if ($topicUrl !== '') {
+            $lines[] = '';
+            $lines[] = $topicUrl;
+        }
+        $lines[] = '';
+        $lines[] = 'Unsubscribe from this topic (no sign-in required):';
+        $lines[] = $unsubUrl;
+
+        return [
+            'subject' => '[' . $site . '] New reply in ' . $title,
+            'message' => implode("\n", $lines) . "\n",
+        ];
+    }
+
+    /**
+     * Absolute one-click unsubscribe URL (`user_id` + `topic_id`, HMAC, TTL).
+     *
+     * Does not require a session. Token unsubscribes this watch only.
+     */
+    public static function unsubscribeUrl(int $userId, int $topicId, ?AP_DB $db = null): string
+    {
+        $token = self::createUnsubscribeToken($userId, $topicId);
+        if ($token === '') {
+            return '';
+        }
+        $home = self::absoluteHomeUrl($db);
+        $sep = str_contains($home, '?') ? '&' : '?';
+
+        return $home . $sep . self::QUERY_UNSUBSCRIBE . '=' . rawurlencode($token);
+    }
+
+    /**
+     * HMAC token for one-click unsubscribe. Pass $now to freeze expiry in tests.
+     */
+    public static function createUnsubscribeToken(int $userId, int $topicId, ?int $now = null): string
+    {
+        if ($userId < 1 || $topicId < 1) {
+            return '';
+        }
+        $now = $now ?? time();
+        $exp = $now + self::UNSUBSCRIBE_TTL;
+        $hmac = self::unsubscribeHmac($userId, $topicId, $exp);
+        $payload = $userId . ':' . $topicId . ':' . $exp . ':' . $hmac;
+
+        return self::toBase64Url($payload);
+    }
+
+    /**
+     * Parse and verify a signed unsubscribe token. Expired / tampered → null.
+     *
+     * @return array{user_id: int, topic_id: int, expires: int}|null
+     */
+    public static function parseUnsubscribeToken(string $token, ?int $now = null): ?array
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return null;
+        }
+        $payload = self::fromBase64Url($token);
+        if ($payload === null || $payload === '') {
+            return null;
+        }
+        $parts = explode(':', $payload, 4);
+        if (count($parts) !== 4) {
+            return null;
+        }
+        [$userRaw, $topicRaw, $expRaw, $hmac] = $parts;
+        if (
+            !ctype_digit($userRaw)
+            || !ctype_digit($topicRaw)
+            || !ctype_digit($expRaw)
+            || $hmac === ''
+        ) {
+            return null;
+        }
+        $userId = (int) $userRaw;
+        $topicId = (int) $topicRaw;
+        $exp = (int) $expRaw;
+        if ($userId < 1 || $topicId < 1 || $exp < 1) {
+            return null;
+        }
+        $now = $now ?? time();
+        if ($exp < $now) {
+            return null;
+        }
+        $expected = self::unsubscribeHmac($userId, $topicId, $exp);
+        if (!hash_equals($expected, $hmac)) {
+            return null;
+        }
+
+        return [
+            'user_id' => $userId,
+            'topic_id' => $topicId,
+            'expires' => $exp,
+        ];
+    }
+
+    /**
+     * Honor `ap_forum_unsub` when present. No session required.
+     *
+     * Missing query arg → null (caller continues). Present (valid or not) →
+     * redirect URL. Valid tokens drop that `(user, topic)` watch only and
+     * never turn the user master off.
+     *
+     * @param array<string, mixed>|null $get
+     */
+    public static function maybeHandleSignedUnsubscribe(?array $get = null, ?AP_DB $db = null): ?string
+    {
+        $get ??= $_GET;
+        $raw = $get[self::QUERY_UNSUBSCRIBE] ?? null;
+        if (!is_string($raw) || trim($raw) === '') {
+            return null;
+        }
+        $parsed = self::parseUnsubscribeToken($raw);
+        if ($parsed === null) {
+            return self::signedUnsubscribeRedirect(null, 'topic_unsubscribe_invalid', $db);
+        }
+        self::unsubscribe($parsed['user_id'], $parsed['topic_id'], $db);
+        $topic = null;
+        if (class_exists('AP_Forum', false)) {
+            $topic = AP_Forum::getTopic($parsed['topic_id'], $db);
+        }
+
+        return self::signedUnsubscribeRedirect(
+            is_object($topic) ? $topic : null,
+            'topic_unsubscribed',
+            $db
+        );
     }
 
     /**
@@ -719,6 +1073,46 @@ class AP_Forum_Notify
     }
 
     /**
+     * Subscription rows for a topic, oldest first.
+     *
+     * @return list<object>
+     */
+    public static function listForTopic(int $topicId, ?AP_DB $db = null): array
+    {
+        if ($topicId < 1) {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+
+        try {
+            $table = $db->quoteIdentifier($db->table('topic_subscriptions'));
+            $rows = $db->getResults(
+                'SELECT * FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('topic_id') . ' = ?'
+                . ' ORDER BY ' . $db->quoteIdentifier('created_at') . ' ASC, '
+                . $db->quoteIdentifier('user_id') . ' ASC',
+                [$topicId]
+            );
+        } catch (Throwable) {
+            return [];
+        }
+
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            if (is_object($row)) {
+                $out[] = $row;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Subscriptions for a user with topic titles (profile / account list).
      *
      * Oldest first. Missing topics keep a fallback title so the member can
@@ -957,5 +1351,174 @@ class AP_Forum_Notify
         } catch (Throwable) {
             return false;
         }
+    }
+
+    private static function siteName(?AP_DB $db): string
+    {
+        $name = trim(self::optionValue('blogname', '', $db));
+        if ($name === '') {
+            $name = 'AgoraPress';
+        }
+
+        return $name;
+    }
+
+    private static function replyAuthorLabel(object $post, ?AP_DB $db): string
+    {
+        $posterId = (int) ($post->poster_id ?? 0);
+        if ($posterId > 0 && class_exists('AP_User', false)) {
+            $user = AP_User::getById($posterId, $db);
+            if ($user !== null) {
+                $name = trim((string) ($user->display_name ?? ''));
+                if ($name === '') {
+                    $name = trim((string) ($user->user_login ?? ''));
+                }
+                if ($name !== '') {
+                    return $name;
+                }
+            }
+        }
+        $guest = trim((string) ($post->poster_name ?? ''));
+
+        return $guest !== '' ? $guest : 'Guest';
+    }
+
+    private static function replyExcerpt(object $post): string
+    {
+        $content = (string) ($post->post_content ?? '');
+        if ($content === '') {
+            return '';
+        }
+        if (function_exists('ap_strip_spoilers')) {
+            $content = ap_strip_spoilers($content);
+        } elseif (class_exists('AP_Content_Format', false)) {
+            $content = AP_Content_Format::stripSpoilers($content);
+        }
+        $text = trim(strip_tags($content));
+        if ($text === '') {
+            return '';
+        }
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+        $words = self::EXCERPT_WORDS;
+        if ($words < 1) {
+            return $text;
+        }
+        $parts = preg_split('/\s+/u', $text, $words + 1) ?: [];
+        if (count($parts) > $words) {
+            $parts = array_slice($parts, 0, $words);
+            $text = implode(' ', $parts) . '…';
+        } else {
+            $text = implode(' ', $parts);
+        }
+
+        return $text;
+    }
+
+    private static function absoluteHomeUrl(?AP_DB $db): string
+    {
+        $home = trim(self::optionValue('home', '', $db));
+        if ($home === '') {
+            $home = trim(self::optionValue('siteurl', '', $db));
+        }
+        if ($home === '' && function_exists('ap_home_url')) {
+            try {
+                $home = (string) ap_home_url('/', $db);
+            } catch (Throwable) {
+                $home = '';
+            }
+        }
+        if ($home === '' && defined('AP_HOME') && is_string(AP_HOME) && AP_HOME !== '') {
+            $home = (string) AP_HOME;
+        }
+        if ($home === '') {
+            $home = '/';
+        }
+
+        return rtrim($home, '/') . '/';
+    }
+
+    private static function absolutizeUrl(string $url, ?AP_DB $db): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+        if (str_starts_with($url, 'https://') || str_starts_with($url, 'http://')) {
+            return $url;
+        }
+        $home = self::absoluteHomeUrl($db);
+        if (str_starts_with($url, '/')) {
+            $parts = parse_url($home);
+            $scheme = is_array($parts) && isset($parts['scheme']) ? (string) $parts['scheme'] : '';
+            $host = is_array($parts) && isset($parts['host']) ? (string) $parts['host'] : '';
+            if ($scheme !== '' && $host !== '') {
+                $port = '';
+                if (isset($parts['port'])) {
+                    $port = ':' . (string) $parts['port'];
+                }
+
+                return $scheme . '://' . $host . $port . $url;
+            }
+        }
+
+        return $home . ltrim($url, '/');
+    }
+
+    private static function signedUnsubscribeRedirect(
+        ?object $topic,
+        string $notice,
+        ?AP_DB $db
+    ): string {
+        $url = '';
+        if ($topic !== null && class_exists('AP_Forum', false)) {
+            $url = self::absolutizeUrl(AP_Forum::topicUrl($topic), $db);
+        }
+        if ($url === '') {
+            $url = self::absoluteHomeUrl($db);
+        }
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=' . $notice;
+    }
+
+    private static function unsubscribeHmac(int $userId, int $topicId, int $exp): string
+    {
+        return hash_hmac(
+            'sha256',
+            'forum-unsub|' . $userId . '|' . $topicId . '|' . $exp,
+            self::unsubscribeSigningSecret()
+        );
+    }
+
+    private static function unsubscribeSigningSecret(): string
+    {
+        $key = defined('AP_AUTH_KEY') ? (string) AP_AUTH_KEY : '';
+        $salt = defined('AP_AUTH_SALT') ? (string) AP_AUTH_SALT : '';
+        if ($key === '' && $salt === '') {
+            $key = defined('AP_LOGGED_IN_KEY') ? (string) AP_LOGGED_IN_KEY : 'agorapress-auth';
+            $salt = defined('AP_LOGGED_IN_SALT') ? (string) AP_LOGGED_IN_SALT : 'agorapress-salt';
+        }
+
+        return $key . $salt;
+    }
+
+    private static function toBase64Url(string $payload): string
+    {
+        return rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+    }
+
+    private static function fromBase64Url(string $token): ?string
+    {
+        $b64 = strtr($token, '-_', '+/');
+        $pad = strlen($b64) % 4;
+        if ($pad > 0) {
+            $b64 .= str_repeat('=', 4 - $pad);
+        }
+        $payload = base64_decode($b64, true);
+        if ($payload === false) {
+            return null;
+        }
+
+        return $payload;
     }
 }

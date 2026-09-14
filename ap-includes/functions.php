@@ -8490,8 +8490,8 @@ function ap_forum_notify_maybe_enqueue_approved_reply(?object $post, ?AP_DB $db 
 /**
  * Outbound notify choke point. Site master off → no send.
  *
- * Does not call {@see AP_Mail::send()} (that bucket is verification / reset /
- * test). Delivery is the mail-worker increment.
+ * When the site master is on, sends `text/plain` via {@see AP_Mail::send()}
+ * with `skip_rate_limit` so verification / reset / test quota is untouched.
  *
  * @param string|list<string>   $to
  * @param array<string, string> $headers
@@ -8510,6 +8510,59 @@ function ap_forum_notify_send(
     }
 
     return AP_Forum_Notify::send($to, $subject, $message, $headers, $db);
+}
+
+/**
+ * Cron worker: filter subscribers and send one text/plain mail each.
+ *
+ * @see AP_Forum_Notify::processQueuedReply()
+ */
+function ap_forum_notify_process_queued_reply(
+    int $topicId,
+    int $replyPostId,
+    ?AP_DB $db = null
+): int {
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return 0;
+    }
+
+    return AP_Forum_Notify::processQueuedReply($topicId, $replyPostId, $db);
+}
+
+/**
+ * Whether this subscriber should receive mail for a reply in $forumId.
+ *
+ * @see AP_Forum_Notify::isEligibleRecipient()
+ */
+function ap_forum_notify_is_eligible_recipient(
+    int $userId,
+    int $forumId,
+    int $posterId,
+    ?AP_DB $db = null
+): bool {
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::isEligibleRecipient($userId, $forumId, $posterId, $db);
+}
+
+/**
+ * Honor a signed one-click unsubscribe token (no session).
+ *
+ * Missing query arg → null. Present → redirect URL.
+ *
+ * @param array<string, mixed>|null $get
+ *
+ * @see AP_Forum_Notify::maybeHandleSignedUnsubscribe()
+ */
+function ap_forum_notify_handle_unsubscribe(?array $get = null, ?AP_DB $db = null): ?string
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return null;
+    }
+
+    return AP_Forum_Notify::maybeHandleSignedUnsubscribe($get, $db);
 }
 
 /**

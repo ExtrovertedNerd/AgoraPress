@@ -70,6 +70,8 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertSame('forum_notify_max_per_minute', AP_Forum_Notify::OPTION_MAX_PER_MINUTE);
         $this->assertSame('forum_notify_email', AP_Forum_Notify::META_NOTIFY_EMAIL);
         $this->assertSame('ap_forum_topic_notify', AP_Forum_Notify::CRON_HOOK);
+        $this->assertSame('ap_forum_unsub', AP_Forum_Notify::QUERY_UNSUBSCRIBE);
+        $this->assertGreaterThanOrEqual(30 * 86400, AP_Forum_Notify::UNSUBSCRIBE_TTL);
         $this->assertSame('notify_replies', AP_Forum_Notify::POST_NOTIFY_REPLIES);
         $this->assertFalse(AP_Forum_Notify::DEFAULT_ENABLED);
         $this->assertFalse(AP_Forum_Notify::DEFAULT_USER_ENABLED);
@@ -177,7 +179,7 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertSame([], AP_Mail::getTestOutbox());
     }
 
-    public function testSiteOnEnqueuesCronButSendDoesNotCallMail(): void
+    public function testSiteOnEnqueuesCronAndSendUsesTextPlainMail(): void
     {
         AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
         $this->assertTrue(AP_Forum_Notify::shouldShowChrome($this->db));
@@ -193,16 +195,30 @@ final class ForumNotifyConfigTest extends TestCase
 
         $this->assertFalse(AP_Forum_Notify::enqueueReply(0, 34, $this->db));
         $this->assertFalse(AP_Forum_Notify::enqueueReply(12, 0, $this->db));
+        $this->assertSame([], AP_Mail::getTestOutbox(), 'Enqueue must not send mail');
 
-        $this->assertFalse(AP_Forum_Notify::send(
+        $this->assertTrue(AP_Forum_Notify::send(
             'member@example.com',
             '[Example] New reply in Hello',
             'A reply landed.',
             [],
             $this->db
         ));
-        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertTrue(ap_forum_notify_send(
+            'second@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(2, $outbox);
+        $this->assertSame('member@example.com', $outbox[0]['to']);
+        $this->assertSame('second@example.com', $outbox[1]['to']);
+        $this->assertStringContainsString('text/plain', $outbox[0]['headers']);
+        $this->assertStringContainsString('charset=UTF-8', $outbox[0]['headers']);
 
+        AP_Mail::clearTestOutbox();
         AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '0', $this->db);
         $this->assertFalse(AP_Forum_Notify::enqueueReply(99, 100, $this->db));
         $this->assertFalse(

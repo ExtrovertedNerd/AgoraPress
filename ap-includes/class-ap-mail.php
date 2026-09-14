@@ -9,7 +9,8 @@
  * (return true/false to short-circuit; null continues). Test outbox capture
  * runs after that filter and before php/smtp. Outbound volume is gated by
  * {@see AP_Rate_Limit::ACTION_MAIL} (IP + recipient) so an open register
- * form cannot turn the configured transport into a cannon. No PHPMailer;
+ * form cannot turn the configured transport into a cannon. Topic notify
+ * passes `skip_rate_limit` so it does not consume that bucket. No PHPMailer;
  * no Composer runtime mail library.
  *
  * When defined in `ap-config.php`, these constants override the options table
@@ -323,12 +324,16 @@ class AP_Mail
      * @param string              $subject Subject line (plain text).
      * @param string              $message Body (plain text; CRLF normalized).
      * @param array<string, string> $headers Extra headers (name => value), optional.
+     * @param array{skip_rate_limit?: bool} $options
+     *        When skip_rate_limit is true, do not apply {@see AP_Rate_Limit::ACTION_MAIL}
+     *        (topic notify uses its own cap and must not consume rate_limit_mail).
      */
     public static function send(
         string|array $to,
         string $subject,
         string $message,
-        array $headers = []
+        array $headers = [],
+        array $options = []
     ): bool {
         self::$lastError = '';
 
@@ -354,7 +359,7 @@ class AP_Mail
             return false;
         }
 
-        if (!self::consumeOutboundQuota($clean)) {
+        if (empty($options['skip_rate_limit']) && !self::consumeOutboundQuota($clean)) {
             return false;
         }
 

@@ -416,6 +416,33 @@ final class RateLimitTest extends TestCase
         $this->assertCount(3, AP_Mail::getTestOutbox());
     }
 
+    public function testMailSendSkipRateLimitDoesNotConsumeQuota(): void
+    {
+        AP_Rate_Limit::setTestLimits('mail', ['max' => 1, 'window' => 600, 'lockout' => 120]);
+        AP_Mail::enableTestMode();
+        AP_Mail::clearTestOutbox();
+
+        $this->assertTrue(AP_Mail::send('one@example.test', 'S', 'B'));
+        $this->assertFalse(AP_Mail::send('two@example.test', 'S', 'B'));
+        $this->assertCount(1, AP_Mail::getTestOutbox());
+        AP_Mail::clearTestOutbox();
+
+        $this->assertTrue(AP_Mail::send(
+            'two@example.test',
+            'S',
+            'B',
+            [],
+            ['skip_rate_limit' => true]
+        ));
+        $this->assertCount(1, AP_Mail::getTestOutbox());
+        $this->assertSame('', AP_Mail::lastError());
+
+        // Skip does not refill rate_limit_mail; a normal send stays blocked.
+        $this->assertFalse(AP_Mail::send('three@example.test', 'S', 'B'));
+        $this->assertCount(1, AP_Mail::getTestOutbox());
+        $this->assertStringContainsString('Too many', AP_Mail::lastError());
+    }
+
     public function testMailSendSkipsRateLimitWhenDisabled(): void
     {
         AP_Rate_Limit::setTestLimits('mail', ['max' => 1, 'window' => 600, 'lockout' => 120]);

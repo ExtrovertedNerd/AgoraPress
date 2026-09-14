@@ -590,6 +590,10 @@ class AP_Forum_Front
                         . ' subscribe to are now on.',
                 ],
                 'topic_unsubscribed' => ['type' => 'success', 'message' => 'Unsubscribed from this topic.'],
+                'topic_unsubscribe_invalid' => [
+                    'type' => 'error',
+                    'message' => 'This unsubscribe link is invalid or has expired.',
+                ],
             ];
             if (isset($map[$code])) {
                 return $map[$code];

@@ -71,6 +71,7 @@ def test_mail_api_surface() -> None:
         "applySendFilter",
         "consumeOutboundQuota",
         "ACTION_MAIL",
+        "skip_rate_limit",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-mail.php"
     assert "PHPMailer" not in src or "No PHPMailer" in src
