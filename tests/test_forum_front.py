@@ -47,6 +47,8 @@ def test_forum_front_class_api() -> None:
     for needle in (
         "class AP_Forum_Front",
         "function enrichQueryArgs",
+        "forum_topic_notify_enabled",
+        "shouldShowChrome",
         "function handlePost",
         "function applyToQuery",
         "markTopicReadOnView",

@@ -141,6 +141,7 @@
 | `forum_online_enabled` | `1` | [forums.md](forums.md) |
 | `forum_unread_tracking_enabled` | `1` | [forums.md](forums.md) |
 | `forum_signatures_enabled` | `1` | [forums.md](forums.md) |
+| `forum_topic_notify_enabled` | `0` | [forums.md](forums.md) |
 | `forum_flood_interval` | `30` | [forums.md](forums.md) |
 | `forum_spam_max_links` | `5` | [forums.md](forums.md) |
 | `forum_spam_blacklist` | `''` | [forums.md](forums.md) |

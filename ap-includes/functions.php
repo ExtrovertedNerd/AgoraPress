@@ -8425,6 +8425,61 @@ function ap_forum_topic_notify_enabled(?AP_DB $db = null): bool
 }
 
 /**
+ * Whether Subscribe / notify chrome may render (site master on).
+ *
+ * Site option off → no chrome.
+ *
+ * @see AP_Forum_Notify::shouldShowChrome()
+ */
+function ap_forum_notify_should_show_chrome(?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::shouldShowChrome($db);
+}
+
+/**
+ * Queue notify work for an approved reply. Site master off → no enqueue.
+ *
+ * @see AP_Forum_Notify::enqueueReply()
+ */
+function ap_forum_notify_enqueue_reply(int $topicId, int $replyPostId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::enqueueReply($topicId, $replyPostId, $db);
+}
+
+/**
+ * Outbound notify choke point. Site master off → no send.
+ *
+ * Does not call {@see AP_Mail::send()} (that bucket is verification / reset /
+ * test). Delivery is the mail-worker increment.
+ *
+ * @param string|list<string>   $to
+ * @param array<string, string> $headers
+ *
+ * @see AP_Forum_Notify::send()
+ */
+function ap_forum_notify_send(
+    string|array $to,
+    string $subject,
+    string $message,
+    array $headers = [],
+    ?AP_DB $db = null
+): bool {
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::send($to, $subject, $message, $headers, $db);
+}
+
+/**
  * Maximum topic-notify mails per minute (own bucket; not rate_limit_mail).
  *
  * Default 4 when missing or invalid.

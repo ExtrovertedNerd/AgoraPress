@@ -612,9 +612,11 @@ authored”, not the board total.
 “The Forum module is disabled. Enable it under Settings → Modules.”).
 
 Fieldsets as built: Display (topics/posts per page options), Guests,
-Features (PMs, search, who’s online, unread, signatures), Attachments,
-Moderation & anti-spam. Per-forum visibility is **not** on this screen —
-it is Forums → Edit (`forum_access_level`).
+Features (PMs, search, who’s online, unread, signatures, **Allow topic
+email notifications** — `forum_topic_notify_enabled`, default **off**;
+off means no Subscribe chrome, no reply enqueue, no notify send),
+Attachments, Moderation & anti-spam. Per-forum visibility is **not** on
+this screen — it is Forums → Edit (`forum_access_level`).
 
 Agora’s front (`AP_Forum_Front::topicsForQuery()` /
 `postsForQuery()`, unread mark-on-view) pages at **20** regardless of the

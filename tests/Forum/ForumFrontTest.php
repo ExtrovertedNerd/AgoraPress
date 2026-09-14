@@ -167,6 +167,29 @@ final class ForumFrontTest extends TestCase
         }
     }
 
+    public function testNotifyChromeQueryArgFollowsSiteOption(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-forum-notify.php';
+
+        $off = AP_Forum_Front::enrichQueryArgs([
+            'ap_forum_view' => 'index',
+        ], $this->db);
+        $this->assertArrayHasKey('forum_topic_notify_enabled', $off);
+        $this->assertFalse((bool) $off['forum_topic_notify_enabled']);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $on = AP_Forum_Front::enrichQueryArgs([
+            'ap_forum_view' => 'topic',
+        ], $this->db);
+        $this->assertTrue((bool) $on['forum_topic_notify_enabled']);
+
+        AP_Options::update('forum_topic_notify_enabled', '0', $this->db);
+        $again = AP_Forum_Front::enrichQueryArgs([
+            'ap_forum_view' => 'forum',
+        ], $this->db);
+        $this->assertFalse((bool) $again['forum_topic_notify_enabled']);
+    }
+
     public function testRewriteRulesIncludeForumRoutes(): void
     {
         $rules = AP_Rewrite::generateRules($this->db);

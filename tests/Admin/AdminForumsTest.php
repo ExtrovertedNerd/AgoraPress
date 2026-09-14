@@ -637,7 +637,57 @@ final class AdminForumsTest extends TestCase
         $this->assertSame('1', (string) AP_Options::get('forum_posts_require_approval', '0', $this->db));
         $this->assertSame('0', (string) AP_Options::get('forum_unread_tracking_enabled', '1', $this->db));
         $this->assertSame('0', (string) AP_Options::get('forum_signatures_enabled', '1', $this->db));
+        $this->assertSame('0', (string) AP_Options::get('forum_topic_notify_enabled', '1', $this->db));
         $this->assertStringContainsString('viagra', (string) AP_Options::get('forum_spam_blacklist', '', $this->db));
+    }
+
+    public function testForumSettingsTopicNotifyCheckboxDefaultOffAndPersists(): void
+    {
+        $src = (string) file_get_contents($this->root . '/ap-admin/options-forums.php');
+        $this->assertStringContainsString('name="forum_topic_notify_enabled"', $src);
+        $this->assertStringContainsString('Allow topic email notifications', $src);
+        $this->assertStringContainsString("AP_Options::get('forum_topic_notify_enabled', '0'", $src);
+
+        $this->assertSame(
+            '0',
+            (string) AP_Options::get('forum_topic_notify_enabled', 'missing', $this->db)
+        );
+
+        $on = AP_Options::updateForumSettings([
+            'forum_topic_notify_enabled' => '1',
+            'forum_allow_guest_viewing' => '1',
+            'forum_allow_guest_posting' => '0',
+            'forum_private_messaging_enabled' => '1',
+            'forum_attachments_enabled' => '1',
+            'forum_posts_require_approval' => '0',
+            'forum_search_enabled' => '1',
+            'forum_online_enabled' => '1',
+            'forum_unread_tracking_enabled' => '1',
+            'forum_signatures_enabled' => '1',
+        ], $this->db);
+        $this->assertTrue($on);
+        $this->assertSame(
+            '1',
+            (string) AP_Options::get('forum_topic_notify_enabled', 'x', $this->db)
+        );
+
+        // Unchecked checkbox is omitted from POST → stored off.
+        $off = AP_Options::updateForumSettings([
+            'forum_allow_guest_viewing' => '1',
+            'forum_allow_guest_posting' => '0',
+            'forum_private_messaging_enabled' => '1',
+            'forum_attachments_enabled' => '1',
+            'forum_posts_require_approval' => '0',
+            'forum_search_enabled' => '1',
+            'forum_online_enabled' => '1',
+            'forum_unread_tracking_enabled' => '1',
+            'forum_signatures_enabled' => '1',
+        ], $this->db);
+        $this->assertTrue($off);
+        $this->assertSame(
+            '0',
+            (string) AP_Options::get('forum_topic_notify_enabled', 'x', $this->db)
+        );
     }
 
     public function testAdminBootstrapLoadsForumIncludes(): void

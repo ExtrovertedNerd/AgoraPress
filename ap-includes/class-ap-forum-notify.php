@@ -10,7 +10,7 @@
  *
  * | Key                            | Default | Meaning                                      |
  * |--------------------------------|---------|----------------------------------------------|
- * | `forum_topic_notify_enabled`   | `'0'`   | Site master: allow topic email notifications |
+ * | `forum_topic_notify_enabled`   | `'0'`   | Site master (Settings → Forums): allow topic email notifications |
  * | `forum_notify_max_per_minute`  | `4`     | Own send cap (does not consume rate_limit_mail) |
  * | usermeta `forum_notify_email`  | `'0'`   | User master: email me about subscribed topics |
  *
@@ -64,6 +64,13 @@ class AP_Forum_Notify
     public const MAX_PER_MINUTE = 60;
 
     /**
+     * Cron hook for a queued reply notify (`topic_id`, `reply_post_id`).
+     * Worker delivery is a later increment; enqueue still no-ops when the
+     * site master is off.
+     */
+    public const CRON_HOOK = 'ap_forum_topic_notify';
+
+    /**
      * Whether the site allows topic email notifications.
      *
      * Default is **off** when the option is missing.
@@ -77,6 +84,89 @@ class AP_Forum_Notify
         )));
 
         return !in_array($raw, ['0', 'false', 'no', 'off', ''], true);
+    }
+
+    /**
+     * Whether Subscribe / notify chrome may render.
+     *
+     * Site master off → no chrome. Later increments also require a logged-in
+     * viewer with `view_forum`; this method is the site gate only.
+     */
+    public static function shouldShowChrome(?AP_DB $db = null): bool
+    {
+        return self::isEnabled($db);
+    }
+
+    /**
+     * Queue notify work for an approved reply. Site master off → no enqueue
+     * (does not schedule {@see AP_Cron}).
+     *
+     * Does not send mail in this request. A duplicate `(topic, reply)` pair
+     * that is already scheduled is treated as success.
+     */
+    public static function enqueueReply(int $topicId, int $replyPostId, ?AP_DB $db = null): bool
+    {
+        if ($topicId < 1 || $replyPostId < 1) {
+            return false;
+        }
+        if (!self::isEnabled($db)) {
+            return false;
+        }
+
+        $args = [$topicId, $replyPostId];
+        if (class_exists('AP_Cron', false)) {
+            if (AP_Cron::nextScheduled(self::CRON_HOOK, $args, $db) !== false) {
+                return true;
+            }
+
+            return AP_Cron::scheduleSingle(time(), self::CRON_HOOK, $args, $db);
+        }
+        if (function_exists('ap_schedule_single_event')) {
+            return ap_schedule_single_event(time(), self::CRON_HOOK, $args, $db);
+        }
+
+        return false;
+    }
+
+    /**
+     * Outbound notify choke point. Site master off → no send (does not call
+     * {@see AP_Mail::send()} and does not consume `rate_limit_mail`).
+     *
+     * Delivery (digest, unsubscribe token, own per-minute cap) is the mail
+     * worker increment. Do not call {@see AP_Mail::send()} from here until
+     * that worker owns the cap — {@see AP_Mail::send()} consumes the
+     * verification / reset / test bucket.
+     *
+     * @param string|list<string>   $to
+     * @param array<string, string> $headers
+     */
+    public static function send(
+        string|array $to,
+        string $subject,
+        string $message,
+        array $headers = [],
+        ?AP_DB $db = null
+    ): bool {
+        if (!self::isEnabled($db)) {
+            return false;
+        }
+
+        $recipients = is_array($to) ? $to : [$to];
+        $hasRecipient = false;
+        foreach ($recipients as $addr) {
+            if (is_string($addr) && trim($addr) !== '') {
+                $hasRecipient = true;
+                break;
+            }
+        }
+        if (!$hasRecipient || trim($subject) === '' || $message === '') {
+            return false;
+        }
+
+        // Signature reserved for the worker. $headers is unused until then.
+        unset($headers);
+
+        return false;
     }
 
     /**

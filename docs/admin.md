@@ -296,8 +296,9 @@ for hierarchy, topic types, likes, ACL, PMs, and module-off behaviour:
 | Groups | Groups (`forum-groups.php`) | `manage_forums` | Named groups and membership; used with per-forum ACL. |
 
 Site-wide forum defaults (guests, attachments, flood, search, online/unread,
-PMs, signatures, spam) are **Settings → Forums** (`options-forums.php`, cap
-`manage_options`), not the Forums menu. Not on that screen (CLI only —
+PMs, signatures, topic email notifications (default off), spam) are
+**Settings → Forums** (`options-forums.php`, cap `manage_options`), not the
+Forums menu. Not on that screen (CLI only —
 [cli.md](cli.md) / [forums.md](forums.md)): `forum_attachment_max_per_post`,
 `forum_attachment_user_quota`, `forum_online_window`.
 
@@ -394,7 +395,7 @@ with `manage_options` accepted as a fallback).
 | Media | Media Settings (`options-media.php`) | Thumbnail / medium / large sizes, crop, `uploads_use_yearmonth_folders`. |
 | Permalinks | Permalinks (`options-permalink.php`) | `permalink_structure` (Plain `''`, Day and name `/%year%/%monthnum%/%day%/%postname%/`, Month and name, Numeric `/archives/%post_id%`, Post name `/%postname%/`, or custom), `category_base`, `tag_base`. Saving regenerates rewrite rules. Server `try_files` / `mod_rewrite`: [rewrites.md](rewrites.md). |
 | Privacy | Privacy (`options-privacy.php`) | Public Privacy Policy page (`wp_page_for_privacy_policy`). Links to Export / Erase Personal Data. |
-| Forums | Forums (`options-forums.php`) | Forum module (403 when off). Topics/posts per page, guest view/post, PMs, attachments (max size / allowed types), flood interval, approval, search, online, unread, signatures, spam blacklist / max links. Per-forum ACL is on **Forums → Edit**, not here. |
+| Forums | Forums (`options-forums.php`) | Forum module (403 when off). Topics/posts per page, guest view/post, PMs, attachments (max size / allowed types), flood interval, approval, search, online, unread, signatures, **Allow topic email notifications** (`forum_topic_notify_enabled`, default off), spam blacklist / max links. Per-forum ACL is on **Forums → Edit**, not here. |
 | Hall of Fame | Hall of Fame (`options-hall-of-fame.php`) | Voluntary domain handshake — [section below](#hall-of-fame-handshake). |
 
 ---

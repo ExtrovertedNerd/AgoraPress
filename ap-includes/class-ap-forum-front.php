@@ -125,18 +125,26 @@ class AP_Forum_Front
         if (!self::isModuleEnabled($db)) {
             $args['ap_forum_disabled'] = true;
             $args['ap_forum_view'] = (string) ($args['ap_forum_view'] ?? 'index');
+            $args['forum_topic_notify_enabled'] = false;
 
             return $args;
         }
 
         if (!class_exists('AP_Forum', false)) {
+            $args['forum_topic_notify_enabled'] = false;
+
             return $args;
         }
 
         $view = strtolower(trim((string) ($args['ap_forum_view'] ?? '')));
         if ($view === '') {
+            $args['forum_topic_notify_enabled'] = false;
+
             return $args;
         }
+
+        $args['forum_topic_notify_enabled'] = class_exists('AP_Forum_Notify', false)
+            && AP_Forum_Notify::shouldShowChrome($db);
 
         $paged = max(1, (int) ($args['paged'] ?? 1));
         $args['paged'] = $paged;

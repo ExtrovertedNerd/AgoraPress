@@ -10,9 +10,11 @@ declare(strict_types=1);
 
 namespace AgoraPress\Tests\Forum;
 
+use AP_Cron;
 use AP_DB;
 use AP_Forum_Notify;
 use AP_Installer;
+use AP_Mail;
 use AP_Migrator;
 use AP_Options;
 use AP_User;
@@ -37,9 +39,13 @@ final class ForumNotifyConfigTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-installer.php';
         require_once $this->root . '/ap-includes/class-ap-forum-notify.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
+        require_once $this->root . '/ap-includes/class-ap-cron.php';
+        require_once $this->root . '/ap-includes/class-ap-mail.php';
         require_once $this->root . '/ap-includes/functions.php';
 
         AP_Options::flushCache();
+        AP_Cron::reset();
+        AP_Mail::resetForTests();
 
         $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -54,6 +60,8 @@ final class ForumNotifyConfigTest extends TestCase
     protected function tearDown(): void
     {
         AP_Options::flushCache();
+        AP_Cron::reset();
+        AP_Mail::resetForTests();
     }
 
     public function testOptionConstantsAndDefaults(): void
@@ -61,6 +69,7 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertSame('forum_topic_notify_enabled', AP_Forum_Notify::OPTION_ENABLED);
         $this->assertSame('forum_notify_max_per_minute', AP_Forum_Notify::OPTION_MAX_PER_MINUTE);
         $this->assertSame('forum_notify_email', AP_Forum_Notify::META_NOTIFY_EMAIL);
+        $this->assertSame('ap_forum_topic_notify', AP_Forum_Notify::CRON_HOOK);
         $this->assertFalse(AP_Forum_Notify::DEFAULT_ENABLED);
         $this->assertFalse(AP_Forum_Notify::DEFAULT_USER_ENABLED);
         $this->assertSame(4, AP_Forum_Notify::DEFAULT_MAX_PER_MINUTE);
@@ -84,6 +93,8 @@ final class ForumNotifyConfigTest extends TestCase
         );
         $this->assertFalse(AP_Forum_Notify::isEnabled($this->db));
         $this->assertFalse(ap_forum_topic_notify_enabled($this->db));
+        $this->assertFalse(AP_Forum_Notify::shouldShowChrome($this->db));
+        $this->assertFalse(ap_forum_notify_should_show_chrome($this->db));
         $this->assertSame(4, AP_Forum_Notify::getMaxPerMinute($this->db));
         $this->assertSame(4, ap_forum_notify_max_per_minute($this->db));
     }
@@ -96,6 +107,8 @@ final class ForumNotifyConfigTest extends TestCase
 
         $this->assertFalse(AP_Forum_Notify::isEnabled($this->db));
         $this->assertFalse(ap_forum_topic_notify_enabled($this->db));
+        $this->assertFalse(AP_Forum_Notify::shouldShowChrome($this->db));
+        $this->assertFalse(ap_forum_notify_should_show_chrome($this->db));
         $this->assertSame(4, AP_Forum_Notify::getMaxPerMinute($this->db));
         $this->assertSame(4, ap_forum_notify_max_per_minute($this->db));
     }
@@ -105,10 +118,87 @@ final class ForumNotifyConfigTest extends TestCase
         AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
         $this->assertTrue(AP_Forum_Notify::isEnabled($this->db));
         $this->assertTrue(ap_forum_topic_notify_enabled($this->db));
+        $this->assertTrue(AP_Forum_Notify::shouldShowChrome($this->db));
+        $this->assertTrue(ap_forum_notify_should_show_chrome($this->db));
 
         AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '0', $this->db);
         $this->assertFalse(AP_Forum_Notify::isEnabled($this->db));
         $this->assertFalse(ap_forum_topic_notify_enabled($this->db));
+        $this->assertFalse(AP_Forum_Notify::shouldShowChrome($this->db));
+        $this->assertFalse(ap_forum_notify_should_show_chrome($this->db));
+    }
+
+    public function testSiteOffMeansNoChromeNoEnqueueNoSend(): void
+    {
+        $this->assertFalse(AP_Forum_Notify::isEnabled($this->db));
+        $this->assertFalse(AP_Forum_Notify::shouldShowChrome($this->db));
+        $this->assertFalse(ap_forum_notify_should_show_chrome($this->db));
+
+        AP_Mail::enableTestMode();
+        AP_Mail::clearTestOutbox();
+
+        $this->assertFalse(AP_Forum_Notify::enqueueReply(12, 34, $this->db));
+        $this->assertFalse(ap_forum_notify_enqueue_reply(12, 34, $this->db));
+        $this->assertFalse(
+            AP_Cron::nextScheduled(AP_Forum_Notify::CRON_HOOK, [12, 34], $this->db)
+        );
+
+        $this->assertFalse(AP_Forum_Notify::send(
+            'member@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertFalse(ap_forum_notify_send(
+            'member@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+    }
+
+    public function testSiteOnEnqueuesCronButSendDoesNotCallMail(): void
+    {
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        $this->assertTrue(AP_Forum_Notify::shouldShowChrome($this->db));
+
+        AP_Mail::enableTestMode();
+        AP_Mail::clearTestOutbox();
+
+        $this->assertTrue(AP_Forum_Notify::enqueueReply(12, 34, $this->db));
+        $this->assertNotFalse(
+            AP_Cron::nextScheduled(AP_Forum_Notify::CRON_HOOK, [12, 34], $this->db)
+        );
+        $this->assertTrue(ap_forum_notify_enqueue_reply(12, 34, $this->db));
+
+        $this->assertFalse(AP_Forum_Notify::enqueueReply(0, 34, $this->db));
+        $this->assertFalse(AP_Forum_Notify::enqueueReply(12, 0, $this->db));
+
+        $this->assertFalse(AP_Forum_Notify::send(
+            'member@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '0', $this->db);
+        $this->assertFalse(AP_Forum_Notify::enqueueReply(99, 100, $this->db));
+        $this->assertFalse(
+            AP_Cron::nextScheduled(AP_Forum_Notify::CRON_HOOK, [99, 100], $this->db)
+        );
+        $this->assertFalse(AP_Forum_Notify::send(
+            'member@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertSame([], AP_Mail::getTestOutbox());
     }
 
     public function testSanitizeEnabled(): void

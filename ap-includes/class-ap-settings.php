@@ -920,6 +920,7 @@ class AP_Settings
                 'forum_online_enabled' => '1',
                 'forum_unread_tracking_enabled' => '1',
                 'forum_signatures_enabled' => '1',
+                'forum_topic_notify_enabled' => '0',
             ] as $opt => $default
         ) {
             self::registerSetting('forums', $opt, [
