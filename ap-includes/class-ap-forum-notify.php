@@ -31,13 +31,18 @@
  * `reply_posted_email_on` when this call flipped the master. Storage
  * {@see subscribe()} does not flip. Unsubscribe never turns the master off.
  *
+ * An approved reply POST enqueues `topic_id` + `reply_post_id` on
+ * {@see AP_Cron} and does not send mail in that request. Pending replies
+ * enqueue when they are later approved. `createReply()` itself does not
+ * enqueue (imports stay silent).
+ *
  * @package AgoraPress
  */
 
 declare(strict_types=1);
 
 /**
- * Site options, per-user master, and per-topic subscription rows.
+ * Site options, per-user master, per-topic subscription rows, and reply enqueue.
  */
 class AP_Forum_Notify
 {
@@ -76,7 +81,8 @@ class AP_Forum_Notify
     /**
      * Cron hook for a queued reply notify (`topic_id`, `reply_post_id`).
      * Worker delivery is a later increment; enqueue still no-ops when the
-     * site master is off.
+     * site master is off. The reply POST schedules only — it does not spawn
+     * cron or send mail.
      */
     public const CRON_HOOK = 'ap_forum_topic_notify';
 
@@ -85,6 +91,13 @@ class AP_Forum_Notify
      * Start or reply never auto-watches; only this checkbox (or Subscribe) does.
      */
     public const POST_NOTIFY_REPLIES = 'notify_replies';
+
+    /**
+     * Stable callables for {@see registerHooks()} (same instances for has_action).
+     *
+     * @var array<string, callable>|null
+     */
+    private static ?array $hookCallbacks = null;
 
     /**
      * Whether the site allows topic email notifications.
@@ -139,8 +152,10 @@ class AP_Forum_Notify
      * Queue notify work for an approved reply. Site master off → no enqueue
      * (does not schedule {@see AP_Cron}).
      *
-     * Does not send mail in this request. A duplicate `(topic, reply)` pair
-     * that is already scheduled is treated as success.
+     * Does not send mail in this request and does not spawn cron (no N SMTP
+     * in the reply POST). A duplicate `(topic, reply)` pair that is already
+     * scheduled is treated as success. Queue args are only `topic_id` and
+     * `reply_post_id`.
      */
     public static function enqueueReply(int $topicId, int $replyPostId, ?AP_DB $db = null): bool
     {
@@ -157,6 +172,8 @@ class AP_Forum_Notify
                 return true;
             }
 
+            // Schedule only. Never spawn / runDue here — that would send N mails
+            // in the reply POST. Bootstrap already spawned at request start.
             return AP_Cron::scheduleSingle(time(), self::CRON_HOOK, $args, $db);
         }
         if (function_exists('ap_schedule_single_event')) {
@@ -164,6 +181,74 @@ class AP_Forum_Notify
         }
 
         return false;
+    }
+
+    /**
+     * Enqueue when $post is an approved reply (not the topic starter).
+     *
+     * Unapproved rows, missing ids, and first posts are no-ops. Does not
+     * send mail. Used from the reply POST and from {@see registerHooks()}
+     * when a pending reply is later approved.
+     */
+    public static function maybeEnqueueApprovedReply(?object $post, ?AP_DB $db = null): bool
+    {
+        if ($post === null) {
+            return false;
+        }
+        $postId = (int) ($post->post_id ?? 0);
+        $topicId = (int) ($post->topic_id ?? 0);
+        if ($postId < 1 || $topicId < 1) {
+            return false;
+        }
+        if ((int) ($post->post_approved ?? 0) !== 1) {
+            return false;
+        }
+        if (class_exists('AP_Forum', false)) {
+            $topic = AP_Forum::getTopic($topicId, $db);
+            if ($topic !== null && (int) ($topic->first_post_id ?? 0) === $postId) {
+                return false;
+            }
+        }
+
+        return self::enqueueReply($topicId, $postId, $db);
+    }
+
+    /**
+     * Listen for pending replies that become approved.
+     *
+     * Idempotent. Safe after {@see ap_reset_hooks()} (tests). Does not hook
+     * `ap_forum_post_inserted` so importers / `createReply()` do not enqueue.
+     */
+    public static function registerHooks(): void
+    {
+        if (!function_exists('ap_add_action')) {
+            return;
+        }
+        if (self::$hookCallbacks === null) {
+            self::$hookCallbacks = [
+                'approved' => static function (int $postId, mixed $post = null): void {
+                    $row = is_object($post) ? $post : null;
+                    $db = (isset($GLOBALS['apdb']) && $GLOBALS['apdb'] instanceof AP_DB)
+                        ? $GLOBALS['apdb']
+                        : null;
+                    if ($row === null && $postId > 0 && class_exists('AP_Forum', false)) {
+                        $row = AP_Forum::getPost($postId, $db);
+                    }
+                    try {
+                        self::maybeEnqueueApprovedReply($row, $db);
+                    } catch (Throwable) {
+                        // Enqueue must never break moderation approval.
+                    }
+                },
+            ];
+        }
+        if (
+            function_exists('ap_has_action')
+            && ap_has_action('ap_forum_post_approved', self::$hookCallbacks['approved'])
+        ) {
+            return;
+        }
+        ap_add_action('ap_forum_post_approved', self::$hookCallbacks['approved'], 10, 2);
     }
 
     /**

@@ -8460,6 +8460,8 @@ function ap_forum_viewer_may_subscribe(int $userId, int $forumId, ?AP_DB $db = n
 /**
  * Queue notify work for an approved reply. Site master off → no enqueue.
  *
+ * Does not send mail. Does not spawn cron.
+ *
  * @see AP_Forum_Notify::enqueueReply()
  */
 function ap_forum_notify_enqueue_reply(int $topicId, int $replyPostId, ?AP_DB $db = null): bool
@@ -8469,6 +8471,20 @@ function ap_forum_notify_enqueue_reply(int $topicId, int $replyPostId, ?AP_DB $d
     }
 
     return AP_Forum_Notify::enqueueReply($topicId, $replyPostId, $db);
+}
+
+/**
+ * Enqueue when $post is an approved reply (not the topic starter).
+ *
+ * @see AP_Forum_Notify::maybeEnqueueApprovedReply()
+ */
+function ap_forum_notify_maybe_enqueue_approved_reply(?object $post, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::maybeEnqueueApprovedReply($post, $db);
 }
 
 /**

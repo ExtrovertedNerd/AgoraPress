@@ -50,6 +50,8 @@ def test_forum_front_class_api() -> None:
         "forum_topic_notify_enabled",
         "shouldShowChrome",
         "function handlePost",
+        "maybeEnqueueApprovedReply",
+        "enqueueReply",
         "function applyToQuery",
         "markTopicReadOnView",
         "ACTION_NEW_TOPIC",

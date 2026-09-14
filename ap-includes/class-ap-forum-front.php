@@ -1070,6 +1070,20 @@ class AP_Forum_Front
             $notice = 'reply_posted_email_on';
         }
 
+        // Approved reply: enqueue topic_id + reply_post_id on AP_Cron.
+        // Do not send mail or spawn cron here (no N SMTP in the reply POST).
+        if (!$pending && class_exists('AP_Forum_Notify', false)) {
+            try {
+                if ($createdPost !== null) {
+                    AP_Forum_Notify::maybeEnqueueApprovedReply($createdPost, $db);
+                } else {
+                    AP_Forum_Notify::enqueueReply($topicId, $postId, $db);
+                }
+            } catch (Throwable) {
+                // non-fatal — reply already saved
+            }
+        }
+
         // Approved own reply: advance read mark so the topic is not left unread
         // for the poster (same watermark rules as topic view).
         if (!$pending && class_exists('AP_Forum_Read', false)) {

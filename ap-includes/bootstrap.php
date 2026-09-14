@@ -322,6 +322,9 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-guard.php';
     // Topic email notify (site/user masters, topic_subscriptions, own per-minute cap).
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-notify.php';
+    if (class_exists('AP_Forum_Notify', false)) {
+        AP_Forum_Notify::registerHooks();
+    }
     // Forum post likes (thumbs-up) + denormalized counts.
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-like.php';
     // User forum activity counters (posts, likes given/received).

@@ -49,6 +49,9 @@ def test_class_api_and_defaults() -> None:
         "function shouldShowChrome",
         "function viewerMaySubscribe",
         "function enqueueReply",
+        "function maybeEnqueueApprovedReply",
+        "function registerHooks",
+        "ap_forum_post_approved",
         "function send",
         "CRON_HOOK",
         "function getMaxPerMinute",
@@ -87,6 +90,7 @@ def test_class_api_and_defaults() -> None:
 def test_bootstrap_and_functions_wiring() -> None:
     bootstrap = BOOTSTRAP.read_text(encoding="utf-8")
     assert "class-ap-forum-notify.php" in bootstrap
+    assert "AP_Forum_Notify::registerHooks" in bootstrap
 
     functions = FUNCTIONS.read_text(encoding="utf-8")
     assert "function ap_forum_topic_notify_enabled" in functions
@@ -94,6 +98,7 @@ def test_bootstrap_and_functions_wiring() -> None:
     assert "function ap_forum_viewer_may_subscribe" in functions
     assert "function ap_forum_topic_subscribe_form_html" in functions
     assert "function ap_forum_notify_enqueue_reply" in functions
+    assert "function ap_forum_notify_maybe_enqueue_approved_reply" in functions
     assert "function ap_forum_notify_send" in functions
     assert "function ap_forum_notify_max_per_minute" in functions
     assert "function ap_forum_user_notify_enabled" in functions

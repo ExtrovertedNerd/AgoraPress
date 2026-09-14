@@ -218,6 +218,22 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertSame([], AP_Mail::getTestOutbox());
     }
 
+    public function testMaybeEnqueueApprovedReplyRejectsNullAndUnapproved(): void
+    {
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        $this->assertFalse(AP_Forum_Notify::maybeEnqueueApprovedReply(null, $this->db));
+        $this->assertFalse(ap_forum_notify_maybe_enqueue_approved_reply(null, $this->db));
+        $this->assertFalse(AP_Forum_Notify::maybeEnqueueApprovedReply((object) [
+            'post_id' => 10,
+            'topic_id' => 11,
+            'post_approved' => 0,
+        ], $this->db));
+        $this->assertFalse(
+            AP_Cron::nextScheduled(AP_Forum_Notify::CRON_HOOK, [11, 10], $this->db)
+        );
+        $this->assertSame([], AP_Mail::getTestOutbox());
+    }
+
     public function testSanitizeEnabled(): void
     {
         $this->assertSame('1', AP_Forum_Notify::sanitizeEnabled(true));
