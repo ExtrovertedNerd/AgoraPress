@@ -14,6 +14,7 @@ Theme gold-plating (`--ap-editor-*`): [themes.md](themes.md#editor-contrast).
 |-------|------|------|
 | `AP_Editor` | `ap-includes/class-ap-editor.php` | Toolbar + visual surface + textarea |
 | CSS | `ap-includes/css/ap-editor.css` | Toolbar, surface, emoji picker; inherits page `color-scheme` |
+| Spoiler CSS | `ap-includes/css/ap-spoiler.css` | Native `<details class="ap-spoiler">` (editor + published) |
 | JS | `ap-includes/js/ap-editor.js` | Vanilla progressive enhancement |
 
 - **Architecture:** `classic` (always). See `AP_Editor::architecture()`,
@@ -21,13 +22,15 @@ Theme gold-plating (`--ap-editor-*`): [themes.md](themes.md#editor-contrast).
   `AP_Editor::isVisual()` (always `true`).
 - **Editing surface:** a `contenteditable` div that shows **formatted HTML as you
   type** (bold looks bold, headings look like headings). A hidden `<textarea>`
-  holds the HTML submitted with the form.
+  holds the value submitted with the form.
 - **Visual | Text modes:** toolbar switcher toggles between the WYSIWYG surface
-  and raw HTML source (Text) for long crypto addresses, embeds, and fine-grained
-  markup. Both modes store the same HTML.
+  and raw source (Text) for long crypto addresses, embeds, and fine-grained
+  markup. Visual syncs HTML into the textarea. Text can also insert spoiler
+  BBCode (`[spoiler]…[/spoiler]`); `AP_Content_Format` converts that on display
+  and when the editor reopens.
 - **Storage:** HTML (whitelist-sanitized on display via `AP_Content_Format`).
-  Legacy Markdown / BBCode content is converted when opened in the editor and
-  when published via `ap_the_content`.
+  Legacy Markdown / BBCode (including spoilers) converts when opened in the
+  editor and when published via `ap_the_content`.
 - **Emoji picker:** Unicode characters only (no image sprites, no remote CDN).
 - **No jQuery.** Soft budgets: JS ≤ 48 KiB, CSS ≤ 24 KiB.
 - **No block tree** and no third-party editor runtimes (TinyMCE, Quill, …).
@@ -38,7 +41,8 @@ Where core actually renders it:
 |---------|------|
 | ACP post / page compose | `ap-admin/includes/class-ap-admin-post-edit.php` (`AP_Editor::render`) |
 | ACP comment edit | `ap-admin/comment.php` (`ap_editor()`, context `comment`) |
-| Agora blog comments | `ap-content/themes/agora/single.php` |
+| Agora blog comments | `ap-content/themes/agora/comments.php` (`ap_editor()`, context `comment`; loaded by `ap_comments_template()` from `single.php`) |
+| Core comments fallback | `ap-includes/theme-compat/comments.php` (`ap_editor()`, context `comment`) |
 | Agora forum new topic / reply | `forum-view.php`, `topic.php` (context `forum`) |
 
 ## Contrast contract
@@ -120,17 +124,105 @@ apply formatting via the browser’s editing API (`document.execCommand` +
 selection helpers). The **Visual / Text** switcher (`AP_Editor.setMode`) flips
 between contenteditable and monospace HTML source without losing content.
 Assets are enqueued via `AP_Assets` when available, with an idempotent print
-fallback so forms that render after `ap_head()` still get CSS/JS once.
+fallback so forms that render after `ap_head()` still get CSS/JS once. Spoiler
+CSS (`ap-spoiler.css`) is printed with those editor assets so the visual
+surface matches published spoilers.
+
+## Spoilers
+
+Toolbar **Spoiler** is a core `AP_Editor` button (`id` `spoiler`, command
+`visual-spoiler`). It ships on every compose surface that uses the widget:
+post, page, comment, and forum. There is no per-context hide.
+
+| Mode | Button does |
+|------|-------------|
+| Visual | Wraps the selection in native `<details class="ap-spoiler">`. Empty selection still inserts a spoiler so the author can type inside. Summary label is **Spoiler**. |
+| Text | Wraps the textarea selection with `[spoiler]` … `[/spoiler]` (`data-ap-editor-wrap-open` / `wrap-close`). Empty selection inserts the pair and leaves the caret between the tags. |
+
+Works with JavaScript off: published markup is native `<details>` /
+`<summary>` (Enter / Space on the summary). There is **no**
+`ap-includes/js/ap-spoiler.js`.
+
+### Stored markup
+
+One conversion path: `AP_Content_Format` (BBCode → HTML). **Not** an
+`AP_Shortcode` tag — `AP_Shortcode::doShortcode()` must not wrap the same
+block again.
+
+Authors may store either form:
+
+| Stored | Typical origin |
+|--------|----------------|
+| Native HTML `<details class="ap-spoiler">` | Visual button, or Text while editing HTML source |
+| BBCode `[spoiler]…[/spoiler]` | Text button, legacy posts, or typed markup |
+
+Accepted BBCode (format **or** reopen in the editor via
+`AP_Editor::valueToHtml()`):
+
+```text
+[spoiler]hidden[/spoiler]
+[spoiler=Label]hidden[/spoiler]
+[spoiler title="Label"]hidden[/spoiler]
+```
+
+Single-quoted `title='Label'` is accepted too. Default summary label:
+**Spoiler**. Empty / whitespace-only body: render **nothing** (no empty
+`<details>`). Nested spoilers: innermost first, then one extra pass (one
+nesting level).
+
+Output (kses keeps `<details>`, `<summary>`, `class`, and `open`, plus
+allow-listed inner markup):
+
+```html
+<details class="ap-spoiler">
+  <summary class="ap-spoiler__summary">Label</summary>
+  <div class="ap-spoiler__body">…</div>
+</details>
+```
+
+A custom label is Text markup (`[spoiler=Label]` / `[spoiler title="Label"]`)
+or an edited `<summary>` in HTML source. Visual does **not** prompt for a
+label; it always inserts **Spoiler**.
+
+Generic examples only (`example.com`). Do not name private hosts, persona
+mailboxes, or live fleet inventory here.
+
+### Closed vs open (core CSS)
+
+Stylesheet: `ap-includes/css/ap-spoiler.css`. `.ap-spoiler` uses
+`color-scheme: inherit`. Closed body is unreadable (`display: none` on
+`.ap-spoiler:not([open]) > .ap-spoiler__body`, not hover-only). Open body
+follows the page `color-scheme` (no forced light/dark paint). Native
+disclosure marker; `:focus-visible` ring on the summary. No images, icon
+fonts, or background images.
+
+### Snippets
+
+Inner spoiler text must not leak into excerpts, feeds, Open Graph, search
+snippets, or forum last-post blurbs. Shared helper:
+`AP_Content_Format::stripSpoilers()` / `ap_strip_spoilers()`. Default
+placeholder **`[Spoiler]`**; pass `''` to drop the block.
+
+### Not this
+
+- A per-forum “everything in this room is spoilered” flag
+- Hover-only reveal
+- A Visual prompt for a custom summary label
+- An `AP_Shortcode` handler named `spoiler`
+- Guest-only / JavaScript-required disclosure
 
 ## Display pipeline
 
 Published posts/pages run `ap_the_content` → `AP_Content_Format::format()` (mode
 `auto`) → `AP_Shortcode::doShortcode()`. That means:
 
-1. Visual HTML is kses-sanitized and shown correctly.
+1. Visual HTML is kses-sanitized and shown correctly (including stored
+   `<details class="ap-spoiler">`).
 2. Older Markdown / BBCode posts still convert to HTML (no raw `**` / `[b]`
    characters on the front-end).
-3. Shortcode handler output is not re-escaped.
+3. `[spoiler]`, `[spoiler=Label]`, and `[spoiler title="Label"]` become native
+   `<details class="ap-spoiler">` in the format step — not a shortcode.
+4. Shortcode handler output is not re-escaped.
 
 Forum posts continue to store `post_content_filtered` and expose `content_html`
 for the Agora topic template.
@@ -148,6 +240,7 @@ for the Agora topic template.
 - Gutenberg / block editor canvas in core  
 - Block-serialized post content (`<!-- wp:... -->`) as the core format  
 - Heavy third-party editor runtimes (TinyMCE, Quill, ProseMirror, Lexical, …)  
+- Hover-only spoilers, a per-forum spoiler flag, or a second spoiler shortcode  
 
 Plugins may ship alternative editors, but must not rebrand `AP_Editor` as a
 block editor. Prefer a separate package and opt-in UI.

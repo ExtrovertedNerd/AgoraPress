@@ -773,6 +773,56 @@ def test_editor_doc_covers_contrast_contract(docs_root: Path) -> None:
     assert "agorapress.extrovertednerd.com" not in lower
 
 
+def test_editor_doc_covers_spoiler_button_and_stored_markup(docs_root: Path) -> None:
+    """Spoiler toolbar + stored HTML/BBCode live on the editor contract."""
+    text = (docs_root / "editor.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^##\s+Spoilers\s*$", text)
+    assert re.search(r"(?im)^###\s+Stored markup\s*$", text)
+    for needle in (
+        "visual-spoiler",
+        "[spoiler]",
+        "[spoiler=Label]",
+        '[spoiler title="Label"]',
+        '<details class="ap-spoiler">',
+        "ap-spoiler__summary",
+        "ap-spoiler__body",
+        "ap-includes/css/ap-spoiler.css",
+        "ap-includes/js/ap-spoiler.js",
+        "AP_Content_Format",
+        "AP_Shortcode",
+        "AP_Editor::valueToHtml",
+        "ap_strip_spoilers",
+        "stripSpoilers",
+        "[Spoiler]",
+        "post, page, comment, and forum",
+        "data-ap-editor-wrap-open",
+        "JavaScript off",
+        "color-scheme: inherit",
+        "display: none",
+        "hover-only",
+        "per-forum",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, f"docs/editor.md must document spoiler button / stored markup: {needle!r}"
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, f"docs/editor.md must not contain private marker: {banned}"
+
+
 def test_site_icon_doc_content(docs_root: Path) -> None:
     text = (docs_root / "site-icon.md").read_text(encoding="utf-8").lower()
     for phrase in (

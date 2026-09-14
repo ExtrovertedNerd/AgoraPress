@@ -937,6 +937,50 @@ final class DeveloperDocsTest extends TestCase
         );
     }
 
+    public function testEditorDocCoversSpoilerButtonAndStoredMarkup(): void
+    {
+        $text = $this->readDoc('editor.md');
+        $this->assertMatchesRegularExpression('/(?im)^##\\s+Spoilers\\s*$/', $text);
+        $this->assertMatchesRegularExpression('/(?im)^###\\s+Stored markup\\s*$/', $text);
+        foreach (
+            [
+                'visual-spoiler',
+                '[spoiler]',
+                '[spoiler=Label]',
+                '[spoiler title="Label"]',
+                '<details class="ap-spoiler">',
+                'ap-spoiler__summary',
+                'ap-spoiler__body',
+                'ap-includes/css/ap-spoiler.css',
+                'ap-includes/js/ap-spoiler.js',
+                'AP_Content_Format',
+                'AP_Shortcode',
+                'AP_Editor::valueToHtml',
+                'ap_strip_spoilers',
+                'stripSpoilers',
+                '[Spoiler]',
+                'post, page, comment, and forum',
+                'data-ap-editor-wrap-open',
+                'JavaScript off',
+                'color-scheme: inherit',
+                'display: none',
+                'hover-only',
+                'per-forum',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/editor.md must document spoiler button / stored markup: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('editor.md', $text);
+    }
+
     public function testVisionComplianceDocCoversPrinciplesAndDeviations(): void
     {
         $text = $this->readDoc('vision-compliance.md');
