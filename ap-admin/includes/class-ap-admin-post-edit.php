@@ -727,21 +727,30 @@ class AP_Admin_Post_Edit
     }
 
     /**
-     * Empty owner <form> for a Quick Edit row (HTML form="" association).
+     * Owner <form> for a Quick Edit row (HTML form="" association).
      *
      * The posts list is already a bulk-actions form, so Quick Edit fields
-     * live in a table row and submit through this sibling form.
+     * live in a table row and submit through this sibling form. The CSRF
+     * token lives here so the POST form itself carries `_ap_nonce`; the
+     * row repeats the same token via the form attribute.
      */
-    public static function renderQuickEditOwnerForm(int $postId, string $actionUrl): string
-    {
+    public static function renderQuickEditOwnerForm(
+        int $postId,
+        string $actionUrl,
+        int $actorId = 0
+    ): string {
         if ($postId < 1) {
             return '';
         }
 
         $formId = 'ap-quick-edit-form-' . $postId;
+        $nonce = ap_create_nonce('quick-edit-' . $postId, $actorId > 0 ? $actorId : null);
 
         return '<form id="' . ap_esc_attr($formId) . '" method="post" action="'
-            . ap_esc_url($actionUrl) . '" class="ap-quick-edit-owner" hidden></form>';
+            . ap_esc_url($actionUrl) . '" class="ap-quick-edit-owner" hidden>'
+            . '<input type="hidden" id="ap-qe-owner-nonce-' . $postId
+            . '" name="_ap_nonce" value="' . ap_esc_attr($nonce) . '" />'
+            . '</form>';
     }
 
     /**
@@ -846,8 +855,6 @@ class AP_Admin_Post_Edit
 
     /**
      * Render the edit form HTML.
-     *
-     * @param array<string, mixed> $extra Optional extras (parent options already built, etc.).
      */
     public static function renderForm(
         ?AP_Post $post,

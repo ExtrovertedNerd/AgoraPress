@@ -532,6 +532,23 @@ final class AdminPostsTest extends TestCase
             'form="ap-quick-edit-form-' . $postId . '"',
             $adminHtml
         );
+        $this->assertStringContainsString('id="ap-qe-owner-nonce-' . $postId . '"', $adminHtml);
+
+        $pageId = AP_Post::insert([
+            'post_title' => 'QE Own Page',
+            'post_content' => 'Body',
+            'post_status' => 'draft',
+            'post_type' => 'page',
+            'post_author' => $this->actorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $pageId);
+        $pageTable = new AP_Posts_List_Table('page', $this->db);
+        $pageTable->actorId = $this->actorId;
+        $pageTable->prepareItems(['post_status' => 'all']);
+        $pageHtml = $pageTable->render();
+        $this->assertStringContainsString('ap-quick-edit-author', $pageHtml);
+        $this->assertStringContainsString('id="ap-qe-author-' . $pageId . '"', $pageHtml);
+        $this->assertStringContainsString('id="ap-qe-owner-nonce-' . $pageId . '"', $pageHtml);
 
         $authorTable = new AP_Posts_List_Table('post', $this->db);
         $authorTable->actorId = $authorId;
@@ -645,6 +662,22 @@ final class AdminPostsTest extends TestCase
         $still = AP_Post::get($postId, $this->db);
         $this->assertNotNull($still);
         $this->assertSame($ownerId, (int) $still->post_author);
+    }
+
+    public function testQuickEditOwnerFormCarriesCsrfNonce(): void
+    {
+        $this->assertSame('', AP_Admin_Post_Edit::renderQuickEditOwnerForm(0, '/ap-admin/edit.php'));
+
+        $html = AP_Admin_Post_Edit::renderQuickEditOwnerForm(42, '/ap-admin/edit.php', $this->actorId);
+        $this->assertStringContainsString('id="ap-quick-edit-form-42"', $html);
+        $this->assertStringContainsString('method="post"', $html);
+        $this->assertStringContainsString('name="_ap_nonce"', $html);
+        $this->assertStringContainsString('id="ap-qe-owner-nonce-42"', $html);
+        $this->assertStringContainsString('class="ap-quick-edit-owner"', $html);
+
+        $expected = ap_create_nonce('quick-edit-42', $this->actorId);
+        $this->assertStringContainsString('value="' . $expected . '"', $html);
+        $this->assertTrue(ap_check_nonce($expected, 'quick-edit-42', $this->actorId));
     }
 
     public function testSavePageShowInNavigationControl(): void

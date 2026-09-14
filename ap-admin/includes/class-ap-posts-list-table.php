@@ -672,7 +672,7 @@ class AP_Posts_List_Table
 
         $html = '';
         foreach ($this->quickEditOwnerIds as $id) {
-            $html .= AP_Admin_Post_Edit::renderQuickEditOwnerForm($id, $actionUrl);
+            $html .= AP_Admin_Post_Edit::renderQuickEditOwnerForm($id, $actionUrl, $this->actorId);
         }
 
         return $html;

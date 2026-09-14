@@ -869,6 +869,20 @@ final class CliToolTest extends TestCase
         $page = AP_Post::get((int) $page->ID, $db);
         $this->assertNotNull($page);
         $this->assertSame($editorId, (int) $page->post_author);
+
+        $editor2Id = $this->createCliUser('clieditor2', 'editor');
+        $this->stdout = [];
+        $this->stderr = [];
+        $code = AP_Cli::cmdPost(
+            ['update'],
+            ['slug' => 'page-author', 'type' => 'page', 'author' => (string) $editor2Id],
+            $this->captureOut(),
+            $this->captureErr()
+        );
+        $this->assertSame(AP_Cli::EXIT_OK, $code, implode("\n", $this->stderr));
+        $page = AP_Post::getBySlug('page-author', 'page', $db);
+        $this->assertNotNull($page);
+        $this->assertSame($editor2Id, (int) $page->post_author);
     }
 
     public function testPostUpdateAuthorRejectsInvalidAndIneligible(): void
