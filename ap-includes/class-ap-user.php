@@ -669,6 +669,11 @@ class AP_User
             AP_Roles::setUserRole($id, $role, $db);
         }
 
+        // Topic notify user master: default off. Missing meta is also off.
+        if (class_exists('AP_Forum_Notify', false)) {
+            AP_Forum_Notify::seedUserDefault($id, $db);
+        }
+
         $user = self::getById($id, $db);
 
         if (function_exists('ap_do_action')) {
@@ -818,8 +823,9 @@ class AP_User
     /**
      * Permanently delete a user and all usermeta.
      *
-     * Does not reassign posts (caller may do that later). Returns false when
-     * the user does not exist or the delete fails.
+     * Drops `{prefix}topic_subscriptions` rows for this user. Does not
+     * reassign posts (caller may do that later). Returns false when the user
+     * does not exist or the delete fails.
      */
     public static function delete(int $id, ?AP_DB $db = null): bool
     {
@@ -847,6 +853,17 @@ class AP_User
         $result = $db->delete('users', ['ID' => $id]);
         if ($result === false) {
             return false;
+        }
+
+        // Topic email watches die with the account (not unread topic_track).
+        if (class_exists('AP_Forum_Notify', false)) {
+            AP_Forum_Notify::deleteForUser($id, $db);
+        } else {
+            try {
+                $db->delete('topic_subscriptions', ['user_id' => $id]);
+            } catch (Throwable) {
+                // Table absent on pre-schema-13 installs.
+            }
         }
 
         if (class_exists('AP_Roles', false)) {

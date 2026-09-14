@@ -15,6 +15,7 @@ use AP_Forum_Notify;
 use AP_Installer;
 use AP_Migrator;
 use AP_Options;
+use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -35,6 +36,7 @@ final class ForumNotifyConfigTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-options.php';
         require_once $this->root . '/ap-includes/class-ap-installer.php';
         require_once $this->root . '/ap-includes/class-ap-forum-notify.php';
+        require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/functions.php';
 
         AP_Options::flushCache();
@@ -58,7 +60,9 @@ final class ForumNotifyConfigTest extends TestCase
     {
         $this->assertSame('forum_topic_notify_enabled', AP_Forum_Notify::OPTION_ENABLED);
         $this->assertSame('forum_notify_max_per_minute', AP_Forum_Notify::OPTION_MAX_PER_MINUTE);
+        $this->assertSame('forum_notify_email', AP_Forum_Notify::META_NOTIFY_EMAIL);
         $this->assertFalse(AP_Forum_Notify::DEFAULT_ENABLED);
+        $this->assertFalse(AP_Forum_Notify::DEFAULT_USER_ENABLED);
         $this->assertSame(4, AP_Forum_Notify::DEFAULT_MAX_PER_MINUTE);
         $this->assertSame(1, AP_Forum_Notify::MIN_PER_MINUTE);
         $this->assertSame(60, AP_Forum_Notify::MAX_PER_MINUTE);
@@ -205,5 +209,129 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertStringContainsString('does not consume', strtolower($src));
         $this->assertSame('forum_notify_max_per_minute', AP_Forum_Notify::OPTION_MAX_PER_MINUTE);
         $this->assertNotSame('rate_limit_mail', AP_Forum_Notify::OPTION_MAX_PER_MINUTE);
+    }
+
+    public function testGuestAndMissingUserMetaAreOff(): void
+    {
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled(0, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled(-3, $this->db));
+        $this->assertSame('0', AP_Forum_Notify::userNotifyStoredValue(0, $this->db));
+        $this->assertFalse(ap_forum_user_notify_enabled(0, $this->db));
+        $this->assertFalse(AP_Forum_Notify::setUserNotifyEnabled(0, true, $this->db));
+        $this->assertFalse(AP_Forum_Notify::seedUserDefault(0, $this->db));
+
+        $id = $this->insertUserRow('notify-missing');
+        $this->assertNull(AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $this->assertFalse(ap_forum_user_notify_enabled($id, $this->db));
+        $this->assertSame('0', AP_Forum_Notify::userNotifyStoredValue($id, $this->db));
+    }
+
+    public function testCreateSeedsUserNotifyMetaOff(): void
+    {
+        $id = $this->createMember('notify-seed');
+        $this->assertSame(
+            '0',
+            AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $this->assertFalse(ap_forum_user_notify_enabled($id, $this->db));
+        $this->assertSame('0', AP_Forum_Notify::userNotifyStoredValue($id, $this->db));
+    }
+
+    public function testSeedUserDefaultWritesZeroAndDoesNotOverwriteOn(): void
+    {
+        $id = $this->insertUserRow('notify-seed-default');
+        $this->assertNull(AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db));
+
+        $this->assertTrue(AP_Forum_Notify::seedUserDefault($id, $this->db));
+        $this->assertSame(
+            '0',
+            AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($id, true, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $this->assertSame(
+            '1',
+            AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+
+        $this->assertTrue(AP_Forum_Notify::seedUserDefault($id, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $this->assertSame(
+            '1',
+            AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+    }
+
+    public function testSetUserNotifyEnabledPersistsSanitizedFlag(): void
+    {
+        $id = $this->createMember('notify-set');
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($id, 'yes', $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $this->assertTrue(ap_forum_user_notify_enabled($id, $this->db));
+        $this->assertSame('1', AP_Forum_Notify::userNotifyStoredValue($id, $this->db));
+        $this->assertSame(
+            '1',
+            AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($id, 'off', $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $this->assertSame('0', AP_Forum_Notify::userNotifyStoredValue($id, $this->db));
+        $this->assertSame(
+            '0',
+            AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+    }
+
+    public function testInstallerAdminUserGetsNotifyMetaOff(): void
+    {
+        $adminId = AP_Installer::seedAdminUser($this->db, [
+            'username' => 'notifyadmin',
+            'email' => 'admin@example.com',
+            'password' => 'securepass99',
+        ]);
+        $this->assertGreaterThan(0, $adminId);
+        $this->assertSame(
+            '0',
+            AP_User::getMeta($adminId, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($adminId, $this->db));
+    }
+
+    private function createMember(string $login): int
+    {
+        $created = AP_User::create([
+            'user_login' => $login,
+            'user_email' => $login . '@example.com',
+            'user_pass' => 'securepass0',
+        ], $this->db);
+        $this->assertTrue($created['ok'], implode('; ', $created['errors']));
+        $this->assertGreaterThan(0, (int) $created['id']);
+
+        return (int) $created['id'];
+    }
+
+    private function insertUserRow(string $login): int
+    {
+        $ok = $this->db->insert('users', [
+            'user_login' => $login,
+            'user_pass' => AP_User::hashPassword('securepass0'),
+            'user_nicename' => $login,
+            'user_email' => $login . '@example.com',
+            'user_url' => '',
+            'user_registered' => gmdate('Y-m-d H:i:s'),
+            'user_activation_key' => '',
+            'user_status' => 0,
+            'display_name' => $login,
+        ]);
+        $this->assertSame(1, $ok);
+        $id = (int) $this->db->lastInsertId();
+        $this->assertGreaterThan(0, $id);
+
+        return $id;
     }
 }

@@ -8405,7 +8405,7 @@ function ap_get_unread_summary(int $userId, array $args = [], ?AP_DB $db = null)
 }
 
 // -----------------------------------------------------------------------------
-// Forum topic email notify (site master; own per-minute cap)
+// Forum topic email notify (site/user masters; topic_subscriptions; own per-minute cap)
 // -----------------------------------------------------------------------------
 
 /**
@@ -8438,6 +8438,64 @@ function ap_forum_notify_max_per_minute(?AP_DB $db = null): int
     }
 
     return AP_Forum_Notify::getMaxPerMinute($db);
+}
+
+/**
+ * Whether the user wants email about topics they subscribe to.
+ *
+ * Default is off. Missing usermeta is treated as off.
+ *
+ * @see AP_Forum_Notify::isUserNotifyEnabled()
+ */
+function ap_forum_user_notify_enabled(int $userId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::isUserNotifyEnabled($userId, $db);
+}
+
+/**
+ * Whether the user is subscribed to email for this topic.
+ *
+ * @see AP_Forum_Notify::isSubscribed()
+ */
+function ap_forum_user_subscribed_to_topic(int $userId, int $topicId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::isSubscribed($userId, $topicId, $db);
+}
+
+/**
+ * Subscribe the user to a topic (idempotent). Does not auto-watch on reply.
+ *
+ * @see AP_Forum_Notify::subscribe()
+ */
+function ap_forum_subscribe_topic(int $userId, int $topicId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::subscribe($userId, $topicId, $db);
+}
+
+/**
+ * Unsubscribe the user from a topic (idempotent).
+ *
+ * @see AP_Forum_Notify::unsubscribe()
+ */
+function ap_forum_unsubscribe_topic(int $userId, int $topicId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::unsubscribe($userId, $topicId, $db);
 }
 
 // -----------------------------------------------------------------------------

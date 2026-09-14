@@ -854,6 +854,23 @@ PHP;
             'meta_value' => $display,
         ]);
 
+        // Topic notify user master: default off (same as missing meta).
+        if (!class_exists('AP_Forum_Notify', false)) {
+            $notifyFile = __DIR__ . '/class-ap-forum-notify.php';
+            if (is_readable($notifyFile)) {
+                require_once $notifyFile;
+            }
+        }
+        if (class_exists('AP_Forum_Notify', false)) {
+            AP_Forum_Notify::seedUserDefault($userId, $db);
+        } else {
+            $db->insert('usermeta', [
+                'user_id' => $userId,
+                'meta_key' => 'forum_notify_email',
+                'meta_value' => '0',
+            ]);
+        }
+
         return $userId;
     }
 

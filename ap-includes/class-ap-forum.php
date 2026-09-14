@@ -1744,6 +1744,9 @@ class AP_Forum
 
     /**
      * Soft-delete (status=deleted) or force-delete a topic and its posts.
+     *
+     * Force-delete also drops `{prefix}topic_subscriptions` for the topic.
+     * Soft-delete leaves watches in place.
      */
     public static function deleteTopic(int $id, bool $force = false, ?AP_DB $db = null): bool
     {
@@ -1798,6 +1801,17 @@ class AP_Forum
         $result = $db->delete('topics', ['topic_id' => $id]);
         if ($result === false) {
             return false;
+        }
+
+        // Hard-delete drops topic email watches. Soft-delete keeps them.
+        if (class_exists('AP_Forum_Notify', false)) {
+            AP_Forum_Notify::deleteForTopic($id, $db);
+        } else {
+            try {
+                $db->delete('topic_subscriptions', ['topic_id' => $id]);
+            } catch (Throwable) {
+                // Table absent on pre-schema-13 installs.
+            }
         }
 
         if ($wasApproved) {

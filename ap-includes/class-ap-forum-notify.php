@@ -1,19 +1,25 @@
 <?php
 
 /**
- * Topic email notification site options.
+ * Topic email notification storage: site options, user master, subscriptions.
  *
  * Three gates (all default off) control reply mail. This class owns the
- * **site** options only:
+ * **site** options, the per-user master usermeta, and `{prefix}topic_subscriptions`
+ * rows (Subscribe / Unsubscribe). Unread tracking (`topic_track` / `forum_track`)
+ * is a different table and is not reused here.
  *
- * | Option                         | Default | Meaning                                      |
+ * | Key                            | Default | Meaning                                      |
  * |--------------------------------|---------|----------------------------------------------|
  * | `forum_topic_notify_enabled`   | `'0'`   | Site master: allow topic email notifications |
  * | `forum_notify_max_per_minute`  | `4`     | Own send cap (does not consume rate_limit_mail) |
+ * | usermeta `forum_notify_email`  | `'0'`   | User master: email me about subscribed topics |
  *
- * Per-user `forum_notify_email` and per-topic Subscribe live elsewhere.
- * Missing options are treated as these defaults so upgrades never start
- * sending until an administrator turns the site switch on.
+ * Missing options and missing usermeta are treated as these defaults so
+ * upgrades never start sending until an administrator turns the site
+ * switch on **and** the member opts in.
+ *
+ * Subscription rows drop when the member unsubscribes, the user is deleted,
+ * or the topic is hard-deleted. Soft-delete leaves watches in place.
  *
  * @package AgoraPress
  */
@@ -21,7 +27,7 @@
 declare(strict_types=1);
 
 /**
- * Site options for opt-in per-topic reply mail.
+ * Site options, per-user master, and per-topic subscription rows.
  */
 class AP_Forum_Notify
 {
@@ -36,11 +42,20 @@ class AP_Forum_Notify
      */
     public const OPTION_MAX_PER_MINUTE = 'forum_notify_max_per_minute';
 
+    /**
+     * Per-user master. Stored as '1' / '0'. Missing or '0' = off.
+     * New users are seeded to `'0'`; upgrades with no row are treated as off.
+     */
+    public const META_NOTIFY_EMAIL = 'forum_notify_email';
+
     /** Default for {@see OPTION_ENABLED}: no chrome, enqueue, or send. */
     public const DEFAULT_ENABLED = false;
 
     /** Default mails per minute when the option is missing or invalid. */
     public const DEFAULT_MAX_PER_MINUTE = 4;
+
+    /** Default for {@see META_NOTIFY_EMAIL}: no mail until the member opts in. */
+    public const DEFAULT_USER_ENABLED = false;
 
     /** Minimum allowed per-minute cap (0 / negative fall back to default). */
     public const MIN_PER_MINUTE = 1;
@@ -120,6 +135,67 @@ class AP_Forum_Notify
         }
 
         return min(self::MAX_PER_MINUTE, $n);
+    }
+
+    /**
+     * Whether the user wants email about topics they subscribe to.
+     *
+     * Default is **off** when the usermeta row is missing or empty.
+     * Guests (user id below 1) are always off.
+     */
+    public static function isUserNotifyEnabled(int $userId, ?AP_DB $db = null): bool
+    {
+        return self::userNotifyStoredValue($userId, $db) === '1';
+    }
+
+    /**
+     * Stored `'1'` / `'0'` for the user master. Missing meta → `'0'`.
+     */
+    public static function userNotifyStoredValue(int $userId, ?AP_DB $db = null): string
+    {
+        if ($userId < 1) {
+            return self::DEFAULT_USER_ENABLED ? '1' : '0';
+        }
+
+        $raw = self::userMetaValue($userId, $db);
+        if ($raw === null || $raw === '') {
+            return self::DEFAULT_USER_ENABLED ? '1' : '0';
+        }
+
+        return self::sanitizeEnabled($raw);
+    }
+
+    /**
+     * Persist the user master switch as `'1'` or `'0'`.
+     */
+    public static function setUserNotifyEnabled(int $userId, mixed $value, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+
+        return self::writeUserMeta($userId, self::sanitizeEnabled($value), $db);
+    }
+
+    /**
+     * Insert `'0'` when the key is missing. Does not overwrite a stored value.
+     */
+    public static function seedUserDefault(int $userId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+
+        $existing = self::userMetaValue($userId, $db);
+        if ($existing !== null && $existing !== '') {
+            return true;
+        }
+
+        return self::writeUserMeta(
+            $userId,
+            self::DEFAULT_USER_ENABLED ? '1' : '0',
+            $db
+        );
     }
 
     /**
@@ -218,6 +294,225 @@ class AP_Forum_Notify
         ];
     }
 
+    // -------------------------------------------------------------------------
+    // Per-topic subscriptions ({prefix}topic_subscriptions)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Whether the user is subscribed to the topic.
+     *
+     * Guests (user id below 1) are never subscribed.
+     */
+    public static function isSubscribed(int $userId, int $topicId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || $topicId < 1) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+
+        try {
+            $table = $db->quoteIdentifier($db->table('topic_subscriptions'));
+            $n = (int) $db->getVar(
+                'SELECT COUNT(*) FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('user_id') . ' = ?'
+                . ' AND ' . $db->quoteIdentifier('topic_id') . ' = ?',
+                [$userId, $topicId]
+            );
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $n > 0;
+    }
+
+    /**
+     * Watch a topic (idempotent). Unique `(user_id, topic_id)`.
+     *
+     * Does not flip the user master, does not auto-watch on reply, and does
+     * not write unread `topic_track` rows. Guests and missing user/topic ids
+     * are rejected.
+     */
+    public static function subscribe(int $userId, int $topicId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || $topicId < 1) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        if (self::isSubscribed($userId, $topicId, $db)) {
+            return true;
+        }
+        if (!self::userExists($userId, $db) || !self::topicExists($topicId, $db)) {
+            return false;
+        }
+
+        $ok = $db->insert('topic_subscriptions', [
+            'user_id' => $userId,
+            'topic_id' => $topicId,
+            'created_at' => gmdate('Y-m-d H:i:s'),
+        ]);
+        if ($ok !== false) {
+            return true;
+        }
+
+        // Unique race: another request inserted the same pair.
+        return self::isSubscribed($userId, $topicId, $db);
+    }
+
+    /**
+     * Drop one `(user, topic)` watch (idempotent). Missing rows succeed.
+     */
+    public static function unsubscribe(int $userId, int $topicId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || $topicId < 1) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+
+        try {
+            $ok = $db->delete('topic_subscriptions', [
+                'user_id' => $userId,
+                'topic_id' => $topicId,
+            ]);
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $ok !== false;
+    }
+
+    /**
+     * Subscription rows for a user, oldest first.
+     *
+     * @return list<object>
+     */
+    public static function listForUser(int $userId, ?AP_DB $db = null): array
+    {
+        if ($userId < 1) {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+
+        try {
+            $table = $db->quoteIdentifier($db->table('topic_subscriptions'));
+            $rows = $db->getResults(
+                'SELECT * FROM ' . $table
+                . ' WHERE ' . $db->quoteIdentifier('user_id') . ' = ?'
+                . ' ORDER BY ' . $db->quoteIdentifier('created_at') . ' ASC, '
+                . $db->quoteIdentifier('topic_id') . ' ASC',
+                [$userId]
+            );
+        } catch (Throwable) {
+            return [];
+        }
+
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            if (is_object($row)) {
+                $out[] = $row;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Drop every watch for a user (account delete). Returns rows removed.
+     */
+    public static function deleteForUser(int $userId, ?AP_DB $db = null): int
+    {
+        if ($userId < 1) {
+            return 0;
+        }
+
+        return self::deleteWhere(['user_id' => $userId], $db);
+    }
+
+    /**
+     * Drop every watch for a topic (hard-delete). Returns rows removed.
+     */
+    public static function deleteForTopic(int $topicId, ?AP_DB $db = null): int
+    {
+        if ($topicId < 1) {
+            return 0;
+        }
+
+        return self::deleteWhere(['topic_id' => $topicId], $db);
+    }
+
+    /**
+     * @param array<string, int> $where
+     */
+    private static function deleteWhere(array $where, ?AP_DB $db): int
+    {
+        $db = self::resolveDb($db);
+
+        try {
+            $ok = $db->delete('topic_subscriptions', $where);
+        } catch (Throwable) {
+            return 0;
+        }
+
+        return $ok === false ? 0 : max(0, $ok);
+    }
+
+    private static function userExists(int $userId, AP_DB $db): bool
+    {
+        if (class_exists('AP_User', false)) {
+            return AP_User::getById($userId, $db) !== null;
+        }
+
+        try {
+            $raw = $db->getVar(
+                'SELECT ID FROM ' . $db->quoteIdentifier($db->table('users'))
+                . ' WHERE ID = ? LIMIT 1',
+                [$userId]
+            );
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $raw !== null && $raw !== '' && (int) $raw === $userId;
+    }
+
+    private static function topicExists(int $topicId, AP_DB $db): bool
+    {
+        if (class_exists('AP_Forum', false)) {
+            return AP_Forum::getTopic($topicId, $db) !== null;
+        }
+
+        try {
+            $raw = $db->getVar(
+                'SELECT topic_id FROM ' . $db->quoteIdentifier($db->table('topics'))
+                . ' WHERE topic_id = ? LIMIT 1',
+                [$topicId]
+            );
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $raw !== null && $raw !== '' && (int) $raw === $topicId;
+    }
+
+    private static function resolveDb(?AP_DB $db): AP_DB
+    {
+        if ($db instanceof AP_DB) {
+            return $db;
+        }
+        if (function_exists('ap_db')) {
+            return ap_db();
+        }
+
+        throw new RuntimeException('Database not available for topic notify.');
+    }
+
     private static function optionValue(string $name, string $default, ?AP_DB $db): string
     {
         if (class_exists('AP_Options', false)) {
@@ -240,5 +535,68 @@ class AP_Forum_Notify
         }
 
         return $default;
+    }
+
+    private static function userMetaValue(int $userId, ?AP_DB $db): ?string
+    {
+        if (class_exists('AP_User', false)) {
+            return AP_User::getMeta($userId, self::META_NOTIFY_EMAIL, $db);
+        }
+        if ($db === null) {
+            return null;
+        }
+
+        try {
+            $raw = $db->getVar(
+                'SELECT meta_value FROM ' . $db->quoteIdentifier($db->table('usermeta'))
+                . ' WHERE user_id = ? AND meta_key = ? LIMIT 1',
+                [$userId, self::META_NOTIFY_EMAIL]
+            );
+        } catch (Throwable) {
+            return null;
+        }
+
+        if ($raw === null) {
+            return null;
+        }
+
+        return (string) $raw;
+    }
+
+    private static function writeUserMeta(int $userId, string $value, ?AP_DB $db): bool
+    {
+        if (class_exists('AP_User', false)) {
+            return AP_User::updateMeta($userId, self::META_NOTIFY_EMAIL, $value, $db);
+        }
+        if ($db === null) {
+            return false;
+        }
+
+        try {
+            $table = $db->quoteIdentifier($db->table('usermeta'));
+            $existing = $db->getVar(
+                'SELECT umeta_id FROM ' . $table
+                . ' WHERE user_id = ? AND meta_key = ? LIMIT 1',
+                [$userId, self::META_NOTIFY_EMAIL]
+            );
+            if ($existing !== null && $existing !== '') {
+                return $db->update(
+                    'usermeta',
+                    ['meta_value' => $value],
+                    [
+                        'user_id' => $userId,
+                        'meta_key' => self::META_NOTIFY_EMAIL,
+                    ]
+                ) !== false;
+            }
+
+            return $db->insert('usermeta', [
+                'user_id' => $userId,
+                'meta_key' => self::META_NOTIFY_EMAIL,
+                'meta_value' => $value,
+            ]) !== false;
+        } catch (Throwable) {
+            return false;
+        }
     }
 }

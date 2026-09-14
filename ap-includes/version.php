@@ -31,7 +31,7 @@ define('AP_VERSION', '0.3.9-beta');
  * Version 12: topic type enum (standard | sticky | announcement | rules) + backfill.
  * Version 13: topic email notify ({prefix}topic_subscriptions; options
  * forum_topic_notify_enabled default off, forum_notify_max_per_minute default 4;
- * topic_track / forum_track unchanged).
+ * usermeta forum_notify_email default off; topic_track / forum_track unchanged).
  * {@see AP_Migrator} tracks applied versions in schema_migrations. Installer /
  * update path apply pending migrations until the database matches this target.
  */

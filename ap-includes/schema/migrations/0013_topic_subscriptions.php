@@ -13,6 +13,8 @@
  * - forum_topic_notify_enabled (default '0')
  * - forum_notify_max_per_minute (default 4)
  *
+ * Does not backfill usermeta `forum_notify_email`; missing rows default off.
+ *
  * Multi-driver DDL (MySQL/MariaDB, SQLite, PostgreSQL). Idempotent: CREATE
  * TABLE / INDEX IF NOT EXISTS so a retry after a partial apply is safe.
  *

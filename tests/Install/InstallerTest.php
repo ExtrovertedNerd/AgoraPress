@@ -289,6 +289,13 @@ final class InstallerTest extends TestCase
         $this->assertIsString($caps);
         $this->assertStringContainsString('administrator', (string) $caps);
 
+        $notifyEmail = $apdb->getVar(
+            'SELECT meta_value FROM ' . $apdb->quoteIdentifier($apdb->usermeta)
+            . ' WHERE user_id = ? AND meta_key = ?',
+            [(int) $result['admin_id'], 'forum_notify_email']
+        );
+        $this->assertSame('0', $notifyEmail);
+
         // Default install (no sample_content option) leaves content empty.
         $this->assertNull($result['sample_content'] ?? null);
         $contentCount = (int) $apdb->getVar(

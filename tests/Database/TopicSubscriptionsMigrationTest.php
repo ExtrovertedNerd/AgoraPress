@@ -183,7 +183,7 @@ final class TopicSubscriptionsMigrationTest extends TestCase
         $this->assertStringContainsString('user_id', $ddl);
         $this->assertStringContainsString('topic_id', $ddl);
         $this->assertStringContainsString('created_at', $ddl);
-        $this->assertStringContainsString('PRIMARY KEY', $ddl);
+        $this->assertStringContainsString('PRIMARY KEY (user_id, topic_id)', $ddl);
 
         $this->assertSame('0', $this->optionValue('forum_topic_notify_enabled'));
         $this->assertSame('4', $this->optionValue('forum_notify_max_per_minute'));
@@ -199,7 +199,21 @@ final class TopicSubscriptionsMigrationTest extends TestCase
 
     public function testUniqueConstraintAndAddRemovePair(): void
     {
-        $this->migrator->migrate();
+        $applied12 = $this->migrator->migrate(12);
+        $this->assertGreaterThanOrEqual(12, count($applied12));
+        $this->assertSame(12, $this->migrator->getCurrentVersion());
+        $this->assertNull($this->sqliteTableName('ap_topic_subscriptions'));
+
+        $applied13 = $this->migrator->migrate(13);
+        $this->assertCount(1, $applied13);
+        $this->assertSame(13, $applied13[0]['version']);
+        $this->assertSame(13, $this->migrator->getCurrentVersion());
+
+        $ddl = (string) $this->db->getVar(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            ['ap_topic_subscriptions']
+        );
+        $this->assertStringContainsString('PRIMARY KEY (user_id, topic_id)', $ddl);
 
         $this->assertSame(1, $this->db->insert('topic_subscriptions', [
             'user_id' => 7,
@@ -224,6 +238,21 @@ final class TopicSubscriptionsMigrationTest extends TestCase
             'created_at' => '2026-09-13 12:05:00',
         ]);
         $this->assertFalse($dup);
+        $err = strtolower((string) $this->db->lastError());
+        $this->assertNotSame('', $err);
+        $this->assertTrue(
+            str_contains($err, 'unique') || str_contains($err, 'constraint'),
+            'duplicate insert lastError=' . (string) $this->db->lastError()
+        );
+        $this->assertSame(
+            1,
+            (int) $this->db->getVar(
+                'SELECT COUNT(*) FROM '
+                . $this->db->quoteIdentifier($this->db->topic_subscriptions)
+                . ' WHERE user_id = ? AND topic_id = ?',
+                [7, 42]
+            )
+        );
 
         $this->assertSame(1, $this->db->insert('topic_subscriptions', [
             'user_id' => 7,
@@ -253,6 +282,24 @@ final class TopicSubscriptionsMigrationTest extends TestCase
             . $this->db->quoteIdentifier($this->db->topic_subscriptions)
         );
         $this->assertSame(2, (int) $remaining);
+        $this->assertSame(
+            43,
+            (int) $this->db->getVar(
+                'SELECT topic_id FROM '
+                . $this->db->quoteIdentifier($this->db->topic_subscriptions)
+                . ' WHERE user_id = ? AND topic_id = ?',
+                [7, 43]
+            )
+        );
+        $this->assertSame(
+            8,
+            (int) $this->db->getVar(
+                'SELECT user_id FROM '
+                . $this->db->quoteIdentifier($this->db->topic_subscriptions)
+                . ' WHERE user_id = ? AND topic_id = ?',
+                [8, 42]
+            )
+        );
     }
 
     public function testUpIsIdempotentWhenTableAlreadyExists(): void

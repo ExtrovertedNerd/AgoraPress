@@ -20,6 +20,12 @@ DB_CLASS = ROOT / "ap-includes" / "class-ap-db.php"
 MIGRATOR = ROOT / "ap-includes" / "class-ap-migrator.php"
 LOAD_CONFIG = ROOT / "ap-includes" / "load-config.php"
 FORUM_CLASS = ROOT / "ap-includes" / "class-ap-forum.php"
+NOTIFY_CLASS = ROOT / "ap-includes" / "class-ap-forum-notify.php"
+USER_CLASS = ROOT / "ap-includes" / "class-ap-user.php"
+OPTIONS_CLASS = ROOT / "ap-includes" / "class-ap-options.php"
+FUNCTIONS = ROOT / "ap-includes" / "functions.php"
+PHPUNIT = ROOT / "tests" / "Database" / "TopicSubscriptionsMigrationTest.php"
+PHPUNIT_SUBS = ROOT / "tests" / "Forum" / "ForumNotifySubscriptionsTest.php"
 
 
 def _php_bin() -> str:
@@ -50,6 +56,9 @@ def test_migration_0013_surface() -> None:
         "topic_id",
         "created_at",
         "PRIMARY KEY",
+        "PRIMARY KEY (user_id, topic_id)",
+        "PRIMARY KEY (`user_id`, `topic_id`)",
+        "topic_subscriptions_topic_id",
         "IF NOT EXISTS",
         "ENGINE=InnoDB",
         "pgsqlStatements",
@@ -117,6 +126,14 @@ def test_migrate_from_12_unique_and_add_remove() -> None:
             fwrite(STDERR, "v13 not applied cleanly\\n");
             exit(5);
         }}
+        $ddl = (string) $db->getVar(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            ['ap_topic_subscriptions']
+        );
+        if (!str_contains($ddl, 'PRIMARY KEY (user_id, topic_id)')) {{
+            fwrite(STDERR, "composite primary key missing after 12->13\\n");
+            exit(6);
+        }}
         $table = $db->quoteIdentifier($db->table('topic_subscriptions'));
         $ok = $db->insert('topic_subscriptions', [
             'user_id' => 4,
@@ -125,7 +142,7 @@ def test_migrate_from_12_unique_and_add_remove() -> None:
         ]);
         if ($ok !== 1) {{
             fwrite(STDERR, "insert pair failed\\n");
-            exit(6);
+            exit(7);
         }}
         $dup = $db->insert('topic_subscriptions', [
             'user_id' => 4,
@@ -134,7 +151,34 @@ def test_migrate_from_12_unique_and_add_remove() -> None:
         ]);
         if ($dup !== false) {{
             fwrite(STDERR, "unique (user_id, topic_id) not enforced\\n");
-            exit(7);
+            exit(8);
+        }}
+        $err = strtolower((string) $db->lastError());
+        if ($err === '' || (!str_contains($err, 'unique') && !str_contains($err, 'constraint'))) {{
+            fwrite(STDERR, "duplicate insert lastError=" . (string) $db->lastError() . "\\n");
+            exit(9);
+        }}
+        $n = (int) $db->getVar(
+            "SELECT COUNT(*) FROM {{$table}} WHERE user_id = ? AND topic_id = ?",
+            [4, 8]
+        );
+        if ($n !== 1) {{
+            fwrite(STDERR, "duplicate insert created a second row\\n");
+            exit(10);
+        }}
+        $sibTopic = $db->insert('topic_subscriptions', [
+            'user_id' => 4,
+            'topic_id' => 9,
+            'created_at' => '2026-09-13 10:02:00',
+        ]);
+        $sibUser = $db->insert('topic_subscriptions', [
+            'user_id' => 5,
+            'topic_id' => 8,
+            'created_at' => '2026-09-13 10:03:00',
+        ]);
+        if ($sibTopic !== 1 || $sibUser !== 1) {{
+            fwrite(STDERR, "sibling pairs should insert\\n");
+            exit(11);
         }}
         $del = $db->delete('topic_subscriptions', [
             'user_id' => 4,
@@ -142,7 +186,7 @@ def test_migrate_from_12_unique_and_add_remove() -> None:
         ]);
         if ($del !== 1) {{
             fwrite(STDERR, "delete pair failed\\n");
-            exit(8);
+            exit(12);
         }}
         $gone = $db->getVar(
             "SELECT user_id FROM {{$table}} WHERE user_id = ? AND topic_id = ?",
@@ -150,13 +194,18 @@ def test_migrate_from_12_unique_and_add_remove() -> None:
         );
         if ($gone !== null) {{
             fwrite(STDERR, "row remained after delete\\n");
-            exit(9);
+            exit(13);
+        }}
+        $left = (int) $db->getVar("SELECT COUNT(*) FROM {{$table}}");
+        if ($left !== 2) {{
+            fwrite(STDERR, "sibling rows lost after delete count=$left\\n");
+            exit(14);
         }}
         $migration = require {str(MIGRATIONS / "0013_topic_subscriptions.php")!r};
         $migration->up($db);
         if ($m->migrate() !== []) {{
             fwrite(STDERR, "migrator not idempotent after 13\\n");
-            exit(10);
+            exit(15);
         }}
         echo "topic_subscriptions_ok\\n";
         exit(0);
@@ -279,6 +328,124 @@ def test_schema_13_leaves_unread_track_tables_unchanged() -> None:
     combined = (result.stdout or "") + (result.stderr or "")
     assert result.returncode == 0, f"unread track invariant failed:\n{combined}"
     assert "unread_track_unchanged_ok" in (result.stdout or "")
+
+
+def test_phpunit_topic_subscriptions_migration_suite_runs() -> None:
+    phpunit = ROOT / "vendor" / "bin" / "phpunit"
+    if not phpunit.is_file():
+        return
+    cmd = [
+        _php_bin(),
+        str(phpunit),
+        "--configuration",
+        str(ROOT / "phpunit.xml.dist"),
+        str(PHPUNIT),
+        str(PHPUNIT_SUBS),
+    ]
+    result = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, check=False)
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, f"phpunit topic subscriptions failed:\n{combined}"
+    assert PHPUNIT.is_file()
+    assert PHPUNIT_SUBS.is_file()
+    src = PHPUNIT.read_text(encoding="utf-8")
+    assert "function testMigrateFromSchema12CreatesSubscriptionsTable" in src
+    assert "function testUniqueConstraintAndAddRemovePair" in src
+    subs = PHPUNIT_SUBS.read_text(encoding="utf-8")
+    assert "function testSubscribeUnsubscribeAddsAndRemovesOnePair" in subs
+
+
+def test_subscribe_unsubscribe_helpers_add_remove_one_pair() -> None:
+    php = textwrap.dedent(
+        f"""
+        declare(strict_types=1);
+        require_once {str(VERSION)!r};
+        require_once {str(LOAD_CONFIG)!r};
+        require_once {str(DB_CLASS)!r};
+        require_once {str(MIGRATOR)!r};
+        require_once {str(NOTIFY_CLASS)!r};
+        require_once {str(USER_CLASS)!r};
+        require_once {str(OPTIONS_CLASS)!r};
+        require_once {str(FORUM_CLASS)!r};
+        require_once {str(FUNCTIONS)!r};
+        $pdo = new PDO('sqlite::memory:', null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_OBJ,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+        $db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
+        $m = new AP_Migrator($db, AP_Migrator::defaultMigrationsPath());
+        $m->migrate();
+        $created = AP_User::create([
+            'user_login' => 'subhelper',
+            'user_email' => 'subhelper@example.com',
+            'user_pass' => 'securepass0',
+        ], $db);
+        if (empty($created['ok'])) {{
+            fwrite(STDERR, "user create failed\\n");
+            exit(1);
+        }}
+        $userId = (int) $created['id'];
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Helper Forum'], $db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Helper topic',
+            'content' => 'First',
+        ], $db);
+        if ($userId < 1 || $forumId < 1 || $topicId < 1) {{
+            fwrite(STDERR, "fixture ids invalid\\n");
+            exit(2);
+        }}
+        if (AP_Forum_Notify::isSubscribed($userId, $topicId, $db)) {{
+            fwrite(STDERR, "already subscribed\\n");
+            exit(3);
+        }}
+        if (!AP_Forum_Notify::subscribe($userId, $topicId, $db)) {{
+            fwrite(STDERR, "subscribe failed\\n");
+            exit(4);
+        }}
+        if (!AP_Forum_Notify::subscribe($userId, $topicId, $db)) {{
+            fwrite(STDERR, "idempotent subscribe failed\\n");
+            exit(5);
+        }}
+        $n = (int) $db->getVar(
+            "SELECT COUNT(*) FROM " . $db->quoteIdentifier($db->table('topic_subscriptions'))
+            . " WHERE user_id = ? AND topic_id = ?",
+            [$userId, $topicId]
+        );
+        if ($n !== 1) {{
+            fwrite(STDERR, "unique pair not one row\\n");
+            exit(6);
+        }}
+        if (!AP_Forum_Notify::unsubscribe($userId, $topicId, $db)) {{
+            fwrite(STDERR, "unsubscribe failed\\n");
+            exit(7);
+        }}
+        if (AP_Forum_Notify::isSubscribed($userId, $topicId, $db)) {{
+            fwrite(STDERR, "row remained after unsubscribe\\n");
+            exit(8);
+        }}
+        echo "subscribe_helpers_ok\\n";
+        exit(0);
+        """
+    )
+    result = subprocess.run(
+        [
+            _php_bin(),
+            "-d",
+            "display_errors=1",
+            "-d",
+            "error_reporting=E_ALL",
+            "-r",
+            php,
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, f"subscribe helpers failed:\n{combined}"
+    assert "subscribe_helpers_ok" in (result.stdout or "")
 
 
 if __name__ == "__main__":
