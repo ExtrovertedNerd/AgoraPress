@@ -342,6 +342,14 @@ endif; ?>
                     }
                     ?>
                 </div>
+                <?php
+                if (function_exists('ap_forum_notify_compose_checkbox_html')) {
+                    echo ap_forum_notify_compose_checkbox_html([
+                        'forum_id' => $forumId,
+                        'id' => 'agora-notify-replies-topic',
+                    ]);
+                }
+                ?>
                 <button type="submit" class="ap-btn">Post topic</button>
             </form>
         </section>

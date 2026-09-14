@@ -54,6 +54,8 @@ def test_class_api_and_defaults() -> None:
         "function getMaxPerMinute",
         "function isUserNotifyEnabled",
         "function setUserNotifyEnabled",
+        "function enableUserNotifyOnSubscribe",
+        "flip the master on",
         "function userNotifyStoredValue",
         "function seedUserDefault",
         "function sanitizeEnabled",
@@ -68,6 +70,9 @@ def test_class_api_and_defaults() -> None:
         "function listForUserWithTitles",
         "function deleteForUser",
         "function deleteForTopic",
+        "function wantsNotifyOnCompose",
+        "function maybeSubscribeFromCompose",
+        "POST_NOTIFY_REPLIES",
         "topic_subscriptions",
         "rate_limit_mail",
     ):
@@ -93,10 +98,14 @@ def test_bootstrap_and_functions_wiring() -> None:
     assert "function ap_forum_notify_max_per_minute" in functions
     assert "function ap_forum_user_notify_enabled" in functions
     assert "function ap_forum_set_user_notify_enabled" in functions
+    assert "function ap_forum_enable_user_notify_on_subscribe" in functions
     assert "function ap_forum_list_topic_subscriptions" in functions
     assert "function ap_forum_user_subscribed_to_topic" in functions
     assert "function ap_forum_subscribe_topic" in functions
     assert "function ap_forum_unsubscribe_topic" in functions
+    assert "function ap_forum_notify_wants_on_compose" in functions
+    assert "function ap_forum_notify_maybe_subscribe_from_compose" in functions
+    assert "function ap_forum_notify_compose_checkbox_html" in functions
 
 
 def test_installer_seeds_options_default_off() -> None:

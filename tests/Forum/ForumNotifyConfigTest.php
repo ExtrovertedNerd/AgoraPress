@@ -70,6 +70,7 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertSame('forum_notify_max_per_minute', AP_Forum_Notify::OPTION_MAX_PER_MINUTE);
         $this->assertSame('forum_notify_email', AP_Forum_Notify::META_NOTIFY_EMAIL);
         $this->assertSame('ap_forum_topic_notify', AP_Forum_Notify::CRON_HOOK);
+        $this->assertSame('notify_replies', AP_Forum_Notify::POST_NOTIFY_REPLIES);
         $this->assertFalse(AP_Forum_Notify::DEFAULT_ENABLED);
         $this->assertFalse(AP_Forum_Notify::DEFAULT_USER_ENABLED);
         $this->assertSame(4, AP_Forum_Notify::DEFAULT_MAX_PER_MINUTE);

@@ -636,7 +636,8 @@ class AP_Admin_User_Edit
         $html .= ap_esc_html($label) . '</label>';
         $html .= '<p class="description">Off by default. Mail is sent only when this is on, the site '
             . 'allows topic email notifications (Settings → Forums), and the member is subscribed '
-            . 'to the topic. Start or reply does not auto-subscribe.</p>';
+            . 'to the topic. Start or reply does not auto-subscribe. If this is off, Subscribe '
+            . '(or Notify me of replies) turns it on.</p>';
         $html .= '</div>';
 
         $subs = AP_Forum_Notify::listForUserWithTitles($userId, $db);

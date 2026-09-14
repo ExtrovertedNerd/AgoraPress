@@ -59,11 +59,17 @@ def test_forum_front_class_api() -> None:
         "ACTION_UNSUBSCRIBE_TOPIC",
         "handleSetTopicType",
         "handleSubscribeTopic",
+        "topic_subscribed_email_on",
+        "topic_created_email_on",
+        "reply_posted_email_on",
+        "watchFromComposeAndMaybeFlipMaster",
+        "enableUserNotifyOnSubscribe",
         "allowed_topic_types",
         "topic_type",
         "can_subscribe",
         "topic_subscribed",
         "viewerMaySubscribe",
+        "maybeSubscribeFromCompose",
     ):
         assert needle in src, f"missing {needle}"
 
@@ -74,6 +80,16 @@ def test_forum_front_class_api() -> None:
         "function testSubscribeHonorsGroupOnlyViewForum",
         "function testSubscribeNoticeRendersOnTopicView",
         "function testSubscribeRejectedWhenSiteOffGuestOrNoView",
+        "function testCreateTopicAndReplyDoNotAutoWatchWhenSiteOn",
+        "function testCreateTopicWithNotifyCheckboxSubscribes",
+        "function testReplyWithNotifyCheckboxSubscribes",
+        "function testNotifyCheckboxIgnoredWhenSiteOff",
+        "function testNewTopicFormShowsNotifyCheckboxWhenSiteOn",
+        "function testReplyNotifyCheckboxDoesNotUnsubscribe",
+        "function testFirstSubscribeWithUserMasterOffFlipsMasterAndNotices",
+        "function testSubscribeWhenUserMasterAlreadyOnKeepsSimpleNotice",
+        "function testSubscribeAfterUserTurnsMasterOffFlipsAgain",
+        "function testComposeNotifyWhenUserMasterAlreadyOnKeepsCreateNotice",
     ):
         assert needle in phpunit, f"missing {needle}"
 
@@ -99,6 +115,8 @@ def test_agora_templates_have_live_forms() -> None:
     assert 'name="topic_title"' in view
     assert "ap_forum_topic_type_select_html" in view
     assert "allowed_topic_types" in view
+    assert "ap_forum_notify_compose_checkbox_html" in view
+    assert "agora-notify-replies-topic" in view
     assert 'name="ap_forum_action"' in topic
     assert "ap_forum_reply" in topic
     assert "ap-forum-attachments" in topic
@@ -116,12 +134,15 @@ def test_agora_templates_have_live_forms() -> None:
     assert "ap_forum_delete_post" in topic
     assert "quoteMarkup" in topic or "quote_markup" in topic or "$quoteMarkup" in topic
     assert 'name="reply_body"' in topic
+    assert "ap_forum_notify_compose_checkbox_html" in topic
+    assert "agora-notify-replies-reply" in topic
     style = (AGORA / "style.css").read_text(encoding="utf-8")
     assert ".ap-forum-notice" in style
     assert ".ap-field--topic-type" in style
     assert ".ap-forum-post__actions" in style
     assert ".ap-forum-subscribe" in style
     assert ".ap-forum-toolbar--topic" in style
+    assert ".ap-field--notify-replies" in style
 
 
 def test_board_index_category_header_columns() -> None:

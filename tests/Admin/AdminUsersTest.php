@@ -1151,6 +1151,7 @@ final class AdminUsersTest extends TestCase
         $this->assertStringContainsString('name="forum_notify_email"', $html);
         $this->assertStringContainsString('id="forum_notify_email"', $html);
         $this->assertStringContainsString('Email me about topics I subscribe to', $html);
+        $this->assertStringContainsString('If this is off, Subscribe (or Notify me of replies) turns it on.', $html);
         $this->assertStringContainsString('Subscriptions', $html);
         $this->assertStringContainsString('No topic subscriptions.', $html);
         $this->assertDoesNotMatchRegularExpression(

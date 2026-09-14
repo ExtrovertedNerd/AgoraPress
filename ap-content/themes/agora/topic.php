@@ -601,6 +601,15 @@ endif; ?>
                     }
                     ?>
                 </div>
+                <?php
+                if (function_exists('ap_forum_notify_compose_checkbox_html')) {
+                    echo ap_forum_notify_compose_checkbox_html([
+                        'forum_id' => $forumIdForType,
+                        'topic_id' => $topicId,
+                        'id' => 'agora-notify-replies-reply',
+                    ]);
+                }
+                ?>
                 <button type="submit" class="ap-btn">Post reply</button>
             </form>
         </section>

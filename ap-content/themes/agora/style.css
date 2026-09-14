@@ -2530,6 +2530,23 @@ body.agora-theme {
   margin: 0;
 }
 
+.ap-forum-form .ap-field--notify-replies label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  margin-bottom: 0;
+}
+
+.ap-forum-form .ap-field--notify-replies input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  min-height: 0;
+  padding: 0;
+  flex-shrink: 0;
+  accent-color: var(--ap-accent);
+}
+
 /* Topic type select (create form + mod toolbar) — SPEC A2 */
 .ap-field--topic-type select {
   max-width: 16rem;

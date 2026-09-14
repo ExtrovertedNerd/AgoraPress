@@ -272,6 +272,8 @@ final class ForumFrontTest extends TestCase
         // Site notify default off: no Subscribe chrome for guests.
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $html);
         $this->assertStringNotContainsString('ap-forum-subscribe', $html);
+        $this->assertStringNotContainsString('Notify me of replies', $html);
+        $this->assertStringNotContainsString('name="notify_replies"', $html);
 
         // Logged-in user with ACL sees the reply form.
         $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
@@ -297,6 +299,8 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('>Edit</a>', $html2);
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $html2);
         $this->assertStringNotContainsString('ap-forum-subscribe', $html2);
+        $this->assertStringNotContainsString('Notify me of replies', $html2);
+        $this->assertStringNotContainsString('name="notify_replies"', $html2);
     }
 
     public function testTopicViewMarksReadOnView(): void
@@ -588,6 +592,8 @@ final class ForumFrontTest extends TestCase
         $this->assertContains('sticky', $allowed);
         $this->assertContains('announcement', $allowed);
         $this->assertContains('rules', $allowed);
+        $this->assertStringNotContainsString('Notify me of replies', $authHtml);
+        $this->assertStringNotContainsString('name="notify_replies"', $authHtml);
     }
 
     public function testModuleDisabledShowsNoticeOnIndex(): void
@@ -654,6 +660,8 @@ final class ForumFrontTest extends TestCase
 
         $posts = AP_Forum::getPosts($topicId, [], $this->db);
         $this->assertCount(2, $posts);
+        $this->assertSame(0, $this->subscriptionCount());
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
     }
 
     public function testCreateTopicRejectsBadNonce(): void
@@ -845,6 +853,13 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('>Subscribe</button>', $html);
         $this->assertStringNotContainsString('ap_forum_unsubscribe_topic', $html);
         $this->assertStringNotContainsString('>Unsubscribe</button>', $html);
+        $this->assertStringContainsString('Notify me of replies', $html);
+        $this->assertStringContainsString('name="notify_replies"', $html);
+        $this->assertStringContainsString('id="agora-notify-replies-reply"', $html);
+        $this->assertDoesNotMatchRegularExpression(
+            '/name="notify_replies"[^>]*\bchecked\b/',
+            $html
+        );
 
         $this->assertSame(1, preg_match(
             '/ap_forum_subscribe_topic.*?name="_ap_nonce" value="([^"]+)"/s',
@@ -857,9 +872,9 @@ final class ForumFrontTest extends TestCase
             '_ap_nonce' => $nonceMatch[1],
         ], $this->db);
         $this->assertIsString($posted);
-        $this->assertStringContainsString('ap_forum_notice=topic_subscribed', (string) $posted);
+        $this->assertStringContainsString('ap_forum_notice=topic_subscribed_email_on', (string) $posted);
         $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
-        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
         AP_Forum_Front::setNotice(null);
 
         $query2 = AP_Rewrite::queryFromVars($vars, $this->db);
@@ -874,6 +889,8 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('ap_forum_unsubscribe_topic', $html2);
         $this->assertStringContainsString('>Unsubscribe</button>', $html2);
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $html2);
+        $this->assertStringNotContainsString('name="notify_replies"', $html2);
+        $this->assertStringNotContainsString('Notify me of replies', $html2);
     }
 
     public function testTopicSubscribeHiddenForGuestAndWhenSiteOff(): void
@@ -904,6 +921,8 @@ final class ForumFrontTest extends TestCase
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $guestHtml);
         $this->assertStringNotContainsString('ap-forum-subscribe', $guestHtml);
         $this->assertStringNotContainsString('>Subscribe</button>', $guestHtml);
+        $this->assertStringNotContainsString('Notify me of replies', $guestHtml);
+        $this->assertStringNotContainsString('name="notify_replies"', $guestHtml);
 
         AP_Options::update('forum_topic_notify_enabled', '0', $this->db);
         $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
@@ -918,6 +937,8 @@ final class ForumFrontTest extends TestCase
         $offHtml = (string) ob_get_clean();
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $offHtml);
         $this->assertStringNotContainsString('>Subscribe</button>', $offHtml);
+        $this->assertStringNotContainsString('Notify me of replies', $offHtml);
+        $this->assertStringNotContainsString('name="notify_replies"', $offHtml);
     }
 
     public function testSubscribeUnsubscribeViaFrontHandler(): void
@@ -950,21 +971,24 @@ final class ForumFrontTest extends TestCase
             '_ap_nonce' => $nonce,
         ], $this->db);
         $this->assertIsString($redirect);
-        $this->assertStringContainsString('ap_forum_notice=topic_subscribed', (string) $redirect);
+        $this->assertStringContainsString('ap_forum_notice=topic_subscribed_email_on', (string) $redirect);
         $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
         $this->assertSame(1, $this->subscriptionCount());
-        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
         $this->assertSame(0, (int) $this->db->getVar(
             'SELECT COUNT(*) FROM '
             . $this->db->quoteIdentifier($this->db->table('topic_track'))
         ));
 
-        $_GET['ap_forum_notice'] = 'topic_subscribed';
+        $_GET['ap_forum_notice'] = 'topic_subscribed_email_on';
         $notice = AP_Forum_Front::getNotice();
         unset($_GET['ap_forum_notice']);
         $this->assertNotNull($notice);
         $this->assertSame('success', $notice['type'] ?? null);
-        $this->assertSame('Subscribed to this topic.', $notice['message'] ?? null);
+        $this->assertSame(
+            'Subscribed to this topic. Email notifications for topics you subscribe to are now on.',
+            $notice['message'] ?? null
+        );
 
         $unNonce = AP_Nonce::create('ap_forum_unsubscribe_topic_' . $topicId, $this->userId);
         $unRedirect = AP_Forum_Front::handlePost([
@@ -976,6 +1000,153 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('ap_forum_notice=topic_unsubscribed', (string) $unRedirect);
         $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
         $this->assertSame(0, $this->subscriptionCount());
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+    }
+
+    public function testFirstSubscribeWithUserMasterOffFlipsMasterAndNotices(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'First subscribe flip'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Flip master',
+            'content' => 'Body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        $member = AP_User::create([
+            'user_login' => 'first_sub_flip',
+            'user_email' => 'first_sub_flip@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'First Sub',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+        $this->assertGreaterThan(0, $memberId);
+        AP_Forum_Notify::setUserNotifyEnabled($memberId, '0', $this->db);
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($memberId, $this->db));
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_subscribe_topic_' . $topicId, $memberId),
+        ], $this->db);
+        $this->assertIsString($redirect);
+        $this->assertMatchesRegularExpression(
+            '/ap_forum_notice=topic_subscribed_email_on(?:&|$)/',
+            (string) $redirect
+        );
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($memberId, $topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($memberId, $this->db));
+        $this->assertSame(
+            '1',
+            AP_User::getMeta($memberId, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+        $this->assertStringNotContainsString('profile.php', (string) $redirect);
+        $this->assertStringNotContainsString('ap-admin/profile', (string) $redirect);
+
+        $_GET['ap_forum_notice'] = 'topic_subscribed_email_on';
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        unset($_GET['ap_forum_notice']);
+        $this->assertStringContainsString('ap-forum-notice--success', $html);
+        $this->assertStringContainsString(
+            'Email notifications for topics you subscribe to are now on.',
+            $html
+        );
+        $this->assertStringContainsString('>Unsubscribe</button>', $html);
+    }
+
+    public function testSubscribeWhenUserMasterAlreadyOnKeepsSimpleNotice(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Master already on'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Already opted in',
+            'content' => 'Body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($this->userId, '1', $this->db));
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_subscribe_topic_' . $topicId, $this->userId),
+        ], $this->db);
+        $this->assertIsString($redirect);
+        $this->assertMatchesRegularExpression(
+            '/ap_forum_notice=topic_subscribed(?:&|$)/',
+            (string) $redirect
+        );
+        $this->assertStringNotContainsString('topic_subscribed_email_on', (string) $redirect);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+
+        $_GET['ap_forum_notice'] = 'topic_subscribed';
+        $notice = AP_Forum_Front::getNotice();
+        unset($_GET['ap_forum_notice']);
+        $this->assertNotNull($notice);
+        $this->assertSame('Subscribed to this topic.', $notice['message'] ?? null);
+    }
+
+    public function testSubscribeAfterUserTurnsMasterOffFlipsAgain(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Master off again'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Watch again',
+            'content' => 'Body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $otherId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Second watch',
+            'content' => 'Body two.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $first = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_subscribe_topic_' . $topicId, $this->userId),
+        ], $this->db);
+        $this->assertIsString($first);
+        $this->assertStringContainsString('topic_subscribed_email_on', (string) $first);
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+
+        $this->assertTrue(AP_Forum_Notify::unsubscribe($this->userId, $topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($this->userId, '0', $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+
+        $again = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $otherId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_subscribe_topic_' . $otherId, $this->userId),
+        ], $this->db);
+        $this->assertIsString($again);
+        $this->assertMatchesRegularExpression(
+            '/ap_forum_notice=topic_subscribed_email_on(?:&|$)/',
+            (string) $again
+        );
+        $this->assertStringNotContainsString('profile.php', (string) $again);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $otherId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
     }
 
     public function testSubscribeRejectedWhenSiteOffGuestOrNoView(): void
@@ -1434,6 +1605,236 @@ final class ForumFrontTest extends TestCase
         $this->assertTrue((bool) $forum['forum_topic_notify_enabled']);
         $this->assertFalse((bool) ($forum['can_subscribe'] ?? true));
         $this->assertFalse((bool) ($forum['topic_subscribed'] ?? true));
+    }
+
+    public function testNewTopicFormShowsNotifyCheckboxWhenSiteOn(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Compose notify'], $this->db);
+        $forum = AP_Forum::getForum($forumId, $this->db);
+        $this->assertNotNull($forum);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $vars = AP_Rewrite::parseRequest('forums/' . $forum->forum_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_new_topic', $html);
+        $this->assertStringContainsString('Notify me of replies', $html);
+        $this->assertStringContainsString('name="notify_replies"', $html);
+        $this->assertStringContainsString('id="agora-notify-replies-topic"', $html);
+        $this->assertDoesNotMatchRegularExpression(
+            '/name="notify_replies"[^>]*\bchecked\b/',
+            $html
+        );
+        $this->assertStringNotContainsString('ap_forum_subscribe_topic', $html);
+    }
+
+    public function testCreateTopicAndReplyDoNotAutoWatchWhenSiteOn(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'No auto watch'], $this->db);
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $nonce = AP_Nonce::create('ap_forum_new_topic_' . $forumId, $this->userId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_NEW_TOPIC,
+            'forum_id' => $forumId,
+            'topic_title' => 'Started without watch',
+            'topic_body' => 'Should not subscribe.',
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+        $this->assertIsString($redirect);
+        $topics = AP_Forum::getTopics($forumId, [], $this->db);
+        $this->assertCount(1, $topics);
+        $topicId = (int) $topics[0]->topic_id;
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertSame(0, $this->subscriptionCount());
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+
+        $replyNonce = AP_Nonce::create('ap_forum_reply_' . $topicId, $this->userId);
+        $replyRedirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPLY,
+            'topic_id' => $topicId,
+            'reply_body' => 'Still not watching.',
+            '_ap_nonce' => $replyNonce,
+        ], $this->db);
+        $this->assertIsString($replyRedirect);
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertSame(0, $this->subscriptionCount());
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+    }
+
+    public function testCreateTopicWithNotifyCheckboxSubscribes(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Watch on start'], $this->db);
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $nonce = AP_Nonce::create('ap_forum_new_topic_' . $forumId, $this->userId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_NEW_TOPIC,
+            'forum_id' => $forumId,
+            'topic_title' => 'Please notify me',
+            'topic_body' => 'I ticked the box.',
+            'notify_replies' => '1',
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+        $this->assertIsString($redirect);
+        $topics = AP_Forum::getTopics($forumId, [], $this->db);
+        $this->assertCount(1, $topics);
+        $topicId = (int) $topics[0]->topic_id;
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertSame(1, $this->subscriptionCount());
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+        $this->assertMatchesRegularExpression(
+            '/ap_forum_notice=topic_created_email_on(?:&|#|$)/',
+            (string) $redirect
+        );
+        $this->assertStringNotContainsString('profile.php', (string) $redirect);
+        $this->assertSame(0, (int) $this->db->getVar(
+            'SELECT COUNT(*) FROM '
+            . $this->db->quoteIdentifier($this->db->table('topic_track'))
+        ));
+
+        $_GET['ap_forum_notice'] = 'topic_created_email_on';
+        $notice = AP_Forum_Front::getNotice();
+        unset($_GET['ap_forum_notice']);
+        $this->assertNotNull($notice);
+        $this->assertSame(
+            'Topic created. Email notifications for topics you subscribe to are now on.',
+            $notice['message'] ?? null
+        );
+    }
+
+    public function testReplyWithNotifyCheckboxSubscribes(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Watch on reply'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Existing thread',
+            'content' => 'OP body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+
+        $replyNonce = AP_Nonce::create('ap_forum_reply_' . $topicId, $this->userId);
+        $replyRedirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPLY,
+            'topic_id' => $topicId,
+            'reply_body' => 'Watch from now reply.',
+            'notify_replies' => '1',
+            '_ap_nonce' => $replyNonce,
+        ], $this->db);
+        $this->assertIsString($replyRedirect);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertSame(1, $this->subscriptionCount());
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+        $this->assertMatchesRegularExpression(
+            '/ap_forum_notice=reply_posted_email_on(?:&|#|$)/',
+            (string) $replyRedirect
+        );
+
+        $_GET['ap_forum_notice'] = 'reply_posted_email_on';
+        $notice = AP_Forum_Front::getNotice();
+        unset($_GET['ap_forum_notice']);
+        $this->assertNotNull($notice);
+        $this->assertSame(
+            'Reply posted. Email notifications for topics you subscribe to are now on.',
+            $notice['message'] ?? null
+        );
+    }
+
+    public function testComposeNotifyWhenUserMasterAlreadyOnKeepsCreateNotice(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Master already on compose'], $this->db);
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($this->userId, '1', $this->db));
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $nonce = AP_Nonce::create('ap_forum_new_topic_' . $forumId, $this->userId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_NEW_TOPIC,
+            'forum_id' => $forumId,
+            'topic_title' => 'Already opted in compose',
+            'topic_body' => 'Checkbox on, master already on.',
+            'notify_replies' => '1',
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+        $this->assertIsString($redirect);
+        $this->assertMatchesRegularExpression(
+            '/ap_forum_notice=topic_created(?:&|#|$)/',
+            (string) $redirect
+        );
+        $this->assertStringNotContainsString('topic_created_email_on', (string) $redirect);
+        $topics = AP_Forum::getTopics($forumId, [], $this->db);
+        $this->assertCount(1, $topics);
+        $topicId = (int) $topics[0]->topic_id;
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+    }
+
+    public function testNotifyCheckboxIgnoredWhenSiteOff(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Site off compose'], $this->db);
+        $this->assertFalse(AP_Forum_Notify::isEnabled($this->db));
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $nonce = AP_Nonce::create('ap_forum_new_topic_' . $forumId, $this->userId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_NEW_TOPIC,
+            'forum_id' => $forumId,
+            'topic_title' => 'Crafted checkbox',
+            'topic_body' => 'Site master is off.',
+            'notify_replies' => '1',
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+        $this->assertIsString($redirect);
+        $topics = AP_Forum::getTopics($forumId, [], $this->db);
+        $this->assertCount(1, $topics);
+        $topicId = (int) $topics[0]->topic_id;
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertSame(0, $this->subscriptionCount());
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+        $this->assertMatchesRegularExpression(
+            '/ap_forum_notice=topic_created(?:&|#|$)/',
+            (string) $redirect
+        );
+        $this->assertStringNotContainsString('topic_created_email_on', (string) $redirect);
+    }
+
+    public function testReplyNotifyCheckboxDoesNotUnsubscribe(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Keep watch'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Already watching',
+            'content' => 'OP body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($this->userId, $topicId, $this->db));
+
+        $replyNonce = AP_Nonce::create('ap_forum_reply_' . $topicId, $this->userId);
+        $replyRedirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPLY,
+            'topic_id' => $topicId,
+            'reply_body' => 'Checkbox omitted must not drop the watch.',
+            '_ap_nonce' => $replyNonce,
+        ], $this->db);
+        $this->assertIsString($replyRedirect);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertSame(1, $this->subscriptionCount());
     }
 
     private function subscriptionCount(): int

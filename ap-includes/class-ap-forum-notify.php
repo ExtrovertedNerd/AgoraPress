@@ -21,6 +21,16 @@
  * Subscription rows drop when the member unsubscribes, the user is deleted,
  * or the topic is hard-deleted. Soft-delete leaves watches in place.
  *
+ * First Subscribe while the user master is off: **flip the master on**
+ * (do not refuse). Chrome is shown with the master off on purpose, so a
+ * refuse-and-point-at-profile would make the visible Subscribe button a
+ * trap. The topic Subscribe POST and compose **Notify me of replies**
+ * call {@see enableUserNotifyOnSubscribe()} after a successful watch.
+ * Topic Subscribe shows `topic_subscribed_email_on`. Compose keeps the
+ * create/reply outcome and uses `topic_created_email_on` /
+ * `reply_posted_email_on` when this call flipped the master. Storage
+ * {@see subscribe()} does not flip. Unsubscribe never turns the master off.
+ *
  * @package AgoraPress
  */
 
@@ -69,6 +79,12 @@ class AP_Forum_Notify
      * site master is off.
      */
     public const CRON_HOOK = 'ap_forum_topic_notify';
+
+    /**
+     * Compose POST field for "Notify me of replies". Absent / empty = off.
+     * Start or reply never auto-watches; only this checkbox (or Subscribe) does.
+     */
+    public const POST_NOTIFY_REPLIES = 'notify_replies';
 
     /**
      * Whether the site allows topic email notifications.
@@ -290,6 +306,32 @@ class AP_Forum_Notify
     }
 
     /**
+     * Turn the user master on when a Subscribe action succeeds and it is off.
+     *
+     * Choice (SPEC C): first Subscribe with the master off **flips it on**
+     * rather than refusing and pointing at Profile. Subscribe chrome is
+     * visible with the master off; refusing would silently no-op the button
+     * for mail. Returns true only when this call changed the stored value
+     * from off to on. Guests, already-on, and write failures return false.
+     *
+     * Does not insert a subscription row. Does not turn the master off.
+     */
+    public static function enableUserNotifyOnSubscribe(int $userId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+        if (self::isUserNotifyEnabled($userId, $db)) {
+            return false;
+        }
+        if (!self::setUserNotifyEnabled($userId, '1', $db)) {
+            return false;
+        }
+
+        return self::isUserNotifyEnabled($userId, $db);
+    }
+
+    /**
      * Insert `'0'` when the key is missing. Does not overwrite a stored value.
      */
     public static function seedUserDefault(int $userId, ?AP_DB $db = null): bool
@@ -439,11 +481,67 @@ class AP_Forum_Notify
     }
 
     /**
+     * Whether compose POST asked to watch this topic.
+     *
+     * Default **off**: missing key, empty, `'0'`, or any non-truthy value.
+     * Does not inspect the site or user master.
+     *
+     * @param array<string, mixed> $post Typically $_POST from start/reply.
+     */
+    public static function wantsNotifyOnCompose(array $post): bool
+    {
+        $raw = $post[self::POST_NOTIFY_REPLIES] ?? null;
+        if ($raw === null && array_key_exists('ap_notify_replies', $post)) {
+            $raw = $post['ap_notify_replies'];
+        }
+
+        return self::sanitizeEnabled($raw) === '1';
+    }
+
+    /**
+     * Subscribe after a successful start or reply only when the compose
+     * checkbox was on and the poster may Subscribe.
+     *
+     * Never auto-watches. Never unsubscribes. First Subscribe while the
+     * user master is off flips it on ({@see enableUserNotifyOnSubscribe()})
+     * so mail is not a silent no-op. Site master off, guests, and no
+     * `view_forum` are no-ops.
+     *
+     * @param array<string, mixed> $post Typically $_POST from start/reply.
+     */
+    public static function maybeSubscribeFromCompose(
+        int $userId,
+        int $topicId,
+        int $forumId,
+        array $post,
+        ?AP_DB $db = null
+    ): bool {
+        if ($userId < 1 || $topicId < 1 || $forumId < 1) {
+            return false;
+        }
+        if (!self::wantsNotifyOnCompose($post)) {
+            return false;
+        }
+        if (!self::viewerMaySubscribe($userId, $forumId, $db)) {
+            return false;
+        }
+
+        $ok = self::subscribe($userId, $topicId, $db);
+        if ($ok) {
+            self::enableUserNotifyOnSubscribe($userId, $db);
+        }
+
+        return $ok;
+    }
+
+    /**
      * Watch a topic (idempotent). Unique `(user_id, topic_id)`.
      *
-     * Does not flip the user master, does not auto-watch on reply, and does
-     * not write unread `topic_track` rows. Guests and missing user/topic ids
-     * are rejected.
+     * Storage only: does not flip the user master. User-facing Subscribe
+     * (topic button, compose checkbox) calls {@see enableUserNotifyOnSubscribe()}
+     * after a successful watch. Does not auto-watch on start or reply, and
+     * does not write unread `topic_track` rows. Guests and missing user/topic
+     * ids are rejected. Compose opt-in is {@see maybeSubscribeFromCompose()}.
      */
     public static function subscribe(int $userId, int $topicId, ?AP_DB $db = null): bool
     {

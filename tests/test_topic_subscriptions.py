@@ -357,6 +357,12 @@ def test_phpunit_topic_subscriptions_migration_suite_runs() -> None:
     assert "function testViewerMaySubscribeRequiresSiteOnLoginAndViewForum" in subs
     assert "function testViewerMaySubscribeWhenMembersReadonly" in subs
     assert "function testViewerMaySubscribeHonorsGroupOnlyViewForum" in subs
+    assert "function testComposeCheckboxHtmlDefaultOffAndGated" in subs
+    assert "function testWantsNotifyOnComposeDefaultOff" in subs
+    assert "function testMaybeSubscribeFromComposeNeverAutoWatches" in subs
+    assert "function testEnableUserNotifyOnSubscribeFlipsOnceAndRejectsGuest" in subs
+    assert "function testEnableUserNotifyOnSubscribeTreatsMissingMetaAsOff" in subs
+    assert "function testStorageSubscribeDoesNotFlipUserMaster" in subs
 
 
 def test_subscribe_unsubscribe_helpers_add_remove_one_pair() -> None:

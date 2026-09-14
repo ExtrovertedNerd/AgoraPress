@@ -8545,6 +8545,22 @@ function ap_forum_set_user_notify_enabled(int $userId, mixed $value, ?AP_DB $db 
 }
 
 /**
+ * Turn the user master on after a successful Subscribe if it was off.
+ *
+ * Returns true only when this call flipped the stored value from off to on.
+ *
+ * @see AP_Forum_Notify::enableUserNotifyOnSubscribe()
+ */
+function ap_forum_enable_user_notify_on_subscribe(int $userId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::enableUserNotifyOnSubscribe($userId, $db);
+}
+
+/**
  * Topic subscriptions for a user with titles (profile list).
  *
  * @return list<array{
@@ -8710,6 +8726,135 @@ function ap_forum_topic_subscribe_form_html(int $topicId, bool $subscribed = fal
         . ap_esc_html($label)
         . '</button>'
         . '</form>';
+}
+
+/**
+ * Whether compose POST asked to watch the topic (checkbox on).
+ *
+ * Default off when the field is missing.
+ *
+ * @param array<string, mixed> $post
+ *
+ * @see AP_Forum_Notify::wantsNotifyOnCompose()
+ */
+function ap_forum_notify_wants_on_compose(array $post): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::wantsNotifyOnCompose($post);
+}
+
+/**
+ * Subscribe after start/reply only when the compose checkbox was on.
+ *
+ * Never auto-watches. Never unsubscribes. First Subscribe with the user
+ * master off flips it on so mail is not a silent no-op.
+ *
+ * @param array<string, mixed> $post
+ *
+ * @see AP_Forum_Notify::maybeSubscribeFromCompose()
+ */
+function ap_forum_notify_maybe_subscribe_from_compose(
+    int $userId,
+    int $topicId,
+    int $forumId,
+    array $post,
+    ?AP_DB $db = null
+): bool {
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::maybeSubscribeFromCompose($userId, $topicId, $forumId, $post, $db);
+}
+
+/**
+ * Compose checkbox: Notify me of replies. Default off.
+ *
+ * Empty when $args['show'] is false, or when `show` is omitted and the viewer
+ * may not Subscribe (site off, guest, no `view_forum`). Already subscribed
+ * (when `topic_id` is given) → no markup so start/reply cannot look like a
+ * toggle. Never checked unless `$args['checked']` is true.
+ *
+ * @param array{
+ *   show?: bool,
+ *   checked?: bool,
+ *   forum_id?: int,
+ *   topic_id?: int,
+ *   user_id?: int,
+ *   id?: string,
+ *   name?: string,
+ *   label?: string,
+ *   class?: string,
+ *   db?: AP_DB|null
+ * } $args
+ */
+function ap_forum_notify_compose_checkbox_html(array $args = []): string
+{
+    $db = (isset($args['db']) && $args['db'] instanceof AP_DB) ? $args['db'] : null;
+    $userId = array_key_exists('user_id', $args)
+        ? (int) $args['user_id']
+        : (function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id($db) : 0);
+    $forumId = array_key_exists('forum_id', $args) ? (int) $args['forum_id'] : 0;
+    $topicId = array_key_exists('topic_id', $args) ? (int) $args['topic_id'] : 0;
+
+    if (array_key_exists('show', $args)) {
+        if (empty($args['show'])) {
+            return '';
+        }
+    } else {
+        if ($forumId < 1 && $topicId > 0 && class_exists('AP_Forum', false)) {
+            $topic = AP_Forum::getTopic($topicId, $db);
+            if (is_object($topic)) {
+                $forumId = (int) ($topic->forum_id ?? 0);
+            }
+        }
+        if (
+            !class_exists('AP_Forum_Notify', false)
+            || !AP_Forum_Notify::viewerMaySubscribe($userId, $forumId, $db)
+        ) {
+            return '';
+        }
+        if ($topicId > 0 && AP_Forum_Notify::isSubscribed($userId, $topicId, $db)) {
+            return '';
+        }
+    }
+
+    $name = class_exists('AP_Forum_Notify', false)
+        ? AP_Forum_Notify::POST_NOTIFY_REPLIES
+        : 'notify_replies';
+    if (isset($args['name']) && is_string($args['name']) && $args['name'] !== '') {
+        $name = $args['name'];
+    }
+    $id = 'ap-notify-replies';
+    if (isset($args['id']) && is_string($args['id']) && $args['id'] !== '') {
+        $id = $args['id'];
+    }
+    $label = 'Notify me of replies';
+    if (isset($args['label']) && is_string($args['label']) && $args['label'] !== '') {
+        $label = $args['label'];
+    }
+
+    $classes = ['ap-field', 'ap-field--notify-replies'];
+    if (!empty($args['class']) && is_string($args['class'])) {
+        $extra = trim($args['class']);
+        if ($extra !== '') {
+            $classes[] = $extra;
+        }
+    }
+
+    $checked = !empty($args['checked']);
+
+    return '<div class="' . ap_esc_attr(implode(' ', $classes)) . '">'
+        . '<label for="' . ap_esc_attr($id) . '">'
+        . '<input type="checkbox" id="' . ap_esc_attr($id) . '" name="' . ap_esc_attr($name) . '" value="1"'
+        . ($checked ? ' checked' : '')
+        . '>'
+        . ' ' . ap_esc_html($label)
+        . '</label>'
+        . '</div>';
 }
 
 // -----------------------------------------------------------------------------

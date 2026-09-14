@@ -137,6 +137,8 @@ Query var `ap_forum_notice` (and same-request flash via
 | `topic_locked` / `topic_unlocked` | Topic locked. / Topic unlocked. |
 | `topic_type_updated` | Topic type updated. |
 | `topic_subscribed` / `topic_unsubscribed` | Subscribed to this topic. / Unsubscribed from this topic. |
+| `topic_subscribed_email_on` | Subscribed to this topic. Email notifications for topics you subscribe to are now on. |
+| `topic_created_email_on` / `reply_posted_email_on` | Topic created. / Reply posted. Plus the same email-on sentence when compose **Notify me of replies** flipped the user master. Pending start/reply keep `topic_pending` / `reply_pending`. |
 
 Like failures that stay on the page: `login_required` → “Log in to like posts.”;
 `forbidden` → “You do not have permission to like this post.”
@@ -619,6 +621,18 @@ email notifications** — `forum_topic_notify_enabled`, default **off**;
 off means no Subscribe chrome, no reply enqueue, no notify send),
 Attachments, Moderation & anti-spam. Per-forum visibility is **not** on
 this screen — it is Forums → Edit (`forum_access_level`).
+
+When the site switch is on, the first **Subscribe** on a topic — or
+compose **Notify me of replies** — while the member’s **Email me about
+topics I subscribe to** (`forum_notify_email`) is off turns that user
+master **on** with a notice. **Choice:** flip the master on; do not
+refuse and point at Profile (Subscribe chrome is visible with the master
+off, so a refuse would make the button a trap). Topic **Subscribe**
+shows `topic_subscribed_email_on`. Compose keeps the create/reply
+outcome (`topic_created_email_on` / `reply_posted_email_on`). Start or
+reply without the checkbox does not auto-watch and does not flip the
+switch. Unsubscribe never turns the user master off. The member can turn
+the user master off again on Profile.
 
 Agora’s front (`AP_Forum_Front::topicsForQuery()` /
 `postsForQuery()`, unread mark-on-view) pages at **20** regardless of the

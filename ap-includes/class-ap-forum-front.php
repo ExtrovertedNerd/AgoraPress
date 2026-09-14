@@ -574,6 +574,21 @@ class AP_Forum_Front
                 'topic_unlocked' => ['type' => 'success', 'message' => 'Topic unlocked.'],
                 'topic_type_updated' => ['type' => 'success', 'message' => 'Topic type updated.'],
                 'topic_subscribed' => ['type' => 'success', 'message' => 'Subscribed to this topic.'],
+                'topic_subscribed_email_on' => [
+                    'type' => 'success',
+                    'message' => 'Subscribed to this topic. Email notifications for topics you'
+                        . ' subscribe to are now on.',
+                ],
+                'topic_created_email_on' => [
+                    'type' => 'success',
+                    'message' => 'Topic created. Email notifications for topics you'
+                        . ' subscribe to are now on.',
+                ],
+                'reply_posted_email_on' => [
+                    'type' => 'success',
+                    'message' => 'Reply posted. Email notifications for topics you'
+                        . ' subscribe to are now on.',
+                ],
                 'topic_unsubscribed' => ['type' => 'success', 'message' => 'Unsubscribed from this topic.'],
             ];
             if (isset($map[$code])) {
@@ -945,6 +960,11 @@ class AP_Forum_Front
         $pending = $created !== null && (int) ($created->topic_approved ?? 1) !== 1;
         $notice = $pending ? 'topic_pending' : 'topic_created';
 
+        // Compose checkbox only — start never auto-watches.
+        if (self::watchFromComposeAndMaybeFlipMaster($userId, $topicId, $forumId, $post, $db) && !$pending) {
+            $notice = 'topic_created_email_on';
+        }
+
         // Pending topics stay on the forum view (not publicly listed yet).
         if ($pending) {
             $forum = AP_Forum::getForum($forumId, $db);
@@ -1044,6 +1064,11 @@ class AP_Forum_Front
         $createdPost = AP_Forum::getPost($postId, $db);
         $pending = $createdPost !== null && (int) ($createdPost->post_approved ?? 1) !== 1;
         $notice = $pending ? 'reply_pending' : 'reply_posted';
+
+        // Compose checkbox only — reply never auto-watches.
+        if (self::watchFromComposeAndMaybeFlipMaster($userId, $topicId, $forumId, $post, $db) && !$pending) {
+            $notice = 'reply_posted_email_on';
+        }
 
         // Approved own reply: advance read mark so the topic is not left unread
         // for the poster (same watermark rules as topic view).
@@ -1359,11 +1384,39 @@ class AP_Forum_Front
     }
 
     /**
+     * Watch from compose checkbox. First watch with the user master off
+     * flips it on (SPEC C: do not refuse / point at Profile).
+     *
+     * @param array<string, mixed> $post
+     */
+    private static function watchFromComposeAndMaybeFlipMaster(
+        int $userId,
+        int $topicId,
+        int $forumId,
+        array $post,
+        ?AP_DB $db
+    ): bool {
+        if (!class_exists('AP_Forum_Notify', false)) {
+            return false;
+        }
+        $wasOff = !AP_Forum_Notify::isUserNotifyEnabled($userId, $db);
+        if (!AP_Forum_Notify::maybeSubscribeFromCompose($userId, $topicId, $forumId, $post, $db)) {
+            return false;
+        }
+
+        return $wasOff && AP_Forum_Notify::isUserNotifyEnabled($userId, $db);
+    }
+
+    /**
      * Subscribe or unsubscribe the current viewer for topic email notify.
      *
      * Site master off, guests, and viewers without `view_forum` are rejected.
-     * Does not auto-watch on topic view, start, or reply. Does not flip the
-     * user master (`forum_notify_email`).
+     * Does not auto-watch on topic view, start, or reply. First Subscribe
+     * while the user master is off flips `forum_notify_email` on and redirects
+     * with `topic_subscribed_email_on` (does not refuse / point at Profile).
+     * Compose **Notify me of replies** uses the same flip via
+     * {@see watchFromComposeAndMaybeFlipMaster()} and `topic_created_email_on`
+     * / `reply_posted_email_on`.
      *
      * @param array<string, mixed> $post
      */
@@ -1433,11 +1486,16 @@ class AP_Forum_Front
             return null;
         }
 
+        $notice = 'topic_unsubscribed';
+        if ($subscribe) {
+            $flipped = AP_Forum_Notify::enableUserNotifyOnSubscribe($userId, $db);
+            $notice = $flipped ? 'topic_subscribed_email_on' : 'topic_subscribed';
+        }
+
         $url = AP_Forum::topicUrl($topic);
         $sep = str_contains($url, '?') ? '&' : '?';
 
-        return $url . $sep . 'ap_forum_notice='
-            . ($subscribe ? 'topic_subscribed' : 'topic_unsubscribed');
+        return $url . $sep . 'ap_forum_notice=' . $notice;
     }
 
     /**

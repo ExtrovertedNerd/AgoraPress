@@ -356,6 +356,132 @@ final class ForumNotifySubscriptionsTest extends TestCase
         $this->assertStringContainsString('>Subscribe</button>', $html);
     }
 
+    public function testComposeCheckboxHtmlDefaultOffAndGated(): void
+    {
+        $this->assertSame('', ap_forum_notify_compose_checkbox_html(['show' => false]));
+
+        $html = ap_forum_notify_compose_checkbox_html(['show' => true]);
+        $this->assertStringContainsString('ap-field--notify-replies', $html);
+        $this->assertStringContainsString('name="notify_replies"', $html);
+        $this->assertStringContainsString('value="1"', $html);
+        $this->assertStringContainsString('Notify me of replies', $html);
+        $this->assertStringContainsString('type="checkbox"', $html);
+        $this->assertStringNotContainsString(' checked', $html);
+        $this->assertStringNotContainsString("checked=", $html);
+
+        $on = ap_forum_notify_compose_checkbox_html([
+            'show' => true,
+            'checked' => true,
+            'id' => 'custom-notify',
+        ]);
+        $this->assertStringContainsString('id="custom-notify"', $on);
+        $this->assertStringContainsString(' checked', $on);
+
+        $this->bootForumAcl();
+        $userId = $this->createMember('compose-cb');
+        $topicId = $this->createTopic('Compose gate');
+
+        $this->assertSame('', ap_forum_notify_compose_checkbox_html([
+            'user_id' => $userId,
+            'forum_id' => $this->forumId,
+            'db' => $this->db,
+        ]));
+
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        $this->assertSame('', ap_forum_notify_compose_checkbox_html([
+            'user_id' => 0,
+            'forum_id' => $this->forumId,
+            'db' => $this->db,
+        ]));
+
+        $shown = ap_forum_notify_compose_checkbox_html([
+            'user_id' => $userId,
+            'forum_id' => $this->forumId,
+            'db' => $this->db,
+        ]);
+        $this->assertStringContainsString('Notify me of replies', $shown);
+        $this->assertStringNotContainsString(' checked', $shown);
+
+        $this->assertTrue(AP_Forum_Notify::subscribe($userId, $topicId, $this->db));
+        $this->assertSame('', ap_forum_notify_compose_checkbox_html([
+            'user_id' => $userId,
+            'forum_id' => $this->forumId,
+            'topic_id' => $topicId,
+            'db' => $this->db,
+        ]));
+    }
+
+    public function testWantsNotifyOnComposeDefaultOff(): void
+    {
+        $this->assertFalse(AP_Forum_Notify::wantsNotifyOnCompose([]));
+        $this->assertFalse(AP_Forum_Notify::wantsNotifyOnCompose(['notify_replies' => '']));
+        $this->assertFalse(AP_Forum_Notify::wantsNotifyOnCompose(['notify_replies' => '0']));
+        $this->assertFalse(AP_Forum_Notify::wantsNotifyOnCompose(['notify_replies' => 'off']));
+        $this->assertFalse(ap_forum_notify_wants_on_compose(['topic_title' => 'Hi']));
+        $this->assertTrue(AP_Forum_Notify::wantsNotifyOnCompose(['notify_replies' => '1']));
+        $this->assertTrue(AP_Forum_Notify::wantsNotifyOnCompose(['notify_replies' => 'on']));
+        $this->assertTrue(ap_forum_notify_wants_on_compose(['ap_notify_replies' => '1']));
+        $this->assertSame('notify_replies', AP_Forum_Notify::POST_NOTIFY_REPLIES);
+    }
+
+    public function testMaybeSubscribeFromComposeNeverAutoWatches(): void
+    {
+        $this->bootForumAcl();
+        $userId = $this->createMember('compose-watch');
+        $topicId = $this->createTopic('No auto watch');
+
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+
+        $this->assertFalse(AP_Forum_Notify::maybeSubscribeFromCompose(
+            $userId,
+            $topicId,
+            $this->forumId,
+            [],
+            $this->db
+        ));
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($userId, $topicId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+        $this->assertFalse(ap_forum_notify_maybe_subscribe_from_compose(
+            $userId,
+            $topicId,
+            $this->forumId,
+            ['reply_body' => 'Hello'],
+            $this->db
+        ));
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($userId, $topicId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+
+        $this->assertTrue(AP_Forum_Notify::maybeSubscribeFromCompose(
+            $userId,
+            $topicId,
+            $this->forumId,
+            ['notify_replies' => '1'],
+            $this->db
+        ));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($userId, $topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::unsubscribe($userId, $topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::maybeSubscribeFromCompose(
+            $userId,
+            $this->createTopic('Second compose watch'),
+            $this->forumId,
+            ['notify_replies' => '1'],
+            $this->db
+        ));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+
+        $this->assertTrue(AP_Forum_Notify::unsubscribe($userId, $topicId, $this->db));
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '0', $this->db);
+        $this->assertFalse(AP_Forum_Notify::maybeSubscribeFromCompose(
+            $userId,
+            $topicId,
+            $this->forumId,
+            ['notify_replies' => '1'],
+            $this->db
+        ));
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($userId, $topicId, $this->db));
+    }
+
     public function testListForUserWithTitlesIncludesTitleAndUrl(): void
     {
         $userId = $this->createMember('sub-titles');
@@ -403,12 +529,61 @@ final class ForumNotifySubscriptionsTest extends TestCase
         $topicId = $this->createTopic('Not a track');
 
         $this->assertTrue(AP_Forum_Notify::subscribe($userId, $topicId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
 
         $track = $this->db->getVar(
             'SELECT COUNT(*) FROM ' . $this->db->quoteIdentifier($this->db->table('topic_track'))
         );
         $this->assertSame(0, (int) $track);
         $this->assertSame(1, $this->subscriptionCount());
+    }
+
+    public function testEnableUserNotifyOnSubscribeFlipsOnceAndRejectsGuest(): void
+    {
+        $userId = $this->createMember('sub-flip-master');
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::enableUserNotifyOnSubscribe(0, $this->db));
+        $this->assertFalse(ap_forum_enable_user_notify_on_subscribe(0, $this->db));
+
+        $this->assertTrue(AP_Forum_Notify::enableUserNotifyOnSubscribe($userId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+        $this->assertSame(
+            '1',
+            AP_User::getMeta($userId, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+        $this->assertFalse(AP_Forum_Notify::enableUserNotifyOnSubscribe($userId, $this->db));
+        $this->assertFalse(ap_forum_enable_user_notify_on_subscribe($userId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($userId, '0', $this->db));
+        $this->assertTrue(ap_forum_enable_user_notify_on_subscribe($userId, $this->db));
+        $this->assertTrue(ap_forum_user_notify_enabled($userId, $this->db));
+    }
+
+    public function testEnableUserNotifyOnSubscribeTreatsMissingMetaAsOff(): void
+    {
+        $userId = $this->createMember('sub-missing-meta');
+        $this->assertTrue(AP_User::deleteMeta($userId, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db));
+        $this->assertNull(AP_User::getMeta($userId, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::enableUserNotifyOnSubscribe($userId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+        $this->assertSame(
+            '1',
+            AP_User::getMeta($userId, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+    }
+
+    public function testStorageSubscribeDoesNotFlipUserMaster(): void
+    {
+        $userId = $this->createMember('sub-storage-no-flip');
+        $topicId = $this->createTopic('Storage only');
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($userId, $topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($userId, $topicId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
+        $this->assertTrue(ap_forum_subscribe_topic($userId, $this->createTopic('Proc no flip'), $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($userId, $this->db));
     }
 
     private function bootForumAcl(): void

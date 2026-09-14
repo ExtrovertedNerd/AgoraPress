@@ -101,6 +101,8 @@ def test_admin_user_edit_api() -> None:
         "profile",
         "forum_notify_email",
         "Email me about topics I subscribe to",
+        "If this is off, Subscribe ",
+        "(or Notify me of replies) turns it on.",
         "Subscriptions",
         "ap_unsubscribe_topic",
         "renderForumNotifyFieldset",
