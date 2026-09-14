@@ -329,6 +329,15 @@ final class AgoraThemeTest extends TestCase
         $headers = AP_Theme::parseStyleCss($cssPath);
         $this->assertSame('Agora', $headers['Theme Name'] ?? null);
         $this->assertStringContainsString('Marble', (string) ($headers['Description'] ?? ''));
+        $this->assertSame(
+            'https://agorapress.extrovertednerd.com/',
+            $headers['Theme URI'] ?? null
+        );
+        $this->assertSame(
+            'https://agorapress.extrovertednerd.com/',
+            $headers['Author URI'] ?? null
+        );
+        $this->assertStringNotContainsString('https://extrovertednerd.com/', $css);
     }
 
     public function testSixSchemesKeepEditorContrastWithoutAddons(): void

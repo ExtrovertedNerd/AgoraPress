@@ -2458,6 +2458,8 @@ final class DeveloperDocsTest extends TestCase
                 'guest watches',
                 'view_forum',
                 'example.com',
+                'noreply@example.com',
+                'smtp.example.com',
                 'private hosts',
                 'persona mailboxes',
                 'live fleet inventory',

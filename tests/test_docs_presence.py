@@ -647,7 +647,15 @@ def test_public_product_file_contains_no_private_markers(relative: str) -> None:
 
 def _public_safe_landing_files() -> list[str]:
     names = [f"docs/{path.name}" for path in sorted(DOCS.glob("*.md"))] if DOCS.is_dir() else []
-    names.extend(["README.md", "CHANGELOG.md", "ap-config-sample.php"])
+    names.extend(
+        [
+            "README.md",
+            "CHANGELOG.md",
+            "ap-config-sample.php",
+            "composer.json",
+            "ap-content/themes/agora/style.css",
+        ]
+    )
     return names
 
 
@@ -706,10 +714,84 @@ def test_public_landing_file_stays_public_safe(relative: str) -> None:
     _assert_document_is_public_safe(relative, path.read_text(encoding="utf-8"))
 
 
+_SHIPPED_SOURCE_ROOTS = (
+    "ap-includes",
+    "ap-admin",
+    "install",
+    "bin",
+    "ap-content/themes",
+)
+_SHIPPED_SOURCE_FILES = (
+    "ap-cli",
+    "index.php",
+    "ap-config-sample.php",
+    "composer.json",
+    "docker-compose.yml",
+    "docker/nginx.conf.example",
+    "docker/apache-vhost.conf",
+)
+_SHIPPED_SOURCE_SUFFIXES = {".php", ".css", ".js"}
+
+
+def _iter_shipped_product_text_files() -> list[Path]:
+    files: list[Path] = []
+    for rel in _SHIPPED_SOURCE_ROOTS:
+        root = ROOT / rel
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix.lower() in _SHIPPED_SOURCE_SUFFIXES:
+                files.append(path)
+    for rel in _SHIPPED_SOURCE_FILES:
+        path = ROOT / rel
+        if path.is_file():
+            files.append(path)
+    # Unique, stable order.
+    seen: set[str] = set()
+    out: list[Path] = []
+    for path in files:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(path)
+    return out
+
+
+def _is_allowed_shipped_mailbox_domain(domain: str) -> bool:
+    domain = domain.lower()
+    if domain.endswith((".example", ".test", ".invalid", ".localhost")):
+        return True
+    return _is_allowed_example_mailbox_domain(domain)
+
+
+def test_shipped_product_files_stay_public_safe() -> None:
+    """INSTRUCTIONS: no private hosts, persona mailboxes, or fleet in shipped comments."""
+    files = _iter_shipped_product_text_files()
+    assert files, "expected shipped product source files"
+    for path in files:
+        relative = path.relative_to(ROOT).as_posix()
+        text = path.read_text(encoding="utf-8")
+        lower = text.lower()
+        for banned in PRIVATE_MARKERS:
+            assert banned not in lower, (
+                f"{relative} must not contain private marker: {banned}"
+            )
+        for hit in ORG_HOST.findall(text):
+            assert hit.lower() == "agorapress.extrovertednerd.com", (
+                f"{relative} may name only the public product host, not fleet inventory ({hit})"
+            )
+        for domain in MAILBOX.findall(text):
+            assert _is_allowed_shipped_mailbox_domain(domain), (
+                f"{relative} mailbox must be a generic example, got @{domain}"
+            )
+
+
 CHARTER_PUBLIC_SAFE_GUIDES = (
     "admin.md",
     "themes.md",
     "editor.md",
+    "forums.md",
     "troubleshooting.md",
     "features_and_functions.md",
 )
@@ -749,6 +831,7 @@ def test_public_safe_mail_examples_appear_in_operator_docs() -> None:
         "docs/install.md",
         "docs/troubleshooting.md",
         "docs/cli.md",
+        "docs/forums.md",
         "ap-config-sample.php",
     ):
         path = ROOT / relative

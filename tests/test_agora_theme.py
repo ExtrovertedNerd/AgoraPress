@@ -61,6 +61,9 @@ def test_agora_theme_files_exist() -> None:
 def test_style_css_has_six_scheme_selectors_and_no_images() -> None:
     css = STYLE.read_text(encoding="utf-8")
     assert "Theme Name: Agora" in css
+    assert "Theme URI: https://agorapress.extrovertednerd.com/" in css
+    assert "Author URI: https://agorapress.extrovertednerd.com/" in css
+    assert "https://extrovertednerd.com/" not in css
     for slug in SCHEMES:
         assert f"agora-scheme-{slug}" in css, f"missing CSS for {slug}"
 

@@ -2200,6 +2200,8 @@ def test_forums_doc_covers_topic_email_notify(docs_root: Path) -> None:
         "guest watches",
         "view_forum",
         "example.com",
+        "noreply@example.com",
+        "smtp.example.com",
         "private hosts",
         "persona mailboxes",
         "live fleet inventory",

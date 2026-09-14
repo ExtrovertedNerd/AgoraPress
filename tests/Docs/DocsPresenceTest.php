@@ -884,6 +884,7 @@ final class DocsPresenceTest extends TestCase
                 'docs/install.md',
                 'docs/troubleshooting.md',
                 'docs/cli.md',
+                'docs/forums.md',
                 'ap-config-sample.php',
             ] as $relative
         ) {
@@ -919,7 +920,15 @@ final class DocsPresenceTest extends TestCase
             $rel = 'docs/' . basename($path);
             $out[$rel] = [$rel];
         }
-        foreach (['README.md', 'CHANGELOG.md', 'ap-config-sample.php'] as $rel) {
+        foreach (
+            [
+                'README.md',
+                'CHANGELOG.md',
+                'ap-config-sample.php',
+                'composer.json',
+                'ap-content/themes/agora/style.css',
+            ] as $rel
+        ) {
             $out[$rel] = [$rel];
         }
 
@@ -936,6 +945,45 @@ final class DocsPresenceTest extends TestCase
     }
 
     /**
+     * INSTRUCTIONS: no private hosts, persona mailboxes, or fleet inventory
+     * in shipped product comments / headers.
+     */
+    public function testShippedProductFilesStayPublicSafe(): void
+    {
+        $files = $this->shippedProductTextFiles();
+        $this->assertNotSame([], $files, 'expected shipped product source files');
+
+        foreach ($files as $path) {
+            $relative = substr($path, strlen($this->root) + 1);
+            $text = (string) file_get_contents($path);
+            foreach (self::PRIVATE_MARKERS as $banned) {
+                $this->assertStringNotContainsStringIgnoringCase(
+                    $banned,
+                    $text,
+                    "{$relative} must not contain private marker: {$banned}"
+                );
+            }
+
+            preg_match_all('/[a-z0-9.-]*extrovertednerd\.com/i', $text, $orgHits);
+            foreach ($orgHits[0] as $hit) {
+                $this->assertSame(
+                    'agorapress.extrovertednerd.com',
+                    strtolower($hit),
+                    "{$relative} may name only the public product host, not fleet inventory ({$hit})"
+                );
+            }
+
+            preg_match_all('/[A-Z0-9._%+\-]+@([A-Z0-9.\-]+\.[A-Z]{2,})/i', $text, $mailHits);
+            foreach ($mailHits[1] as $domain) {
+                $this->assertTrue(
+                    $this->isAllowedShippedMailboxDomain(strtolower($domain)),
+                    "{$relative} mailbox must be a generic example, got @{$domain}"
+                );
+            }
+        }
+    }
+
+    /**
      * Phase 6 charter guides must restate the public-safe rule (generic
      * examples only; no private hosts, persona mailboxes, or fleet inventory).
      *
@@ -947,6 +995,7 @@ final class DocsPresenceTest extends TestCase
             'admin' => ['admin.md'],
             'themes' => ['themes.md'],
             'editor' => ['editor.md'],
+            'forums' => ['forums.md'],
             'troubleshooting' => ['troubleshooting.md'],
             'catalog' => ['features_and_functions.md'],
         ];
@@ -1334,6 +1383,74 @@ final class DocsPresenceTest extends TestCase
         }
 
         return false;
+    }
+
+    private function isAllowedShippedMailboxDomain(string $domain): bool
+    {
+        foreach (['.example', '.test', '.invalid', '.localhost'] as $suffix) {
+            if (str_ends_with($domain, $suffix)) {
+                return true;
+            }
+        }
+
+        return $this->isAllowedExampleMailboxDomain($domain);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function shippedProductTextFiles(): array
+    {
+        $files = [];
+        $roots = [
+            $this->root . '/ap-includes',
+            $this->root . '/ap-admin',
+            $this->root . '/install',
+            $this->root . '/bin',
+            $this->root . '/ap-content/themes',
+        ];
+        foreach ($roots as $dir) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator(
+                    $dir,
+                    \FilesystemIterator::SKIP_DOTS
+                )
+            );
+            foreach ($iterator as $file) {
+                if (!$file->isFile()) {
+                    continue;
+                }
+                $ext = strtolower($file->getExtension());
+                if (!in_array($ext, ['php', 'css', 'js'], true)) {
+                    continue;
+                }
+                $files[] = $file->getPathname();
+            }
+        }
+        foreach (
+            [
+                'ap-cli',
+                'index.php',
+                'ap-config-sample.php',
+                'composer.json',
+                'docker-compose.yml',
+                'docker/nginx.conf.example',
+                'docker/apache-vhost.conf',
+            ] as $rel
+        ) {
+            $path = $this->root . '/' . $rel;
+            if (is_file($path)) {
+                $files[] = $path;
+            }
+        }
+
+        $files = array_values(array_unique($files));
+        sort($files, SORT_STRING);
+
+        return $files;
     }
 
     private function isAllowedPublicHost(string $host): bool

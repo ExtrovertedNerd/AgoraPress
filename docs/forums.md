@@ -778,7 +778,7 @@ Worker `AP_Forum_Notify::processQueuedReply()`
 | Single subject | `[{site name}] New reply in {topic title}` |
 | Digest subject | `[{site name}] {n} new replies in {topic title}` |
 | Body | Title, reply author, spoiler-stripped excerpt (40 words via `ap_strip_spoilers` / `AP_Content_Format::stripSpoilers`), absolute topic URL, signed unsubscribe |
-| From / Reply-To | Settings → Mail |
+| From / Reply-To | Settings → Mail (examples: `noreply@example.com`, SMTP host `smtp.example.com`) |
 
 One-click unsubscribe: query `ap_forum_unsub` (HMAC token, `user_id` +
 `topic_id`, 45-day TTL). No session. Drops **that** watch only; never
