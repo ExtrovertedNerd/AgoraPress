@@ -93,6 +93,7 @@ def test_class_api_and_defaults() -> None:
         "topic_subscriptions",
         "rate_limit_mail",
         "skip_rate_limit",
+        "refundNotifyQuota",
     ):
         assert needle in src, f"AP_Forum_Notify missing {needle!r}"
 
@@ -184,6 +185,7 @@ def test_config_rate_bucket_cases_exist() -> None:
     for needle in (
         "function testSendHonorsOwnPerMinuteCap",
         "function testSendDoesNotConsumeRateLimitMail",
+        "function testFailedSendDoesNotClaimSuccessOrConsumeNotifyQuota",
         "forgetInMemoryRateBucketForTests",
         "RATE_BUCKET_TRANSIENT",
         "remainingSends",

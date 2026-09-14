@@ -294,6 +294,12 @@ final class ForumNotifyWorkerTest extends TestCase
         ));
         AP_Forum_Permissions::flushCache();
         $this->assertFalse(AP_Forum_Permissions::userCanViewForum($lost, $this->forumId, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCan(
+            $lost,
+            $this->forumId,
+            AP_Forum_Permissions::PERM_VIEW,
+            $this->db
+        ));
         $this->assertFalse(AP_Forum_Notify::isEligibleRecipient(
             $lost,
             $this->forumId,
@@ -307,6 +313,48 @@ final class ForumNotifyWorkerTest extends TestCase
         $this->assertTrue(AP_Forum_Notify::isSubscribed($lost, $this->topicId, $this->db));
     }
 
+    public function testWorkerDropsRevokedViewForumPermission(): void
+    {
+        $lost = $this->createUser('worker-revoked-view', 'subscriber');
+        $this->watch($lost);
+        $this->assertTrue(AP_Forum_Permissions::userCan(
+            $lost,
+            $this->forumId,
+            AP_Forum_Permissions::PERM_VIEW,
+            $this->db
+        ));
+
+        $registered = AP_Group::getBySlug(AP_Group::SLUG_REGISTERED, $this->db);
+        $this->assertNotNull($registered);
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $this->forumId,
+            (int) $registered->group_id,
+            AP_Forum_Permissions::PERM_VIEW,
+            false,
+            $this->db
+        ));
+        AP_Forum_Permissions::flushCache();
+        $this->assertFalse(AP_Forum_Permissions::userCan(
+            $lost,
+            $this->forumId,
+            AP_Forum_Permissions::PERM_VIEW,
+            $this->db
+        ));
+        $this->assertFalse(AP_Forum_Permissions::userCanViewForum($lost, $this->forumId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isEligibleRecipient(
+            $lost,
+            $this->forumId,
+            $this->adminId,
+            $this->db
+        ));
+
+        $replyId = $this->replyWith('view_forum revoked.');
+        $this->assertSame(0, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($lost, $this->topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($lost, $this->db));
+    }
+
     public function testSiteOffWorkerDoesNotSend(): void
     {
         $watcher = $this->createUser('worker-site-off', 'subscriber');
@@ -314,8 +362,71 @@ final class ForumNotifyWorkerTest extends TestCase
         $replyId = $this->replyWith('Site master off.');
 
         AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '0', $this->db);
+        $this->assertFalse(AP_Forum_Notify::isEnabled($this->db));
+        $remaining = AP_Forum_Notify::remainingSends($this->db);
         $this->assertSame(0, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
         $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertSame($remaining, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+    }
+
+    public function testUserOffWorkerDoesNotSend(): void
+    {
+        $watcher = $this->createUser('worker-user-off', 'subscriber');
+        $this->assertTrue(AP_Forum_Notify::subscribe($watcher, $this->topicId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($watcher, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($watcher, $this->forumId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isEligibleRecipient(
+            $watcher,
+            $this->forumId,
+            $this->adminId,
+            $this->db
+        ));
+        $this->assertFalse(ap_forum_notify_is_eligible_recipient(
+            $watcher,
+            $this->forumId,
+            $this->adminId,
+            $this->db
+        ));
+
+        $replyId = $this->replyWith('User master is off.');
+        $this->assertSame(0, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($watcher, $this->db));
+
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($watcher, '1', $this->db));
+        $this->assertSame(1, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('worker-user-off@example.com', $outbox[0]['to']);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+    }
+
+    public function testPosterExcludedFromWorkerMail(): void
+    {
+        $this->watch($this->adminId);
+        $this->assertFalse(AP_Forum_Notify::isEligibleRecipient(
+            $this->adminId,
+            $this->forumId,
+            $this->adminId,
+            $this->db
+        ));
+
+        $replyId = $this->replyWith('Poster should not be mailed.');
+        $this->assertSame(0, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->adminId, $this->topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($this->adminId, $this->db));
+
+        $watcher = $this->createUser('worker-not-poster', 'subscriber');
+        $this->watch($watcher);
+        $this->assertSame(1, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('worker-not-poster@example.com', $outbox[0]['to']);
+        $this->assertNotSame('worker-admin@example.com', $outbox[0]['to']);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->adminId, $this->topicId, $this->db));
         $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
     }
 
@@ -434,12 +545,68 @@ final class ForumNotifyWorkerTest extends TestCase
         $this->assertTrue(AP_Forum_Notify::isSubscribed($third, $this->topicId, $this->db));
     }
 
+    public function testWorkerLeavesRateLimitMailAlone(): void
+    {
+        $watcher = $this->createUser('worker-rl-mail', 'subscriber');
+        $this->watch($watcher);
+        $email = 'worker-rl-mail@example.com';
+
+        $before = $this->mailRateLimitSnapshot($email);
+        $this->assertSame(0, $before['ip']['attempts']);
+        $this->assertSame(0, $before['identity']['attempts']);
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
+
+        $replyId = $this->replyWith('Notify must skip rate_limit_mail.');
+        $this->assertSame(1, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
+
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame($email, $outbox[0]['to']);
+        $this->assertSame(3, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertSame(3, ap_forum_notify_remaining_sends($this->db));
+
+        $after = $this->mailRateLimitSnapshot($email);
+        $this->assertSame($before['max'], $after['max']);
+        $this->assertSame($before['window'], $after['window']);
+        $this->assertSame($before['lockout'], $after['lockout']);
+        $this->assertSame($before['limits'], $after['limits']);
+        $this->assertSame($before['ip']['attempts'], $after['ip']['attempts']);
+        $this->assertSame($before['ip']['remaining'], $after['ip']['remaining']);
+        $this->assertSame($before['identity']['attempts'], $after['identity']['attempts']);
+        $this->assertSame($before['identity']['remaining'], $after['identity']['remaining']);
+        $this->assertTrue($after['ip']['allowed']);
+        $this->assertTrue($after['identity']['allowed']);
+
+        $stored = AP_Transient::get(AP_Forum_Notify::RATE_BUCKET_TRANSIENT, false, $this->db);
+        $this->assertIsArray($stored);
+        $this->assertSame(1, (int) ($stored['count'] ?? 0));
+        $this->assertStringStartsNotWith('ap_rl_', AP_Forum_Notify::RATE_BUCKET_TRANSIENT);
+        $this->assertStringNotContainsString('rate_limit_mail', AP_Forum_Notify::RATE_BUCKET_TRANSIENT);
+
+        $this->assertTrue(AP_Mail::send('verify@example.com', 'Uses mail bucket', 'Body'));
+        $verify = AP_Rate_Limit::check(
+            AP_Rate_Limit::ACTION_MAIL,
+            AP_Rate_Limit::identityBucket('verify@example.com'),
+            $this->db
+        );
+        $this->assertSame(1, $verify['attempts']);
+        $notifyIdentity = AP_Rate_Limit::check(
+            AP_Rate_Limit::ACTION_MAIL,
+            AP_Rate_Limit::identityBucket($email),
+            $this->db
+        );
+        $this->assertSame(0, $notifyIdentity['attempts']);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+    }
+
     public function testSignedTokenUnsubscribesOneTopicWithoutSession(): void
     {
         $this->assertGreaterThanOrEqual(30 * 86400, AP_Forum_Notify::UNSUBSCRIBE_TTL);
 
         $user = $this->createUser('worker-unsub', 'subscriber');
         $this->watch($user);
+        $sibling = $this->createUser('worker-unsub-sibling', 'subscriber');
+        $this->watch($sibling);
         $other = AP_Forum::createTopic([
             'forum_id' => $this->forumId,
             'topic_title' => 'Second watch',
@@ -472,6 +639,7 @@ final class ForumNotifyWorkerTest extends TestCase
         $this->assertStringContainsString('ap_forum_notice=topic_unsubscribed', (string) $redirect);
         $this->assertFalse(AP_Forum_Notify::isSubscribed($user, $this->topicId, $this->db));
         $this->assertTrue(AP_Forum_Notify::isSubscribed($user, $other, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($sibling, $this->topicId, $this->db));
         $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($user, $this->db));
 
         $again = ap_forum_notify_handle_unsubscribe(
@@ -525,11 +693,94 @@ final class ForumNotifyWorkerTest extends TestCase
         $this->watch($watcher);
         $replyId = $this->replyWith('Transport down.');
 
+        $remainingBefore = AP_Forum_Notify::remainingSends($this->db);
+        $this->assertSame(4, $remainingBefore);
+
         AP_Mail::failNextForTests('SMTP down');
         $this->assertSame(0, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
         $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertSame($remainingBefore, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertSame($remainingBefore, ap_forum_notify_remaining_sends($this->db));
+        $this->assertStringContainsString('SMTP down', AP_Mail::lastError());
         $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
         $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($watcher, $this->db));
+        $this->assertCount(1, AP_Forum_Notify::listForTopic($this->topicId, $this->db));
+
+        // Slot was refunded, so a later worker pass can still send.
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db);
+        $this->assertSame(1, $sent);
+        $this->assertSame($remainingBefore - 1, AP_Forum_Notify::remainingSends($this->db));
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('worker-fail@example.com', $outbox[0]['to']);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+    }
+
+    public function testFailedSendAmongWatchersDoesNotClaimSuccessOrDropWatches(): void
+    {
+        $first = $this->createUser('worker-fail-a', 'subscriber');
+        $second = $this->createUser('worker-fail-b', 'subscriber');
+        $this->watch($first);
+        $this->watch($second);
+        $replyId = $this->replyWith('One transport failure.');
+
+        AP_Mail::failNextForTests('SMTP down');
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db);
+        $this->assertSame(1, $sent);
+        $this->assertSame(3, AP_Forum_Notify::remainingSends($this->db));
+
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertContains($outbox[0]['to'], [
+            'worker-fail-a@example.com',
+            'worker-fail-b@example.com',
+        ]);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($first, $this->topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($second, $this->topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($first, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($second, $this->db));
+    }
+
+    public function testFailedDigestSendDoesNotClaimSiblingsOrDropWatch(): void
+    {
+        $watcher = $this->createUser('digest-fail', 'subscriber');
+        $this->watch($watcher);
+
+        $firstId = $this->replyWith('Digest first while SMTP is down.');
+        $secondId = $this->replyWith('Digest second while SMTP is down.');
+        $this->enqueue($firstId);
+        $this->enqueue($secondId);
+
+        AP_Mail::failNextForTests('SMTP down');
+        $this->assertSame(0, AP_Forum_Notify::processQueuedReply($this->topicId, $firstId, $this->db));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+        $this->assertFalse(AP_Transient::get(
+            AP_Forum_Notify::DIGEST_CLAIM_TRANSIENT,
+            false,
+            $this->db
+        ));
+        $this->assertIsInt(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$this->topicId, $secondId],
+            $this->db
+        ));
+
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $firstId, $this->db);
+        $this->assertSame(1, $sent);
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame(
+            '[Notify Worker Site] 2 new replies in Worker thread',
+            $outbox[0]['subject']
+        );
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+        $this->assertFalse(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$this->topicId, $secondId],
+            $this->db
+        ));
     }
 
     public function testUnapprovedAndFirstPostDoNotSend(): void
@@ -856,6 +1107,36 @@ final class ForumNotifyWorkerTest extends TestCase
             [$this->topicId, $secondId],
             $this->db
         ));
+    }
+
+    /**
+     * @return array{
+     *   max: string,
+     *   window: string,
+     *   lockout: string,
+     *   limits: array{max: int, window: int, lockout: int},
+     *   ip: array<string, mixed>,
+     *   identity: array<string, mixed>
+     * }
+     */
+    private function mailRateLimitSnapshot(string $email): array
+    {
+        return [
+            'max' => (string) AP_Options::get('rate_limit_mail_max', '', $this->db),
+            'window' => (string) AP_Options::get('rate_limit_mail_window', '', $this->db),
+            'lockout' => (string) AP_Options::get('rate_limit_mail_lockout', '', $this->db),
+            'limits' => AP_Rate_Limit::getLimits(AP_Rate_Limit::ACTION_MAIL, $this->db),
+            'ip' => AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_MAIL,
+                AP_Rate_Limit::ipBucket(),
+                $this->db
+            ),
+            'identity' => AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_MAIL,
+                AP_Rate_Limit::identityBucket($email),
+                $this->db
+            ),
+        ];
     }
 
     private function watch(int $userId): void

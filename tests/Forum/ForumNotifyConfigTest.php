@@ -489,6 +489,50 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertFalse(AP_Mail::send('another@example.com', 'Still blocked', 'Body'));
     }
 
+    public function testFailedSendDoesNotClaimSuccessOrConsumeNotifyQuota(): void
+    {
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
+        AP_Mail::enableTestMode();
+        AP_Mail::clearTestOutbox();
+
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
+        AP_Mail::failNextForTests('SMTP handshake failed.');
+        $this->assertFalse(AP_Forum_Notify::send(
+            'member@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertStringContainsString('SMTP handshake failed.', AP_Mail::lastError());
+
+        AP_Mail::failNextForTests('SMTP handshake failed.');
+        $this->assertFalse(ap_forum_notify_send(
+            'member@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertSame(4, ap_forum_notify_remaining_sends($this->db));
+        $this->assertStringContainsString('SMTP handshake failed.', AP_Mail::lastError());
+
+        $this->assertTrue(AP_Forum_Notify::send(
+            'member@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertCount(1, AP_Mail::getTestOutbox());
+        $this->assertSame(3, AP_Forum_Notify::remainingSends($this->db));
+    }
+
     public function testGuestAndMissingUserMetaAreOff(): void
     {
         $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled(0, $this->db));

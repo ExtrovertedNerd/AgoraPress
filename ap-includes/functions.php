@@ -8490,9 +8490,10 @@ function ap_forum_notify_maybe_enqueue_approved_reply(?object $post, ?AP_DB $db 
 /**
  * Outbound notify choke point. Site master off → no send.
  *
- * When the site master is on, consumes the notify per-minute bucket then
+ * When the site master is on, reserves a notify per-minute slot then
  * sends `text/plain` via {@see AP_Mail::send()} with `skip_rate_limit` so
- * verification / reset / test quota is untouched.
+ * verification / reset / test quota is untouched. A failed transport
+ * refunds the slot and returns false.
  *
  * @param string|list<string>   $to
  * @param array<string, string> $headers

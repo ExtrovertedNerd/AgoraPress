@@ -43,7 +43,9 @@
  * uses its own per-minute bucket ({@see OPTION_MAX_PER_MINUTE}, default
  * 4, 60-second window). Several unsent replies on the same `(user, topic)`
  * collapse into one digest; if that grouping slips, per-reply mail still
- * goes through the same cap.
+ * goes through the same cap. A failed send does not count as success
+ * (no digest claim, notify cap slot refunded) and does not delete the
+ * subscription.
  *
  * @package AgoraPress
  */
@@ -337,8 +339,10 @@ class AP_Forum_Notify
      * addresses. Honors {@see OPTION_MAX_PER_MINUTE} via the notify bucket
      * and does not consume `rate_limit_mail`. Stops when the per-minute
      * cap is exhausted (remaining subscribers keep their watch). Failed
-     * {@see AP_Mail::send()} does not delete the subscription. Site master
-     * off, missing/unapproved replies, and the topic starter are no-ops.
+     * {@see AP_Mail::send()} does not increment the return value, does not
+     * claim digest siblings, does not keep the notify cap slot, and does
+     * not delete the subscription. Site master off, missing/unapproved
+     * replies, and the topic starter are no-ops.
      *
      * Several still-queued replies for the same `(user, topic)` become one
      * digest. If grouping cannot run (one valid reply, compose failure),
@@ -516,10 +520,11 @@ class AP_Forum_Notify
      * Outbound notify choke point. Site master off → no send (does not call
      * {@see AP_Mail::send()} and does not consume `rate_limit_mail`).
      *
-     * When the site master is on, consumes one slot from the notify per-minute
+     * When the site master is on, reserves one slot from the notify per-minute
      * bucket then sends `text/plain` via {@see AP_Mail::send()} with
      * `skip_rate_limit` so verification / reset / test quota is untouched.
-     * Cap exhausted → false, no SMTP.
+     * Cap exhausted → false, no SMTP. Transport failure refunds the slot
+     * and returns false (does not claim the mail went out).
      *
      * @param string|list<string>   $to
      * @param array<string, string> $headers
@@ -557,9 +562,14 @@ class AP_Forum_Notify
 
         $headers['Content-Type'] = 'text/plain; charset=UTF-8';
 
-        return AP_Mail::send($to, $subject, $message, $headers, [
+        $ok = AP_Mail::send($to, $subject, $message, $headers, [
             'skip_rate_limit' => true,
         ]);
+        if (!$ok) {
+            self::refundNotifyQuota($db);
+        }
+
+        return $ok;
     }
 
     /**
@@ -2018,6 +2028,22 @@ class AP_Forum_Notify
         self::writeRateBucket($state, $db);
 
         return true;
+    }
+
+    /**
+     * Give back a reserved notify slot after {@see AP_Mail::send()} fails.
+     *
+     * Does not touch `rate_limit_mail`. No-op when the window is empty.
+     */
+    private static function refundNotifyQuota(?AP_DB $db): void
+    {
+        $state = self::readRateBucket($db);
+        if ($state['count'] < 1) {
+            return;
+        }
+
+        $state['count']--;
+        self::writeRateBucket($state, $db);
     }
 
     /**
