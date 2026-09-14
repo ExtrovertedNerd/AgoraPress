@@ -160,6 +160,95 @@ final class CiHygieneTest extends TestCase
         );
     }
 
+    public function testDoesNotDeletePreexistingPhpunitSuites(): void
+    {
+        $missing = $this->missingPathsFromFixture('last-release-phpunit-suites.txt');
+        $this->assertSame(
+            [],
+            $missing,
+            'Do not delete pre-existing PHPUnit suites to look green'
+        );
+    }
+
+    public function testDoesNotDeletePreexistingPytestFiles(): void
+    {
+        $missing = $this->missingPathsFromFixture('last-release-pytest-files.txt');
+        $this->assertSame(
+            [],
+            $missing,
+            'Do not delete pre-existing pytest files to look green'
+        );
+    }
+
+    public function testPhpstanDoesNotHideCoreOrRaiseLevelToLookGreen(): void
+    {
+        $path = $this->root . '/phpstan.neon.dist';
+        $raw = (string) file_get_contents($path);
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/^    ignoreErrors:/m',
+            $raw,
+            'Do not add PHPStan ignoreErrors as a substitute CI-green charter'
+        );
+        $this->assertStringContainsString('reportUnmatchedIgnoredErrors: true', $raw);
+        $this->assertStringContainsString("- ap-includes\n", $raw);
+        $this->assertStringContainsString('- ap-includes/compatibility/*', $raw);
+        $this->assertStringNotContainsString(
+            'class-ap-forum-notify',
+            $raw,
+            'Do not exclude charter files from PHPStan to look green'
+        );
+    }
+
+    public function testPhpcsDoesNotExcludeProductPathsToLookGreen(): void
+    {
+        $path = $this->root . '/phpcs.xml.dist';
+        $raw = (string) file_get_contents($path);
+
+        $this->assertStringContainsString('<exclude-pattern>*/vendor/*</exclude-pattern>', $raw);
+        $this->assertStringContainsString('<exclude-pattern>*/ap-content/*</exclude-pattern>', $raw);
+        $this->assertStringContainsString('<exclude-pattern>*/.hephaestus/*</exclude-pattern>', $raw);
+        $this->assertStringContainsString('<exclude-pattern>*/node_modules/*</exclude-pattern>', $raw);
+        $this->assertStringNotContainsString(
+            'ap-includes/*',
+            $raw,
+            'Do not exclude ap-includes from PHPCS to look green'
+        );
+        $this->assertStringNotContainsString(
+            '*/tests/*',
+            $raw,
+            'Do not exclude tests from PHPCS to look green'
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function missingPathsFromFixture(string $name): array
+    {
+        $path = $this->root . '/tests/Integration/fixtures/' . $name;
+        $this->assertFileIsReadable($path, 'Missing CI hygiene fixture: ' . $name);
+        $lines = preg_split("/\R/", (string) file_get_contents($path)) ?: [];
+        $relativePaths = [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+            $relativePaths[] = $line;
+        }
+        $this->assertNotEmpty($relativePaths, $name . ' must list last-release tests');
+
+        $missing = [];
+        foreach ($relativePaths as $relative) {
+            if (!is_file($this->root . '/' . $relative)) {
+                $missing[] = $relative;
+            }
+        }
+
+        return $missing;
+    }
+
     /**
      * @return array<string, array{0: string, 1: string}>
      */

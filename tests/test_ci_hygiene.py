@@ -18,6 +18,20 @@ from test_charter_spec import SPEC_PHPUNIT
 ROOT = Path(__file__).resolve().parents[1]
 CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
 PHPUNIT_XML = ROOT / "phpunit.xml.dist"
+PHPSTAN_NEON = ROOT / "phpstan.neon.dist"
+PHPCS_XML = ROOT / "phpcs.xml.dist"
+FIXTURES = ROOT / "tests" / "Integration" / "fixtures"
+
+
+def _paths_from_fixture(name: str) -> list[str]:
+    text = (FIXTURES / name).read_text(encoding="utf-8")
+    paths = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert paths, f"{name} must list last-release tests"
+    return paths
 
 
 def test_github_workflow_hard_fails_phpunit_phpcs_phpstan() -> None:
@@ -79,6 +93,51 @@ def test_github_workflow_run_steps_do_not_swallow_failures() -> None:
     text = CI_YML.read_text(encoding="utf-8")
     assert "|| true" not in text
     assert re.search(r"composer test\s+--", text) is None
+
+
+def test_does_not_delete_preexisting_phpunit_suites() -> None:
+    missing = [
+        relative
+        for relative in _paths_from_fixture("last-release-phpunit-suites.txt")
+        if not (ROOT / relative).is_file()
+    ]
+    assert missing == [], (
+        "Do not delete pre-existing PHPUnit suites to look green: "
+        + ", ".join(missing)
+    )
+
+
+def test_does_not_delete_preexisting_pytest_files() -> None:
+    missing = [
+        relative
+        for relative in _paths_from_fixture("last-release-pytest-files.txt")
+        if not (ROOT / relative).is_file()
+    ]
+    assert missing == [], (
+        "Do not delete pre-existing pytest files to look green: "
+        + ", ".join(missing)
+    )
+
+
+def test_phpstan_does_not_hide_core_or_raise_level_to_look_green() -> None:
+    text = PHPSTAN_NEON.read_text(encoding="utf-8")
+    assert re.search(r"^    ignoreErrors:", text, flags=re.M) is None, (
+        "Do not add PHPStan ignoreErrors as a substitute CI-green charter"
+    )
+    assert "reportUnmatchedIgnoredErrors: true" in text
+    assert "- ap-includes\n" in text
+    assert "- ap-includes/compatibility/*" in text
+    assert "class-ap-forum-notify" not in text
+
+
+def test_phpcs_does_not_exclude_product_paths_to_look_green() -> None:
+    text = PHPCS_XML.read_text(encoding="utf-8")
+    assert "<exclude-pattern>*/vendor/*</exclude-pattern>" in text
+    assert "<exclude-pattern>*/ap-content/*</exclude-pattern>" in text
+    assert "<exclude-pattern>*/.hephaestus/*</exclude-pattern>" in text
+    assert "<exclude-pattern>*/node_modules/*</exclude-pattern>" in text
+    assert "ap-includes/*" not in text
+    assert "*/tests/*" not in text
 
 
 def test_charter_spec_methods_are_not_skipped() -> None:
