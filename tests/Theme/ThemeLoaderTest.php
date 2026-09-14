@@ -129,6 +129,7 @@ final class ThemeLoaderTest extends TestCase
         $this->assertFileIsReadable($agora . '/style.css');
         $this->assertFileIsReadable($agora . '/index.php');
         $this->assertFileIsReadable($agora . '/single.php');
+        $this->assertFileIsReadable($agora . '/comments.php');
         $this->assertFileIsReadable($agora . '/page.php');
         $this->assertFileIsReadable($agora . '/404.php');
 

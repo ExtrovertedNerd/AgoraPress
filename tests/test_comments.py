@@ -29,6 +29,8 @@ def _php_bin() -> str:
 def test_comment_files_exist() -> None:
     required = [
         INCLUDES / "class-ap-comment.php",
+        INCLUDES / "theme-compat" / "comments.php",
+        ROOT / "ap-content" / "themes" / "agora" / "comments.php",
         MIGRATIONS / "0004_core_comments_commentmeta.php",
         ADMIN / "edit-comments.php",
         ADMIN / "includes" / "class-ap-comments-list-table.php",
@@ -96,6 +98,49 @@ def test_procedural_comment_helpers() -> None:
         "function ap_delete_comment_meta",
     ):
         assert fn in src, f"Expected {fn!r} in functions.php"
+
+    tags = (ROOT / "ap-includes" / "template-tags.php").read_text(encoding="utf-8")
+    for fn in (
+        "function ap_comments_template",
+        "function ap_locate_comments_template",
+        "function ap_comments_compat_file",
+    ):
+        assert fn in tags, f"Expected {fn!r} in template-tags.php"
+
+    content_start = tags.index("function ap_the_content")
+    content_end = tags.index("function ap_get_the_excerpt")
+    content_fn = tags[content_start:content_end]
+    assert "ap_comments_template" not in content_fn
+
+    single = (ROOT / "ap-content" / "themes" / "agora" / "single.php").read_text(
+        encoding="utf-8"
+    )
+    assert single.count("ap_comments_template(") == 1
+    assert "ap_comment_action" not in single
+    comments = (ROOT / "ap-content" / "themes" / "agora" / "comments.php").read_text(
+        encoding="utf-8"
+    )
+    assert comments.count('value="ap_comment_post"') == 1
+
+
+def test_compat_comments_fallback_surface() -> None:
+    src = (INCLUDES / "theme-compat" / "comments.php").read_text(encoding="utf-8")
+    for needle in (
+        "ap-comments--compat",
+        "AP_Comment::getByPost",
+        "Comments are closed",
+        "Log in",
+        "to leave a comment",
+        "Leave a comment",
+        'name="ap_comment_action"',
+        "ap_comment_post",
+        "comment_post_ID",
+        "ap_editor(",
+        "modeForContext('comment')",
+        "comment_registration",
+        "ap_handle_comment_form_post",
+    ):
+        assert needle in src, f"Expected {needle!r} in theme-compat/comments.php"
 
 
 def test_bootstrap_loads_comment() -> None:
@@ -169,6 +214,7 @@ def test_structure_script_lists_comments() -> None:
     assert "class-ap-comment.php" in src
     assert "edit-comments.php" in src
     assert "class-ap-comments-list-table.php" in src
+    assert "theme-compat/comments.php" in src
 
 
 def test_phpunit_comments_suite_runs() -> None:
@@ -183,6 +229,7 @@ def test_phpunit_comments_suite_runs() -> None:
             "--configuration",
             str(ROOT / "phpunit.xml.dist"),
             str(ROOT / "tests" / "Comment" / "CommentModelTest.php"),
+            str(ROOT / "tests" / "Comment" / "CommentsTemplateTest.php"),
             str(ROOT / "tests" / "Database" / "CommentsCommentmetaMigrationTest.php"),
             str(ROOT / "tests" / "Admin" / "AdminCommentsTest.php"),
         ],

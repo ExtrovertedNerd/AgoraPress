@@ -178,7 +178,8 @@ final class EditorTest extends TestCase
         $files = [
             'ap-admin/includes/class-ap-admin-post-edit.php' => ['AP_Editor::render', 'modeForContext', 'post_content'],
             'ap-admin/comment.php' => ['ap_editor(', "modeForContext('comment')"],
-            'ap-content/themes/agora/single.php' => ['ap_editor(', "modeForContext('comment')"],
+            'ap-includes/theme-compat/comments.php' => ['ap_editor(', "modeForContext('comment')"],
+            'ap-content/themes/agora/comments.php' => ['ap_editor(', "modeForContext('comment')"],
             'ap-content/themes/agora/forum-view.php' => ['ap_editor(', "modeForContext('forum')"],
             'ap-content/themes/agora/topic.php' => ['ap_editor(', "modeForContext('forum')"],
         ];

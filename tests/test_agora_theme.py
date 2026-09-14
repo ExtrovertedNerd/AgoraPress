@@ -32,6 +32,7 @@ BLOG_TEMPLATES = (
     "index.php",
     "single.php",
     "page.php",
+    "comments.php",
     "archive.php",
     "search.php",
     "404.php",
@@ -312,6 +313,12 @@ def test_blog_templates_show_post_categories() -> None:
         assert "Posted in" not in src, f"{name} must not hardcode Posted in"
     single = (AGORA / "single.php").read_text(encoding="utf-8")
     assert "agora_the_entry_footer" in single
+    assert "ap_comments_template(" in single
+    assert single.count("ap_comments_template(") == 1
+    assert "ap_comment_action" not in single
+    comments = (AGORA / "comments.php").read_text(encoding="utf-8")
+    assert 'value="ap_comment_post"' in comments
+    assert comments.count('value="ap_comment_post"') == 1
     page = (AGORA / "page.php").read_text(encoding="utf-8")
     assert "agora_the_entry_meta" not in page
     assert "agora_the_entry_footer" not in page

@@ -23,6 +23,7 @@ POST_EDIT = ROOT / "ap-admin" / "includes" / "class-ap-admin-post-edit.php"
 TOPIC = ROOT / "ap-content" / "themes" / "agora" / "topic.php"
 FORUM_VIEW = ROOT / "ap-content" / "themes" / "agora" / "forum-view.php"
 SINGLE = ROOT / "ap-content" / "themes" / "agora" / "single.php"
+COMMENTS = ROOT / "ap-content" / "themes" / "agora" / "comments.php"
 PHPUNIT = ROOT / "tests" / "Editor" / "EditorTest.php"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
 
@@ -174,9 +175,14 @@ def test_wired_into_post_page_comment_forum_editors() -> None:
     assert "topic_body" in forum
 
     single = SINGLE.read_text(encoding="utf-8")
-    assert "ap_editor" in single or "AP_Editor" in single
-    assert "ap-comment-form" in single
-    assert 'name="comment"' in single or "name=\"comment\"" in single
+    assert "ap_comments_template(" in single
+    assert single.count("ap_comments_template(") == 1
+    assert "ap_comment_action" not in single
+
+    comments = COMMENTS.read_text(encoding="utf-8")
+    assert "ap_editor" in comments or "AP_Editor" in comments
+    assert "ap-comment-form" in comments
+    assert 'name="comment"' in comments or "name=\"comment\"" in comments
 
     comment = (ROOT / "ap-admin" / "comment.php").read_text(encoding="utf-8")
     assert "ap_editor" in comment or "AP_Editor" in comment

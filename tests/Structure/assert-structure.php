@@ -187,6 +187,7 @@ $requiredPaths = [
     'ap-admin/includes/class-ap-forum-moderation-queue.php',
     'ap-admin/includes/class-ap-admin-forum-groups.php',
     'ap-includes/class-ap-content-format.php',
+    'ap-includes/theme-compat/comments.php',
     'ap-includes/compatibility',
     'ap-includes/compatibility/load.php',
     'ap-includes/compatibility/class-ap-theme-compat.php',

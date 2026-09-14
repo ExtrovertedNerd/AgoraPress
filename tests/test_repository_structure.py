@@ -70,6 +70,7 @@ REQUIRED_PATHS: list[str] = [
     "ap-includes/class-ap-hook.php",
     "ap-includes/class-ap-hooks.php",
     "ap-includes/class-ap-forum.php",
+    "ap-includes/theme-compat/comments.php",
     "ap-includes/compatibility",
     "ap-includes/compatibility/load.php",
     "ap-includes/compatibility/class-ap-theme-compat.php",

@@ -32,6 +32,7 @@ def test_theme_files_exist() -> None:
     assert (AGORA / "style.css").is_file()
     assert (AGORA / "index.php").is_file()
     assert (AGORA / "single.php").is_file()
+    assert (AGORA / "comments.php").is_file()
     assert (AGORA / "page.php").is_file()
     assert (AGORA / "home.php").is_file()
     assert (AGORA / "404.php").is_file()

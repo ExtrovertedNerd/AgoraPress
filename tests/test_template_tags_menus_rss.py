@@ -67,6 +67,9 @@ def test_template_tags_api() -> None:
         "function ap_get_body_class",
         "function ap_body_class",
         "function ap_sanitize_html_class",
+        "function ap_comments_template",
+        "function ap_locate_comments_template",
+        "function ap_comments_compat_file",
         "rss2_url",
         "front-page",
     ):

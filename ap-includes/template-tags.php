@@ -102,6 +102,9 @@ function ap_get_the_content(AP_Post|int|null $post = null): string
  * Runs the `ap_the_content` filter (core formats Markdown/BBCode/HTML via
  * {@see AP_Content_Format}, then expands shortcodes). When no filter is
  * available, falls back to the same pipeline directly.
+ *
+ * Does not load {@see ap_comments_template()}. Themes that want a comment
+ * list and form call that helper themselves (Agora `single.php` does).
  */
 function ap_the_content(AP_Post|int|null $post = null): void
 {
@@ -644,6 +647,184 @@ function ap_sanitize_html_class(string $class): string
     $class = preg_replace('/[^a-z0-9_\-]/', '', $class) ?? '';
 
     return $class;
+}
+
+// -----------------------------------------------------------------------------
+// Comments template
+// -----------------------------------------------------------------------------
+
+/**
+ * Absolute path to the core comments.php fallback.
+ *
+ * Used when the active theme does not ship comments.php.
+ */
+function ap_comments_compat_file(): string
+{
+    return __DIR__ . '/theme-compat/comments.php';
+}
+
+/**
+ * Locate comments.php: explicit $file if readable, else theme (child then parent),
+ * else the core fallback.
+ *
+ * @param string|null $file Absolute path or theme-relative PHP file. Null/empty
+ *                          skips the explicit-file step.
+ */
+function ap_locate_comments_template(?string $file = null, ?AP_DB $db = null): string
+{
+    $raw = $file !== null ? trim($file) : '';
+    if ($raw !== '' && ap_comments_template_is_readable_php($raw)) {
+        return $raw;
+    }
+
+    $candidates = [];
+    if ($raw !== '') {
+        $relative = ap_comments_template_theme_relative($raw);
+        if ($relative !== '') {
+            $candidates[] = $relative;
+        }
+    }
+    $candidates[] = 'comments.php';
+    $candidates = array_values(array_unique($candidates));
+
+    $located = '';
+    if (function_exists('ap_locate_template')) {
+        $located = ap_locate_template($candidates, false, true, [], $db);
+    } elseif (class_exists('AP_Theme', false)) {
+        $located = AP_Theme::locateTemplate($candidates, false, true, [], $db);
+    }
+    if (is_string($located) && $located !== '' && is_readable($located)) {
+        return $located;
+    }
+
+    $fallback = ap_comments_compat_file();
+    if (is_file($fallback) && is_readable($fallback)) {
+        return $fallback;
+    }
+
+    return '';
+}
+
+/**
+ * Load the comments template (theme comments.php, or the core fallback).
+ *
+ * Prints nothing when not applicable: not a singular view, 404, feed, Blog
+ * module off, post type does not support comments, or comments closed with
+ * no approved comments to list. Pass a readable file to use that template
+ * instead of the theme stack.
+ */
+function ap_comments_template(?string $file = null): void
+{
+    if (!ap_comments_template_is_applicable()) {
+        return;
+    }
+
+    $path = ap_locate_comments_template($file);
+    if ($path === '') {
+        return;
+    }
+
+    if (class_exists('AP_Theme', false)) {
+        AP_Theme::loadTemplate($path, false, []);
+
+        return;
+    }
+
+    require $path;
+}
+
+/**
+ * Whether {@see ap_comments_template()} should print markup.
+ *
+ * @internal
+ */
+function ap_comments_template_is_applicable(?AP_DB $db = null): bool
+{
+    if (function_exists('ap_is_module_enabled') && !ap_is_module_enabled('blog', $db)) {
+        return false;
+    }
+
+    if (!isset($GLOBALS['ap_query']) || !$GLOBALS['ap_query'] instanceof AP_Query) {
+        return false;
+    }
+
+    $query = $GLOBALS['ap_query'];
+    if (empty($query->is_singular) || !empty($query->is_404) || !empty($query->is_feed)) {
+        return false;
+    }
+
+    $post = $query->post instanceof AP_Post ? $query->post : ap_get_post_in_loop();
+    if (!$post instanceof AP_Post) {
+        return false;
+    }
+
+    $type = (string) $post->post_type;
+    if (
+        function_exists('ap_post_type_supports')
+        && class_exists('AP_Post', false)
+        && AP_Post::typeExists($type)
+        && !ap_post_type_supports($type, 'comments')
+    ) {
+        return false;
+    }
+
+    if (($post->comment_status ?? 'open') === 'open') {
+        return true;
+    }
+
+    return ap_comments_template_has_approved_list($post, $db);
+}
+
+/**
+ * Whether a closed post still has an approved comment list to show.
+ *
+ * @internal
+ */
+function ap_comments_template_has_approved_list(AP_Post $post, ?AP_DB $db = null): bool
+{
+    if ((int) $post->comment_count > 0) {
+        return true;
+    }
+    if (!class_exists('AP_Comment', false) || (int) $post->ID < 1) {
+        return false;
+    }
+
+    return AP_Comment::getByPost((int) $post->ID, [], $db) !== [];
+}
+
+/**
+ * Whether $path is a readable .php file with no parent-directory segments.
+ *
+ * @internal
+ */
+function ap_comments_template_is_readable_php(string $path): bool
+{
+    if ($path === '' || str_contains(str_replace('\\', '/', $path), '..')) {
+        return false;
+    }
+    if (!str_ends_with(strtolower($path), '.php')) {
+        return false;
+    }
+
+    return is_file($path) && is_readable($path);
+}
+
+/**
+ * Theme-relative template path, or empty when the value is unsafe.
+ *
+ * @internal
+ */
+function ap_comments_template_theme_relative(string $file): string
+{
+    $relative = ltrim(str_replace('\\', '/', $file), '/');
+    if ($relative === '' || str_contains($relative, '..')) {
+        return '';
+    }
+    if (!str_ends_with(strtolower($relative), '.php')) {
+        return '';
+    }
+
+    return $relative;
 }
 
 // -----------------------------------------------------------------------------
