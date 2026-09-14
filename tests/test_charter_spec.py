@@ -1,5 +1,5 @@
 """
-SPEC-minimum tests for the 0.3.9-beta charter must exist and pass.
+SPEC-minimum tests for the 0.3.10-beta charter must exist and pass.
 
 Runnable via:
   pytest tests/test_charter_spec.py -v
@@ -18,80 +18,96 @@ ROOT = Path(__file__).resolve().parents[1]
 # SPEC “Tests (minimum)” → suite file + method.
 SPEC_PHPUNIT: list[tuple[str, str]] = [
     (
-        "tests/Taxonomy/TaxonomyTest.php",
-        "testEnsureDefaultCategoryCreatesUncategorizedWhenNoLivingDefault",
+        "tests/Content/ContentFormatTest.php",
+        "testSpoilerFormatMarkupToDetails",
     ),
     (
-        "tests/Taxonomy/TaxonomyTest.php",
-        "testEnsureDefaultCategoryDoesNotClobberLivingDefault",
+        "tests/Content/ContentFormatTest.php",
+        "testSpoilerEmptyBodyRendersNothing",
     ),
     (
-        "tests/Taxonomy/TaxonomyTest.php",
-        "testUncategorizedIsDeletableOnceItIsNotTheDefault",
-    ),
-    (
-        "tests/Taxonomy/TaxonomyTest.php",
-        "testLastRemainingCategoryCannotBeDeleted",
-    ),
-    (
-        "tests/Taxonomy/TaxonomyTest.php",
-        "testCurrentDefaultCannotBeDeletedWhenAnotherCategoryExists",
-    ),
-    (
-        "tests/Admin/AdminTermsTest.php",
-        "testSetAsDefaultThenUncategorizedDeleteReassignsOrphans",
-    ),
-    (
-        "tests/Admin/AdminTermsTest.php",
-        "testRowDeleteOfDefaultCategoryReturnsHonestMessage",
-    ),
-    (
-        "tests/Options/SettingsApiTest.php",
-        "testUpdateWritingSettingsPersistsLivingTermId",
-    ),
-    (
-        "tests/Options/SettingsApiTest.php",
-        "testUpdateWritingSettingsZeroResolvesToLivingTermId",
-    ),
-    (
-        "tests/Options/SettingsApiTest.php",
-        "testWritingDefaultThenUncategorizedDeleteReassignsOrphans",
+        "tests/Content/ContentFormatTest.php",
+        "testSpoilerDefaultLabelAndTitleAttribute",
     ),
     (
         "tests/Template/TemplateTagsTest.php",
-        "testCategoryListSkipsEmptyNames",
+        "testExcerptStripsSpoilerInnerText",
     ),
     (
-        "tests/Template/TemplateTagsTest.php",
-        "testCategoryListIsEmptyWhenAllNamesAreEmpty",
-    ),
-    (
-        "tests/Theme/AgoraThemeTest.php",
-        "testVisitorPreviewControlAbsentByDefault",
-    ),
-    (
-        "tests/Theme/AgoraThemeTest.php",
-        "testVisitorPreviewQueryAppliesMidnightWithoutWritingOption",
-    ),
-    (
-        "tests/Theme/AgoraThemeTest.php",
-        "testPreviewCookieWinsOverSiteOption",
-    ),
-    (
-        "tests/Theme/AgoraThemeTest.php",
-        "testInvalidPreviewSlugIgnoredThenOptionThenMarble",
-    ),
-    (
-        "tests/Theme/AgoraThemeTest.php",
-        "testDefaultSchemeIsMarble",
-    ),
-    (
-        "tests/Theme/AgoraThemeTest.php",
-        "testSixSchemesKeepEditorContrastWithoutAddons",
+        "tests/Feed/FeedTest.php",
+        "testRssAndAtomStripSpoilerInnerText",
     ),
     (
         "tests/Editor/EditorTest.php",
-        "testContrastFixtureWithoutAgoraStylesheet",
+        "testSpoilerButtonWrapsVisualAndInsertsShortcodeInText",
+    ),
+    (
+        "tests/Editor/EditorTest.php",
+        "testSpoilerToolbarIsSharedOnPostPageCommentForum",
+    ),
+    (
+        "tests/Admin/AdminPostsTest.php",
+        "testCreateAsOtherAuthor",
+    ),
+    (
+        "tests/Admin/AdminPostsTest.php",
+        "testUpdateAsOtherAuthor",
+    ),
+    (
+        "tests/Admin/AdminPostsTest.php",
+        "testNoCapCannotReassignAuthor",
+    ),
+    (
+        "tests/Admin/AdminPostsTest.php",
+        "testCraftedPostAuthorIgnored",
+    ),
+    (
+        "tests/Forum/ForumNotifyEnqueueTest.php",
+        "testSiteOffReplyPostDoesNotEnqueue",
+    ),
+    (
+        "tests/Forum/ForumNotifyWorkerTest.php",
+        "testUserOffWorkerDoesNotSend",
+    ),
+    (
+        "tests/Forum/ForumNotifyWorkerTest.php",
+        "testPosterExcludedFromWorkerMail",
+    ),
+    (
+        "tests/Forum/ForumNotifyWorkerTest.php",
+        "testWorkerDropsLostViewForum",
+    ),
+    (
+        "tests/Database/TopicSubscriptionsMigrationTest.php",
+        "testUniqueConstraintAndAddRemovePair",
+    ),
+    (
+        "tests/Forum/ForumNotifyWorkerTest.php",
+        "testSignedTokenUnsubscribesOneTopicWithoutSession",
+    ),
+    (
+        "tests/Forum/ForumNotifyWorkerTest.php",
+        "testWorkerLeavesRateLimitMailAlone",
+    ),
+    (
+        "tests/Database/TopicSubscriptionsMigrationTest.php",
+        "testMigrateFromSchema12CreatesSubscriptionsTable",
+    ),
+    (
+        "tests/Database/TopicSubscriptionsMigrationTest.php",
+        "testUpIsIdempotentWhenTableAlreadyExists",
+    ),
+    (
+        "tests/Comment/CommentsTemplateTest.php",
+        "testNoThemeFileStillRendersFallbackForm",
+    ),
+    (
+        "tests/Comment/CommentsTemplateTest.php",
+        "testNonSingularPrintsEmptyCommentsMarkup",
+    ),
+    (
+        "tests/Comment/CommentsTemplateTest.php",
+        "testAgoraSingleRendersExactlyOneCommentForm",
     ),
 ]
 

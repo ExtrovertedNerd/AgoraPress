@@ -69,6 +69,13 @@ def test_suite_health_lists_critical_areas() -> None:
         "AdminTermsTest",
         "AgoraThemeTest",
         "EditorTest",
+        "ContentFormatTest",
+        "AdminPostsTest",
+        "CommentsTemplateTest",
+        "ForumNotifyEnqueueTest",
+        "ForumNotifyWorkerTest",
+        "TopicSubscriptionsMigrationTest",
+        "FeedTest",
         "CharterSpecTest",
         "CiHygieneTest",
     ):

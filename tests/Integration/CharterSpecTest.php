@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Presence + discovery of the 0.3.9-beta charter’s SPEC-minimum PHPUnit cases.
+ * Presence + discovery of the 0.3.10-beta charter’s SPEC-minimum PHPUnit cases.
  *
  * @package AgoraPress
  */
@@ -32,81 +32,97 @@ final class CharterSpecTest extends TestCase
     public static function specMinimumCaseProvider(): array
     {
         return [
-            'ensure creates Uncategorized' => [
-                'tests/Taxonomy/TaxonomyTest.php',
-                'testEnsureDefaultCategoryCreatesUncategorizedWhenNoLivingDefault',
+            'spoiler bbcode to details' => [
+                'tests/Content/ContentFormatTest.php',
+                'testSpoilerFormatMarkupToDetails',
             ],
-            'ensure does not clobber living default' => [
-                'tests/Taxonomy/TaxonomyTest.php',
-                'testEnsureDefaultCategoryDoesNotClobberLivingDefault',
+            'empty spoiler body renders nothing' => [
+                'tests/Content/ContentFormatTest.php',
+                'testSpoilerEmptyBodyRendersNothing',
             ],
-            'Uncategorized deletable after default moves' => [
-                'tests/Taxonomy/TaxonomyTest.php',
-                'testUncategorizedIsDeletableOnceItIsNotTheDefault',
+            'default spoiler label Spoiler' => [
+                'tests/Content/ContentFormatTest.php',
+                'testSpoilerDefaultLabelAndTitleAttribute',
             ],
-            'last remaining category undeletable' => [
-                'tests/Taxonomy/TaxonomyTest.php',
-                'testLastRemainingCategoryCannotBeDeleted',
-            ],
-            'current default undeletable' => [
-                'tests/Taxonomy/TaxonomyTest.php',
-                'testCurrentDefaultCannotBeDeletedWhenAnotherCategoryExists',
-            ],
-            'Set as default then delete Uncategorized reassigns' => [
-                'tests/Admin/AdminTermsTest.php',
-                'testSetAsDefaultThenUncategorizedDeleteReassignsOrphans',
-            ],
-            'default delete uses honest message' => [
-                'tests/Admin/AdminTermsTest.php',
-                'testRowDeleteOfDefaultCategoryReturnsHonestMessage',
-            ],
-            'Writing save stores a living term id' => [
-                'tests/Options/SettingsApiTest.php',
-                'testUpdateWritingSettingsPersistsLivingTermId',
-            ],
-            'Writing refuses magic 0' => [
-                'tests/Options/SettingsApiTest.php',
-                'testUpdateWritingSettingsZeroResolvesToLivingTermId',
-            ],
-            'Writing then delete Uncategorized reassigns' => [
-                'tests/Options/SettingsApiTest.php',
-                'testWritingDefaultThenUncategorizedDeleteReassignsOrphans',
-            ],
-            'Posted in skips empty names' => [
+            'excerpt does not leak spoiler inner text' => [
                 'tests/Template/TemplateTagsTest.php',
-                'testCategoryListSkipsEmptyNames',
+                'testExcerptStripsSpoilerInnerText',
             ],
-            'Posted in omitted when none remain' => [
-                'tests/Template/TemplateTagsTest.php',
-                'testCategoryListIsEmptyWhenAllNamesAreEmpty',
+            'feed does not leak spoiler inner text' => [
+                'tests/Feed/FeedTest.php',
+                'testRssAndAtomStripSpoilerInnerText',
             ],
-            'preview off: no header control' => [
-                'tests/Theme/AgoraThemeTest.php',
-                'testVisitorPreviewControlAbsentByDefault',
-            ],
-            'preview on: midnight query does not write option' => [
-                'tests/Theme/AgoraThemeTest.php',
-                'testVisitorPreviewQueryAppliesMidnightWithoutWritingOption',
-            ],
-            'preview cookie wins over site option' => [
-                'tests/Theme/AgoraThemeTest.php',
-                'testPreviewCookieWinsOverSiteOption',
-            ],
-            'invalid slug ignored; marble hard default' => [
-                'tests/Theme/AgoraThemeTest.php',
-                'testInvalidPreviewSlugIgnoredThenOptionThenMarble',
-            ],
-            'marble remains the hard default' => [
-                'tests/Theme/AgoraThemeTest.php',
-                'testDefaultSchemeIsMarble',
-            ],
-            'Agora dark schemes keep editor contrast' => [
-                'tests/Theme/AgoraThemeTest.php',
-                'testSixSchemesKeepEditorContrastWithoutAddons',
-            ],
-            'editor contrast fixture without Agora CSS' => [
+            'toolbar spoiler wraps visual and inserts shortcode' => [
                 'tests/Editor/EditorTest.php',
-                'testContrastFixtureWithoutAgoraStylesheet',
+                'testSpoilerButtonWrapsVisualAndInsertsShortcodeInText',
+            ],
+            'spoiler toolbar on post page comment forum' => [
+                'tests/Editor/EditorTest.php',
+                'testSpoilerToolbarIsSharedOnPostPageCommentForum',
+            ],
+            'create as other author' => [
+                'tests/Admin/AdminPostsTest.php',
+                'testCreateAsOtherAuthor',
+            ],
+            'update as other author' => [
+                'tests/Admin/AdminPostsTest.php',
+                'testUpdateAsOtherAuthor',
+            ],
+            'no edit_others cannot reassign' => [
+                'tests/Admin/AdminPostsTest.php',
+                'testNoCapCannotReassignAuthor',
+            ],
+            'crafted POST author ignored' => [
+                'tests/Admin/AdminPostsTest.php',
+                'testCraftedPostAuthorIgnored',
+            ],
+            'site off does not enqueue' => [
+                'tests/Forum/ForumNotifyEnqueueTest.php',
+                'testSiteOffReplyPostDoesNotEnqueue',
+            ],
+            'user off does not send' => [
+                'tests/Forum/ForumNotifyWorkerTest.php',
+                'testUserOffWorkerDoesNotSend',
+            ],
+            'poster excluded from mail' => [
+                'tests/Forum/ForumNotifyWorkerTest.php',
+                'testPosterExcludedFromWorkerMail',
+            ],
+            'lost view_forum excluded' => [
+                'tests/Forum/ForumNotifyWorkerTest.php',
+                'testWorkerDropsLostViewForum',
+            ],
+            'unique user+topic pair' => [
+                'tests/Database/TopicSubscriptionsMigrationTest.php',
+                'testUniqueConstraintAndAddRemovePair',
+            ],
+            'token unsubscribes one topic' => [
+                'tests/Forum/ForumNotifyWorkerTest.php',
+                'testSignedTokenUnsubscribesOneTopicWithoutSession',
+            ],
+            'worker leaves rate_limit_mail alone' => [
+                'tests/Forum/ForumNotifyWorkerTest.php',
+                'testWorkerLeavesRateLimitMailAlone',
+            ],
+            'migrate schema 12 to 13' => [
+                'tests/Database/TopicSubscriptionsMigrationTest.php',
+                'testMigrateFromSchema12CreatesSubscriptionsTable',
+            ],
+            'migration 13 is idempotent' => [
+                'tests/Database/TopicSubscriptionsMigrationTest.php',
+                'testUpIsIdempotentWhenTableAlreadyExists',
+            ],
+            'no theme file still renders form' => [
+                'tests/Comment/CommentsTemplateTest.php',
+                'testNoThemeFileStillRendersFallbackForm',
+            ],
+            'non-singular prints empty' => [
+                'tests/Comment/CommentsTemplateTest.php',
+                'testNonSingularPrintsEmptyCommentsMarkup',
+            ],
+            'Agora single still one form' => [
+                'tests/Comment/CommentsTemplateTest.php',
+                'testAgoraSingleRendersExactlyOneCommentForm',
             ],
         ];
     }
