@@ -362,6 +362,7 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($id, 'yes', $this->db));
         $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
         $this->assertTrue(ap_forum_user_notify_enabled($id, $this->db));
+        $this->assertTrue(ap_forum_set_user_notify_enabled($id, true, $this->db));
         $this->assertSame('1', AP_Forum_Notify::userNotifyStoredValue($id, $this->db));
         $this->assertSame(
             '1',

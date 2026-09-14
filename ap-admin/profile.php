@@ -49,6 +49,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         'description' => (string) ($_POST['description'] ?? ''),
         'location' => (string) ($_POST['location'] ?? ''),
         'signature' => (string) ($_POST['signature'] ?? ''),
+        'forum_notify_email' => (string) ($_POST['forum_notify_email'] ?? '0'),
     ];
     $user->user_email = ap_sanitize_text_field($extra['user_email']);
     $user->user_url = (string) $extra['user_url'];

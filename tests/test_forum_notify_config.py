@@ -64,6 +64,7 @@ def test_class_api_and_defaults() -> None:
         "function subscribe",
         "function unsubscribe",
         "function listForUser",
+        "function listForUserWithTitles",
         "function deleteForUser",
         "function deleteForTopic",
         "topic_subscriptions",
@@ -88,6 +89,8 @@ def test_bootstrap_and_functions_wiring() -> None:
     assert "function ap_forum_notify_send" in functions
     assert "function ap_forum_notify_max_per_minute" in functions
     assert "function ap_forum_user_notify_enabled" in functions
+    assert "function ap_forum_set_user_notify_enabled" in functions
+    assert "function ap_forum_list_topic_subscriptions" in functions
     assert "function ap_forum_user_subscribed_to_topic" in functions
     assert "function ap_forum_subscribe_topic" in functions
     assert "function ap_forum_unsubscribe_topic" in functions

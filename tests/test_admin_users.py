@@ -99,6 +99,13 @@ def test_admin_user_edit_api() -> None:
         "update-user-",
         "update-profile-",
         "profile",
+        "forum_notify_email",
+        "Email me about topics I subscribe to",
+        "Subscriptions",
+        "ap_unsubscribe_topic",
+        "renderForumNotifyFieldset",
+        "shouldShowForumNotifyFields",
+        "topic_unsubscribed",
     ):
         assert needle in src, f"Expected {needle!r} in admin user edit"
 
@@ -149,6 +156,7 @@ def test_admin_menu_includes_users() -> None:
     assert "profile.php" in src
     assert "user_created" in src
     assert "profile_updated" in src
+    assert "topic_unsubscribed" in src
     assert "verification_resent" in src
     assert "user_activated" in src
 

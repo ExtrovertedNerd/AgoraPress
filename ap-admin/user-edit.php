@@ -53,6 +53,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         'location' => (string) ($_POST['location'] ?? ''),
         'signature' => (string) ($_POST['signature'] ?? ''),
         'role' => (string) ($_POST['role'] ?? ''),
+        'forum_notify_email' => (string) ($_POST['forum_notify_email'] ?? '0'),
     ];
     // Keep object fields in sync for redisplay.
     $editUser->user_email = ap_sanitize_text_field($extra['user_email']);

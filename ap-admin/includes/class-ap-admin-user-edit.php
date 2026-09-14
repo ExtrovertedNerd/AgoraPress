@@ -125,6 +125,10 @@ class AP_Admin_User_Edit
             return self::handleActivateAccount($id, $db);
         }
 
+        if (!$isNew && !empty($input['ap_unsubscribe_topic'])) {
+            return self::handleUnsubscribeTopic($id, $input, $db);
+        }
+
         $data = self::collectFields($input, $isNew, $mode, $actorId, $db);
 
         $passErrors = self::passwordErrors($data, $isNew);
@@ -202,6 +206,13 @@ class AP_Admin_User_Edit
             AP_Admin::setColorMode($id, (string) $input['ap_admin_color_mode'], $db);
         }
 
+        if (!$isNew && self::shouldShowForumNotifyFields($db)) {
+            $posted = array_key_exists('forum_notify_email', $input)
+                ? $input['forum_notify_email']
+                : '0';
+            AP_Forum_Notify::setUserNotifyEnabled($id, $posted, $db);
+        }
+
         return [
             'ok' => true,
             'id' => $id,
@@ -221,6 +232,7 @@ class AP_Admin_User_Edit
      *   description?: string,
      *   location?: string,
      *   signature?: string,
+     *   forum_notify_email?: string,
      *   role?: string,
      *   user_pass?: string
      * } $extra Prefill overrides (e.g. after failed validation).
@@ -381,6 +393,10 @@ class AP_Admin_User_Edit
             . 'Supports the same light markup as forum posts.</p>';
         $html .= '</div>';
         $html .= '</fieldset>';
+
+        if (!$isNew && $id > 0 && self::shouldShowForumNotifyFields($db)) {
+            $html .= self::renderForumNotifyFieldset($id, $mode, $extra, $db);
+        }
 
         // Avatar (existing users only — local upload + Gravatar fallback).
         if (!$isNew && class_exists('AP_Avatar', false)) {
@@ -582,6 +598,135 @@ class AP_Admin_User_Edit
         $base['user'] = $result['user'] ?? $user;
 
         return $base;
+    }
+
+    /**
+     * Profile / account: user master checkbox + subscriptions list.
+     *
+     * Shown when the Forum module is on. Default checkbox state is off
+     * (missing usermeta). Unsubscribe is a dedicated submit so it does
+     * not save other profile fields.
+     *
+     * @param array<string, mixed> $extra Prefill overrides.
+     */
+    public static function renderForumNotifyFieldset(
+        int $userId,
+        string $mode = 'profile',
+        array $extra = [],
+        ?AP_DB $db = null
+    ): string {
+        if ($userId < 1 || !class_exists('AP_Forum_Notify', false)) {
+            return '';
+        }
+
+        $enabled = array_key_exists('forum_notify_email', $extra)
+            ? AP_Forum_Notify::sanitizeEnabled($extra['forum_notify_email']) === '1'
+            : AP_Forum_Notify::isUserNotifyEnabled($userId, $db);
+
+        $label = $mode === 'profile'
+            ? 'Email me about topics I subscribe to'
+            : 'Email this member about topics they subscribe to';
+
+        $html = '<fieldset class="ap-fieldset ap-forum-notify-fieldset">';
+        $html .= '<legend>Forum notifications</legend>';
+        $html .= '<div class="ap-field">';
+        $html .= '<label class="ap-checkbox-label" for="forum_notify_email">';
+        $html .= '<input type="checkbox" name="forum_notify_email" id="forum_notify_email" value="1"'
+            . ($enabled ? ' checked' : '') . ' /> ';
+        $html .= ap_esc_html($label) . '</label>';
+        $html .= '<p class="description">Off by default. Mail is sent only when this is on, the site '
+            . 'allows topic email notifications (Settings → Forums), and the member is subscribed '
+            . 'to the topic. Start or reply does not auto-subscribe.</p>';
+        $html .= '</div>';
+
+        $subs = AP_Forum_Notify::listForUserWithTitles($userId, $db);
+        $html .= '<div class="ap-field ap-topic-subscriptions-wrap">';
+        $html .= '<p class="ap-field-label"><strong>Subscriptions</strong></p>';
+        if ($subs === []) {
+            $html .= '<p class="description">No topic subscriptions.</p>';
+        } else {
+            $html .= '<table class="ap-list-table striped ap-topic-subscriptions">';
+            $html .= '<thead><tr><th>Topic</th><th class="column-unsubscribe">'
+                . '<span class="screen-reader-text">Actions</span></th></tr></thead><tbody>';
+            foreach ($subs as $sub) {
+                $topicId = (int) $sub['topic_id'];
+                $title = (string) $sub['topic_title'];
+                $url = (string) $sub['topic_url'];
+                $titleHtml = $url !== ''
+                    ? '<a href="' . ap_esc_url($url) . '">' . ap_esc_html($title) . '</a>'
+                    : ap_esc_html($title);
+                $html .= '<tr>';
+                $html .= '<td class="row-title">' . $titleHtml . '</td>';
+                $html .= '<td class="column-unsubscribe">';
+                $html .= '<button type="submit" name="ap_unsubscribe_topic" value="'
+                    . $topicId . '" class="button" formnovalidate>Unsubscribe</button>';
+                $html .= '</td></tr>';
+            }
+            $html .= '</tbody></table>';
+        }
+        $html .= '</div>';
+        $html .= '</fieldset>';
+
+        return $html;
+    }
+
+    /**
+     * Forum module on and notify class loaded.
+     */
+    public static function shouldShowForumNotifyFields(?AP_DB $db = null): bool
+    {
+        if (!class_exists('AP_Forum_Notify', false)) {
+            return false;
+        }
+        if (class_exists('AP_Options', false) && !AP_Options::isModuleEnabled('forum', $db)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Drop one topic watch from the profile / user-edit form.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{
+     *   ok: bool,
+     *   id: int,
+     *   message_key: string,
+     *   errors: list<string>,
+     *   user: ?AP_User
+     * }
+     */
+    private static function handleUnsubscribeTopic(int $id, array $input, AP_DB $db): array
+    {
+        $user = AP_User::getById($id, $db);
+        $base = [
+            'ok' => false,
+            'id' => $id,
+            'message_key' => 'error',
+            'errors' => [],
+            'user' => $user,
+        ];
+        $topicId = (int) $input['ap_unsubscribe_topic'];
+        if ($topicId < 1 || !class_exists('AP_Forum_Notify', false)) {
+            $base['errors'][] = 'Could not unsubscribe from that topic.';
+
+            return $base;
+        }
+        if (!AP_Forum_Notify::unsubscribe($id, $topicId, $db)) {
+            $base['errors'][] = 'Could not unsubscribe from that topic.';
+
+            return $base;
+        }
+
+        return [
+            'ok' => true,
+            'id' => $id,
+            'message_key' => 'topic_unsubscribed',
+            'errors' => [],
+            'user' => $user,
+        ];
     }
 
     /**

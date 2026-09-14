@@ -1504,6 +1504,20 @@ input[type="url"]:focus {
     gap: 0.35rem;
 }
 
+.ap-topic-subscriptions-wrap {
+    margin-top: 0.75rem;
+}
+
+.ap-topic-subscriptions {
+    width: 100%;
+}
+
+.ap-topic-subscriptions .column-unsubscribe {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
+
 .ap-field-content textarea,
 .large-text {
     width: 100%;

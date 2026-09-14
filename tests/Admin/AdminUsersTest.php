@@ -13,6 +13,8 @@ namespace AgoraPress\Tests\Admin;
 use AP_Admin;
 use AP_Admin_User_Edit;
 use AP_DB;
+use AP_Forum;
+use AP_Forum_Notify;
 use AP_Mail;
 use AP_Migrator;
 use AP_Nonce;
@@ -49,6 +51,8 @@ final class AdminUsersTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-post.php';
         require_once $this->root . '/ap-includes/class-ap-mail.php';
         require_once $this->root . '/ap-includes/class-ap-registration.php';
+        require_once $this->root . '/ap-includes/class-ap-forum.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-notify.php';
         require_once $this->root . '/ap-includes/functions.php';
         require_once $this->root . '/ap-admin/includes/class-ap-admin.php';
         require_once $this->root . '/ap-admin/includes/class-ap-users-list-table.php';
@@ -1125,6 +1129,228 @@ final class AdminUsersTest extends TestCase
         $this->assertStringContainsString('Account activated', $notices[0]['message']);
         unset($_GET['message']);
         AP_Admin::clearNotices();
+    }
+
+    public function testProfileForumNotifyCheckboxDefaultOffAndPersists(): void
+    {
+        $user = AP_User::create([
+            'user_login' => 'notifyprof',
+            'user_email' => 'notifyprof@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($user['ok'], implode('; ', $user['errors']));
+        $id = (int) $user['id'];
+        $u = AP_User::getById($id, $this->db);
+        $this->assertNotNull($u);
+
+        $this->assertTrue(AP_Admin_User_Edit::shouldShowForumNotifyFields($this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+
+        $html = AP_Admin_User_Edit::renderForm($u, 'profile', $id, [], $this->db);
+        $this->assertStringContainsString('name="forum_notify_email"', $html);
+        $this->assertStringContainsString('id="forum_notify_email"', $html);
+        $this->assertStringContainsString('Email me about topics I subscribe to', $html);
+        $this->assertStringContainsString('Subscriptions', $html);
+        $this->assertStringContainsString('No topic subscriptions.', $html);
+        $this->assertDoesNotMatchRegularExpression(
+            '/id="forum_notify_email"[^>]*checked/',
+            $html
+        );
+
+        $nonce = ap_create_nonce('update-profile-' . $id, $id);
+        $on = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_ID' => $id,
+            'user_email' => 'notifyprof@example.test',
+            'display_name' => 'Notify Prof',
+            'forum_notify_email' => '1',
+        ], $id, 'profile', $this->db);
+        $this->assertTrue($on['ok'], implode('; ', $on['errors']));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $this->assertSame(
+            '1',
+            AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+
+        $checked = AP_Admin_User_Edit::renderForm(
+            AP_User::getById($id, $this->db),
+            'profile',
+            $id,
+            [],
+            $this->db
+        );
+        $this->assertMatchesRegularExpression(
+            '/id="forum_notify_email"[^>]*checked/',
+            $checked
+        );
+
+        $nonceOff = ap_create_nonce('update-profile-' . $id, $id);
+        $off = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonceOff,
+            'user_ID' => $id,
+            'user_email' => 'notifyprof@example.test',
+            'display_name' => 'Notify Prof',
+        ], $id, 'profile', $this->db);
+        $this->assertTrue($off['ok'], implode('; ', $off['errors']));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $this->assertSame(
+            '0',
+            AP_User::getMeta($id, AP_Forum_Notify::META_NOTIFY_EMAIL, $this->db)
+        );
+    }
+
+    public function testCreateFormOmitsForumNotifyFields(): void
+    {
+        $admin = AP_User::create([
+            'user_login' => 'notifycreateadmin',
+            'user_email' => 'notifycreateadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $html = AP_Admin_User_Edit::renderForm(null, 'create', (int) $admin['id'], [], $this->db);
+        $this->assertStringNotContainsString('name="forum_notify_email"', $html);
+        $this->assertStringNotContainsString('ap_unsubscribe_topic', $html);
+        $this->assertStringNotContainsString('Email me about topics I subscribe to', $html);
+    }
+
+    public function testForumModuleOffHidesNotifyFieldsAndDoesNotWipeMeta(): void
+    {
+        $user = AP_User::create([
+            'user_login' => 'notifyhidden',
+            'user_email' => 'notifyhidden@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($user['ok'], implode('; ', $user['errors']));
+        $id = (int) $user['id'];
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($id, true, $this->db));
+
+        $this->assertTrue(AP_Options::updateModules([
+            'static_pages' => '1',
+            'blog' => '1',
+            'forum' => '0',
+        ], $this->db));
+        $this->assertFalse(AP_Options::isModuleEnabled('forum', $this->db));
+        $this->assertFalse(AP_Admin_User_Edit::shouldShowForumNotifyFields($this->db));
+
+        $u = AP_User::getById($id, $this->db);
+        $this->assertNotNull($u);
+        $html = AP_Admin_User_Edit::renderForm($u, 'profile', $id, [], $this->db);
+        $this->assertStringNotContainsString('name="forum_notify_email"', $html);
+        $this->assertStringNotContainsString('Subscriptions', $html);
+
+        $nonce = ap_create_nonce('update-profile-' . $id, $id);
+        $saved = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_ID' => $id,
+            'user_email' => 'notifyhidden@example.test',
+            'display_name' => 'Hidden',
+            'forum_notify_email' => '0',
+        ], $id, 'profile', $this->db);
+        $this->assertTrue($saved['ok'], implode('; ', $saved['errors']));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+
+        AP_Options::updateModules([
+            'static_pages' => '1',
+            'blog' => '1',
+            'forum' => '1',
+        ], $this->db);
+    }
+
+    public function testProfileSubscriptionsListAndUnsubscribe(): void
+    {
+        $user = AP_User::create([
+            'user_login' => 'notifysubs',
+            'user_email' => 'notifysubs@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($user['ok'], implode('; ', $user['errors']));
+        $id = (int) $user['id'];
+        $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($id, true, $this->db));
+
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Notify Profile'], $this->db);
+        $this->assertGreaterThan(0, $forumId);
+        $keepId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Keep watching',
+            'content' => 'First post',
+        ], $this->db);
+        $dropId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Drop watching',
+            'content' => 'First post',
+        ], $this->db);
+        $this->assertGreaterThan(0, $keepId);
+        $this->assertGreaterThan(0, $dropId);
+        $this->assertTrue(AP_Forum_Notify::subscribe($id, $keepId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($id, $dropId, $this->db));
+
+        $u = AP_User::getById($id, $this->db);
+        $this->assertNotNull($u);
+        $html = AP_Admin_User_Edit::renderForm($u, 'profile', $id, [], $this->db);
+        $this->assertStringContainsString('Keep watching', $html);
+        $this->assertStringContainsString('Drop watching', $html);
+        $this->assertStringContainsString('name="ap_unsubscribe_topic"', $html);
+        $this->assertStringContainsString('value="' . $dropId . '"', $html);
+        $this->assertStringContainsString('Unsubscribe', $html);
+
+        $nonce = ap_create_nonce('update-profile-' . $id, $id);
+        $result = AP_Admin_User_Edit::save([
+            '_ap_nonce' => $nonce,
+            'user_ID' => $id,
+            'ap_unsubscribe_topic' => (string) $dropId,
+            'forum_notify_email' => '0',
+            'user_email' => 'changed-should-not-save@example.test',
+        ], $id, 'profile', $this->db);
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertSame('topic_unsubscribed', $result['message_key']);
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($id, $dropId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($id, $keepId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isUserNotifyEnabled($id, $this->db));
+        $reloaded = AP_User::getById($id, $this->db);
+        $this->assertNotNull($reloaded);
+        $this->assertSame('notifysubs@example.test', $reloaded->user_email);
+
+        $_GET['message'] = 'topic_unsubscribed';
+        AP_Admin::consumeQueryNotice();
+        $notices = AP_Admin::getNotices();
+        $this->assertNotEmpty($notices);
+        $this->assertStringContainsString('Unsubscribed from the topic', $notices[0]['message']);
+        unset($_GET['message']);
+        AP_Admin::clearNotices();
+    }
+
+    public function testUserEditForumNotifyUsesThirdPersonLabel(): void
+    {
+        $admin = AP_User::create([
+            'user_login' => 'notifyeditadmin',
+            'user_email' => 'notifyeditadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+        ], $this->db);
+        $member = AP_User::create([
+            'user_login' => 'notifyeditmember',
+            'user_email' => 'notifyeditmember@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+        ], $this->db);
+        $target = AP_User::getById((int) $member['id'], $this->db);
+        $this->assertNotNull($target);
+        $html = AP_Admin_User_Edit::renderForm(
+            $target,
+            'update',
+            (int) $admin['id'],
+            [],
+            $this->db
+        );
+        $this->assertStringContainsString('name="forum_notify_email"', $html);
+        $this->assertStringContainsString(
+            'Email this member about topics they subscribe to',
+            $html
+        );
+        $this->assertStringNotContainsString('Email me about topics I subscribe to', $html);
     }
 
     public function testProceduralUserHelpers(): void

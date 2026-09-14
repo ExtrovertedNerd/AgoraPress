@@ -514,6 +514,70 @@ class AP_Forum_Notify
     }
 
     /**
+     * Subscriptions for a user with topic titles (profile / account list).
+     *
+     * Oldest first. Missing topics keep a fallback title so the member can
+     * still unsubscribe an orphaned row.
+     *
+     * @return list<array{
+     *   user_id: int,
+     *   topic_id: int,
+     *   created_at: string,
+     *   topic_title: string,
+     *   topic_url: string
+     * }>
+     */
+    public static function listForUserWithTitles(int $userId, ?AP_DB $db = null): array
+    {
+        $rows = self::listForUser($userId, $db);
+        if ($rows === []) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($rows as $row) {
+            $tid = (int) ($row->topic_id ?? 0);
+            if ($tid > 0) {
+                $ids[] = $tid;
+            }
+        }
+
+        $topics = [];
+        if ($ids !== [] && class_exists('AP_Forum', false)) {
+            $topics = AP_Forum::getTopicsByIds($ids, $db);
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $topicId = (int) ($row->topic_id ?? 0);
+            if ($topicId < 1) {
+                continue;
+            }
+            $topic = $topics[$topicId] ?? null;
+            $title = '';
+            if (is_object($topic)) {
+                $title = trim((string) ($topic->topic_title ?? ''));
+            }
+            if ($title === '') {
+                $title = 'Topic #' . $topicId;
+            }
+            $url = '';
+            if (class_exists('AP_Forum', false)) {
+                $url = AP_Forum::topicUrl(is_object($topic) ? $topic : $topicId);
+            }
+            $out[] = [
+                'user_id' => (int) ($row->user_id ?? $userId),
+                'topic_id' => $topicId,
+                'created_at' => (string) ($row->created_at ?? ''),
+                'topic_title' => $title,
+                'topic_url' => $url,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * Drop every watch for a user (account delete). Returns rows removed.
      */
     public static function deleteForUser(int $userId, ?AP_DB $db = null): int

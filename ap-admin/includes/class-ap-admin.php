@@ -1808,6 +1808,7 @@ class AP_Admin
             'user_activated' => ['Account activated. The user can log in without email verification.', 'success'],
             'user_deleted' => ['User deleted.', 'success'],
             'profile_updated' => ['Profile updated.', 'success'],
+            'topic_unsubscribed' => ['Unsubscribed from the topic.', 'success'],
             'bulk_user_deleted' => ['Selected users deleted.', 'success'],
             'bulk_user_role' => ['Selected users’ roles updated.', 'success'],
             'draft_saved' => ['Draft saved. Open Posts to continue editing.', 'success'],

@@ -184,6 +184,47 @@ final class ForumNotifySubscriptionsTest extends TestCase
         $this->assertFalse(ap_forum_user_subscribed_to_topic($userId, $topicId, $this->db));
     }
 
+    public function testListForUserWithTitlesIncludesTitleAndUrl(): void
+    {
+        $userId = $this->createMember('sub-titles');
+        $alpha = $this->createTopic('Alpha watch');
+        $beta = $this->createTopic('Beta watch');
+
+        $this->assertTrue(AP_Forum_Notify::subscribe($userId, $alpha, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($userId, $beta, $this->db));
+
+        $rows = AP_Forum_Notify::listForUserWithTitles($userId, $this->db);
+        $this->assertCount(2, $rows);
+        $this->assertSame($alpha, $rows[0]['topic_id']);
+        $this->assertSame('Alpha watch', $rows[0]['topic_title']);
+        $this->assertNotSame('', $rows[0]['topic_url']);
+        $this->assertStringContainsString((string) $alpha, $rows[0]['topic_url']);
+        $this->assertSame($beta, $rows[1]['topic_id']);
+        $this->assertSame('Beta watch', $rows[1]['topic_title']);
+
+        $viaHelper = ap_forum_list_topic_subscriptions($userId, $this->db);
+        $this->assertSame($rows, $viaHelper);
+
+        $this->assertSame([], AP_Forum_Notify::listForUserWithTitles(0, $this->db));
+        $this->assertSame([], ap_forum_list_topic_subscriptions(0, $this->db));
+    }
+
+    public function testListForUserWithTitlesFallsBackWhenTopicIsMissing(): void
+    {
+        $userId = $this->createMember('sub-orphan');
+        $this->assertSame(1, $this->db->insert('topic_subscriptions', [
+            'user_id' => $userId,
+            'topic_id' => 999001,
+            'created_at' => gmdate('Y-m-d H:i:s'),
+        ]));
+
+        $rows = AP_Forum_Notify::listForUserWithTitles($userId, $this->db);
+        $this->assertCount(1, $rows);
+        $this->assertSame(999001, $rows[0]['topic_id']);
+        $this->assertSame('Topic #999001', $rows[0]['topic_title']);
+        $this->assertNotSame('', $rows[0]['topic_url']);
+    }
+
     public function testSubscribeDoesNotWriteUnreadTrack(): void
     {
         $userId = $this->createMember('sub-no-track');

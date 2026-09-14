@@ -8512,6 +8512,44 @@ function ap_forum_user_notify_enabled(int $userId, ?AP_DB $db = null): bool
 }
 
 /**
+ * Persist the per-user topic-notify master (`forum_notify_email`).
+ *
+ * Default is off. Guests are rejected.
+ *
+ * @see AP_Forum_Notify::setUserNotifyEnabled()
+ */
+function ap_forum_set_user_notify_enabled(int $userId, mixed $value, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::setUserNotifyEnabled($userId, $value, $db);
+}
+
+/**
+ * Topic subscriptions for a user with titles (profile list).
+ *
+ * @return list<array{
+ *   user_id: int,
+ *   topic_id: int,
+ *   created_at: string,
+ *   topic_title: string,
+ *   topic_url: string
+ * }>
+ *
+ * @see AP_Forum_Notify::listForUserWithTitles()
+ */
+function ap_forum_list_topic_subscriptions(int $userId, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return [];
+    }
+
+    return AP_Forum_Notify::listForUserWithTitles($userId, $db);
+}
+
+/**
  * Whether the user is subscribed to email for this topic.
  *
  * @see AP_Forum_Notify::isSubscribed()
