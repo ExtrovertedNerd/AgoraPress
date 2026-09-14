@@ -7,7 +7,7 @@
  * - {prefix}topic_subscriptions — one row per (user, topic) watch
  *
  * Unique (user_id, topic_id) via composite primary key. Index on topic_id
- * for fan-out on reply. Unread tracking tables are unchanged (migration 0009).
+ * for fan-out on reply. Does not alter unread tracking (migration 0009).
  *
  * Multi-driver DDL (MySQL/MariaDB, SQLite, PostgreSQL). Idempotent: CREATE
  * TABLE / INDEX IF NOT EXISTS so a retry after a partial apply is safe.

@@ -55,10 +55,84 @@ final class TopicSubscriptionsMigrationTest extends TestCase
         $this->assertStringContainsString('topic_id', $src);
         $this->assertStringContainsString('created_at', $src);
         $this->assertStringContainsString('IF NOT EXISTS', $src);
-        $this->assertStringNotContainsString("table('topic_track')", $src);
-        $this->assertStringNotContainsString('table("topic_track")', $src);
-        $this->assertGreaterThanOrEqual(13, (int) AP_DB_VERSION);
-        $this->assertGreaterThanOrEqual(13, AP_Migrator::codeTargetVersion());
+        $this->assertStringNotContainsString('topic_track', $src);
+        $this->assertStringNotContainsString('forum_track', $src);
+        $this->assertSame(13, (int) AP_DB_VERSION);
+        $this->assertSame(13, AP_Migrator::codeTargetVersion());
+    }
+
+    public function testDbVersionIs13AndUnreadTrackTablesStayUnreadTracking(): void
+    {
+        $this->assertSame(13, (int) AP_DB_VERSION);
+        $this->assertSame(13, AP_Migrator::codeTargetVersion());
+
+        $applied12 = $this->migrator->migrate(12);
+        $this->assertGreaterThanOrEqual(12, count($applied12));
+        $this->assertSame(12, $this->migrator->getCurrentVersion());
+
+        $this->assertSame(1, $this->db->insert('topic_track', [
+            'user_id' => 11,
+            'topic_id' => 22,
+            'forum_id' => 33,
+            'mark_time' => '2026-09-13 12:00:00',
+        ]));
+        $this->assertSame(1, $this->db->insert('forum_track', [
+            'user_id' => 11,
+            'forum_id' => 33,
+            'mark_time' => '2026-09-13 12:30:00',
+        ]));
+
+        $trackBefore = $this->unreadTrackSchemaSnapshot();
+        $this->assertNotSame([], $trackBefore);
+
+        $applied13 = $this->migrator->migrate(13);
+        $this->assertCount(1, $applied13);
+        $this->assertSame(13, $applied13[0]['version']);
+        $this->assertSame(13, $this->migrator->getCurrentVersion());
+        $this->assertFalse($this->migrator->needsMigration());
+
+        $this->assertSame($trackBefore, $this->unreadTrackSchemaSnapshot());
+
+        $topicRow = $this->db->getRow(
+            'SELECT user_id, topic_id, forum_id, mark_time FROM '
+            . $this->db->quoteIdentifier($this->db->topic_track)
+            . ' WHERE user_id = ? AND topic_id = ?',
+            [11, 22]
+        );
+        $this->assertNotNull($topicRow);
+        $this->assertSame(11, (int) $topicRow->user_id);
+        $this->assertSame(22, (int) $topicRow->topic_id);
+        $this->assertSame(33, (int) $topicRow->forum_id);
+        $this->assertSame('2026-09-13 12:00:00', (string) $topicRow->mark_time);
+
+        $forumRow = $this->db->getRow(
+            'SELECT user_id, forum_id, mark_time FROM '
+            . $this->db->quoteIdentifier($this->db->forum_track)
+            . ' WHERE user_id = ? AND forum_id = ?',
+            [11, 33]
+        );
+        $this->assertNotNull($forumRow);
+        $this->assertSame(11, (int) $forumRow->user_id);
+        $this->assertSame(33, (int) $forumRow->forum_id);
+        $this->assertSame('2026-09-13 12:30:00', (string) $forumRow->mark_time);
+
+        $topicDdl = (string) $this->db->getVar(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            ['ap_topic_track']
+        );
+        $this->assertStringContainsString('user_id', $topicDdl);
+        $this->assertStringContainsString('topic_id', $topicDdl);
+        $this->assertStringContainsString('forum_id', $topicDdl);
+        $this->assertStringContainsString('mark_time', $topicDdl);
+
+        $forumDdl = (string) $this->db->getVar(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            ['ap_forum_track']
+        );
+        $this->assertStringContainsString('user_id', $forumDdl);
+        $this->assertStringContainsString('forum_id', $forumDdl);
+        $this->assertStringContainsString('mark_time', $forumDdl);
+        $this->assertStringNotContainsString('created_at', $forumDdl);
     }
 
     public function testBaseTablesIncludeSubscriptionsAndKeepUnreadTables(): void
@@ -227,6 +301,29 @@ final class TopicSubscriptionsMigrationTest extends TestCase
             'topic_id' => 11,
             'created_at' => '2026-09-13 09:00:00',
         ]));
+    }
+
+    /**
+     * @return list<array{name: string, type: string, sql: ?string}>
+     */
+    private function unreadTrackSchemaSnapshot(): array
+    {
+        $rows = $this->db->getResults(
+            "SELECT name, type, sql FROM sqlite_master"
+            . " WHERE tbl_name IN ('ap_topic_track', 'ap_forum_track')"
+            . " ORDER BY tbl_name, type, name"
+        );
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[] = [
+                'name' => (string) $row->name,
+                'type' => (string) $row->type,
+                'sql' => $row->sql === null ? null : (string) $row->sql,
+            ];
+        }
+
+        return $out;
     }
 
     private function sqliteTableName(string $table): ?string

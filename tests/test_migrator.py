@@ -214,7 +214,7 @@ def test_shipped_forum_likes_and_topic_type_migrations_exist() -> None:
 
     ver = VERSION.read_text(encoding="utf-8")
     m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", ver)
-    assert m is not None and int(m.group(1)) >= 13
+    assert m is not None and int(m.group(1)) == 13
 
 
 def test_shipped_core_migration_applies_via_php() -> None:

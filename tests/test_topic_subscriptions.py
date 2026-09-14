@@ -34,9 +34,10 @@ def test_db_version_includes_topic_subscriptions() -> None:
     src = VERSION.read_text(encoding="utf-8")
     m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", src)
     assert m is not None
-    assert int(m.group(1)) >= 13
+    assert int(m.group(1)) == 13
     assert "Version 13" in src
     assert "topic_subscriptions" in src
+    assert "topic_track / forum_track unchanged" in src
 
 
 def test_migration_0013_surface() -> None:
@@ -57,6 +58,8 @@ def test_migration_0013_surface() -> None:
     ):
         assert needle in src, f"Expected {needle!r} in 0013 migration"
     assert "CREATE TABLE IF NOT EXISTS" in src
+    assert "topic_track" not in src
+    assert "forum_track" not in src
 
 
 def test_base_tables_and_db_properties() -> None:
@@ -177,6 +180,105 @@ def test_migrate_from_12_unique_and_add_remove() -> None:
     combined = (result.stdout or "") + (result.stderr or "")
     assert result.returncode == 0, f"topic_subscriptions migration failed:\n{combined}"
     assert "topic_subscriptions_ok" in (result.stdout or "")
+
+
+def test_schema_13_leaves_unread_track_tables_unchanged() -> None:
+    php = textwrap.dedent(
+        f"""
+        declare(strict_types=1);
+        require_once {str(VERSION)!r};
+        require_once {str(LOAD_CONFIG)!r};
+        require_once {str(DB_CLASS)!r};
+        require_once {str(MIGRATOR)!r};
+        $pdo = new PDO('sqlite::memory:', null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_OBJ,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+        $db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
+        $m = new AP_Migrator($db, AP_Migrator::defaultMigrationsPath());
+        if ((int) AP_DB_VERSION !== 13) {{
+            fwrite(STDERR, "AP_DB_VERSION expected 13\\n");
+            exit(1);
+        }}
+        $m->migrate(12);
+        $trackSql = $db->insert('topic_track', [
+            'user_id' => 5,
+            'topic_id' => 9,
+            'forum_id' => 2,
+            'mark_time' => '2026-09-13 08:00:00',
+        ]);
+        $forumSql = $db->insert('forum_track', [
+            'user_id' => 5,
+            'forum_id' => 2,
+            'mark_time' => '2026-09-13 08:15:00',
+        ]);
+        if ($trackSql !== 1 || $forumSql !== 1) {{
+            fwrite(STDERR, "seed unread rows failed\\n");
+            exit(2);
+        }}
+        $snap = static function (AP_DB $db): string {{
+            $rows = $db->getResults(
+                "SELECT name, type, IFNULL(sql, '') AS sql FROM sqlite_master"
+                . " WHERE tbl_name IN ('ap_topic_track', 'ap_forum_track')"
+                . " ORDER BY tbl_name, type, name"
+            );
+            $out = '';
+            foreach ($rows as $row) {{
+                $out .= $row->name . '|' . $row->type . '|' . $row->sql . "\\n";
+            }}
+            return $out;
+        }};
+        $before = $snap($db);
+        $applied = $m->migrate(13);
+        if (count($applied) !== 1 || (int) $applied[0]['version'] !== 13) {{
+            fwrite(STDERR, "v13 not applied cleanly\\n");
+            exit(3);
+        }}
+        if ($snap($db) !== $before) {{
+            fwrite(STDERR, "unread track schema changed at 13\\n");
+            exit(4);
+        }}
+        $topic = $db->getRow(
+            "SELECT mark_time FROM " . $db->quoteIdentifier($db->topic_track)
+            . " WHERE user_id = ? AND topic_id = ?",
+            [5, 9]
+        );
+        $forum = $db->getRow(
+            "SELECT mark_time FROM " . $db->quoteIdentifier($db->forum_track)
+            . " WHERE user_id = ? AND forum_id = ?",
+            [5, 2]
+        );
+        if ($topic === null || (string) $topic->mark_time !== '2026-09-13 08:00:00') {{
+            fwrite(STDERR, "topic_track row lost\\n");
+            exit(5);
+        }}
+        if ($forum === null || (string) $forum->mark_time !== '2026-09-13 08:15:00') {{
+            fwrite(STDERR, "forum_track row lost\\n");
+            exit(6);
+        }}
+        echo "unread_track_unchanged_ok\\n";
+        exit(0);
+        """
+    )
+    result = subprocess.run(
+        [
+            _php_bin(),
+            "-d",
+            "display_errors=1",
+            "-d",
+            "error_reporting=E_ALL",
+            "-r",
+            php,
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, f"unread track invariant failed:\n{combined}"
+    assert "unread_track_unchanged_ok" in (result.stdout or "")
 
 
 if __name__ == "__main__":
