@@ -2252,7 +2252,9 @@ final class DeveloperDocsTest extends TestCase
                 'AP_Options::updateForumSettings()',
                 'AP_Forum_Notify',
                 'sanitizeCheckbox',
-                'Off by default. When off, members do not see Subscribe controls, replies do not enqueue notify mail, and the site does not send topic-notify messages.',
+                'Off by default. When off, members do not see Subscribe controls,'
+                . ' replies do not enqueue notify mail, and the site does not send'
+                . ' topic-notify messages.',
                 'no Subscribe / Unsubscribe chrome, no',
                 'Three gates',
                 'forum_notify_email',

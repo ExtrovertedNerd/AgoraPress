@@ -174,7 +174,7 @@ class AP_Forum_Notify
     {
         $raw = strtolower(trim(self::optionValue(
             self::OPTION_ENABLED,
-            self::DEFAULT_ENABLED ? '1' : '0',
+            self::sanitizeEnabled(self::DEFAULT_ENABLED),
             $db
         )));
 
@@ -489,7 +489,7 @@ class AP_Forum_Notify
             if ($user === null) {
                 return '';
             }
-            $email = trim((string) ($user->user_email ?? ''));
+            $email = trim($user->user_email);
         } else {
             try {
                 $db = self::resolveDb($db);
@@ -1022,12 +1022,12 @@ class AP_Forum_Notify
     public static function userNotifyStoredValue(int $userId, ?AP_DB $db = null): string
     {
         if ($userId < 1) {
-            return self::DEFAULT_USER_ENABLED ? '1' : '0';
+            return self::sanitizeEnabled(self::DEFAULT_USER_ENABLED);
         }
 
         $raw = self::userMetaValue($userId, $db);
         if ($raw === null || $raw === '') {
-            return self::DEFAULT_USER_ENABLED ? '1' : '0';
+            return self::sanitizeEnabled(self::DEFAULT_USER_ENABLED);
         }
 
         return self::sanitizeEnabled($raw);
@@ -1087,7 +1087,7 @@ class AP_Forum_Notify
 
         return self::writeUserMeta(
             $userId,
-            self::DEFAULT_USER_ENABLED ? '1' : '0',
+            self::sanitizeEnabled(self::DEFAULT_USER_ENABLED),
             $db
         );
     }
@@ -1113,22 +1113,28 @@ class AP_Forum_Notify
             ? self::OPTION_ENABLED
             : (array_key_exists('enabled', $settings) ? 'enabled' : null);
         if ($enabledKey !== null) {
-            $ok = AP_Options::update(
+            $enabledOk = AP_Options::update(
                 self::OPTION_ENABLED,
                 self::sanitizeEnabled($settings[$enabledKey]),
                 $db
-            ) && $ok;
+            );
+            if (!$enabledOk) {
+                $ok = false;
+            }
         }
 
         $capKey = array_key_exists(self::OPTION_MAX_PER_MINUTE, $settings)
             ? self::OPTION_MAX_PER_MINUTE
             : (array_key_exists('max_per_minute', $settings) ? 'max_per_minute' : null);
         if ($capKey !== null) {
-            $ok = AP_Options::update(
+            $capOk = AP_Options::update(
                 self::OPTION_MAX_PER_MINUTE,
                 (string) self::sanitizeMaxPerMinute($settings[$capKey]),
                 $db
-            ) && $ok;
+            );
+            if (!$capOk) {
+                $ok = false;
+            }
         }
 
         return $ok;
@@ -1183,7 +1189,7 @@ class AP_Forum_Notify
     public static function defaultOptionMap(): array
     {
         return [
-            self::OPTION_ENABLED => self::DEFAULT_ENABLED ? '1' : '0',
+            self::OPTION_ENABLED => self::sanitizeEnabled(self::DEFAULT_ENABLED),
             self::OPTION_MAX_PER_MINUTE => (string) self::DEFAULT_MAX_PER_MINUTE,
         ];
     }
@@ -1670,9 +1676,9 @@ class AP_Forum_Notify
         if ($posterId > 0 && class_exists('AP_User', false)) {
             $user = AP_User::getById($posterId, $db);
             if ($user !== null) {
-                $name = trim((string) ($user->display_name ?? ''));
+                $name = trim($user->display_name);
                 if ($name === '') {
-                    $name = trim((string) ($user->user_login ?? ''));
+                    $name = trim($user->user_login);
                 }
                 if ($name !== '') {
                     return $name;
@@ -1700,13 +1706,9 @@ class AP_Forum_Notify
             return '';
         }
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
-        $words = self::EXCERPT_WORDS;
-        if ($words < 1) {
-            return $text;
-        }
-        $parts = preg_split('/\s+/u', $text, $words + 1) ?: [];
-        if (count($parts) > $words) {
-            $parts = array_slice($parts, 0, $words);
+        $parts = preg_split('/\s+/u', $text, self::EXCERPT_WORDS + 1) ?: [];
+        if (count($parts) > self::EXCERPT_WORDS) {
+            $parts = array_slice($parts, 0, self::EXCERPT_WORDS);
             $text = implode(' ', $parts) . '…';
         } else {
             $text = implode(' ', $parts);

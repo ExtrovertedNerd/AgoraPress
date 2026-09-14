@@ -36,7 +36,7 @@ if ($postId > 0 && class_exists('AP_Comment', false)) {
 $count = count($comments);
 
 $commentsOpen = $post instanceof AP_Post
-    && ($post->comment_status ?? 'open') === 'open';
+    && $post->comment_status === 'open';
 
 $viewerId = function_exists('ap_get_current_user_id')
     ? (int) ap_get_current_user_id()
@@ -115,10 +115,10 @@ $showForm = $commentsOpen && !$showLogin && $postId > 0;
                 if (!$comment instanceof AP_Comment) {
                     continue;
                 }
-                $author = (string) ($comment->comment_author ?? 'Guest');
-                $date = (string) ($comment->comment_date ?? '');
-                $content = (string) ($comment->comment_content ?? '');
-                $cid = (int) ($comment->comment_ID ?? 0);
+                $author = $comment->comment_author;
+                $date = $comment->comment_date;
+                $content = $comment->comment_content;
+                $cid = $comment->comment_ID;
                 ?>
                 <li class="ap-comment" id="comment-<?php echo $cid; ?>">
                     <div class="ap-comment__meta">

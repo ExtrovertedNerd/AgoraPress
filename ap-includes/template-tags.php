@@ -768,7 +768,7 @@ function ap_comments_template_is_applicable(?AP_DB $db = null): bool
         return false;
     }
 
-    if (($post->comment_status ?? 'open') === 'open') {
+    if ($post->comment_status === 'open') {
         return true;
     }
 

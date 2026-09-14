@@ -44,7 +44,11 @@ class AP_Content_Format
     /** In-memory token so nested strip passes do not treat the placeholder as BBCode. */
     private const SPOILER_STRIP_TOKEN = '@@APSTRIPSPOILER@@';
 
-    /** @var list<string> */
+    /**
+     * Token => protected HTML island (code fences, converted spoilers).
+     *
+     * @var array<string, string>
+     */
     private static array $placeholders = [];
 
     /** Whether ap_enqueue_scripts was hooked this request. */

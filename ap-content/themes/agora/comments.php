@@ -42,10 +42,10 @@ $viewerId = function_exists('ap_get_current_user_id') ? (int) ap_get_current_use
                 if (!$comment instanceof AP_Comment) {
                     continue;
                 }
-                $author = (string) ($comment->comment_author ?? 'Guest');
-                $date = (string) ($comment->comment_date ?? '');
-                $content = (string) ($comment->comment_content ?? '');
-                $cid = (int) ($comment->comment_ID ?? 0);
+                $author = $comment->comment_author;
+                $date = $comment->comment_date;
+                $content = $comment->comment_content;
+                $cid = $comment->comment_ID;
                 $canEdit = $cid > 0 && function_exists('ap_user_can_edit_comment')
                     && ap_user_can_edit_comment($cid, $viewerId);
                 $canDelete = $cid > 0 && function_exists('ap_user_can_delete_comment')
@@ -151,9 +151,9 @@ $viewerId = function_exists('ap_get_current_user_id') ? (int) ap_get_current_use
     $commentsOpen = true;
     $currentPost = function_exists('ap_get_post') ? ap_get_post($postId) : null;
     if ($currentPost instanceof AP_Post) {
-        $commentsOpen = ($currentPost->comment_status ?? 'open') === 'open';
+        $commentsOpen = $currentPost->comment_status === 'open';
     } elseif (isset($GLOBALS['ap_post']) && $GLOBALS['ap_post'] instanceof AP_Post) {
-        $commentsOpen = ($GLOBALS['ap_post']->comment_status ?? 'open') === 'open';
+        $commentsOpen = $GLOBALS['ap_post']->comment_status === 'open';
     }
     $loggedIn = $viewerId > 0;
     $requireReg = false;
