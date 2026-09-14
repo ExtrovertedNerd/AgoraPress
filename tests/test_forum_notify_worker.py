@@ -44,6 +44,11 @@ def test_worker_api() -> None:
         "ap_forum_unsub",
         "UNSUBSCRIBE_TTL",
         "skip_rate_limit",
+        "RATE_WINDOW_SECONDS",
+        "RATE_BUCKET_TRANSIENT",
+        "function remainingSends",
+        "consumeNotifyQuota",
+        "forgetInMemoryRateBucketForTests",
         "text/plain",
         "hash_hmac",
     ):
@@ -62,6 +67,7 @@ def test_functions_worker_helpers() -> None:
     assert "function ap_forum_notify_process_queued_reply" in functions
     assert "function ap_forum_notify_is_eligible_recipient" in functions
     assert "function ap_forum_notify_handle_unsubscribe" in functions
+    assert "function ap_forum_notify_remaining_sends" in functions
     assert "skip_rate_limit" in functions
 
 
@@ -77,6 +83,8 @@ def test_phpunit_worker_cases_exist() -> None:
         "function testWorkerDropsLostViewForum",
         "function testSiteOffWorkerDoesNotSend",
         "function testCronHookSendsWithoutConsumingRateLimitMail",
+        "function testWorkerHonorsMaxPerMinuteWithoutConsumingRateLimitMail",
+        "forgetInMemoryRateBucketForTests",
         "function testSignedTokenUnsubscribesOneTopicWithoutSession",
         "function testInvalidAndExpiredTokensDoNotUnsubscribe",
         "getTestOutbox",

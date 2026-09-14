@@ -17,6 +17,8 @@ use AP_Installer;
 use AP_Mail;
 use AP_Migrator;
 use AP_Options;
+use AP_Rate_Limit;
+use AP_Transient;
 use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -41,11 +43,15 @@ final class ForumNotifyConfigTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-cron.php';
         require_once $this->root . '/ap-includes/class-ap-mail.php';
+        require_once $this->root . '/ap-includes/class-ap-transient.php';
+        require_once $this->root . '/ap-includes/class-ap-rate-limit.php';
         require_once $this->root . '/ap-includes/functions.php';
 
         AP_Options::flushCache();
         AP_Cron::reset();
         AP_Mail::resetForTests();
+        AP_Rate_Limit::resetTestState();
+        AP_Forum_Notify::resetRateBucketForTests();
 
         $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -53,8 +59,10 @@ final class ForumNotifyConfigTest extends TestCase
             PDO::ATTR_EMULATE_PREPARES => false,
         ]);
         $this->db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
+        $GLOBALS['apdb'] = $this->db;
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $migrator->migrate();
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
     }
 
     protected function tearDown(): void
@@ -62,6 +70,9 @@ final class ForumNotifyConfigTest extends TestCase
         AP_Options::flushCache();
         AP_Cron::reset();
         AP_Mail::resetForTests();
+        AP_Rate_Limit::resetTestState();
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
+        unset($GLOBALS['apdb']);
     }
 
     public function testOptionConstantsAndDefaults(): void
@@ -78,6 +89,10 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertSame(4, AP_Forum_Notify::DEFAULT_MAX_PER_MINUTE);
         $this->assertSame(1, AP_Forum_Notify::MIN_PER_MINUTE);
         $this->assertSame(60, AP_Forum_Notify::MAX_PER_MINUTE);
+        $this->assertSame(60, AP_Forum_Notify::RATE_WINDOW_SECONDS);
+        $this->assertSame('ap_fn_rpm', AP_Forum_Notify::RATE_BUCKET_TRANSIENT);
+        $this->assertStringNotContainsString('rate_limit', AP_Forum_Notify::RATE_BUCKET_TRANSIENT);
+        $this->assertStringNotContainsString('mail', AP_Forum_Notify::RATE_BUCKET_TRANSIENT);
 
         $map = AP_Forum_Notify::defaultOptionMap();
         $this->assertSame('0', $map[AP_Forum_Notify::OPTION_ENABLED]);
@@ -100,6 +115,8 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertFalse(ap_forum_notify_should_show_chrome($this->db));
         $this->assertSame(4, AP_Forum_Notify::getMaxPerMinute($this->db));
         $this->assertSame(4, ap_forum_notify_max_per_minute($this->db));
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertSame(4, ap_forum_notify_remaining_sends($this->db));
     }
 
     public function testMissingOptionIsTreatedAsDefault(): void
@@ -162,6 +179,7 @@ final class ForumNotifyConfigTest extends TestCase
             AP_Cron::nextScheduled(AP_Forum_Notify::CRON_HOOK, [12, 34], $this->db)
         );
 
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
         $this->assertFalse(AP_Forum_Notify::send(
             'member@example.com',
             '[Example] New reply in Hello',
@@ -177,6 +195,7 @@ final class ForumNotifyConfigTest extends TestCase
             $this->db
         ));
         $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
     }
 
     public function testSiteOnEnqueuesCronAndSendUsesTextPlainMail(): void
@@ -348,6 +367,126 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertStringContainsString('does not consume', strtolower($src));
         $this->assertSame('forum_notify_max_per_minute', AP_Forum_Notify::OPTION_MAX_PER_MINUTE);
         $this->assertNotSame('rate_limit_mail', AP_Forum_Notify::OPTION_MAX_PER_MINUTE);
+        $this->assertSame('ap_fn_rpm', AP_Forum_Notify::RATE_BUCKET_TRANSIENT);
+        $this->assertStringNotContainsString('rate_limit_mail', AP_Forum_Notify::RATE_BUCKET_TRANSIENT);
+    }
+
+    public function testSendHonorsOwnPerMinuteCap(): void
+    {
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        AP_Options::update(AP_Forum_Notify::OPTION_MAX_PER_MINUTE, '2', $this->db);
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
+        AP_Mail::enableTestMode();
+        AP_Mail::clearTestOutbox();
+
+        $this->assertSame(2, AP_Forum_Notify::getMaxPerMinute($this->db));
+        $this->assertSame(2, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertSame(2, ap_forum_notify_remaining_sends($this->db));
+
+        $this->assertFalse(AP_Forum_Notify::send(
+            'skipped@example.com',
+            '[Example] New reply in Hello',
+            '',
+            [],
+            $this->db
+        ));
+        $this->assertSame(2, AP_Forum_Notify::remainingSends($this->db));
+
+        $this->assertTrue(AP_Forum_Notify::send(
+            'first@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertSame(1, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertTrue(ap_forum_notify_send(
+            'second@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertSame(0, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertFalse(AP_Forum_Notify::send(
+            'third@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(2, $outbox);
+        $this->assertSame('first@example.com', $outbox[0]['to']);
+        $this->assertSame('second@example.com', $outbox[1]['to']);
+
+        $stored = AP_Transient::get(AP_Forum_Notify::RATE_BUCKET_TRANSIENT, false, $this->db);
+        $this->assertIsArray($stored);
+        $this->assertSame(2, (int) ($stored['count'] ?? 0));
+
+        AP_Forum_Notify::forgetInMemoryRateBucketForTests();
+        $this->assertSame(0, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertSame(0, ap_forum_notify_remaining_sends($this->db));
+
+        AP_Forum_Notify::setNowForTests(time() + AP_Forum_Notify::RATE_WINDOW_SECONDS + 1);
+        $this->assertSame(2, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertTrue(AP_Forum_Notify::send(
+            'third@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertCount(3, AP_Mail::getTestOutbox());
+        $this->assertSame('third@example.com', AP_Mail::getTestOutbox()[2]['to']);
+        $this->assertSame(1, AP_Forum_Notify::remainingSends($this->db));
+    }
+
+    public function testSendDoesNotConsumeRateLimitMail(): void
+    {
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
+        AP_Mail::enableTestMode();
+        AP_Mail::clearTestOutbox();
+
+        AP_Rate_Limit::setTestLimits('mail', ['max' => 1, 'window' => 600, 'lockout' => 120]);
+        $this->assertTrue(AP_Mail::send('other@example.com', 'Fill quota', 'Body'));
+        $this->assertFalse(AP_Mail::send('blocked@example.com', 'Blocked', 'Body'));
+        $ipBefore = AP_Rate_Limit::check(
+            AP_Rate_Limit::ACTION_MAIL,
+            AP_Rate_Limit::ipBucket(),
+            $this->db
+        );
+        $this->assertFalse($ipBefore['allowed']);
+        AP_Mail::clearTestOutbox();
+
+        $this->assertTrue(AP_Forum_Notify::send(
+            'member@example.com',
+            '[Example] New reply in Hello',
+            'A reply landed.',
+            [],
+            $this->db
+        ));
+        $this->assertCount(1, AP_Mail::getTestOutbox());
+        $this->assertSame('member@example.com', AP_Mail::getTestOutbox()[0]['to']);
+        $this->assertSame(3, AP_Forum_Notify::remainingSends($this->db));
+
+        $identity = AP_Rate_Limit::check(
+            AP_Rate_Limit::ACTION_MAIL,
+            AP_Rate_Limit::identityBucket('member@example.com'),
+            $this->db
+        );
+        $this->assertSame(0, $identity['attempts']);
+        $this->assertSame(1, $identity['remaining']);
+
+        $ipAfter = AP_Rate_Limit::check(
+            AP_Rate_Limit::ACTION_MAIL,
+            AP_Rate_Limit::ipBucket(),
+            $this->db
+        );
+        $this->assertSame($ipBefore['attempts'], $ipAfter['attempts']);
+        $this->assertFalse($ipAfter['allowed']);
+        $this->assertFalse(AP_Mail::send('another@example.com', 'Still blocked', 'Body'));
     }
 
     public function testGuestAndMissingUserMetaAreOff(): void

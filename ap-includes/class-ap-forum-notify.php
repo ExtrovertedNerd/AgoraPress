@@ -39,8 +39,9 @@
  * The cron worker ({@see processQueuedReply()}) drops the poster, users
  * with the master off, members who lost `view_forum`, and bad addresses,
  * then {@see AP_Mail::send()} one `text/plain` message at a time with a
- * signed unsubscribe link. That send skips `rate_limit_mail`. Own
- * per-minute cap and digest grouping are later increments.
+ * signed unsubscribe link. That send skips `rate_limit_mail`. Notify
+ * uses its own per-minute bucket ({@see OPTION_MAX_PER_MINUTE}, default
+ * 4, 60-second window). Digest grouping is a later increment.
  *
  * @package AgoraPress
  */
@@ -86,6 +87,18 @@ class AP_Forum_Notify
     public const MAX_PER_MINUTE = 60;
 
     /**
+     * Site-wide notify send window in seconds for {@see OPTION_MAX_PER_MINUTE}.
+     * Tumbling window; not the verification / reset / test hour-long mail lockout.
+     */
+    public const RATE_WINDOW_SECONDS = 60;
+
+    /**
+     * Transient key for the notify send window. Distinct from `rate_limit_mail`
+     * (`ap_rl_*` / {@see AP_Rate_Limit::ACTION_MAIL}).
+     */
+    public const RATE_BUCKET_TRANSIENT = 'ap_fn_rpm';
+
+    /**
      * Cron hook for a queued reply notify (`topic_id`, `reply_post_id`).
      * {@see processQueuedReply()} is the worker. Enqueue still no-ops when
      * the site master is off. The reply POST schedules only — it does not
@@ -119,6 +132,17 @@ class AP_Forum_Notify
      * @var array<string, callable>|null
      */
     private static ?array $hookCallbacks = null;
+
+    /**
+     * In-request copy of the notify send window (also used when transients
+     * are not loaded). Null means load from storage.
+     *
+     * @var array{window_start: int, count: int}|null
+     */
+    private static ?array $rateBucket = null;
+
+    /** Frozen unix time for tests; null uses {@see time()}. */
+    private static ?int $nowForTests = null;
 
     /**
      * Whether the site allows topic email notifications.
@@ -291,7 +315,9 @@ class AP_Forum_Notify
      * Cron worker: filter subscribers and send one text/plain mail each.
      *
      * Drops the poster, user-master off, lost `view_forum`, and unusable
-     * addresses. Does not consume `rate_limit_mail`. Failed
+     * addresses. Honors {@see OPTION_MAX_PER_MINUTE} via the notify bucket
+     * and does not consume `rate_limit_mail`. Stops when the per-minute
+     * cap is exhausted (remaining subscribers keep their watch). Failed
      * {@see AP_Mail::send()} does not delete the subscription. Site master
      * off, missing/unapproved replies, and the topic starter are no-ops.
      *
@@ -339,6 +365,9 @@ class AP_Forum_Notify
             $composed = self::composeReplyMail($topic, $post, $userId, $db);
             if ($composed === null) {
                 continue;
+            }
+            if (self::remainingSends($db) < 1) {
+                break;
             }
             $ok = self::send(
                 $email,
@@ -434,8 +463,10 @@ class AP_Forum_Notify
      * Outbound notify choke point. Site master off → no send (does not call
      * {@see AP_Mail::send()} and does not consume `rate_limit_mail`).
      *
-     * When the site master is on, sends `text/plain` via {@see AP_Mail::send()}
-     * with `skip_rate_limit` so verification / reset / test quota is untouched.
+     * When the site master is on, consumes one slot from the notify per-minute
+     * bucket then sends `text/plain` via {@see AP_Mail::send()} with
+     * `skip_rate_limit` so verification / reset / test quota is untouched.
+     * Cap exhausted → false, no SMTP.
      *
      * @param string|list<string>   $to
      * @param array<string, string> $headers
@@ -464,6 +495,10 @@ class AP_Forum_Notify
         }
 
         if (!class_exists('AP_Mail', false)) {
+            return false;
+        }
+
+        if (!self::consumeNotifyQuota($db)) {
             return false;
         }
 
@@ -658,6 +693,54 @@ class AP_Forum_Notify
         );
 
         return self::sanitizeMaxPerMinute($raw);
+    }
+
+    /**
+     * Notify sends still allowed in the current minute (own bucket).
+     *
+     * Does not inspect `rate_limit_mail`. Site master off does not zero this
+     * figure; {@see send()} still refuses until the site switch is on.
+     */
+    public static function remainingSends(?AP_DB $db = null): int
+    {
+        $max = self::getMaxPerMinute($db);
+        $state = self::readRateBucket($db);
+
+        return max(0, $max - $state['count']);
+    }
+
+    /**
+     * Clear the notify send window (tests). Does not touch `rate_limit_mail`.
+     */
+    public static function resetRateBucketForTests(?AP_DB $db = null): void
+    {
+        self::$rateBucket = null;
+        self::$nowForTests = null;
+        if (!class_exists('AP_Transient', false)) {
+            return;
+        }
+        if ($db === null && isset($GLOBALS['apdb']) && $GLOBALS['apdb'] instanceof AP_DB) {
+            $db = $GLOBALS['apdb'];
+        }
+        AP_Transient::delete(self::RATE_BUCKET_TRANSIENT, $db);
+    }
+
+    /**
+     * Drop the in-request copy so the next read loads the stored window (tests).
+     *
+     * Does not delete the transient and does not touch `rate_limit_mail`.
+     */
+    public static function forgetInMemoryRateBucketForTests(): void
+    {
+        self::$rateBucket = null;
+    }
+
+    /**
+     * Freeze {@see now()} for tests. Pass null to use the real clock.
+     */
+    public static function setNowForTests(?int $timestamp): void
+    {
+        self::$nowForTests = $timestamp;
     }
 
     /**
@@ -1520,5 +1603,98 @@ class AP_Forum_Notify
         }
 
         return $payload;
+    }
+
+    /**
+     * Reserve one notify send in the current minute. False when the cap is full.
+     *
+     * Does not call {@see AP_Mail::send()} and does not touch `rate_limit_mail`.
+     */
+    private static function consumeNotifyQuota(?AP_DB $db): bool
+    {
+        $max = self::getMaxPerMinute($db);
+        $now = self::now();
+        $state = self::readRateBucket($db);
+
+        if ($state['window_start'] < 1) {
+            $state = [
+                'window_start' => $now,
+                'count' => 0,
+            ];
+        }
+
+        if ($state['count'] >= $max) {
+            self::$rateBucket = $state;
+
+            return false;
+        }
+
+        $state['count']++;
+        self::writeRateBucket($state, $db);
+
+        return true;
+    }
+
+    /**
+     * @return array{window_start: int, count: int}
+     */
+    private static function readRateBucket(?AP_DB $db): array
+    {
+        $empty = [
+            'window_start' => 0,
+            'count' => 0,
+        ];
+        $state = self::$rateBucket;
+        if ($state === null && class_exists('AP_Transient', false)) {
+            $raw = AP_Transient::get(self::RATE_BUCKET_TRANSIENT, false, $db);
+            if (is_array($raw)) {
+                $state = [
+                    'window_start' => max(0, (int) ($raw['window_start'] ?? 0)),
+                    'count' => max(0, (int) ($raw['count'] ?? 0)),
+                ];
+            }
+        }
+        if ($state === null) {
+            $state = $empty;
+        }
+
+        $now = self::now();
+        if (
+            $state['window_start'] < 1
+            || ($now - $state['window_start']) >= self::RATE_WINDOW_SECONDS
+        ) {
+            $state = $empty;
+        }
+
+        self::$rateBucket = $state;
+
+        return $state;
+    }
+
+    /**
+     * @param array{window_start: int, count: int} $state
+     */
+    private static function writeRateBucket(array $state, ?AP_DB $db): void
+    {
+        self::$rateBucket = $state;
+        if (!class_exists('AP_Transient', false)) {
+            return;
+        }
+
+        $ttl = ($state['window_start'] + self::RATE_WINDOW_SECONDS) - self::now();
+        AP_Transient::set(
+            self::RATE_BUCKET_TRANSIENT,
+            [
+                'window_start' => (int) $state['window_start'],
+                'count' => (int) $state['count'],
+            ],
+            max(1, $ttl + 5),
+            $db
+        );
+    }
+
+    private static function now(): int
+    {
+        return self::$nowForTests ?? time();
     }
 }

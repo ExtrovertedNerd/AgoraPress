@@ -23,6 +23,7 @@ use AP_Options;
 use AP_Rate_Limit;
 use AP_Roles;
 use AP_Session;
+use AP_Transient;
 use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -93,6 +94,7 @@ final class ForumNotifyWorkerTest extends TestCase
         AP_Mail::resetForTests();
         AP_Mail::enableTestMode();
         AP_Rate_Limit::resetTestState();
+        AP_Forum_Notify::resetRateBucketForTests();
         AP_Session::enableTestMode();
         AP_Session::resetCurrentUser();
 
@@ -143,6 +145,7 @@ final class ForumNotifyWorkerTest extends TestCase
         $this->assertGreaterThan(0, $this->topicId);
 
         AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
         AP_Forum_Notify::registerHooks();
     }
 
@@ -157,6 +160,7 @@ final class ForumNotifyWorkerTest extends TestCase
         AP_Cron::reset();
         AP_Mail::resetForTests();
         AP_Rate_Limit::resetTestState();
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
         unset($GLOBALS['apdb']);
         if (function_exists('ap_reset_hooks')) {
             ap_reset_hooks();
@@ -347,6 +351,87 @@ final class ForumNotifyWorkerTest extends TestCase
         );
         $this->assertSame(0, $identity['attempts']);
         $this->assertSame(1, $identity['remaining']);
+    }
+
+    public function testWorkerHonorsMaxPerMinuteWithoutConsumingRateLimitMail(): void
+    {
+        AP_Options::update(AP_Forum_Notify::OPTION_MAX_PER_MINUTE, '2', $this->db);
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
+        $this->assertSame(2, AP_Forum_Notify::getMaxPerMinute($this->db));
+        $this->assertSame(2, AP_Forum_Notify::remainingSends($this->db));
+
+        $first = $this->createUser('worker-cap-a', 'subscriber');
+        $second = $this->createUser('worker-cap-b', 'subscriber');
+        $third = $this->createUser('worker-cap-c', 'subscriber');
+        $this->watch($first);
+        $this->watch($second);
+        $this->watch($third);
+
+        AP_Rate_Limit::setTestLimits('mail', ['max' => 1, 'window' => 600, 'lockout' => 120]);
+        $this->assertTrue(AP_Mail::send('other@example.com', 'Fill quota', 'Body'));
+        $this->assertFalse(AP_Mail::send('blocked@example.com', 'Blocked', 'Body'));
+        $ipBefore = AP_Rate_Limit::check(
+            AP_Rate_Limit::ACTION_MAIL,
+            AP_Rate_Limit::ipBucket(),
+            $this->db
+        );
+        $this->assertFalse($ipBefore['allowed']);
+        AP_Mail::clearTestOutbox();
+
+        $replyId = $this->replyWith('Cap the notify bucket.');
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db);
+        $this->assertSame(2, $sent);
+        $this->assertSame(0, AP_Forum_Notify::remainingSends($this->db));
+        $this->assertSame(0, ap_forum_notify_remaining_sends($this->db));
+
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(2, $outbox);
+        $recipients = array_column($outbox, 'to');
+        $this->assertContains('worker-cap-a@example.com', $recipients);
+        $this->assertContains('worker-cap-b@example.com', $recipients);
+        $this->assertNotContains('worker-cap-c@example.com', $recipients);
+
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($first, $this->topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($second, $this->topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($third, $this->topicId, $this->db));
+
+        $stored = AP_Transient::get(AP_Forum_Notify::RATE_BUCKET_TRANSIENT, false, $this->db);
+        $this->assertIsArray($stored);
+        $this->assertSame(2, (int) ($stored['count'] ?? 0));
+        $this->assertStringStartsNotWith('ap_rl_', AP_Forum_Notify::RATE_BUCKET_TRANSIENT);
+
+        AP_Forum_Notify::forgetInMemoryRateBucketForTests();
+        $this->assertSame(0, AP_Forum_Notify::remainingSends($this->db));
+
+        foreach (
+            [
+                'worker-cap-a@example.com',
+                'worker-cap-b@example.com',
+                'worker-cap-c@example.com',
+            ] as $email
+        ) {
+            $identity = AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_MAIL,
+                AP_Rate_Limit::identityBucket($email),
+                $this->db
+            );
+            $this->assertSame(0, $identity['attempts']);
+            $this->assertSame(1, $identity['remaining']);
+        }
+
+        $ipAfter = AP_Rate_Limit::check(
+            AP_Rate_Limit::ACTION_MAIL,
+            AP_Rate_Limit::ipBucket(),
+            $this->db
+        );
+        $this->assertSame($ipBefore['attempts'], $ipAfter['attempts']);
+        $this->assertFalse($ipAfter['allowed']);
+        $this->assertFalse(AP_Mail::send('another@example.com', 'Still blocked', 'Body'));
+
+        AP_Mail::clearTestOutbox();
+        $this->assertSame(0, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($third, $this->topicId, $this->db));
     }
 
     public function testSignedTokenUnsubscribesOneTopicWithoutSession(): void

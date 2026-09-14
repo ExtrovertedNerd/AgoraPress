@@ -8490,8 +8490,9 @@ function ap_forum_notify_maybe_enqueue_approved_reply(?object $post, ?AP_DB $db 
 /**
  * Outbound notify choke point. Site master off → no send.
  *
- * When the site master is on, sends `text/plain` via {@see AP_Mail::send()}
- * with `skip_rate_limit` so verification / reset / test quota is untouched.
+ * When the site master is on, consumes the notify per-minute bucket then
+ * sends `text/plain` via {@see AP_Mail::send()} with `skip_rate_limit` so
+ * verification / reset / test quota is untouched.
  *
  * @param string|list<string>   $to
  * @param array<string, string> $headers
@@ -8579,6 +8580,22 @@ function ap_forum_notify_max_per_minute(?AP_DB $db = null): int
     }
 
     return AP_Forum_Notify::getMaxPerMinute($db);
+}
+
+/**
+ * Notify sends still allowed in the current minute (own bucket).
+ *
+ * Not `rate_limit_mail`. Default cap is 4 per 60 seconds.
+ *
+ * @see AP_Forum_Notify::remainingSends()
+ */
+function ap_forum_notify_remaining_sends(?AP_DB $db = null): int
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return 0;
+    }
+
+    return AP_Forum_Notify::remainingSends($db);
 }
 
 /**

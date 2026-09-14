@@ -55,6 +55,11 @@ def test_class_api_and_defaults() -> None:
         "function send",
         "CRON_HOOK",
         "function getMaxPerMinute",
+        "function remainingSends",
+        "RATE_WINDOW_SECONDS",
+        "RATE_BUCKET_TRANSIENT",
+        "resetRateBucketForTests",
+        "forgetInMemoryRateBucketForTests",
         "function isUserNotifyEnabled",
         "function setUserNotifyEnabled",
         "function enableUserNotifyOnSubscribe",
@@ -92,6 +97,8 @@ def test_class_api_and_defaults() -> None:
     assert "DEFAULT_ENABLED = false" in src
     assert "DEFAULT_USER_ENABLED = false" in src
     assert "DEFAULT_MAX_PER_MINUTE = 4" in src
+    assert "RATE_WINDOW_SECONDS = 60" in src
+    assert "RATE_BUCKET_TRANSIENT = 'ap_fn_rpm'" in src
     assert "META_NOTIFY_EMAIL = 'forum_notify_email'" in src
 
 
@@ -112,6 +119,7 @@ def test_bootstrap_and_functions_wiring() -> None:
     assert "function ap_forum_notify_is_eligible_recipient" in functions
     assert "function ap_forum_notify_handle_unsubscribe" in functions
     assert "function ap_forum_notify_max_per_minute" in functions
+    assert "function ap_forum_notify_remaining_sends" in functions
     assert "function ap_forum_user_notify_enabled" in functions
     assert "function ap_forum_set_user_notify_enabled" in functions
     assert "function ap_forum_enable_user_notify_on_subscribe" in functions
@@ -165,6 +173,19 @@ def test_migration_0013_seeds_option_defaults() -> None:
 def test_structure_assert_lists_notify_class() -> None:
     src = STRUCTURE.read_text(encoding="utf-8")
     assert "class-ap-forum-notify.php" in src
+
+
+def test_config_rate_bucket_cases_exist() -> None:
+    src = PHPUNIT.read_text(encoding="utf-8")
+    for needle in (
+        "function testSendHonorsOwnPerMinuteCap",
+        "function testSendDoesNotConsumeRateLimitMail",
+        "forgetInMemoryRateBucketForTests",
+        "RATE_BUCKET_TRANSIENT",
+        "remainingSends",
+        "ACTION_MAIL",
+    ):
+        assert needle in src, f"ForumNotifyConfigTest missing {needle!r}"
 
 
 def test_phpunit_forum_notify_config() -> None:
