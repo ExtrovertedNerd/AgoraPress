@@ -143,9 +143,13 @@ def test_gitignore_covers_dist() -> None:
         if line.strip() and not line.strip().startswith("#")
     }
     assert "/dist/" in rules, ".gitignore must contain the exact rule /dist/"
+    for rule in rules:
+        assert not re.match(r"^!\s*/?dist(/|$)", rule), (
+            f".gitignore must not un-ignore dist/; found: {rule!r}"
+        )
 
 
-def test_dist_release_artifacts_are_not_tracked_by_git() -> None:
+def test_dist_release_artifacts_are_not_tracked_by_git(ap_version: str) -> None:
     """dist/ stays gitignored. Do not commit the zip into the public tree."""
     try:
         tracked_dist = subprocess.run(
@@ -158,6 +162,22 @@ def test_dist_release_artifacts_are_not_tracked_by_git() -> None:
         )
         tracked_zip = subprocess.run(
             ["git", "ls-files", "--", "*.zip", "**/*.zip"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        untracked_dist = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", "dist", "dist/"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        add_dry = subprocess.run(
+            ["git", "add", "-A", "--dry-run"],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
@@ -178,6 +198,22 @@ def test_dist_release_artifacts_are_not_tracked_by_git() -> None:
         "Release zip files must not be committed to the public tree; found:\n"
         f"{tracked_zip.stdout}"
     )
+    if untracked_dist.returncode == 0:
+        assert untracked_dist.stdout.strip() == "", (
+            "Untracked non-ignored files under dist/ must not exist; found:\n"
+            f"{untracked_dist.stdout}"
+        )
+    if add_dry.returncode == 0:
+        for line in add_dry.stdout.splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            assert not re.search(r"(^|[\s'\"/])dist(/|$)", text), (
+                f"git add -A must not stage dist/ artifacts; dry-run listed: {text}"
+            )
+            assert not re.search(r"\.zip(\s|$|[\"'])", text, flags=re.I), (
+                f"git add -A must not stage zip files; dry-run listed: {text}"
+            )
 
     for path in (
         "dist/",
@@ -187,6 +223,13 @@ def test_dist_release_artifacts_are_not_tracked_by_git() -> None:
         "dist/changelog-page.html",
         "dist/download-page.html",
         "dist/deployed/AgoraPress-9.9.9-test.zip",
+        f"dist/AgoraPress-{ap_version}.zip",
+        f"dist/AgoraPress-{ap_version}.sha256",
+        f"dist/deployed/AgoraPress-{ap_version}.zip",
+        f"dist/deployed/AgoraPress-{ap_version}.sha256",
+        "dist/deployed/version.json",
+        "dist/deployed/changelog-page.html",
+        "dist/deployed/download-page.html",
     ):
         check = subprocess.run(
             ["git", "check-ignore", "-q", path],

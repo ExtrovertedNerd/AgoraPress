@@ -119,7 +119,20 @@ RELEASE_IGNORE_PATHS: list[str] = [
     "dist/changelog-page.html",
     "dist/download-page.html",
     "dist/deployed/AgoraPress-9.9.9-test.zip",
+    "dist/deployed/version.json",
+    "dist/deployed/changelog-page.html",
+    "dist/deployed/download-page.html",
 ]
+
+
+def _ap_version() -> str:
+    text = (ROOT / "ap-includes" / "version.php").read_text(encoding="utf-8")
+    match = re.search(
+        r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
+        text,
+    )
+    assert match, "AP_VERSION must be defined in ap-includes/version.php"
+    return match.group(1)
 
 
 def _gitignore_covers(gi: str, pattern: str) -> bool:
@@ -231,6 +244,10 @@ def test_gitignore_never_tracks_dist_release_artifacts() -> None:
             f".gitignore must contain exact rule {rule!r} "
             "(never commit release packaging artifacts)"
         )
+    for rule in rules:
+        assert not re.match(r"^!\s*/?dist(/|$)", rule), (
+            f".gitignore must not un-ignore dist/; found: {rule!r}"
+        )
 
     try:
         tracked_dist = subprocess.run(
@@ -243,6 +260,22 @@ def test_gitignore_never_tracks_dist_release_artifacts() -> None:
         )
         tracked_zip = subprocess.run(
             ["git", "ls-files", "--", "*.zip", "**/*.zip"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        untracked_dist = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", "dist", "dist/"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        add_dry = subprocess.run(
+            ["git", "add", "-A", "--dry-run"],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
@@ -263,8 +296,31 @@ def test_gitignore_never_tracks_dist_release_artifacts() -> None:
         "Release zip files must not be committed to the public tree; found:\n"
         f"{tracked_zip.stdout}"
     )
+    if untracked_dist.returncode == 0:
+        assert untracked_dist.stdout.strip() == "", (
+            "Untracked non-ignored files under dist/ must not exist; found:\n"
+            f"{untracked_dist.stdout}"
+        )
+    if add_dry.returncode == 0:
+        for line in add_dry.stdout.splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            assert not re.search(r"(^|[\s'\"/])dist(/|$)", text), (
+                f"git add -A must not stage dist/ artifacts; dry-run listed: {text}"
+            )
+            assert not re.search(r"\.zip(\s|$|[\"'])", text, flags=re.I), (
+                f"git add -A must not stage zip files; dry-run listed: {text}"
+            )
 
-    for path in RELEASE_IGNORE_PATHS:
+    version = _ap_version()
+    ignore_paths = list(RELEASE_IGNORE_PATHS) + [
+        f"dist/AgoraPress-{version}.zip",
+        f"dist/AgoraPress-{version}.sha256",
+        f"dist/deployed/AgoraPress-{version}.zip",
+        f"dist/deployed/AgoraPress-{version}.sha256",
+    ]
+    for path in ignore_paths:
         check = subprocess.run(
             ["git", "check-ignore", "-q", path],
             cwd=str(ROOT),

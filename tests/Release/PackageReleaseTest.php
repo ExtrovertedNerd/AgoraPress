@@ -241,6 +241,11 @@ final class PackageReleaseTest extends TestCase
                 continue;
             }
             $lines[$line] = true;
+            $this->assertDoesNotMatchRegularExpression(
+                '#^!\s*/?dist(/|$)#',
+                $line,
+                ".gitignore must not un-ignore dist/; found: {$line}"
+            );
         }
         $this->assertArrayHasKey(
             '/dist/',
@@ -276,6 +281,24 @@ final class PackageReleaseTest extends TestCase
             "Release zip files must not be committed to the public tree; found:\n{$zipOut}"
         );
 
+        [$othersExit, $othersOut] = $this->runGit([
+            'ls-files',
+            '--others',
+            '--exclude-standard',
+            '--',
+            'dist',
+            'dist/',
+        ]);
+        if ($othersExit !== 0) {
+            $this->markTestSkipped('git ls-files unavailable');
+        }
+        $this->assertSame(
+            '',
+            trim($othersOut),
+            "Untracked non-ignored files under dist/ must not exist; found:\n{$othersOut}"
+        );
+
+        $version = $this->currentApVersion();
         $releaseIgnorePaths = [
             'dist/',
             'dist/AgoraPress-9.9.9-test.zip',
@@ -284,6 +307,13 @@ final class PackageReleaseTest extends TestCase
             'dist/changelog-page.html',
             'dist/download-page.html',
             'dist/deployed/AgoraPress-9.9.9-test.zip',
+            'dist/AgoraPress-' . $version . '.zip',
+            'dist/AgoraPress-' . $version . '.sha256',
+            'dist/deployed/AgoraPress-' . $version . '.zip',
+            'dist/deployed/AgoraPress-' . $version . '.sha256',
+            'dist/deployed/version.json',
+            'dist/deployed/changelog-page.html',
+            'dist/deployed/download-page.html',
         ];
         foreach ($releaseIgnorePaths as $path) {
             [$checkExit] = $this->runGit(['check-ignore', '-q', $path]);
@@ -294,6 +324,52 @@ final class PackageReleaseTest extends TestCase
                 0,
                 $checkExit,
                 "git check-ignore must match release path: {$path}"
+            );
+        }
+
+        $this->assertGitAddDryRunOmitsReleaseArtifacts();
+    }
+
+    private function currentApVersion(): string
+    {
+        $versionPhp = (string) file_get_contents($this->root . '/ap-includes/version.php');
+        $this->assertSame(
+            1,
+            preg_match(
+                "/define\\s*\\(\\s*['\"]AP_VERSION['\"]\\s*,\\s*['\"]([^'\"]+)['\"]\\s*\\)/",
+                $versionPhp,
+                $match
+            ),
+            'AP_VERSION must be defined in ap-includes/version.php'
+        );
+
+        return $match[1];
+    }
+
+    /**
+     * Process `git add -A` must not stage dist/ or release zips.
+     */
+    private function assertGitAddDryRunOmitsReleaseArtifacts(): void
+    {
+        [$addExit, $addOut] = $this->runGit(['add', '-A', '--dry-run']);
+        if ($addExit !== 0) {
+            $this->markTestSkipped('git add --dry-run unavailable');
+        }
+
+        foreach (preg_split("/\R/", $addOut) ?: [] as $raw) {
+            $line = trim((string) $raw);
+            if ($line === '') {
+                continue;
+            }
+            $this->assertDoesNotMatchRegularExpression(
+                '#(^|[\\s\'"/])dist(/|$)#',
+                $line,
+                "git add -A must not stage dist/ artifacts; dry-run listed: {$line}"
+            );
+            $this->assertDoesNotMatchRegularExpression(
+                '/\\.zip(\\s|$|["\'])/i',
+                $line,
+                "git add -A must not stage zip files; dry-run listed: {$line}"
             );
         }
     }

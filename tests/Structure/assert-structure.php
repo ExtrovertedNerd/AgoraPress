@@ -287,6 +287,11 @@ if (!is_readable($gitignore)) {
             $failures[] = "Expected .gitignore exact rule: {$rule}";
         }
     }
+    foreach (array_keys($giLines) as $rule) {
+        if (preg_match('#^!\s*/?dist(/|$)#', (string) $rule) === 1) {
+            $failures[] = ".gitignore must not un-ignore dist/; found: {$rule}";
+        }
+    }
 
     // If git is available in a work tree, prove nothing under .hephaestus is tracked
     // and that check-ignore matches process paths.
@@ -336,6 +341,36 @@ if (!is_readable($gitignore)) {
                 . implode(', ', $zipTrackedOut);
         }
 
+        $distOthersCmd = 'git -C ' . escapeshellarg($root)
+            . ' ls-files --others --exclude-standard -- dist dist/ 2>/dev/null';
+        $distOthersOut = [];
+        $distOthersExit = 0;
+        exec($distOthersCmd, $distOthersOut, $distOthersExit);
+        if ($distOthersExit === 0 && $distOthersOut !== []) {
+            $failures[] = 'Untracked non-ignored files under dist/ must not exist; found: '
+                . implode(', ', $distOthersOut);
+        }
+
+        $addDryCmd = 'git -C ' . escapeshellarg($root)
+            . ' add -A --dry-run 2>/dev/null';
+        $addDryOut = [];
+        $addDryExit = 0;
+        exec($addDryCmd, $addDryOut, $addDryExit);
+        if ($addDryExit === 0) {
+            foreach ($addDryOut as $rawLine) {
+                $line = trim((string) $rawLine);
+                if ($line === '') {
+                    continue;
+                }
+                if (preg_match('#(^|[\\s\'"/])dist(/|$)#', $line) === 1) {
+                    $failures[] = "git add -A must not stage dist/ artifacts; dry-run listed: {$line}";
+                }
+                if (preg_match('/\\.zip(\\s|$|["\'])/i', $line) === 1) {
+                    $failures[] = "git add -A must not stage zip files; dry-run listed: {$line}";
+                }
+            }
+        }
+
         $releaseIgnorePaths = [
             'dist/',
             'dist/AgoraPress-9.9.9-test.zip',
@@ -344,7 +379,27 @@ if (!is_readable($gitignore)) {
             'dist/changelog-page.html',
             'dist/download-page.html',
             'dist/deployed/AgoraPress-9.9.9-test.zip',
+            'dist/deployed/version.json',
+            'dist/deployed/changelog-page.html',
+            'dist/deployed/download-page.html',
         ];
+        $versionPhp = $root . '/ap-includes/version.php';
+        if (is_readable($versionPhp)) {
+            $versionBody = (string) file_get_contents($versionPhp);
+            if (
+                preg_match(
+                    "/define\\s*\\(\\s*['\"]AP_VERSION['\"]\\s*,\\s*['\"]([^'\"]+)['\"]\\s*\\)/",
+                    $versionBody,
+                    $versionMatch
+                ) === 1
+            ) {
+                $apVersion = $versionMatch[1];
+                $releaseIgnorePaths[] = 'dist/AgoraPress-' . $apVersion . '.zip';
+                $releaseIgnorePaths[] = 'dist/AgoraPress-' . $apVersion . '.sha256';
+                $releaseIgnorePaths[] = 'dist/deployed/AgoraPress-' . $apVersion . '.zip';
+                $releaseIgnorePaths[] = 'dist/deployed/AgoraPress-' . $apVersion . '.sha256';
+            }
+        }
         foreach ($releaseIgnorePaths as $path) {
             $checkCmd = 'git -C ' . escapeshellarg($root)
                 . ' check-ignore -q ' . escapeshellarg($path) . ' 2>/dev/null';
