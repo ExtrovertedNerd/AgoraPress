@@ -67,6 +67,16 @@ def test_forum_front_class_api() -> None:
     ):
         assert needle in src, f"missing {needle}"
 
+    phpunit = PHPUNIT.read_text(encoding="utf-8")
+    for needle in (
+        "function testTopicSubscribeChromeWhenSiteOnLoggedInCanView",
+        "function testSubscribeWhenMembersReadonlyCanViewButNotReply",
+        "function testSubscribeHonorsGroupOnlyViewForum",
+        "function testSubscribeNoticeRendersOnTopicView",
+        "function testSubscribeRejectedWhenSiteOffGuestOrNoView",
+    ):
+        assert needle in phpunit, f"missing {needle}"
+
 
 def test_forum_url_helpers_and_bootstrap() -> None:
     forum = FORUM.read_text(encoding="utf-8")

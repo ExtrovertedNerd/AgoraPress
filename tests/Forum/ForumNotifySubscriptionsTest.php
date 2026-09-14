@@ -212,11 +212,13 @@ final class ForumNotifySubscriptionsTest extends TestCase
         $this->assertStringContainsString('name="_ap_nonce"', $html);
         $this->assertStringContainsString('>Subscribe</button>', $html);
         $this->assertStringContainsString('aria-pressed="false"', $html);
+        $this->assertStringContainsString('aria-label="Subscribe to email notifications for this topic"', $html);
 
         $un = ap_forum_topic_subscribe_form_html(12, true, ['show' => true]);
         $this->assertStringContainsString('ap_forum_unsubscribe_topic', $un);
         $this->assertStringContainsString('>Unsubscribe</button>', $un);
         $this->assertStringContainsString('aria-pressed="true"', $un);
+        $this->assertStringContainsString('aria-label="Unsubscribe from email notifications for this topic"', $un);
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $un);
     }
 
@@ -253,6 +255,16 @@ final class ForumNotifySubscriptionsTest extends TestCase
         ]);
         $this->assertStringContainsString('ap_forum_subscribe_topic', $inferred);
         $this->assertStringContainsString('name="topic_id" value="' . $topicId . '"', $inferred);
+
+        $this->assertTrue(AP_Forum_Notify::subscribe($userId, $topicId, $this->db));
+        $watching = ap_forum_topic_subscribe_form_html($topicId, false, [
+            'user_id' => $userId,
+            'forum_id' => $this->forumId,
+            'db' => $this->db,
+        ]);
+        $this->assertStringContainsString('ap_forum_unsubscribe_topic', $watching);
+        $this->assertStringContainsString('>Unsubscribe</button>', $watching);
+        $this->assertStringNotContainsString('ap_forum_subscribe_topic', $watching);
     }
 
     public function testViewerMaySubscribeRequiresSiteOnLoginAndViewForum(): void
@@ -284,6 +296,64 @@ final class ForumNotifySubscriptionsTest extends TestCase
             'forum_id' => $staffForum,
             'db' => $this->db,
         ]));
+    }
+
+    public function testViewerMaySubscribeWhenMembersReadonly(): void
+    {
+        $this->bootForumAcl();
+        $userId = $this->createMember('sub-readonly');
+        $roForum = AP_Forum::insertForum(['forum_name' => 'Read-only subscribe'], $this->db);
+        $this->assertGreaterThan(0, $roForum);
+        $this->assertTrue(AP_Forum_Permissions::applyAccessLevel(
+            $roForum,
+            AP_Forum_Permissions::ACCESS_MEMBERS_READONLY,
+            $this->db
+        ));
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($userId, $roForum, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanPostReply($userId, $roForum, $this->db));
+        $this->assertTrue(AP_Forum_Notify::viewerMaySubscribe($userId, $roForum, $this->db));
+        $this->assertTrue(ap_forum_viewer_may_subscribe($userId, $roForum, $this->db));
+    }
+
+    public function testViewerMaySubscribeHonorsGroupOnlyViewForum(): void
+    {
+        $this->bootForumAcl();
+        $insider = $this->createMember('sub-vip-in');
+        $outsider = $this->createMember('sub-vip-out');
+        $groupId = AP_Group::create(['group_name' => 'Subscribe VIP'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $insider, AP_Group::ROLE_MEMBER, $this->db));
+
+        $vipForum = AP_Forum::insertForum(['forum_name' => 'VIP subscribe room'], $this->db);
+        $this->assertGreaterThan(0, $vipForum);
+        $this->assertTrue(AP_Forum_Permissions::applyGroupOnlyAccess($vipForum, [$groupId], $this->db));
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($insider, $vipForum, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanViewForum($outsider, $vipForum, $this->db));
+        $this->assertTrue(AP_Forum_Notify::viewerMaySubscribe($insider, $vipForum, $this->db));
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe($outsider, $vipForum, $this->db));
+
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $vipForum,
+            'topic_title' => 'VIP watch',
+            'content' => 'First post',
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+        $this->assertSame('', ap_forum_topic_subscribe_form_html($topicId, false, [
+            'user_id' => $outsider,
+            'forum_id' => $vipForum,
+            'db' => $this->db,
+        ]));
+        $html = ap_forum_topic_subscribe_form_html($topicId, false, [
+            'user_id' => $insider,
+            'forum_id' => $vipForum,
+            'db' => $this->db,
+        ]);
+        $this->assertStringContainsString('ap_forum_subscribe_topic', $html);
+        $this->assertStringContainsString('>Subscribe</button>', $html);
     }
 
     public function testListForUserWithTitlesIncludesTitleAndUrl(): void

@@ -159,7 +159,7 @@ endif; ?>
             </p>
         </div>
         <?php if (($canModerate || $canSetTopicType || $canSubscribe) && $topicId > 0) : ?>
-            <div class="ap-forum-toolbar ap-forum-toolbar--topic" role="toolbar" aria-label="<?php echo agora_esc_attr('Topic actions'); ?>">
+            <div class="ap-forum-toolbar ap-forum-toolbar--topic" role="toolbar" aria-label="Topic actions">
                 <?php
                 if ($canSubscribe) {
                     if (function_exists('ap_forum_topic_subscribe_form_html')) {
@@ -171,13 +171,18 @@ endif; ?>
                             ? 'ap_forum_unsubscribe_topic'
                             : 'ap_forum_subscribe_topic';
                         $subLabel = $topicSubscribed ? 'Unsubscribe' : 'Subscribe';
+                        $subAria = $topicSubscribed
+                            ? 'Unsubscribe from email notifications for this topic'
+                            : 'Subscribe to email notifications for this topic';
                         echo '<form method="post" action="" class="ap-forum-action-form ap-forum-subscribe">';
                         echo '<input type="hidden" name="ap_forum_action" value="' . agora_esc_attr($subAction) . '">';
                         echo '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">';
                         if (function_exists('ap_nonce_field')) {
                             echo ap_nonce_field($subAction . '_' . $topicId);
                         }
-                        echo '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-forum-subscribe__button">';
+                        echo '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-forum-subscribe__button"'
+                            . ' aria-pressed="' . ($topicSubscribed ? 'true' : 'false') . '"'
+                            . ' aria-label="' . agora_esc_attr($subAria) . '">';
                         echo agora_esc($subLabel);
                         echo '</button></form>';
                     }

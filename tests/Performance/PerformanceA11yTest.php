@@ -238,6 +238,8 @@ final class PerformanceA11yTest extends TestCase
         $this->assertStringContainsString('aria-label="Back to top of topic"', $topic);
         $this->assertStringContainsString('Quote post #', $topic);
         $this->assertStringContainsString('Like post #', $topic);
+        $this->assertStringContainsString('aria-label="Topic actions"', $topic);
+        $this->assertStringContainsString('Subscribe to email notifications for this topic', $topic);
     }
 
     public function testAdminMainLandmarkAndConfigSample(): void

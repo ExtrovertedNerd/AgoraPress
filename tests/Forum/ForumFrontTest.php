@@ -1244,6 +1244,176 @@ final class ForumFrontTest extends TestCase
         $this->assertSame(0, $this->subscriptionCount());
     }
 
+    public function testSubscribeWhenMembersReadonlyCanViewButNotReply(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Read only watch'], $this->db);
+        $this->assertTrue(AP_Forum_Permissions::applyAccessLevel(
+            $forumId,
+            AP_Forum_Permissions::ACCESS_MEMBERS_READONLY,
+            $this->db
+        ));
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Readonly watch topic',
+            'content' => 'Body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        $member = AP_User::create([
+            'user_login' => 'ro_sub',
+            'user_email' => 'ro_sub@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'RO Sub',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+        $this->assertGreaterThan(0, $memberId);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        $this->assertFalse((bool) $query->get('can_reply', false));
+        $this->assertTrue((bool) $query->get('can_subscribe', false));
+        $this->assertFalse((bool) $query->get('topic_subscribed', false));
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_subscribe_topic', $html);
+        $this->assertStringContainsString('>Subscribe</button>', $html);
+
+        $nonce = AP_Nonce::create('ap_forum_subscribe_topic_' . $topicId, $memberId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+        $this->assertIsString($redirect);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($memberId, $topicId, $this->db));
+    }
+
+    public function testSubscribeHonorsGroupOnlyViewForum(): void
+    {
+        $groupId = AP_Group::create(['group_name' => 'Watch VIP'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $forumId = AP_Forum::insertForum(['forum_name' => 'VIP watch board'], $this->db);
+        $this->assertTrue(AP_Forum_Permissions::applyGroupOnlyAccess($forumId, [$groupId], $this->db));
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'VIP only topic',
+            'content' => 'Private body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        $insider = AP_User::create([
+            'user_login' => 'vip_sub',
+            'user_email' => 'vip_sub@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'VIP Sub',
+            'role' => 'subscriber',
+        ], $this->db);
+        $outsider = AP_User::create([
+            'user_login' => 'vip_out',
+            'user_email' => 'vip_out@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'VIP Out',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($insider['ok'] ?? false);
+        $this->assertTrue($outsider['ok'] ?? false);
+        $insiderId = (int) $insider['id'];
+        $outsiderId = (int) $outsider['id'];
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $insiderId, AP_Group::ROLE_MEMBER, $this->db));
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+
+        $this->assertTrue(AP_Session::setAuthCookie($insiderId, false, $this->db));
+        $inQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($inQuery, $this->db);
+        ap_set_query($inQuery);
+        $this->assertTrue((bool) $inQuery->get('can_subscribe', false));
+        $this->assertTrue(empty($inQuery->get('ap_forum_cannot_view', false)));
+
+        ob_start();
+        AP_Theme::render($inQuery, $this->db);
+        $inHtml = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_subscribe_topic', $inHtml);
+        $this->assertStringContainsString('>Subscribe</button>', $inHtml);
+
+        $ok = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_subscribe_topic_' . $topicId, $insiderId),
+        ], $this->db);
+        $this->assertIsString($ok);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($insiderId, $topicId, $this->db));
+
+        $this->assertTrue(AP_Session::setAuthCookie($outsiderId, false, $this->db));
+        $outQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($outQuery, $this->db);
+        ap_set_query($outQuery);
+        $this->assertTrue(!empty($outQuery->get('ap_forum_cannot_view', false)));
+        $this->assertFalse((bool) $outQuery->get('can_subscribe', false));
+
+        ob_start();
+        AP_Theme::render($outQuery, $this->db);
+        $outHtml = (string) ob_get_clean();
+        $this->assertStringNotContainsString('ap_forum_subscribe_topic', $outHtml);
+        $this->assertStringNotContainsString('>Subscribe</button>', $outHtml);
+
+        $denied = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_subscribe_topic_' . $topicId, $outsiderId),
+        ], $this->db);
+        $this->assertNull($denied);
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($outsiderId, $topicId, $this->db));
+    }
+
+    public function testSubscribeNoticeRendersOnTopicView(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Notice watch'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Notice topic',
+            'content' => 'Body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($this->userId, $topicId, $this->db));
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        $_GET['ap_forum_notice'] = 'topic_subscribed';
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        unset($_GET['ap_forum_notice']);
+
+        $this->assertStringContainsString('ap-forum-notice--success', $html);
+        $this->assertStringContainsString('Subscribed to this topic.', $html);
+        $this->assertStringContainsString('ap_forum_unsubscribe_topic', $html);
+        $this->assertStringContainsString('>Unsubscribe</button>', $html);
+    }
+
     public function testSubscribeChromeNotOnForumIndexOrForumView(): void
     {
         $forumId = AP_Forum::insertForum(['forum_name' => 'Board only'], $this->db);

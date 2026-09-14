@@ -8614,7 +8614,8 @@ function ap_forum_unsubscribe_topic(int $userId, int $topicId, ?AP_DB $db = null
  * Empty when $topicId is invalid or the viewer may not subscribe. Pass
  * `$args['show']` = false to force-hide. When `show` is omitted, chrome
  * follows {@see ap_forum_viewer_may_subscribe()} (site on, logged in,
- * `view_forum`) so themes can call this unconditionally.
+ * `view_forum`) so themes can call this unconditionally. In that mode the
+ * button follows the stored watch unless `$args['subscribed']` is set.
  *
  * @param array{
  *   show?: bool,
@@ -8634,14 +8635,14 @@ function ap_forum_topic_subscribe_form_html(int $topicId, bool $subscribed = fal
     }
 
     $db = (isset($args['db']) && $args['db'] instanceof AP_DB) ? $args['db'] : null;
+    $userId = array_key_exists('user_id', $args)
+        ? (int) $args['user_id']
+        : (function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id($db) : 0);
     if (array_key_exists('show', $args)) {
         if (empty($args['show'])) {
             return '';
         }
     } else {
-        $userId = array_key_exists('user_id', $args)
-            ? (int) $args['user_id']
-            : (function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id($db) : 0);
         $forumId = array_key_exists('forum_id', $args) ? (int) $args['forum_id'] : 0;
         if ($forumId < 1 && class_exists('AP_Forum', false)) {
             $topic = AP_Forum::getTopic($topicId, $db);
@@ -8654,6 +8655,9 @@ function ap_forum_topic_subscribe_form_html(int $topicId, bool $subscribed = fal
             || !AP_Forum_Notify::viewerMaySubscribe($userId, $forumId, $db)
         ) {
             return '';
+        }
+        if (!array_key_exists('subscribed', $args) && $userId > 0) {
+            $subscribed = AP_Forum_Notify::isSubscribed($userId, $topicId, $db);
         }
     }
     if (array_key_exists('subscribed', $args)) {
