@@ -13,8 +13,11 @@ namespace AgoraPress\Tests\Forum;
 use AP_DB;
 use AP_Forum;
 use AP_Forum_Notify;
+use AP_Forum_Permissions;
+use AP_Group;
 use AP_Migrator;
 use AP_Options;
+use AP_Roles;
 use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -49,6 +52,7 @@ final class ForumNotifySubscriptionsTest extends TestCase
             PDO::ATTR_EMULATE_PREPARES => false,
         ]);
         $this->db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
+        $GLOBALS['apdb'] = $this->db;
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $migrator->migrate();
 
@@ -59,6 +63,16 @@ final class ForumNotifySubscriptionsTest extends TestCase
     protected function tearDown(): void
     {
         AP_Options::flushCache();
+        if (class_exists('AP_Roles', false)) {
+            AP_Roles::flushCache();
+        }
+        if (class_exists('AP_Group', false)) {
+            AP_Group::flushCache();
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            AP_Forum_Permissions::flushCache();
+        }
+        unset($GLOBALS['apdb']);
     }
 
     public function testSubscribeUnsubscribeAddsAndRemovesOnePair(): void
@@ -187,9 +201,10 @@ final class ForumNotifySubscriptionsTest extends TestCase
     public function testSubscribeFormHtmlHelper(): void
     {
         $this->assertSame('', ap_forum_topic_subscribe_form_html(0, false));
+        $this->assertSame('', ap_forum_topic_subscribe_form_html(12, false));
         $this->assertSame('', ap_forum_topic_subscribe_form_html(12, false, ['show' => false]));
 
-        $html = ap_forum_topic_subscribe_form_html(12, false);
+        $html = ap_forum_topic_subscribe_form_html(12, false, ['show' => true]);
         $this->assertStringContainsString('ap-forum-subscribe', $html);
         $this->assertStringContainsString('name="ap_forum_action"', $html);
         $this->assertStringContainsString('ap_forum_subscribe_topic', $html);
@@ -198,11 +213,77 @@ final class ForumNotifySubscriptionsTest extends TestCase
         $this->assertStringContainsString('>Subscribe</button>', $html);
         $this->assertStringContainsString('aria-pressed="false"', $html);
 
-        $un = ap_forum_topic_subscribe_form_html(12, true);
+        $un = ap_forum_topic_subscribe_form_html(12, true, ['show' => true]);
         $this->assertStringContainsString('ap_forum_unsubscribe_topic', $un);
         $this->assertStringContainsString('>Unsubscribe</button>', $un);
         $this->assertStringContainsString('aria-pressed="true"', $un);
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $un);
+    }
+
+    public function testSubscribeFormHtmlAutoGatesWhenShowOmitted(): void
+    {
+        $this->bootForumAcl();
+        $userId = $this->createMember('sub-form-gate');
+        $topicId = $this->createTopic('Form gate');
+
+        $this->assertSame('', ap_forum_topic_subscribe_form_html($topicId, false, [
+            'user_id' => $userId,
+            'forum_id' => $this->forumId,
+            'db' => $this->db,
+        ]));
+
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        $this->assertSame('', ap_forum_topic_subscribe_form_html($topicId, false, [
+            'user_id' => 0,
+            'forum_id' => $this->forumId,
+            'db' => $this->db,
+        ]));
+
+        $html = ap_forum_topic_subscribe_form_html($topicId, false, [
+            'user_id' => $userId,
+            'forum_id' => $this->forumId,
+            'db' => $this->db,
+        ]);
+        $this->assertStringContainsString('ap_forum_subscribe_topic', $html);
+        $this->assertStringContainsString('>Subscribe</button>', $html);
+
+        $inferred = ap_forum_topic_subscribe_form_html($topicId, false, [
+            'user_id' => $userId,
+            'db' => $this->db,
+        ]);
+        $this->assertStringContainsString('ap_forum_subscribe_topic', $inferred);
+        $this->assertStringContainsString('name="topic_id" value="' . $topicId . '"', $inferred);
+    }
+
+    public function testViewerMaySubscribeRequiresSiteOnLoginAndViewForum(): void
+    {
+        $this->bootForumAcl();
+        $userId = $this->createMember('sub-may-view');
+        $this->assertFalse(AP_Forum_Notify::isEnabled($this->db));
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe($userId, $this->forumId, $this->db));
+        $this->assertFalse(ap_forum_viewer_may_subscribe($userId, $this->forumId, $this->db));
+
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe(0, $this->forumId, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanViewForum($userId, $this->forumId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::viewerMaySubscribe($userId, $this->forumId, $this->db));
+        $this->assertTrue(ap_forum_viewer_may_subscribe($userId, $this->forumId, $this->db));
+
+        $staffForum = AP_Forum::insertForum(['forum_name' => 'Staff subscribe gate'], $this->db);
+        $this->assertGreaterThan(0, $staffForum);
+        $this->assertTrue(AP_Forum_Permissions::applyAccessLevel(
+            $staffForum,
+            AP_Forum_Permissions::ACCESS_MODERATORS,
+            $this->db
+        ));
+        $this->assertFalse(AP_Forum_Permissions::userCanViewForum($userId, $staffForum, $this->db));
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe($userId, $staffForum, $this->db));
+        $this->assertFalse(ap_forum_viewer_may_subscribe($userId, $staffForum, $this->db));
+        $this->assertSame('', ap_forum_topic_subscribe_form_html(1, false, [
+            'user_id' => $userId,
+            'forum_id' => $staffForum,
+            'db' => $this->db,
+        ]));
     }
 
     public function testListForUserWithTitlesIncludesTitleAndUrl(): void
@@ -258,6 +339,25 @@ final class ForumNotifySubscriptionsTest extends TestCase
         );
         $this->assertSame(0, (int) $track);
         $this->assertSame(1, $this->subscriptionCount());
+    }
+
+    private function bootForumAcl(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
+        require_once $this->root . '/ap-includes/class-ap-group.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-permissions.php';
+
+        AP_Roles::flushCache();
+        AP_Group::flushCache();
+        AP_Forum_Permissions::flushCache();
+        AP_Roles::ensureDefaults($this->db);
+        AP_Group::ensureSystemGroups($this->db);
+        AP_Forum_Permissions::ensureDefaults($this->db);
+        $this->assertTrue(AP_Forum_Permissions::applyAccessLevel(
+            $this->forumId,
+            AP_Forum_Permissions::ACCESS_PUBLIC,
+            $this->db
+        ));
     }
 
     private function createMember(string $login): int

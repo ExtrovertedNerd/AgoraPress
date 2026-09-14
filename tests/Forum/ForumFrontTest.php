@@ -846,7 +846,22 @@ final class ForumFrontTest extends TestCase
         $this->assertStringNotContainsString('ap_forum_unsubscribe_topic', $html);
         $this->assertStringNotContainsString('>Unsubscribe</button>', $html);
 
-        $this->assertTrue(AP_Forum_Notify::subscribe($this->userId, $topicId, $this->db));
+        $this->assertSame(1, preg_match(
+            '/ap_forum_subscribe_topic.*?name="_ap_nonce" value="([^"]+)"/s',
+            $html,
+            $nonceMatch
+        ));
+        $posted = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => $nonceMatch[1],
+        ], $this->db);
+        $this->assertIsString($posted);
+        $this->assertStringContainsString('ap_forum_notice=topic_subscribed', (string) $posted);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+        AP_Forum_Front::setNotice(null);
+
         $query2 = AP_Rewrite::queryFromVars($vars, $this->db);
         AP_Forum_Front::applyToQuery($query2, $this->db);
         ap_set_query($query2);
@@ -938,6 +953,11 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('ap_forum_notice=topic_subscribed', (string) $redirect);
         $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
         $this->assertSame(1, $this->subscriptionCount());
+        $this->assertFalse(AP_Forum_Notify::isUserNotifyEnabled($this->userId, $this->db));
+        $this->assertSame(0, (int) $this->db->getVar(
+            'SELECT COUNT(*) FROM '
+            . $this->db->quoteIdentifier($this->db->table('topic_track'))
+        ));
 
         $_GET['ap_forum_notice'] = 'topic_subscribed';
         $notice = AP_Forum_Front::getNotice();

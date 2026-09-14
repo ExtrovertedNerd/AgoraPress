@@ -353,6 +353,8 @@ def test_phpunit_topic_subscriptions_migration_suite_runs() -> None:
     subs = PHPUNIT_SUBS.read_text(encoding="utf-8")
     assert "function testSubscribeUnsubscribeAddsAndRemovesOnePair" in subs
     assert "function testSubscribeFormHtmlHelper" in subs
+    assert "function testSubscribeFormHtmlAutoGatesWhenShowOmitted" in subs
+    assert "function testViewerMaySubscribeRequiresSiteOnLoginAndViewForum" in subs
 
 
 def test_subscribe_unsubscribe_helpers_add_remove_one_pair() -> None:

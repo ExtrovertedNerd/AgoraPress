@@ -8611,15 +8611,20 @@ function ap_forum_unsubscribe_topic(int $userId, int $topicId, ?AP_DB $db = null
 /**
  * Subscribe / Unsubscribe form for topic view.
  *
- * Empty when $topicId is invalid or `$args['show']` is false (site off,
- * guest, or no `view_forum`) so themes can call it unconditionally.
+ * Empty when $topicId is invalid or the viewer may not subscribe. Pass
+ * `$args['show']` = false to force-hide. When `show` is omitted, chrome
+ * follows {@see ap_forum_viewer_may_subscribe()} (site on, logged in,
+ * `view_forum`) so themes can call this unconditionally.
  *
  * @param array{
  *   show?: bool,
  *   subscribed?: bool,
  *   label_subscribe?: string,
  *   label_unsubscribe?: string,
- *   class?: string
+ *   class?: string,
+ *   forum_id?: int,
+ *   user_id?: int,
+ *   db?: AP_DB|null
  * } $args
  */
 function ap_forum_topic_subscribe_form_html(int $topicId, bool $subscribed = false, array $args = []): string
@@ -8627,8 +8632,29 @@ function ap_forum_topic_subscribe_form_html(int $topicId, bool $subscribed = fal
     if ($topicId < 1) {
         return '';
     }
-    if (array_key_exists('show', $args) && empty($args['show'])) {
-        return '';
+
+    $db = (isset($args['db']) && $args['db'] instanceof AP_DB) ? $args['db'] : null;
+    if (array_key_exists('show', $args)) {
+        if (empty($args['show'])) {
+            return '';
+        }
+    } else {
+        $userId = array_key_exists('user_id', $args)
+            ? (int) $args['user_id']
+            : (function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id($db) : 0);
+        $forumId = array_key_exists('forum_id', $args) ? (int) $args['forum_id'] : 0;
+        if ($forumId < 1 && class_exists('AP_Forum', false)) {
+            $topic = AP_Forum::getTopic($topicId, $db);
+            if (is_object($topic)) {
+                $forumId = (int) ($topic->forum_id ?? 0);
+            }
+        }
+        if (
+            !class_exists('AP_Forum_Notify', false)
+            || !AP_Forum_Notify::viewerMaySubscribe($userId, $forumId, $db)
+        ) {
+            return '';
+        }
     }
     if (array_key_exists('subscribed', $args)) {
         $subscribed = !empty($args['subscribed']);

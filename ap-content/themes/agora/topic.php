@@ -164,7 +164,7 @@ endif; ?>
                 if ($canSubscribe) {
                     if (function_exists('ap_forum_topic_subscribe_form_html')) {
                         echo ap_forum_topic_subscribe_form_html($topicId, $topicSubscribed, [
-                            'show' => true,
+                            'forum_id' => $forumIdForType,
                         ]);
                     } else {
                         $subAction = $topicSubscribed
