@@ -8427,7 +8427,8 @@ function ap_forum_topic_notify_enabled(?AP_DB $db = null): bool
 /**
  * Whether Subscribe / notify chrome may render (site master on).
  *
- * Site option off → no chrome.
+ * Site option off → no chrome. Per-viewer chrome also needs a logged-in
+ * member with `view_forum` — see {@see ap_forum_viewer_may_subscribe()}.
  *
  * @see AP_Forum_Notify::shouldShowChrome()
  */
@@ -8438,6 +8439,22 @@ function ap_forum_notify_should_show_chrome(?AP_DB $db = null): bool
     }
 
     return AP_Forum_Notify::shouldShowChrome($db);
+}
+
+/**
+ * Whether this viewer may Subscribe / Unsubscribe on a topic in $forumId.
+ *
+ * Site on, logged in, and `view_forum`. Does not require the user master.
+ *
+ * @see AP_Forum_Notify::viewerMaySubscribe()
+ */
+function ap_forum_viewer_may_subscribe(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::viewerMaySubscribe($userId, $forumId, $db);
 }
 
 /**
@@ -8589,6 +8606,84 @@ function ap_forum_unsubscribe_topic(int $userId, int $topicId, ?AP_DB $db = null
     }
 
     return AP_Forum_Notify::unsubscribe($userId, $topicId, $db);
+}
+
+/**
+ * Subscribe / Unsubscribe form for topic view.
+ *
+ * Empty when $topicId is invalid or `$args['show']` is false (site off,
+ * guest, or no `view_forum`) so themes can call it unconditionally.
+ *
+ * @param array{
+ *   show?: bool,
+ *   subscribed?: bool,
+ *   label_subscribe?: string,
+ *   label_unsubscribe?: string,
+ *   class?: string
+ * } $args
+ */
+function ap_forum_topic_subscribe_form_html(int $topicId, bool $subscribed = false, array $args = []): string
+{
+    if ($topicId < 1) {
+        return '';
+    }
+    if (array_key_exists('show', $args) && empty($args['show'])) {
+        return '';
+    }
+    if (array_key_exists('subscribed', $args)) {
+        $subscribed = !empty($args['subscribed']);
+    }
+
+    $subscribeAction = class_exists('AP_Forum_Front', false)
+        ? AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC
+        : 'ap_forum_subscribe_topic';
+    $unsubscribeAction = class_exists('AP_Forum_Front', false)
+        ? AP_Forum_Front::ACTION_UNSUBSCRIBE_TOPIC
+        : 'ap_forum_unsubscribe_topic';
+    $action = $subscribed ? $unsubscribeAction : $subscribeAction;
+    $labelSubscribe = 'Subscribe';
+    if (isset($args['label_subscribe']) && is_string($args['label_subscribe']) && $args['label_subscribe'] !== '') {
+        $labelSubscribe = $args['label_subscribe'];
+    }
+    $labelUnsubscribe = 'Unsubscribe';
+    if (
+        isset($args['label_unsubscribe'])
+        && is_string($args['label_unsubscribe'])
+        && $args['label_unsubscribe'] !== ''
+    ) {
+        $labelUnsubscribe = $args['label_unsubscribe'];
+    }
+    $label = $subscribed ? $labelUnsubscribe : $labelSubscribe;
+    $aria = $subscribed
+        ? 'Unsubscribe from email notifications for this topic'
+        : 'Subscribe to email notifications for this topic';
+
+    $classes = ['ap-forum-action-form', 'ap-forum-subscribe'];
+    if (!empty($args['class']) && is_string($args['class'])) {
+        $extra = trim($args['class']);
+        if ($extra !== '') {
+            $classes[] = $extra;
+        }
+    }
+
+    $nonce = '';
+    $nonceAction = $action . '_' . $topicId;
+    if (function_exists('ap_nonce_field')) {
+        $nonce = ap_nonce_field($nonceAction);
+    } elseif (class_exists('AP_Nonce', false)) {
+        $nonce = AP_Nonce::field($nonceAction);
+    }
+
+    return '<form method="post" action="" class="' . ap_esc_attr(implode(' ', $classes)) . '">'
+        . '<input type="hidden" name="ap_forum_action" value="' . ap_esc_attr($action) . '">'
+        . '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">'
+        . $nonce
+        . '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-forum-subscribe__button"'
+        . ' aria-pressed="' . ($subscribed ? 'true' : 'false') . '"'
+        . ' aria-label="' . ap_esc_attr($aria) . '">'
+        . ap_esc_html($label)
+        . '</button>'
+        . '</form>';
 }
 
 // -----------------------------------------------------------------------------

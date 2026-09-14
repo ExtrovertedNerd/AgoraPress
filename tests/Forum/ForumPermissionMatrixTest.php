@@ -438,24 +438,28 @@ final class ForumPermissionMatrixTest extends TestCase
                 'can_reply' => false,
                 'can_moderate' => false,
                 'can_set_topic_type' => false,
+                'can_subscribe' => false,
             ],
             'member' => [
                 'user_id' => $this->memberId,
                 'can_reply' => true,
                 'can_moderate' => false,
                 'can_set_topic_type' => false,
+                'can_subscribe' => false,
             ],
             'mod' => [
                 'user_id' => $this->modId,
                 'can_reply' => true,
                 'can_moderate' => true,
                 'can_set_topic_type' => true,
+                'can_subscribe' => false,
             ],
             'admin' => [
                 'user_id' => $this->adminId,
                 'can_reply' => true,
                 'can_moderate' => true,
                 'can_set_topic_type' => true,
+                'can_subscribe' => false,
             ],
         ];
 
@@ -484,6 +488,11 @@ final class ForumPermissionMatrixTest extends TestCase
                 $spec['can_set_topic_type'],
                 (bool) $query->get('can_set_topic_type', false),
                 "{$role} can_set_topic_type"
+            );
+            $this->assertSame(
+                $spec['can_subscribe'],
+                (bool) $query->get('can_subscribe', false),
+                "{$role} can_subscribe (site notify default off)"
             );
 
             if ($role === 'mod' || $role === 'admin') {

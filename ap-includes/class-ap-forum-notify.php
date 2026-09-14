@@ -87,14 +87,36 @@ class AP_Forum_Notify
     }
 
     /**
-     * Whether Subscribe / notify chrome may render.
+     * Whether Subscribe / notify chrome may render (site master on).
      *
-     * Site master off → no chrome. Later increments also require a logged-in
-     * viewer with `view_forum`; this method is the site gate only.
+     * Site master off → no chrome. Per-viewer chrome also requires a logged-in
+     * member with `view_forum` — see {@see viewerMaySubscribe()}.
      */
     public static function shouldShowChrome(?AP_DB $db = null): bool
     {
         return self::isEnabled($db);
+    }
+
+    /**
+     * Whether this viewer may Subscribe / Unsubscribe on a topic in $forumId.
+     *
+     * All of: site master on, logged in (user id ≥ 1), and `view_forum` on
+     * that board. Guests never qualify. Does not require the user master
+     * (`forum_notify_email`) — that gate is for mail, not chrome.
+     */
+    public static function viewerMaySubscribe(int $userId, int $forumId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || $forumId < 1) {
+            return false;
+        }
+        if (!self::isEnabled($db)) {
+            return false;
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            return AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db);
+        }
+
+        return true;
     }
 
     /**

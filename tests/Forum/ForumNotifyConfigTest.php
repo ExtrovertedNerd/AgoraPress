@@ -128,6 +128,22 @@ final class ForumNotifyConfigTest extends TestCase
         $this->assertFalse(ap_forum_notify_should_show_chrome($this->db));
     }
 
+    public function testViewerMaySubscribeRejectsGuestAndSiteOff(): void
+    {
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe(0, 1, $this->db));
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe(1, 0, $this->db));
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe(-3, 4, $this->db));
+        $this->assertFalse(ap_forum_viewer_may_subscribe(0, 1, $this->db));
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe(1, 1, $this->db));
+        $this->assertFalse(ap_forum_viewer_may_subscribe(1, 1, $this->db));
+
+        AP_Options::update(AP_Forum_Notify::OPTION_ENABLED, '1', $this->db);
+        $this->assertTrue(AP_Forum_Notify::isEnabled($this->db));
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe(0, 1, $this->db));
+        $this->assertFalse(ap_forum_viewer_may_subscribe(0, 1, $this->db));
+        $this->assertFalse(AP_Forum_Notify::viewerMaySubscribe(-1, 4, $this->db));
+    }
+
     public function testSiteOffMeansNoChromeNoEnqueueNoSend(): void
     {
         $this->assertFalse(AP_Forum_Notify::isEnabled($this->db));

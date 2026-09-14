@@ -102,7 +102,8 @@ Custom themes override the same filenames in the child/parent stack
 
 `ap_forum_new_topic`, `ap_forum_reply`, `ap_forum_edit_post`,
 `ap_forum_delete_post`, `ap_forum_like_post`, `ap_forum_lock_topic`,
-`ap_forum_unlock_topic`, `ap_forum_set_topic_type`.
+`ap_forum_unlock_topic`, `ap_forum_set_topic_type`,
+`ap_forum_subscribe_topic`, `ap_forum_unsubscribe_topic`.
 
 Sitemaps include the board index, forums, and topics when the module is on
 (`AP_Sitemap` providers `forums` and `topics`). `AP_Forum::getForums()`
@@ -135,6 +136,7 @@ Query var `ap_forum_notice` (and same-request flash via
 | `post_liked` / `post_unliked` | Thanks for the like. / Like removed. |
 | `topic_locked` / `topic_unlocked` | Topic locked. / Topic unlocked. |
 | `topic_type_updated` | Topic type updated. |
+| `topic_subscribed` / `topic_unsubscribed` | Subscribed to this topic. / Unsubscribed from this topic. |
 
 Like failures that stay on the page: `login_required` → “Log in to like posts.”;
 `forbidden` → “You do not have permission to like this post.”

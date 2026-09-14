@@ -184,6 +184,27 @@ final class ForumNotifySubscriptionsTest extends TestCase
         $this->assertFalse(ap_forum_user_subscribed_to_topic($userId, $topicId, $this->db));
     }
 
+    public function testSubscribeFormHtmlHelper(): void
+    {
+        $this->assertSame('', ap_forum_topic_subscribe_form_html(0, false));
+        $this->assertSame('', ap_forum_topic_subscribe_form_html(12, false, ['show' => false]));
+
+        $html = ap_forum_topic_subscribe_form_html(12, false);
+        $this->assertStringContainsString('ap-forum-subscribe', $html);
+        $this->assertStringContainsString('name="ap_forum_action"', $html);
+        $this->assertStringContainsString('ap_forum_subscribe_topic', $html);
+        $this->assertStringContainsString('name="topic_id" value="12"', $html);
+        $this->assertStringContainsString('name="_ap_nonce"', $html);
+        $this->assertStringContainsString('>Subscribe</button>', $html);
+        $this->assertStringContainsString('aria-pressed="false"', $html);
+
+        $un = ap_forum_topic_subscribe_form_html(12, true);
+        $this->assertStringContainsString('ap_forum_unsubscribe_topic', $un);
+        $this->assertStringContainsString('>Unsubscribe</button>', $un);
+        $this->assertStringContainsString('aria-pressed="true"', $un);
+        $this->assertStringNotContainsString('ap_forum_subscribe_topic', $un);
+    }
+
     public function testListForUserWithTitlesIncludesTitleAndUrl(): void
     {
         $userId = $this->createMember('sub-titles');

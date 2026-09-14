@@ -47,6 +47,7 @@ def test_class_api_and_defaults() -> None:
         "META_NOTIFY_EMAIL",
         "function isEnabled",
         "function shouldShowChrome",
+        "function viewerMaySubscribe",
         "function enqueueReply",
         "function send",
         "CRON_HOOK",
@@ -85,6 +86,8 @@ def test_bootstrap_and_functions_wiring() -> None:
     functions = FUNCTIONS.read_text(encoding="utf-8")
     assert "function ap_forum_topic_notify_enabled" in functions
     assert "function ap_forum_notify_should_show_chrome" in functions
+    assert "function ap_forum_viewer_may_subscribe" in functions
+    assert "function ap_forum_topic_subscribe_form_html" in functions
     assert "function ap_forum_notify_enqueue_reply" in functions
     assert "function ap_forum_notify_send" in functions
     assert "function ap_forum_notify_max_per_minute" in functions

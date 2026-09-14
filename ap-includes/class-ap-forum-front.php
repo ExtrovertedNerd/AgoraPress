@@ -33,6 +33,12 @@ class AP_Forum_Front
     /** Change topic type (standard | sticky | announcement | rules) within caps. */
     public const ACTION_SET_TOPIC_TYPE = 'ap_forum_set_topic_type';
 
+    /** Per-topic email Subscribe (site on, logged in, can view_forum). */
+    public const ACTION_SUBSCRIBE_TOPIC = 'ap_forum_subscribe_topic';
+
+    /** Per-topic email Unsubscribe. */
+    public const ACTION_UNSUBSCRIBE_TOPIC = 'ap_forum_unsubscribe_topic';
+
     /** Generic denial for a direct URL the viewer cannot `view_forum`. */
     public const CANNOT_VIEW_MESSAGE = 'You cannot view this.';
 
@@ -126,12 +132,16 @@ class AP_Forum_Front
             $args['ap_forum_disabled'] = true;
             $args['ap_forum_view'] = (string) ($args['ap_forum_view'] ?? 'index');
             $args['forum_topic_notify_enabled'] = false;
+            $args['can_subscribe'] = false;
+            $args['topic_subscribed'] = false;
 
             return $args;
         }
 
         if (!class_exists('AP_Forum', false)) {
             $args['forum_topic_notify_enabled'] = false;
+            $args['can_subscribe'] = false;
+            $args['topic_subscribed'] = false;
 
             return $args;
         }
@@ -139,12 +149,16 @@ class AP_Forum_Front
         $view = strtolower(trim((string) ($args['ap_forum_view'] ?? '')));
         if ($view === '') {
             $args['forum_topic_notify_enabled'] = false;
+            $args['can_subscribe'] = false;
+            $args['topic_subscribed'] = false;
 
             return $args;
         }
 
         $args['forum_topic_notify_enabled'] = class_exists('AP_Forum_Notify', false)
             && AP_Forum_Notify::shouldShowChrome($db);
+        $args['can_subscribe'] = false;
+        $args['topic_subscribed'] = false;
 
         $paged = max(1, (int) ($args['paged'] ?? 1));
         $args['paged'] = $paged;
@@ -322,6 +336,11 @@ class AP_Forum_Front
                 )
                 : [];
             $args['can_set_topic_type'] = $args['allowed_topic_types'] !== [];
+            $args['can_subscribe'] = $userId > 0
+                && class_exists('AP_Forum_Notify', false)
+                && AP_Forum_Notify::viewerMaySubscribe($userId, $forumId, $db);
+            $args['topic_subscribed'] = !empty($args['can_subscribe'])
+                && AP_Forum_Notify::isSubscribed($userId, $topicId, $db);
 
             return $args;
         }
@@ -496,6 +515,12 @@ class AP_Forum_Front
         if ($action === self::ACTION_SET_TOPIC_TYPE) {
             return self::handleSetTopicType($post, $db);
         }
+        if ($action === self::ACTION_SUBSCRIBE_TOPIC) {
+            return self::handleSubscribeTopic($post, $db, true);
+        }
+        if ($action === self::ACTION_UNSUBSCRIBE_TOPIC) {
+            return self::handleSubscribeTopic($post, $db, false);
+        }
 
         return null;
     }
@@ -548,6 +573,8 @@ class AP_Forum_Front
                 'topic_locked' => ['type' => 'success', 'message' => 'Topic locked.'],
                 'topic_unlocked' => ['type' => 'success', 'message' => 'Topic unlocked.'],
                 'topic_type_updated' => ['type' => 'success', 'message' => 'Topic type updated.'],
+                'topic_subscribed' => ['type' => 'success', 'message' => 'Subscribed to this topic.'],
+                'topic_unsubscribed' => ['type' => 'success', 'message' => 'Unsubscribed from this topic.'],
             ];
             if (isset($map[$code])) {
                 return $map[$code];
@@ -710,6 +737,8 @@ class AP_Forum_Front
         $args['can_announce'] = false;
         $args['can_set_topic_type'] = false;
         $args['allowed_topic_types'] = [];
+        $args['can_subscribe'] = false;
+        $args['topic_subscribed'] = false;
         $args['first_unread_post_id'] = 0;
         $args['forum_search_total'] = 0;
         $args['forum_search_results'] = [];
@@ -1327,6 +1356,88 @@ class AP_Forum_Front
         $sep = str_contains($url, '?') ? '&' : '?';
 
         return $url . $sep . 'ap_forum_notice=topic_type_updated';
+    }
+
+    /**
+     * Subscribe or unsubscribe the current viewer for topic email notify.
+     *
+     * Site master off, guests, and viewers without `view_forum` are rejected.
+     * Does not auto-watch on topic view, start, or reply. Does not flip the
+     * user master (`forum_notify_email`).
+     *
+     * @param array<string, mixed> $post
+     */
+    private static function handleSubscribeTopic(array $post, ?AP_DB $db, bool $subscribe): ?string
+    {
+        $topicId = (int) ($post['topic_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = ($subscribe ? self::ACTION_SUBSCRIBE_TOPIC : self::ACTION_UNSUBSCRIBE_TOPIC)
+            . '_' . $topicId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+
+        $userId = self::currentUserId($db);
+        if ($userId < 1) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You must be logged in to subscribe to topics.',
+            ];
+
+            return null;
+        }
+
+        if (!class_exists('AP_Forum_Notify', false) || !AP_Forum_Notify::isEnabled($db)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'Topic email notifications are disabled.',
+            ];
+
+            return null;
+        }
+
+        if (!class_exists('AP_Forum', false)) {
+            return null;
+        }
+
+        $topic = AP_Forum::getTopic($topicId, $db);
+        if ($topic === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Topic not found.'];
+
+            return null;
+        }
+
+        $forumId = (int) $topic->forum_id;
+        if (!AP_Forum_Notify::viewerMaySubscribe($userId, $forumId, $db)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You do not have permission to subscribe to this topic.',
+            ];
+
+            return null;
+        }
+
+        $ok = $subscribe
+            ? AP_Forum_Notify::subscribe($userId, $topicId, $db)
+            : AP_Forum_Notify::unsubscribe($userId, $topicId, $db);
+        if (!$ok) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => $subscribe
+                    ? 'Could not subscribe to this topic.'
+                    : 'Could not unsubscribe from this topic.',
+            ];
+
+            return null;
+        }
+
+        $url = AP_Forum::topicUrl($topic);
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice='
+            . ($subscribe ? 'topic_subscribed' : 'topic_unsubscribed');
     }
 
     /**

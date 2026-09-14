@@ -55,9 +55,15 @@ def test_forum_front_class_api() -> None:
         "ACTION_NEW_TOPIC",
         "ACTION_REPLY",
         "ACTION_SET_TOPIC_TYPE",
+        "ACTION_SUBSCRIBE_TOPIC",
+        "ACTION_UNSUBSCRIBE_TOPIC",
         "handleSetTopicType",
+        "handleSubscribeTopic",
         "allowed_topic_types",
         "topic_type",
+        "can_subscribe",
+        "topic_subscribed",
+        "viewerMaySubscribe",
     ):
         assert needle in src, f"missing {needle}"
 
@@ -88,6 +94,11 @@ def test_agora_templates_have_live_forms() -> None:
     assert "ap-forum-attachments" in topic
     assert "ap_forum_set_topic_type" in topic
     assert "can_set_topic_type" in topic
+    assert "can_subscribe" in topic
+    assert "topic_subscribed" in topic
+    assert "ap_forum_topic_subscribe_form_html" in topic
+    assert "ap_forum_subscribe_topic" in topic
+    assert "ap_forum_unsubscribe_topic" in topic
     # SPEC B2 actions: Quote → Edit/mod → Like/Unlike
     assert "ap-forum-quote" in topic
     assert "ap_forum_like_post" in topic

@@ -32,6 +32,8 @@ $forumUrl = $q instanceof AP_Query ? (string) $q->get('forum_url', '') : '';
 $canReply = $q instanceof AP_Query && !empty($q->get('can_reply', false));
 $canModerate = $q instanceof AP_Query && !empty($q->get('can_moderate', false));
 $canSetTopicType = $q instanceof AP_Query && !empty($q->get('can_set_topic_type', false));
+$canSubscribe = $q instanceof AP_Query && !empty($q->get('can_subscribe', false));
+$topicSubscribed = $q instanceof AP_Query && !empty($q->get('topic_subscribed', false));
 $topicType = $q instanceof AP_Query
     ? (string) $q->get('topic_type', 'standard')
     : 'standard';
@@ -156,8 +158,31 @@ endif; ?>
                 <?php endif; ?>
             </p>
         </div>
-        <?php if (($canModerate || $canSetTopicType) && $topicId > 0) : ?>
-            <div class="ap-forum-toolbar ap-forum-toolbar--topic" role="toolbar" aria-label="Topic moderation">
+        <?php if (($canModerate || $canSetTopicType || $canSubscribe) && $topicId > 0) : ?>
+            <div class="ap-forum-toolbar ap-forum-toolbar--topic" role="toolbar" aria-label="<?php echo agora_esc_attr('Topic actions'); ?>">
+                <?php
+                if ($canSubscribe) {
+                    if (function_exists('ap_forum_topic_subscribe_form_html')) {
+                        echo ap_forum_topic_subscribe_form_html($topicId, $topicSubscribed, [
+                            'show' => true,
+                        ]);
+                    } else {
+                        $subAction = $topicSubscribed
+                            ? 'ap_forum_unsubscribe_topic'
+                            : 'ap_forum_subscribe_topic';
+                        $subLabel = $topicSubscribed ? 'Unsubscribe' : 'Subscribe';
+                        echo '<form method="post" action="" class="ap-forum-action-form ap-forum-subscribe">';
+                        echo '<input type="hidden" name="ap_forum_action" value="' . agora_esc_attr($subAction) . '">';
+                        echo '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">';
+                        if (function_exists('ap_nonce_field')) {
+                            echo ap_nonce_field($subAction . '_' . $topicId);
+                        }
+                        echo '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-forum-subscribe__button">';
+                        echo agora_esc($subLabel);
+                        echo '</button></form>';
+                    }
+                }
+                ?>
                 <?php if ($canModerate) : ?>
                 <form method="post" action="" class="ap-forum-action-form">
                     <input type="hidden" name="ap_forum_action" value="<?php echo $locked ? 'ap_forum_unlock_topic' : 'ap_forum_lock_topic'; ?>">
