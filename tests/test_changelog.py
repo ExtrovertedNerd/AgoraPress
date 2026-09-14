@@ -54,7 +54,7 @@ def test_changelog_is_not_a_stub(changelog_text: str) -> None:
     lines = [ln for ln in changelog_text.splitlines() if ln.strip()]
     assert len(lines) >= 15, f"CHANGELOG too short ({len(lines)} non-empty lines)"
     assert len(changelog_text) >= 800, "CHANGELOG should list major product surface"
-    assert len(changelog_text) < 14000, "CHANGELOG should stay concise"
+    assert len(changelog_text) < 16000, "CHANGELOG should stay concise"
 
 
 @pytest.mark.parametrize("pattern", REQUIRED_PATTERNS)
@@ -220,6 +220,43 @@ def test_current_ap_version_is_0310_beta() -> None:
         "AP_VERSION must be 0.3.10-beta for this release "
         f"(found {match.group(1)})"
     )
+
+
+def _0310_beta_body(changelog_text: str) -> str:
+    match = re.search(
+        r"(?ims)^##\s+\[0\.3\.10-beta\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
+        changelog_text,
+    )
+    assert match, "Missing ## [0.3.10-beta] body"
+    return match.group(1)
+
+
+def test_0310_beta_documents_charter_surfaces(changelog_text: str) -> None:
+    heading = re.search(
+        r"(?im)^##\s+\[0\.3\.10-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",
+        changelog_text,
+    )
+    assert heading, "Missing dated ## [0.3.10-beta] heading"
+    body = _0310_beta_body(changelog_text)
+    assert re.search(r"(?im)^###\s+Added\s*$", body)
+    assert re.search(r"(?im)^###\s+Changed\s*$", body)
+    assert re.search(r"(?im)^###\s+Fixed\s*$", body)
+    lower = body.lower()
+    assert "ap_db_version" in lower
+    assert "**13**" in body or " 13" in body
+    assert "spoiler" in lower
+    assert "ap-spoiler" in lower
+    assert "edit_others_posts" in lower
+    assert "edit_others_pages" in lower
+    assert "topic_subscriptions" in lower
+    assert "forum_notify_max_per_minute" in lower
+    assert "rate_limit_mail" in lower
+    assert "ap_comments_template" in lower
+    assert "no auto-inject" in lower
+    assert "no telemetry" in lower
+    assert "post_author" in lower
+    assert "topic_track" in lower
+    assert "0.3.10-beta" in body
 
 
 def _039_beta_body(changelog_text: str) -> str:
