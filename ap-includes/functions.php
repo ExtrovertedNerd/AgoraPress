@@ -8696,18 +8696,14 @@ function ap_forum_topic_subscribe_form_html(int $topicId, bool $subscribed = fal
         }
     }
 
-    $nonce = '';
     $nonceAction = $action . '_' . $topicId;
-    if (function_exists('ap_nonce_field')) {
-        $nonce = ap_nonce_field($nonceAction);
-    } elseif (class_exists('AP_Nonce', false)) {
-        $nonce = AP_Nonce::field($nonceAction);
-    }
 
     return '<form method="post" action="" class="' . ap_esc_attr(implode(' ', $classes)) . '">'
         . '<input type="hidden" name="ap_forum_action" value="' . ap_esc_attr($action) . '">'
         . '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">'
-        . $nonce
+        . (function_exists('ap_nonce_field')
+            ? ap_nonce_field($nonceAction)
+            : (class_exists('AP_Nonce', false) ? AP_Nonce::field($nonceAction) : ''))
         . '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-forum-subscribe__button"'
         . ' aria-pressed="' . ($subscribed ? 'true' : 'false') . '"'
         . ' aria-label="' . ap_esc_attr($aria) . '">'
