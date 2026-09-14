@@ -2524,6 +2524,12 @@ body.agora-theme {
   align-items: flex-end;
 }
 
+.ap-forum-subscribe {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+}
+
 /* Topic type select (create form + mod toolbar) — SPEC A2 */
 .ap-field--topic-type select {
   max-width: 16rem;

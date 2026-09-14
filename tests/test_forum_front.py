@@ -110,6 +110,8 @@ def test_agora_templates_have_live_forms() -> None:
     assert ".ap-forum-notice" in style
     assert ".ap-field--topic-type" in style
     assert ".ap-forum-post__actions" in style
+    assert ".ap-forum-subscribe" in style
+    assert ".ap-forum-toolbar--topic" in style
 
 
 def test_board_index_category_header_columns() -> None:

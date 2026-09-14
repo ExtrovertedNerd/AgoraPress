@@ -17,6 +17,7 @@ namespace AgoraPress\Tests\Forum;
 use AP_DB;
 use AP_Forum;
 use AP_Forum_Front;
+use AP_Forum_Notify;
 use AP_Forum_Permissions;
 use AP_Group;
 use AP_Migrator;
@@ -64,6 +65,7 @@ final class ForumPermissionMatrixTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-forum-permissions.php';
         require_once $this->root . '/ap-includes/class-ap-forum.php';
         require_once $this->root . '/ap-includes/class-ap-forum-moderation.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-notify.php';
         require_once $this->root . '/ap-includes/class-ap-forum-front.php';
         require_once $this->root . '/ap-includes/class-ap-query.php';
         require_once $this->root . '/ap-includes/hooks.php';
@@ -503,6 +505,36 @@ final class ForumPermissionMatrixTest extends TestCase
             }
         }
 
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Forum_Notify::isEnabled($this->db));
+
+        $subscribeWhenSiteOn = [
+            'guest' => false,
+            'member' => true,
+            'mod' => true,
+            'admin' => true,
+        ];
+        foreach ($subscribeWhenSiteOn as $role => $expect) {
+            $this->actAsUser((int) $topicCases[$role]['user_id']);
+            $query = new AP_Query([
+                'ap_forum_view' => 'topic',
+                'topic_id' => $this->topicId,
+                'forum_id' => $this->forumId,
+                'no_found_rows' => true,
+            ], $this->db);
+            AP_Forum_Front::applyToQuery($query, $this->db);
+            $this->assertSame(
+                $expect,
+                (bool) $query->get('can_subscribe', false),
+                "{$role} can_subscribe (site notify on, view_forum)"
+            );
+            $this->assertFalse(
+                (bool) $query->get('topic_subscribed', false),
+                "{$role} is not auto-subscribed by viewing"
+            );
+        }
+
+        AP_Options::update('forum_topic_notify_enabled', '0', $this->db);
         $this->actAsUser(0);
     }
 

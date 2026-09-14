@@ -1494,6 +1494,8 @@ final class AgoraThemeTest extends TestCase
         // SPEC B2 — bottom-right “Top” control.
         $this->assertStringContainsString('.ap-forum-post__foot', $css);
         $this->assertStringContainsString('.ap-forum-post__top', $css);
+        $this->assertStringContainsString('.ap-forum-subscribe', $css);
+        $this->assertStringContainsString('.ap-forum-toolbar--topic', $css);
         // SPEC B1 — first unread jump above OP.
         $this->assertStringContainsString('.ap-forum-first-unread', $css);
         $this->assertStringContainsString('.ap-forum-first-unread-wrap', $css);

@@ -13,6 +13,7 @@ namespace AgoraPress\Tests\Forum;
 use AP_DB;
 use AP_Forum;
 use AP_Forum_Front;
+use AP_Forum_Moderation;
 use AP_Forum_Notify;
 use AP_Forum_Permissions;
 use AP_Group;
@@ -1142,6 +1143,107 @@ final class ForumFrontTest extends TestCase
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $html);
         $this->assertStringNotContainsString('>Subscribe</button>', $html);
         $this->assertSame(0, $this->subscriptionCount());
+    }
+
+    public function testSubscribeChromeOnLockedTopic(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Locked watch'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Locked but watchable',
+            'content' => 'Body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+        $this->assertTrue(AP_Forum_Moderation::lockTopic($topicId, $this->userId, $this->db));
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        $this->assertTrue((bool) $query->get('topic_locked', false));
+        $this->assertFalse((bool) $query->get('can_reply', false));
+        $this->assertTrue((bool) $query->get('can_subscribe', false));
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_subscribe_topic', $html);
+        $this->assertStringContainsString('>Subscribe</button>', $html);
+
+        $nonce = AP_Nonce::create('ap_forum_subscribe_topic_' . $topicId, $this->userId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+        $this->assertIsString($redirect);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+    }
+
+    public function testUnsubscribeViaFrontHandlerIsIdempotent(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Idempotent unsub'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Watch twice',
+            'content' => 'Body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($this->userId, $topicId, $this->db));
+
+        $unNonce = AP_Nonce::create('ap_forum_unsubscribe_topic_' . $topicId, $this->userId);
+        $first = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_UNSUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => $unNonce,
+        ], $this->db);
+        $this->assertIsString($first);
+        $this->assertStringContainsString('ap_forum_notice=topic_unsubscribed', (string) $first);
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+
+        $unNonce2 = AP_Nonce::create('ap_forum_unsubscribe_topic_' . $topicId, $this->userId);
+        $second = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_UNSUBSCRIBE_TOPIC,
+            'topic_id' => $topicId,
+            '_ap_nonce' => $unNonce2,
+        ], $this->db);
+        $this->assertIsString($second);
+        $this->assertStringContainsString('ap_forum_notice=topic_unsubscribed', (string) $second);
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+        $this->assertSame(0, $this->subscriptionCount());
+    }
+
+    public function testSubscribeChromeNotOnForumIndexOrForumView(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Board only'], $this->db);
+        $this->assertGreaterThan(0, $forumId);
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+
+        $index = AP_Forum_Front::enrichQueryArgs([
+            'ap_forum_view' => 'index',
+        ], $this->db);
+        $this->assertTrue((bool) $index['forum_topic_notify_enabled']);
+        $this->assertFalse((bool) ($index['can_subscribe'] ?? true));
+
+        $forum = AP_Forum_Front::enrichQueryArgs([
+            'ap_forum_view' => 'forum',
+            'forum_id' => $forumId,
+        ], $this->db);
+        $this->assertTrue((bool) $forum['forum_topic_notify_enabled']);
+        $this->assertFalse((bool) ($forum['can_subscribe'] ?? true));
+        $this->assertFalse((bool) ($forum['topic_subscribed'] ?? true));
     }
 
     private function subscriptionCount(): int
