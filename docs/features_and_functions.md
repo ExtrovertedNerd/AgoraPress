@@ -224,6 +224,7 @@
 | 10 | `0010_analytics_tables.php` | `analytics_hits`, `analytics_daily` |
 | 11 | `0011_forum_likes_stats.php` | `forum_post_likes`; `forum_posts.like_count` |
 | 12 | `0012_topic_type_enum.php` | **No new table.** Canonical `topics.topic_type` `standard` \| `sticky` \| `announcement` \| `rules` |
+| 13 | `0013_topic_subscriptions.php` | `topic_subscriptions` (unique `(user_id, topic_id)`; index on `topic_id`). Unread tables unchanged. |
 
 | Core base (`ap_core_base_tables()`) | Forum base (`ap_forum_base_tables()`) |
 |-------------------------------------|---------------------------------------|
@@ -243,6 +244,7 @@
 | | `topic_track` |
 | | `forum_track` |
 | | `forum_post_likes` |
+| | `topic_subscriptions` |
 
 ## Roles and capabilities
 
