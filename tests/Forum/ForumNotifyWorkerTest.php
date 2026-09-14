@@ -565,6 +565,299 @@ final class ForumNotifyWorkerTest extends TestCase
         );
     }
 
+    public function testComposeDigestMailRequiresTwoPosts(): void
+    {
+        $watcher = $this->createUser('digest-compose', 'subscriber');
+        $this->watch($watcher);
+        $firstId = $this->replyWith('Alpha excerpt here.');
+        $secondId = $this->replyWith('Bravo excerpt here.');
+        $topic = AP_Forum::getTopic($this->topicId, $this->db);
+        $this->assertNotNull($topic);
+        $first = AP_Forum::getPost($firstId, $this->db);
+        $second = AP_Forum::getPost($secondId, $this->db);
+        $this->assertNotNull($first);
+        $this->assertNotNull($second);
+
+        $this->assertNull(AP_Forum_Notify::composeDigestMail($topic, [$first], $watcher, $this->db));
+        $this->assertNull(AP_Forum_Notify::composeDigestMail($topic, [$first, $second], 0, $this->db));
+        $this->assertNull(ap_forum_notify_compose_digest_mail($topic, [$first], $watcher, $this->db));
+
+        $composed = AP_Forum_Notify::composeDigestMail(
+            $topic,
+            [$first, $second],
+            $watcher,
+            $this->db
+        );
+        $this->assertNotNull($composed);
+        $this->assertSame(
+            '[Notify Worker Site] 2 new replies in Worker thread',
+            $composed['subject']
+        );
+        $this->assertStringContainsString('2 new replies.', $composed['message']);
+        $this->assertStringContainsString('Alpha excerpt here.', $composed['message']);
+        $this->assertStringContainsString('Bravo excerpt here.', $composed['message']);
+        $this->assertStringContainsString(AP_Forum_Notify::QUERY_UNSUBSCRIBE, $composed['message']);
+        $viaHelper = ap_forum_notify_compose_digest_mail(
+            $topic,
+            [$first, $second],
+            $watcher,
+            $this->db
+        );
+        $this->assertNotNull($viaHelper);
+        $this->assertSame($composed['subject'], $viaHelper['subject']);
+    }
+
+    public function testWorkerSendsOneDigestForSeveralQueuedRepliesOnSameTopic(): void
+    {
+        $watcher = $this->createUser('digest-ok', 'subscriber');
+        $this->watch($watcher);
+
+        $firstId = $this->replyWith('Hello [spoiler]secret plot[/spoiler] world');
+        $secondId = $this->replyWith('Second reply without spoilers.');
+        $this->enqueue($firstId);
+        $this->enqueue($secondId);
+
+        $unsent = AP_Forum_Notify::unsentRepliesForTopic($this->topicId, $firstId, $this->db);
+        $this->assertCount(2, $unsent);
+        $this->assertCount(2, ap_forum_notify_unsent_replies_for_topic($this->topicId, $firstId, $this->db));
+
+        $this->assertSame(4, AP_Forum_Notify::remainingSends($this->db));
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $firstId, $this->db);
+        $this->assertSame(1, $sent);
+        $this->assertSame(3, AP_Forum_Notify::remainingSends($this->db));
+
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame('digest-ok@example.com', $outbox[0]['to']);
+        $this->assertSame(
+            '[Notify Worker Site] 2 new replies in Worker thread',
+            $outbox[0]['subject']
+        );
+        $this->assertStringContainsString('text/plain', $outbox[0]['headers']);
+        $this->assertStringContainsString('2 new replies.', $outbox[0]['message']);
+        $this->assertStringContainsString('worker-admin posted a reply.', $outbox[0]['message']);
+        $this->assertStringContainsString('[Spoiler]', $outbox[0]['message']);
+        $this->assertStringNotContainsString('secret plot', $outbox[0]['message']);
+        $this->assertStringContainsString('Second reply without spoilers.', $outbox[0]['message']);
+        $this->assertStringContainsString(AP_Forum_Notify::QUERY_UNSUBSCRIBE, $outbox[0]['message']);
+        $this->assertStringContainsString('no sign-in required', $outbox[0]['message']);
+
+        $this->assertFalse(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$this->topicId, $firstId],
+            $this->db
+        ));
+        $this->assertFalse(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$this->topicId, $secondId],
+            $this->db
+        ));
+        $this->assertSame(
+            0,
+            AP_Forum_Notify::processQueuedReply($this->topicId, $secondId, $this->db)
+        );
+        $this->assertCount(1, AP_Mail::getTestOutbox());
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+    }
+
+    public function testCronRunDueSendsOneDigestNotPerReplyMails(): void
+    {
+        $watcher = $this->createUser('digest-cron', 'subscriber');
+        $this->watch($watcher);
+        $firstId = $this->replyWith('Cron digest first.');
+        $secondId = $this->replyWith('Cron digest second.');
+        $this->enqueue($firstId);
+        $this->enqueue($secondId);
+
+        $fired = AP_Cron::runDue($this->db, time() + 1);
+        $this->assertGreaterThanOrEqual(1, $fired);
+
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame(
+            '[Notify Worker Site] 2 new replies in Worker thread',
+            $outbox[0]['subject']
+        );
+        $this->assertStringContainsString('Cron digest first.', $outbox[0]['message']);
+        $this->assertStringContainsString('Cron digest second.', $outbox[0]['message']);
+        $this->assertFalse(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$this->topicId, $firstId],
+            $this->db
+        ));
+        $this->assertFalse(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$this->topicId, $secondId],
+            $this->db
+        ));
+    }
+
+    public function testDigestSlipFallsBackToPerReplyAndHonorsCap(): void
+    {
+        AP_Options::update(AP_Forum_Notify::OPTION_MAX_PER_MINUTE, '1', $this->db);
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
+        $this->assertSame(1, AP_Forum_Notify::remainingSends($this->db));
+
+        $first = $this->createUser('digest-slip-a', 'subscriber');
+        $second = $this->createUser('digest-slip-b', 'subscriber');
+        $this->watch($first);
+        $this->watch($second);
+
+        $replyId = $this->replyWith('Only this reply is still valid.');
+        $siblingId = $this->replyWith('Will be unapproved so digest slips.');
+        $this->enqueue($replyId);
+        $this->enqueue($siblingId);
+        $this->assertNotFalse($this->db->update(
+            'forum_posts',
+            ['post_approved' => 0],
+            ['post_id' => $siblingId]
+        ));
+
+        $unsent = AP_Forum_Notify::unsentRepliesForTopic($this->topicId, $replyId, $this->db);
+        $this->assertCount(1, $unsent);
+        $this->assertSame($replyId, (int) ($unsent[0]->post_id ?? 0));
+
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db);
+        $this->assertSame(1, $sent);
+        $this->assertSame(0, AP_Forum_Notify::remainingSends($this->db));
+
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame(
+            '[Notify Worker Site] New reply in Worker thread',
+            $outbox[0]['subject']
+        );
+        $this->assertStringNotContainsString('new replies in', $outbox[0]['subject']);
+        $this->assertContains($outbox[0]['to'], [
+            'digest-slip-a@example.com',
+            'digest-slip-b@example.com',
+        ]);
+
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($first, $this->topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($second, $this->topicId, $this->db));
+        $this->assertIsInt(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$this->topicId, $siblingId],
+            $this->db
+        ));
+
+        AP_Mail::clearTestOutbox();
+        $this->assertSame(0, AP_Forum_Notify::processQueuedReply($this->topicId, $replyId, $this->db));
+        $this->assertSame([], AP_Mail::getTestOutbox());
+    }
+
+    public function testDigestDoesNotMixTopics(): void
+    {
+        $watcher = $this->createUser('digest-mix', 'subscriber');
+        $this->watch($watcher);
+
+        $otherTopic = AP_Forum::createTopic([
+            'forum_id' => $this->forumId,
+            'topic_title' => 'Other thread',
+            'content' => 'Stay out of the digest.',
+            'poster_id' => $this->adminId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $otherTopic);
+        $this->assertTrue(AP_Forum_Notify::subscribe($watcher, $otherTopic, $this->db));
+
+        $firstId = $this->replyWith('Topic one first.');
+        $secondId = $this->replyWith('Topic one second.');
+        $otherReply = AP_Forum::createReply([
+            'topic_id' => $otherTopic,
+            'content' => 'Other topic reply.',
+            'poster_id' => $this->adminId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $otherReply);
+        $this->enqueue($firstId);
+        $this->enqueue($secondId);
+        $this->assertTrue(AP_Forum_Notify::enqueueReply($otherTopic, $otherReply, $this->db));
+
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $firstId, $this->db);
+        $this->assertSame(1, $sent);
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame(
+            '[Notify Worker Site] 2 new replies in Worker thread',
+            $outbox[0]['subject']
+        );
+        $this->assertStringContainsString('Topic one first.', $outbox[0]['message']);
+        $this->assertStringContainsString('Topic one second.', $outbox[0]['message']);
+        $this->assertStringNotContainsString('Other topic reply.', $outbox[0]['message']);
+        $this->assertIsInt(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$otherTopic, $otherReply],
+            $this->db
+        ));
+    }
+
+    public function testPosterOfOneReplyStillGetsDigestOfOthers(): void
+    {
+        $watcher = $this->createUser('digest-poster', 'subscriber');
+        $this->watch($watcher);
+
+        $firstId = $this->replyWith('From the admin.');
+        $ownId = AP_Forum::createReply([
+            'topic_id' => $this->topicId,
+            'content' => 'Watcher posted this one.',
+            'poster_id' => $watcher,
+        ], $this->db);
+        $this->assertGreaterThan(0, $ownId);
+        $thirdId = $this->replyWith('Admin again.');
+        $this->enqueue($firstId);
+        $this->assertTrue(AP_Forum_Notify::enqueueReply($this->topicId, $ownId, $this->db));
+        $this->enqueue($thirdId);
+
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $firstId, $this->db);
+        $this->assertSame(1, $sent);
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame(
+            '[Notify Worker Site] 2 new replies in Worker thread',
+            $outbox[0]['subject']
+        );
+        $this->assertStringContainsString('From the admin.', $outbox[0]['message']);
+        $this->assertStringContainsString('Admin again.', $outbox[0]['message']);
+        $this->assertStringNotContainsString('Watcher posted this one.', $outbox[0]['message']);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcher, $this->topicId, $this->db));
+    }
+
+    public function testDigestHonorsCapAcrossSubscribers(): void
+    {
+        AP_Options::update(AP_Forum_Notify::OPTION_MAX_PER_MINUTE, '1', $this->db);
+        AP_Forum_Notify::resetRateBucketForTests($this->db);
+
+        $first = $this->createUser('digest-cap-a', 'subscriber');
+        $second = $this->createUser('digest-cap-b', 'subscriber');
+        $this->watch($first);
+        $this->watch($second);
+
+        $firstId = $this->replyWith('Cap digest first.');
+        $secondId = $this->replyWith('Cap digest second.');
+        $this->enqueue($firstId);
+        $this->enqueue($secondId);
+
+        $sent = AP_Forum_Notify::processQueuedReply($this->topicId, $firstId, $this->db);
+        $this->assertSame(1, $sent);
+        $this->assertSame(0, AP_Forum_Notify::remainingSends($this->db));
+        $outbox = AP_Mail::getTestOutbox();
+        $this->assertCount(1, $outbox);
+        $this->assertSame(
+            '[Notify Worker Site] 2 new replies in Worker thread',
+            $outbox[0]['subject']
+        );
+        $this->assertContains($outbox[0]['to'], [
+            'digest-cap-a@example.com',
+            'digest-cap-b@example.com',
+        ]);
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($first, $this->topicId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($second, $this->topicId, $this->db));
+        $this->assertFalse(AP_Cron::nextScheduled(
+            AP_Forum_Notify::CRON_HOOK,
+            [$this->topicId, $secondId],
+            $this->db
+        ));
+    }
+
     private function watch(int $userId): void
     {
         $this->assertTrue(AP_Forum_Notify::setUserNotifyEnabled($userId, '1', $this->db));
@@ -581,6 +874,11 @@ final class ForumNotifyWorkerTest extends TestCase
         $this->assertGreaterThan(0, $replyId);
 
         return $replyId;
+    }
+
+    private function enqueue(int $replyId): void
+    {
+        $this->assertTrue(AP_Forum_Notify::enqueueReply($this->topicId, $replyId, $this->db));
     }
 
     private function createUser(string $login, string $role): int

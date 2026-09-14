@@ -35,6 +35,8 @@ def test_worker_api() -> None:
         "function isEligibleRecipient",
         "function usableRecipientEmail",
         "function composeReplyMail",
+        "function composeDigestMail",
+        "function unsentRepliesForTopic",
         "function listForTopic",
         "function unsubscribeUrl",
         "function createUnsubscribeToken",
@@ -65,6 +67,8 @@ def test_index_handles_signed_unsubscribe() -> None:
 def test_functions_worker_helpers() -> None:
     functions = FUNCTIONS.read_text(encoding="utf-8")
     assert "function ap_forum_notify_process_queued_reply" in functions
+    assert "function ap_forum_notify_unsent_replies_for_topic" in functions
+    assert "function ap_forum_notify_compose_digest_mail" in functions
     assert "function ap_forum_notify_is_eligible_recipient" in functions
     assert "function ap_forum_notify_handle_unsubscribe" in functions
     assert "function ap_forum_notify_remaining_sends" in functions
@@ -84,6 +88,13 @@ def test_phpunit_worker_cases_exist() -> None:
         "function testSiteOffWorkerDoesNotSend",
         "function testCronHookSendsWithoutConsumingRateLimitMail",
         "function testWorkerHonorsMaxPerMinuteWithoutConsumingRateLimitMail",
+        "function testWorkerSendsOneDigestForSeveralQueuedRepliesOnSameTopic",
+        "function testCronRunDueSendsOneDigestNotPerReplyMails",
+        "function testDigestSlipFallsBackToPerReplyAndHonorsCap",
+        "function testDigestDoesNotMixTopics",
+        "function testPosterOfOneReplyStillGetsDigestOfOthers",
+        "function testDigestHonorsCapAcrossSubscribers",
+        "function testComposeDigestMailRequiresTwoPosts",
         "forgetInMemoryRateBucketForTests",
         "function testSignedTokenUnsubscribesOneTopicWithoutSession",
         "function testInvalidAndExpiredTokensDoNotUnsubscribe",

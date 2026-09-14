@@ -41,7 +41,9 @@
  * then {@see AP_Mail::send()} one `text/plain` message at a time with a
  * signed unsubscribe link. That send skips `rate_limit_mail`. Notify
  * uses its own per-minute bucket ({@see OPTION_MAX_PER_MINUTE}, default
- * 4, 60-second window). Digest grouping is a later increment.
+ * 4, 60-second window). Several unsent replies on the same `(user, topic)`
+ * collapse into one digest; if that grouping slips, per-reply mail still
+ * goes through the same cap.
  *
  * @package AgoraPress
  */
@@ -117,6 +119,15 @@ class AP_Forum_Notify
      */
     public const UNSUBSCRIBE_TTL = 3888000;
 
+    /**
+     * Transient of reply ids already bundled into a digest (siblings only).
+     * Distinct from `rate_limit_mail` and from {@see RATE_BUCKET_TRANSIENT}.
+     */
+    public const DIGEST_CLAIM_TRANSIENT = 'ap_fn_dg';
+
+    /** How long a digest claim suppresses a sibling cron fire (seconds). */
+    public const DIGEST_CLAIM_TTL = 3600;
+
     /** Word cap for the spoiler-stripped reply excerpt in notify mail. */
     public const EXCERPT_WORDS = 40;
 
@@ -140,6 +151,14 @@ class AP_Forum_Notify
      * @var array{window_start: int, count: int}|null
      */
     private static ?array $rateBucket = null;
+
+    /**
+     * Reply ids already included in a digest this window (siblings only).
+     * Null means load from {@see DIGEST_CLAIM_TRANSIENT}.
+     *
+     * @var array<int, true>|null
+     */
+    private static ?array $digestClaims = null;
 
     /** Frozen unix time for tests; null uses {@see time()}. */
     private static ?int $nowForTests = null;
@@ -321,11 +340,19 @@ class AP_Forum_Notify
      * {@see AP_Mail::send()} does not delete the subscription. Site master
      * off, missing/unapproved replies, and the topic starter are no-ops.
      *
+     * Several still-queued replies for the same `(user, topic)` become one
+     * digest. If grouping cannot run (one valid reply, compose failure),
+     * per-reply mail for this event still goes through {@see send()} and
+     * the same cap.
+     *
      * @return int Number of successful sends.
      */
     public static function processQueuedReply(int $topicId, int $replyPostId, ?AP_DB $db = null): int
     {
         if ($topicId < 1 || $replyPostId < 1) {
+            return 0;
+        }
+        if (self::wasClaimedInDigest($replyPostId, $db)) {
             return 0;
         }
         if (!self::isEnabled($db)) {
@@ -351,18 +378,37 @@ class AP_Forum_Notify
         }
 
         $forumId = (int) ($topic->forum_id ?? 0);
-        $posterId = (int) ($post->poster_id ?? 0);
+        $posts = self::unsentRepliesForTopic($topicId, $replyPostId, $db);
+        if ($posts === []) {
+            return 0;
+        }
+
         $sent = 0;
+        $sentDigest = false;
         foreach (self::listForTopic($topicId, $db) as $row) {
             $userId = (int) ($row->user_id ?? 0);
-            if (!self::isEligibleRecipient($userId, $forumId, $posterId, $db)) {
+            $eligible = self::eligibleRepliesForUser($userId, $forumId, $posts, $db);
+            if ($eligible === []) {
                 continue;
             }
             $email = self::usableRecipientEmail($userId, $db);
             if ($email === '') {
                 continue;
             }
-            $composed = self::composeReplyMail($topic, $post, $userId, $db);
+
+            $composed = null;
+            $thisIsDigest = false;
+            if (count($eligible) > 1) {
+                $composed = self::composeDigestMail($topic, $eligible, $userId, $db);
+                $thisIsDigest = $composed !== null;
+            }
+            if ($composed === null) {
+                $one = self::singleReplyForFallback($eligible, $replyPostId);
+                if ($one === null) {
+                    continue;
+                }
+                $composed = self::composeReplyMail($topic, $one, $userId, $db);
+            }
             if ($composed === null) {
                 continue;
             }
@@ -378,7 +424,14 @@ class AP_Forum_Notify
             );
             if ($ok) {
                 $sent++;
+                if ($thisIsDigest) {
+                    $sentDigest = true;
+                }
             }
+        }
+
+        if ($sentDigest) {
+            self::claimDigestSiblings($posts, $replyPostId, $topicId, $db);
         }
 
         return $sent;
@@ -566,6 +619,156 @@ class AP_Forum_Notify
     }
 
     /**
+     * Subject + text/plain body for several unsent replies on one topic.
+     *
+     * Fewer than two usable posts → null (caller may fall back to
+     * {@see composeReplyMail()}). Same unsubscribe token as a single reply.
+     *
+     * @param list<object> $posts Approved replies, oldest first.
+     *
+     * @return array{subject: string, message: string}|null
+     */
+    public static function composeDigestMail(
+        object $topic,
+        array $posts,
+        int $userId,
+        ?AP_DB $db = null
+    ): ?array {
+        $topicId = (int) ($topic->topic_id ?? 0);
+        if ($topicId < 1 || $userId < 1) {
+            return null;
+        }
+
+        $clean = [];
+        foreach ($posts as $post) {
+            if (is_object($post) && (int) ($post->post_id ?? 0) > 0) {
+                $clean[] = $post;
+            }
+        }
+        if (count($clean) < 2) {
+            return null;
+        }
+
+        $title = trim((string) ($topic->topic_title ?? ''));
+        if ($title === '') {
+            $title = 'Topic #' . $topicId;
+        }
+        $unsubUrl = self::unsubscribeUrl($userId, $topicId, $db);
+        if ($unsubUrl === '') {
+            return null;
+        }
+
+        $site = self::siteName($db);
+        $topicUrl = '';
+        if (class_exists('AP_Forum', false)) {
+            $topicUrl = self::absolutizeUrl(AP_Forum::topicUrl($topic), $db);
+        }
+
+        $n = count($clean);
+        $lines = [
+            $title,
+            '',
+            $n . ' new replies.',
+        ];
+        foreach ($clean as $post) {
+            $author = self::replyAuthorLabel($post, $db);
+            $excerpt = self::replyExcerpt($post);
+            $lines[] = '';
+            $lines[] = $author . ' posted a reply.';
+            if ($excerpt !== '') {
+                $lines[] = $excerpt;
+            }
+        }
+        if ($topicUrl !== '') {
+            $lines[] = '';
+            $lines[] = $topicUrl;
+        }
+        $lines[] = '';
+        $lines[] = 'Unsubscribe from this topic (no sign-in required):';
+        $lines[] = $unsubUrl;
+
+        return [
+            'subject' => '[' . $site . '] ' . $n . ' new replies in ' . $title,
+            'message' => implode("\n", $lines) . "\n",
+        ];
+    }
+
+    /**
+     * Approved unsent notify replies for a topic: this event plus queued siblings.
+     *
+     * Oldest first. Drops the topic starter, unapproved rows, other topics,
+     * and reply ids already bundled into a digest. Missing cron → only
+     * $currentReplyId (when it is a valid approved reply).
+     *
+     * @return list<object>
+     */
+    public static function unsentRepliesForTopic(
+        int $topicId,
+        int $currentReplyId,
+        ?AP_DB $db = null
+    ): array {
+        if ($topicId < 1 || !class_exists('AP_Forum', false)) {
+            return [];
+        }
+
+        $ids = [];
+        if ($currentReplyId > 0) {
+            $ids[] = $currentReplyId;
+        }
+        foreach (self::queuedReplyIdsFromCron($topicId, $db) as $queuedId) {
+            $ids[] = $queuedId;
+        }
+        $ids = array_values(array_unique(array_filter(
+            $ids,
+            static fn (int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        $map = AP_Forum::getPostsByIds($ids, $db);
+        $topic = AP_Forum::getTopic($topicId, $db);
+        $firstId = $topic !== null ? (int) ($topic->first_post_id ?? 0) : 0;
+
+        $posts = [];
+        foreach ($ids as $id) {
+            if ($id !== $currentReplyId && self::wasClaimedInDigest($id, $db)) {
+                continue;
+            }
+            $post = $map[$id] ?? null;
+            if (!is_object($post)) {
+                continue;
+            }
+            if ((int) ($post->topic_id ?? 0) !== $topicId) {
+                continue;
+            }
+            if ((int) ($post->post_approved ?? 0) !== 1) {
+                continue;
+            }
+            if ($firstId > 0 && $id === $firstId) {
+                continue;
+            }
+            $posts[] = $post;
+        }
+
+        usort(
+            $posts,
+            static function (object $a, object $b): int {
+                $ta = (string) ($a->post_time ?? '');
+                $tb = (string) ($b->post_time ?? '');
+                $cmp = strcmp($ta, $tb);
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+
+                return (int) ($a->post_id ?? 0) <=> (int) ($b->post_id ?? 0);
+            }
+        );
+
+        return $posts;
+    }
+
+    /**
      * Absolute one-click unsubscribe URL (`user_id` + `topic_id`, HMAC, TTL).
      *
      * Does not require a session. Token unsubscribes this watch only.
@@ -711,10 +914,14 @@ class AP_Forum_Notify
 
     /**
      * Clear the notify send window (tests). Does not touch `rate_limit_mail`.
+     *
+     * Also drops in-request digest claims so a later worker case can
+     * re-bundle the same reply ids.
      */
     public static function resetRateBucketForTests(?AP_DB $db = null): void
     {
         self::$rateBucket = null;
+        self::$digestClaims = null;
         self::$nowForTests = null;
         if (!class_exists('AP_Transient', false)) {
             return;
@@ -723,6 +930,7 @@ class AP_Forum_Notify
             $db = $GLOBALS['apdb'];
         }
         AP_Transient::delete(self::RATE_BUCKET_TRANSIENT, $db);
+        AP_Transient::delete(self::DIGEST_CLAIM_TRANSIENT, $db);
     }
 
     /**
@@ -1603,6 +1811,183 @@ class AP_Forum_Notify
         }
 
         return $payload;
+    }
+
+    /**
+     * Subset of $posts this subscriber may be mailed about.
+     *
+     * @param list<object> $posts
+     *
+     * @return list<object>
+     */
+    private static function eligibleRepliesForUser(
+        int $userId,
+        int $forumId,
+        array $posts,
+        ?AP_DB $db
+    ): array {
+        if ($userId < 1 || $forumId < 1) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($posts as $post) {
+            if (!is_object($post)) {
+                continue;
+            }
+            $posterId = (int) ($post->poster_id ?? 0);
+            if (!self::isEligibleRecipient($userId, $forumId, $posterId, $db)) {
+                continue;
+            }
+            $out[] = $post;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Per-reply fallback when a digest cannot be composed.
+     *
+     * Prefers the triggering reply when the user is eligible for it.
+     *
+     * @param list<object> $eligible
+     */
+    private static function singleReplyForFallback(array $eligible, int $preferPostId): ?object
+    {
+        foreach ($eligible as $post) {
+            if ((int) ($post->post_id ?? 0) === $preferPostId) {
+                return $post;
+            }
+        }
+
+        $first = $eligible[0] ?? null;
+
+        return is_object($first) ? $first : null;
+    }
+
+    /**
+     * Reply post ids still scheduled for this topic on {@see CRON_HOOK}.
+     *
+     * @return list<int>
+     */
+    private static function queuedReplyIdsFromCron(int $topicId, ?AP_DB $db): array
+    {
+        if ($topicId < 1 || !class_exists('AP_Cron', false)) {
+            return [];
+        }
+
+        $ids = [];
+        foreach (AP_Cron::getCronArray($db) as $ts => $hooks) {
+            if ($ts === 'version' || !is_array($hooks)) {
+                continue;
+            }
+            $events = $hooks[self::CRON_HOOK] ?? null;
+            if (!is_array($events)) {
+                continue;
+            }
+            foreach ($events as $event) {
+                if (!is_array($event)) {
+                    continue;
+                }
+                $args = is_array($event['args'] ?? null) ? $event['args'] : [];
+                $queuedTopic = (int) ($args[0] ?? 0);
+                $queuedReply = (int) ($args[1] ?? 0);
+                if ($queuedTopic === $topicId && $queuedReply > 0) {
+                    $ids[] = $queuedReply;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Whether this reply was already bundled into a digest as a sibling.
+     */
+    private static function wasClaimedInDigest(int $replyPostId, ?AP_DB $db): bool
+    {
+        if ($replyPostId < 1) {
+            return false;
+        }
+
+        $state = self::readDigestClaims($db);
+
+        return isset($state[$replyPostId]);
+    }
+
+    /**
+     * @return array<int, true>
+     */
+    private static function readDigestClaims(?AP_DB $db): array
+    {
+        if (self::$digestClaims !== null) {
+            return self::$digestClaims;
+        }
+
+        $state = [];
+        if (class_exists('AP_Transient', false)) {
+            $raw = AP_Transient::get(self::DIGEST_CLAIM_TRANSIENT, false, $db);
+            if (is_array($raw)) {
+                foreach ($raw as $id) {
+                    $id = (int) $id;
+                    if ($id > 0) {
+                        $state[$id] = true;
+                    }
+                }
+            }
+        }
+        self::$digestClaims = $state;
+
+        return $state;
+    }
+
+    /**
+     * Mark sibling reply ids as mailed in this digest and drop their cron events.
+     *
+     * The triggering reply is unscheduled too so a later cron fire does not
+     * send a second per-reply mail. It is not stored in the claim set, so a
+     * direct second call with the same id (tests) can still send.
+     *
+     * @param list<object> $posts
+     */
+    private static function claimDigestSiblings(
+        array $posts,
+        int $currentReplyId,
+        int $topicId,
+        ?AP_DB $db
+    ): void {
+        $ids = [];
+        foreach ($posts as $post) {
+            $id = (int) ($post->post_id ?? 0);
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+        $ids = array_values(array_unique($ids));
+
+        $state = self::readDigestClaims($db);
+        foreach ($ids as $id) {
+            if ($id === $currentReplyId) {
+                continue;
+            }
+            $state[$id] = true;
+        }
+        self::$digestClaims = $state;
+
+        if (class_exists('AP_Transient', false)) {
+            AP_Transient::set(
+                self::DIGEST_CLAIM_TRANSIENT,
+                array_map('intval', array_keys($state)),
+                self::DIGEST_CLAIM_TTL,
+                $db
+            );
+        }
+        if (!class_exists('AP_Cron', false) || $topicId < 1) {
+            return;
+        }
+        foreach ($ids as $id) {
+            AP_Cron::clearHook(self::CRON_HOOK, [$topicId, $id], $db);
+        }
     }
 
     /**

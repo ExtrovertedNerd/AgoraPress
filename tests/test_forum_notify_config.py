@@ -85,6 +85,8 @@ def test_class_api_and_defaults() -> None:
         "function isEligibleRecipient",
         "function usableRecipientEmail",
         "function composeReplyMail",
+        "function composeDigestMail",
+        "function unsentRepliesForTopic",
         "function maybeHandleSignedUnsubscribe",
         "QUERY_UNSUBSCRIBE",
         "POST_NOTIFY_REPLIES",
@@ -116,6 +118,8 @@ def test_bootstrap_and_functions_wiring() -> None:
     assert "function ap_forum_notify_maybe_enqueue_approved_reply" in functions
     assert "function ap_forum_notify_send" in functions
     assert "function ap_forum_notify_process_queued_reply" in functions
+    assert "function ap_forum_notify_unsent_replies_for_topic" in functions
+    assert "function ap_forum_notify_compose_digest_mail" in functions
     assert "function ap_forum_notify_is_eligible_recipient" in functions
     assert "function ap_forum_notify_handle_unsubscribe" in functions
     assert "function ap_forum_notify_max_per_minute" in functions

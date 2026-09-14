@@ -8516,6 +8516,9 @@ function ap_forum_notify_send(
 /**
  * Cron worker: filter subscribers and send one text/plain mail each.
  *
+ * Several unsent replies on the same `(user, topic)` become one digest.
+ * If grouping slips, per-reply mail still honors the notify cap.
+ *
  * @see AP_Forum_Notify::processQueuedReply()
  */
 function ap_forum_notify_process_queued_reply(
@@ -8528,6 +8531,47 @@ function ap_forum_notify_process_queued_reply(
     }
 
     return AP_Forum_Notify::processQueuedReply($topicId, $replyPostId, $db);
+}
+
+/**
+ * Approved unsent notify replies for a topic (current + queued siblings).
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum_Notify::unsentRepliesForTopic()
+ */
+function ap_forum_notify_unsent_replies_for_topic(
+    int $topicId,
+    int $currentReplyId,
+    ?AP_DB $db = null
+): array {
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return [];
+    }
+
+    return AP_Forum_Notify::unsentRepliesForTopic($topicId, $currentReplyId, $db);
+}
+
+/**
+ * Subject + text/plain body for several unsent replies on one topic.
+ *
+ * @param list<object> $posts
+ *
+ * @return array{subject: string, message: string}|null
+ *
+ * @see AP_Forum_Notify::composeDigestMail()
+ */
+function ap_forum_notify_compose_digest_mail(
+    object $topic,
+    array $posts,
+    int $userId,
+    ?AP_DB $db = null
+): ?array {
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return null;
+    }
+
+    return AP_Forum_Notify::composeDigestMail($topic, $posts, $userId, $db);
 }
 
 /**
