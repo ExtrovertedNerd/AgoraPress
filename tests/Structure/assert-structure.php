@@ -172,6 +172,7 @@ $requiredPaths = [
     'ap-includes/class-ap-hook.php',
     'ap-includes/class-ap-hooks.php',
     'ap-includes/class-ap-forum.php',
+    'ap-includes/class-ap-forum-notify.php',
     'ap-includes/class-ap-forum-moderation.php',
     'ap-includes/class-ap-group.php',
     'ap-admin/forums.php',

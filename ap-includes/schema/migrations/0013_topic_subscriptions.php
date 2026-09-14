@@ -9,6 +9,10 @@
  * Unique (user_id, topic_id) via composite primary key. Index on topic_id
  * for fan-out on reply. Does not alter unread tracking (migration 0009).
  *
+ * Seeds site options when missing (does not overwrite stored values):
+ * - forum_topic_notify_enabled (default '0')
+ * - forum_notify_max_per_minute (default 4)
+ *
  * Multi-driver DDL (MySQL/MariaDB, SQLite, PostgreSQL). Idempotent: CREATE
  * TABLE / INDEX IF NOT EXISTS so a retry after a partial apply is safe.
  *
@@ -31,7 +35,7 @@ if (!class_exists('AP_Migration_0013_Topic_Subscriptions', false)) {
 
         public function description(): string
         {
-            return 'Topic email notify: topic_subscriptions table';
+            return 'Topic email notify: topic_subscriptions table and option defaults';
         }
 
         public function up(AP_DB $db): void
@@ -43,6 +47,51 @@ if (!class_exists('AP_Migration_0013_Topic_Subscriptions', false)) {
                 if ($stmt === false) {
                     throw new RuntimeException(
                         'Failed to apply topic_subscriptions schema: '
+                        . ($db->lastError() ?? 'unknown error')
+                    );
+                }
+            }
+
+            $this->seedNotifyOptions($db);
+        }
+
+        /**
+         * Insert forum_topic_notify_enabled / forum_notify_max_per_minute when
+         * missing. Safe to re-run: existing rows are left alone.
+         */
+        private function seedNotifyOptions(AP_DB $db): void
+        {
+            $classFile = dirname(__DIR__, 2) . '/class-ap-forum-notify.php';
+            if (!class_exists('AP_Forum_Notify', false) && is_readable($classFile)) {
+                require_once $classFile;
+            }
+            if (class_exists('AP_Forum_Notify', false)) {
+                AP_Forum_Notify::seedDefaults($db);
+
+                return;
+            }
+
+            $table = $db->quoteIdentifier($db->table('options'));
+            $defaults = [
+                'forum_topic_notify_enabled' => '0',
+                'forum_notify_max_per_minute' => '4',
+            ];
+            foreach ($defaults as $name => $value) {
+                $existing = $db->getVar(
+                    'SELECT option_id FROM ' . $table . ' WHERE option_name = ? LIMIT 1',
+                    [$name]
+                );
+                if ($existing !== null && $existing !== '') {
+                    continue;
+                }
+                $ok = $db->insert('options', [
+                    'option_name' => $name,
+                    'option_value' => $value,
+                    'autoload' => 'yes',
+                ]);
+                if ($ok === false) {
+                    throw new RuntimeException(
+                        'Failed to seed forum notify option ' . $name . ': '
                         . ($db->lastError() ?? 'unknown error')
                     );
                 }

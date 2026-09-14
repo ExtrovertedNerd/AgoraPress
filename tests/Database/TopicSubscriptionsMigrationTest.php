@@ -55,6 +55,8 @@ final class TopicSubscriptionsMigrationTest extends TestCase
         $this->assertStringContainsString('topic_id', $src);
         $this->assertStringContainsString('created_at', $src);
         $this->assertStringContainsString('IF NOT EXISTS', $src);
+        $this->assertStringContainsString('forum_topic_notify_enabled', $src);
+        $this->assertStringContainsString('forum_notify_max_per_minute', $src);
         $this->assertStringNotContainsString('topic_track', $src);
         $this->assertStringNotContainsString('forum_track', $src);
         $this->assertSame(13, (int) AP_DB_VERSION);
@@ -183,6 +185,9 @@ final class TopicSubscriptionsMigrationTest extends TestCase
         $this->assertStringContainsString('created_at', $ddl);
         $this->assertStringContainsString('PRIMARY KEY', $ddl);
 
+        $this->assertSame('0', $this->optionValue('forum_topic_notify_enabled'));
+        $this->assertSame('4', $this->optionValue('forum_notify_max_per_minute'));
+
         $topicIdIndex = $this->db->getVar(
             "SELECT name FROM sqlite_master WHERE type = 'index'"
             . " AND tbl_name = ? AND sql LIKE ?",
@@ -275,6 +280,37 @@ final class TopicSubscriptionsMigrationTest extends TestCase
             [1, 9]
         );
         $this->assertSame(9, (int) $kept);
+        $this->assertSame('0', $this->optionValue('forum_topic_notify_enabled'));
+        $this->assertSame('4', $this->optionValue('forum_notify_max_per_minute'));
+    }
+
+    public function testMigrateFromSchema12SeedsNotifyOptionDefaultsWithoutOverwrite(): void
+    {
+        $this->migrator->migrate(12);
+        $this->assertNull($this->optionValue('forum_topic_notify_enabled'));
+        $this->assertNull($this->optionValue('forum_notify_max_per_minute'));
+
+        $this->migrator->migrate(13);
+        $this->assertSame('0', $this->optionValue('forum_topic_notify_enabled'));
+        $this->assertSame('4', $this->optionValue('forum_notify_max_per_minute'));
+
+        $this->assertNotFalse($this->db->update(
+            'options',
+            ['option_value' => '1'],
+            ['option_name' => 'forum_topic_notify_enabled']
+        ));
+        $this->assertNotFalse($this->db->update(
+            'options',
+            ['option_value' => '9'],
+            ['option_name' => 'forum_notify_max_per_minute']
+        ));
+
+        $path = AP_Migrator::defaultMigrationsPath() . '/0013_topic_subscriptions.php';
+        $migration = require $path;
+        $migration->up($this->db);
+
+        $this->assertSame('1', $this->optionValue('forum_topic_notify_enabled'));
+        $this->assertSame('9', $this->optionValue('forum_notify_max_per_minute'));
     }
 
     public function testCustomPrefixIsHonored(): void
@@ -334,5 +370,20 @@ final class TopicSubscriptionsMigrationTest extends TestCase
         );
 
         return $name === null || $name === '' ? null : (string) $name;
+    }
+
+    private function optionValue(string $name): ?string
+    {
+        $raw = $this->db->getVar(
+            'SELECT option_value FROM ' . $this->db->quoteIdentifier($this->db->table('options'))
+            . ' WHERE option_name = ? LIMIT 1',
+            [$name]
+        );
+
+        if ($raw === null) {
+            return null;
+        }
+
+        return (string) $raw;
     }
 }

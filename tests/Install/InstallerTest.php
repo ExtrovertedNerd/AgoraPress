@@ -256,6 +256,20 @@ final class InstallerTest extends TestCase
         );
         $this->assertSame('Install Test Site', $blogname);
 
+        $notifyEnabled = $apdb->getVar(
+            'SELECT option_value FROM ' . $apdb->quoteIdentifier($apdb->options)
+            . ' WHERE option_name = ?',
+            ['forum_topic_notify_enabled']
+        );
+        $this->assertSame('0', $notifyEnabled);
+
+        $notifyCap = $apdb->getVar(
+            'SELECT option_value FROM ' . $apdb->quoteIdentifier($apdb->options)
+            . ' WHERE option_name = ?',
+            ['forum_notify_max_per_minute']
+        );
+        $this->assertSame('4', $notifyCap);
+
         $user = $apdb->getRow(
             'SELECT user_login, user_email, user_pass FROM '
             . $apdb->quoteIdentifier($apdb->users)

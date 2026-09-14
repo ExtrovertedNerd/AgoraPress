@@ -720,6 +720,10 @@ PHP;
             'forum_posts_per_page' => '15',
             'forum_allow_guest_viewing' => '1',
             'forum_allow_guest_posting' => '0',
+            // Topic email notify (schema 13). Site master off. Own per-minute
+            // cap — does not consume rate_limit_mail.
+            'forum_topic_notify_enabled' => '0',
+            'forum_notify_max_per_minute' => '4',
             // Hall of Fame: never auto-joined. Installer does not ping or
             // register domains (no telemetry). Admin-footer donation link is
             // permanent/non-optional and is not controlled by an option.

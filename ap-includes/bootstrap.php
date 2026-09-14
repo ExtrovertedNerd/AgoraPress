@@ -320,6 +320,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-read.php';
     // Forum flood control, anti-spam, post approval (pluggable checkers).
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-guard.php';
+    // Topic email notify site options (master switch + own per-minute cap).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-notify.php';
     // Forum post likes (thumbs-up) + denormalized counts.
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-like.php';
     // User forum activity counters (posts, likes given/received).

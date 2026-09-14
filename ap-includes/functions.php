@@ -8405,6 +8405,42 @@ function ap_get_unread_summary(int $userId, array $args = [], ?AP_DB $db = null)
 }
 
 // -----------------------------------------------------------------------------
+// Forum topic email notify (site master; own per-minute cap)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether the site allows topic email notifications.
+ *
+ * Default is off. Missing option is treated as off.
+ *
+ * @see AP_Forum_Notify::isEnabled()
+ */
+function ap_forum_topic_notify_enabled(?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return false;
+    }
+
+    return AP_Forum_Notify::isEnabled($db);
+}
+
+/**
+ * Maximum topic-notify mails per minute (own bucket; not rate_limit_mail).
+ *
+ * Default 4 when missing or invalid.
+ *
+ * @see AP_Forum_Notify::getMaxPerMinute()
+ */
+function ap_forum_notify_max_per_minute(?AP_DB $db = null): int
+{
+    if (!class_exists('AP_Forum_Notify', false)) {
+        return 4;
+    }
+
+    return AP_Forum_Notify::getMaxPerMinute($db);
+}
+
+// -----------------------------------------------------------------------------
 // Content formatting (BBCode + Markdown + limited safe HTML)
 // -----------------------------------------------------------------------------
 
