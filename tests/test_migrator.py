@@ -199,9 +199,22 @@ def test_shipped_forum_likes_and_topic_type_migrations_exist() -> None:
     ):
         assert needle in type_src, f"Expected {needle} in 0012 topic type migration"
 
+    subs = MIGRATIONS_DIR / "0013_topic_subscriptions.php"
+    assert subs.is_file(), "Missing 0013_topic_subscriptions.php"
+    subs_src = subs.read_text(encoding="utf-8")
+    for needle in (
+        "AP_Migration_0013_Topic_Subscriptions",
+        "topic_subscriptions",
+        "user_id",
+        "topic_id",
+        "created_at",
+        "IF NOT EXISTS",
+    ):
+        assert needle in subs_src, f"Expected {needle} in 0013 topic subscriptions migration"
+
     ver = VERSION.read_text(encoding="utf-8")
     m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", ver)
-    assert m is not None and int(m.group(1)) >= 12
+    assert m is not None and int(m.group(1)) >= 13
 
 
 def test_shipped_core_migration_applies_via_php() -> None:
@@ -277,6 +290,7 @@ def test_shipped_core_migration_applies_via_php() -> None:
             'ap_reports', 'ap_warnings', 'ap_bans', 'ap_online',
             'ap_topic_track', 'ap_forum_track',
             'ap_analytics_hits', 'ap_analytics_daily',
+            'ap_topic_subscriptions',
         ] as $t) {{
             $name = $db->getVar(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",

@@ -85,7 +85,7 @@ final class ForumBoardHelpersTest extends TestCase
             AP_Migrator::defaultMigrationsPath()
         ))->migrate();
         $this->assertGreaterThanOrEqual(12, count($applied));
-        $this->assertSame(12, (int) AP_DB_VERSION);
+        $this->assertGreaterThanOrEqual(13, (int) AP_DB_VERSION);
 
         AP_Roles::ensureDefaults($this->db);
         AP_Options::update(AP_Forum_Read::OPTION_ENABLED, '1', $this->db);
@@ -140,9 +140,10 @@ final class ForumBoardHelpersTest extends TestCase
         $this->assertContains('topic_track', AP_Forum::baseTables());
         $this->assertContains('forum_track', AP_Forum::baseTables());
         $this->assertContains('forum_post_likes', AP_Forum::baseTables());
+        $this->assertContains('topic_subscriptions', AP_Forum::baseTables());
 
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
-        $this->assertSame(12, $migrator->getCurrentVersion());
+        $this->assertGreaterThanOrEqual(13, $migrator->getCurrentVersion());
         $this->assertFalse($migrator->needsMigration());
     }
 

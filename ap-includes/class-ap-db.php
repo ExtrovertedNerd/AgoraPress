@@ -85,6 +85,8 @@ class AP_DB
 
     public string $forum_track = '';
 
+    public string $topic_subscriptions = '';
+
     public string $analytics_hits = '';
 
     public string $analytics_daily = '';
@@ -267,6 +269,7 @@ class AP_DB
             'online',
             'topic_track',
             'forum_track',
+            'topic_subscriptions',
             'analytics_hits',
             'analytics_daily',
         ];

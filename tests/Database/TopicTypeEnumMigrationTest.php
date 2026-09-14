@@ -69,7 +69,8 @@ final class TopicTypeEnumMigrationTest extends TestCase
             'topic type',
             strtolower($applied[11]['description'])
         );
-        $this->assertSame(12, $this->migrator->getCurrentVersion());
+        $this->assertGreaterThanOrEqual(12, $this->migrator->getCurrentVersion());
+        $this->assertSame((int) AP_DB_VERSION, $this->migrator->getCurrentVersion());
         $this->assertFalse($this->migrator->needsMigration());
         $this->assertSame([], $this->migrator->migrate());
     }

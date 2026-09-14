@@ -155,6 +155,7 @@ function ap_forum_base_tables(): array
         'topic_track',
         'forum_track',
         'forum_post_likes',
+        'topic_subscriptions',
     ];
 }
 

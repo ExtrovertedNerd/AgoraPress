@@ -126,6 +126,7 @@ class AP_Forum
             'topic_track',
             'forum_track',
             'forum_post_likes',
+            'topic_subscriptions',
         ];
     }
 

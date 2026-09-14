@@ -104,6 +104,8 @@ final class ConfigLoadTest extends TestCase
         $this->assertContains('topics', $forum);
         $this->assertContains('forum_posts', $forum);
         $this->assertContains('forum_post_likes', $forum);
+        $this->assertContains('topic_subscriptions', $forum);
+        $this->assertContains('topic_track', $forum);
         $this->assertNotContains('options', $forum);
 
         $all = ap_all_base_tables();

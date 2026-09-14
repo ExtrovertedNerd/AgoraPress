@@ -29,7 +29,8 @@ define('AP_VERSION', '0.3.9-beta');
  * Version 10: local analytics (analytics_hits + analytics_daily).
  * Version 11: forum post likes (forum_post_likes + forum_posts.like_count).
  * Version 12: topic type enum (standard | sticky | announcement | rules) + backfill.
+ * Version 13: topic email notify ({prefix}topic_subscriptions; unread tables unchanged).
  * {@see AP_Migrator} tracks applied versions in schema_migrations. Installer /
  * update path apply pending migrations until the database matches this target.
  */
-define('AP_DB_VERSION', '12');
+define('AP_DB_VERSION', '13');
