@@ -107,7 +107,7 @@ Custom themes override the same filenames in the child/parent stack
 `ap_forum_new_topic`, `ap_forum_reply`, `ap_forum_edit_post`,
 `ap_forum_delete_post`, `ap_forum_like_post`, `ap_forum_lock_topic`,
 `ap_forum_unlock_topic`, `ap_forum_set_topic_type`,
-`ap_forum_move_topic`, `ap_forum_merge_topic`,
+`ap_forum_move_topic`, `ap_forum_merge_topic`, `ap_forum_split_topic`,
 `ap_forum_subscribe_topic`, `ap_forum_unsubscribe_topic`.
 
 Sitemaps include the board index, forums, and topics when the module is on
@@ -143,6 +143,7 @@ Query var `ap_forum_notice` (and same-request flash via
 | `topic_type_updated` | Topic type updated. |
 | `topic_moved` | Topic moved. |
 | `topics_merged` | Topics merged. |
+| `topic_split` | Topic split. |
 | `topic_subscribed` / `topic_unsubscribed` | Subscribed to this topic. / Unsubscribed from this topic. |
 | `topic_subscribed_email_on` | Subscribed to this topic. Email notifications for topics you subscribe to are now on. |
 | `topic_created_email_on` / `reply_posted_email_on` | Topic created. / Reply posted. Plus the same email-on sentence when compose **Notify me of replies** flipped the user master. Pending start/reply keep `topic_pending` / `reply_pending`. |
@@ -306,6 +307,18 @@ duplicate `(user_id, target_id)` pairs are dropped. Helpers:
 `ap_forum_user_can_merge_topic()`, `ap_forum_merge_targets()`,
 `ap_forum_merge_topic_form_html()`.
 
+**Split** is on the topic toolbar when the viewer has `moderate_forum` on the
+current forum **and** the topic has at least two posts. Each post has a
+checkbox (`post_ids[]`, none pre-checked). The form asks for a new title
+and an optional destination forum (default current; omitted when current is
+the only destination). Destinations are forums the actor can moderate,
+including the current forum; not categories or link boards. POST
+`ap_forum_split_topic` (nonce `ap_forum_split_topic_{id}`) calls
+`AP_Forum_Moderation::splitTopic` with `moderator_id`. At least one post
+must remain in the original topic. Success redirects to the new topic with
+`topic_split`. Helpers: `ap_forum_user_can_split_topic()`,
+`ap_forum_split_destinations()`, `ap_forum_split_topic_form_html()`.
+
 Nonces are per action (`ap_forum_lock_topic_{id}`, …). Locked topics reject
 replies (`ap_forum_notice=locked`).
 
@@ -334,8 +347,10 @@ skips ACL — installers / CLI / tests only).
   (`ap_forum_merge_topic`) as above. ACP Topics bulk **Merge into…** calls
   the same API and redirects to the target with `topics_merged`. No shadow
   row.
-- **Split topics** — API only (`splitTopic`). Default Agora and the Topics
-  screen do **not** expose this.
+- **Split topics** — `splitTopic`. Default Agora shows toolbar **Split**
+  (`ap_forum_split_topic`) as above: checkbox per post, new title, optional
+  destination forum (default current). At least one post stays on the
+  original topic. The Topics screen does **not** expose split.
 - Reports (`reports` table): types `post` / `topic` / `user` / `message`;
   statuses `open` / `closed` / `dismissed`
 - Warnings (`warnings`): `active` / `expired` / `revoked`
