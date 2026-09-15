@@ -58,6 +58,20 @@ def test_forum_refresh_helper_is_public_and_skips_deleted() -> None:
     assert "EMPTY_DATETIME" in empty
 
 
+def test_last_post_payload_heals_stale_deleted_pointer() -> None:
+    src = FORUM_CLASS.read_text(encoding="utf-8")
+    start = src.index("public static function buildForumLastPostPayload")
+    end = src.index("public static function postUrl")
+    body = src[start:end]
+    assert "TOPIC_STATUS_DELETED" in body
+    assert "refreshForumLastPost" in body
+    assert "topic_approved" in body
+    assert "post_approved" in body
+    assert "Topic row missing but id known" not in body
+    assert "self::topicUrl($topicId)" not in body
+    assert "allowRecount" in body
+
+
 def test_moderation_delegates_to_forum_refresh_helper() -> None:
     src = MOD_CLASS.read_text(encoding="utf-8")
     start = src.index("private static function refreshForumLastPost")
@@ -65,6 +79,25 @@ def test_moderation_delegates_to_forum_refresh_helper() -> None:
     body = src[start:end]
     assert "AP_Forum::refreshForumLastPost($forumId, $db);" in body
     assert "SELECT p.*" not in body
+
+
+def test_phpunit_covers_two_topic_delete_last_post_cases() -> None:
+    src = (ROOT / "tests" / "Forum" / "ForumLastPostTest.php").read_text(encoding="utf-8")
+    for needle in (
+        "testSoftDeleteNewestTopicLeavesOlderLastPost",
+        "testForceDeleteNewestTopicLeavesOlderLastPost",
+        "testSoftDeleteBothTopicsClearsLastPost",
+        "testForceDeleteBothTopicsClearsLastPost",
+        "testTwoTopicsDeleteNewestThenBothLeavesOlderThenEmptyWithoutDeadPermalink",
+        "testTwoTopicsForceDeleteNewestThenBothLeavesOlderThenEmptyWithoutDeadPermalink",
+        "assertRemainingLastPostIsNotDeletedTopic",
+        "assertLastPostCellHasNoDeadPermalink",
+        "ap_forum_empty_last_post_html",
+        "No posts",
+        "href=",
+        "topic_id=",
+    ):
+        assert needle in src, f"Expected {needle!r} in ForumLastPostTest.php"
 
 
 def test_phpunit_forum_last_post_suite_runs() -> None:

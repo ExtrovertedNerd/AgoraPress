@@ -3491,7 +3491,9 @@ class AP_Forum
      * - topics / topic_count: denormalized approved topic count
      * - posts / post_count: denormalized **opening posts + replies** (not replies-only;
      *   same definition as board footer Total Posts — see class docblock)
-     * - last_post: null when empty, else title, author, time, url, excerpt (+ ids)
+     * - last_post: null when empty, else title, author, time, url, excerpt (+ ids).
+     *   Deleted, missing, or unapproved last-topic pointers are recounted first;
+     *   the cell never includes a title or permalink for a deleted topic.
      *
      * @param array{
      *   topics?: array<int, object>,
@@ -3543,6 +3545,9 @@ class AP_Forum
      * Last-post block for a forum row: title, author, time, url (SPEC §A4 col 5).
      *
      * Empty forums return null so themes can render "No posts" / "—".
+     * If the stored last topic is deleted, missing, or unapproved, the forum
+     * last-post columns are recounted and this returns the visible post (or
+     * null). Never emits a title or permalink for a deleted topic.
      *
      * @param array{
      *   topics?: array<int, object>,
@@ -3567,36 +3572,61 @@ class AP_Forum
         ?AP_DB $db = null,
         array $preload = []
     ): ?array {
+        return self::buildForumLastPostPayloadResolved($forum, $db, $preload, true);
+    }
+
+    /**
+     * @param array{
+     *   topics?: array<int, object>,
+     *   authors?: array<int, string>,
+     *   posts?: array<int, object>
+     * } $preload
+     *
+     * @return array{
+     *   title: string,
+     *   author: string,
+     *   time: string,
+     *   date: string,
+     *   url: string,
+     *   excerpt: string,
+     *   post_id: int,
+     *   topic_id: int,
+     *   author_id: int
+     * }|null
+     */
+    private static function buildForumLastPostPayloadResolved(
+        object $forum,
+        ?AP_DB $db,
+        array $preload,
+        bool $allowRecount
+    ): ?array {
         $postId = (int) ($forum->last_post_id ?? 0);
         if ($postId < 1) {
             return null;
         }
 
         $topicId = (int) ($forum->last_topic_id ?? 0);
+        $forumId = (int) ($forum->forum_id ?? 0);
+        $topic = self::resolvePreloadedTopic($topicId, $db, $preload);
+        $post = self::resolvePreloadedPost($postId, $db, $preload);
+        if (!self::isRenderableForumLastPost($topic, $post, $forumId)) {
+            if (!$allowRecount || $forumId < 1) {
+                return null;
+            }
+
+            return self::recountForumLastPostPayload($forumId, $db);
+        }
+        if ($topic === null) {
+            return null;
+        }
+
         $authorId = (int) ($forum->last_poster_id ?? 0);
         $time = (string) ($forum->last_post_time ?? '');
         if ($time === self::EMPTY_DATETIME) {
             $time = '';
         }
 
-        $title = '';
-        $topic = null;
-        if ($topicId > 0) {
-            $topicMap = is_array($preload['topics'] ?? null) ? $preload['topics'] : [];
-            if (isset($topicMap[$topicId]) && is_object($topicMap[$topicId])) {
-                $topic = $topicMap[$topicId];
-            } else {
-                try {
-                    $topic = self::getTopic($topicId, $db);
-                } catch (Throwable) {
-                    $topic = null;
-                }
-            }
-            if ($topic !== null) {
-                $title = (string) ($topic->topic_title ?? '');
-            }
-        }
-
+        $title = (string) ($topic->topic_title ?? '');
         $author = '';
         $authorMap = is_array($preload['authors'] ?? null) ? $preload['authors'] : [];
         if ($authorId > 0 && isset($authorMap[$authorId]) && is_string($authorMap[$authorId])) {
@@ -3612,18 +3642,9 @@ class AP_Forum
             }
         }
 
-        $lastUrl = '';
-        if ($topic !== null) {
-            $lastUrl = self::postUrl($topic, $postId);
-        } elseif ($topicId > 0) {
-            // Topic row missing but id known — still produce a usable topic URL.
-            $lastUrl = self::topicUrl($topicId);
-            if ($postId > 0) {
-                $lastUrl .= '#post-' . $postId;
-            }
+        if ($post !== null) {
+            $preload['posts'][$postId] = $post;
         }
-
-        $excerpt = self::lastPostExcerptFromPreload($postId, $db, $preload);
 
         return [
             'title' => $title,
@@ -3631,12 +3652,98 @@ class AP_Forum
             'time' => $time,
             // Alias used by older theme markup (agora forum.php).
             'date' => $time,
-            'url' => $lastUrl,
-            'excerpt' => $excerpt,
+            'url' => self::postUrl($topic, $postId),
+            'excerpt' => self::lastPostExcerptFromPreload($postId, $db, $preload),
             'post_id' => $postId,
             'topic_id' => $topicId,
             'author_id' => $authorId,
         ];
+    }
+
+    /**
+     * Heal stale last-post columns, then render the visible post or empty.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function recountForumLastPostPayload(int $forumId, ?AP_DB $db): ?array
+    {
+        try {
+            self::refreshForumLastPost($forumId, $db);
+            $fresh = self::getForum($forumId, $db);
+        } catch (Throwable) {
+            return null;
+        }
+        if ($fresh === null) {
+            return null;
+        }
+
+        return self::buildForumLastPostPayloadResolved($fresh, $db, [], false);
+    }
+
+    /**
+     * @param array{topics?: array<int, object>} $preload
+     */
+    private static function resolvePreloadedTopic(int $topicId, ?AP_DB $db, array $preload): ?object
+    {
+        if ($topicId < 1) {
+            return null;
+        }
+
+        $topicMap = is_array($preload['topics'] ?? null) ? $preload['topics'] : [];
+        if (isset($topicMap[$topicId]) && is_object($topicMap[$topicId])) {
+            return $topicMap[$topicId];
+        }
+
+        try {
+            return self::getTopic($topicId, $db);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array{posts?: array<int, object>} $preload
+     */
+    private static function resolvePreloadedPost(int $postId, ?AP_DB $db, array $preload): ?object
+    {
+        if ($postId < 1) {
+            return null;
+        }
+
+        $postMap = is_array($preload['posts'] ?? null) ? $preload['posts'] : [];
+        if (isset($postMap[$postId]) && is_object($postMap[$postId])) {
+            return $postMap[$postId];
+        }
+
+        try {
+            return self::getPost($postId, $db);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private static function isRenderableForumLastPost(?object $topic, ?object $post, int $forumId): bool
+    {
+        if ($topic === null || $post === null) {
+            return false;
+        }
+        if ((string) ($topic->topic_status ?? '') === self::TOPIC_STATUS_DELETED) {
+            return false;
+        }
+        if ((int) ($topic->topic_approved ?? 0) !== 1) {
+            return false;
+        }
+        if ((int) ($post->post_approved ?? 0) !== 1) {
+            return false;
+        }
+        if ((int) ($post->topic_id ?? 0) !== (int) ($topic->topic_id ?? 0)) {
+            return false;
+        }
+        if ($forumId > 0 && (int) ($topic->forum_id ?? 0) !== $forumId) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
