@@ -1874,35 +1874,7 @@ class AP_Forum_Moderation
 
     private static function refreshForumLastPost(int $forumId, AP_DB $db): void
     {
-        $table = $db->quoteIdentifier($db->table('forum_posts'));
-        $topicsTable = $db->quoteIdentifier($db->table('topics'));
-        $row = $db->getRow(
-            'SELECT p.* FROM ' . $table . ' p'
-            . ' INNER JOIN ' . $topicsTable . ' t ON t.' . $db->quoteIdentifier('topic_id')
-            . ' = p.' . $db->quoteIdentifier('topic_id')
-            . ' WHERE p.' . $db->quoteIdentifier('forum_id') . ' = ?'
-            . ' AND p.' . $db->quoteIdentifier('post_approved') . ' = 1'
-            . ' AND t.' . $db->quoteIdentifier('topic_status') . ' != ?'
-            . ' ORDER BY p.' . $db->quoteIdentifier('post_time') . ' DESC, p.'
-            . $db->quoteIdentifier('post_id') . ' DESC LIMIT 1',
-            [$forumId, AP_Forum::TOPIC_STATUS_DELETED]
-        );
-        if ($row === null) {
-            $db->update('forums', [
-                'last_post_id' => 0,
-                'last_poster_id' => 0,
-                'last_post_time' => self::EMPTY_DATETIME,
-                'last_topic_id' => 0,
-            ], ['forum_id' => $forumId]);
-
-            return;
-        }
-        $db->update('forums', [
-            'last_post_id' => (int) $row->post_id,
-            'last_poster_id' => (int) $row->poster_id,
-            'last_post_time' => (string) $row->post_time,
-            'last_topic_id' => (int) $row->topic_id,
-        ], ['forum_id' => $forumId]);
+        AP_Forum::refreshForumLastPost($forumId, $db);
     }
 
     private static function normalizeReportRow(object $row): object

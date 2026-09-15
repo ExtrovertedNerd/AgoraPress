@@ -1747,6 +1747,7 @@ class AP_Forum
      *
      * Force-delete also drops `{prefix}topic_subscriptions` for the topic.
      * Soft-delete leaves watches in place.
+     * Both paths recount the source forum last-post (approved, not-deleted).
      */
     public static function deleteTopic(int $id, bool $force = false, ?AP_DB $db = null): bool
     {
@@ -1766,6 +1767,9 @@ class AP_Forum
 
         if (!$force) {
             if ((string) $topic->topic_status === self::TOPIC_STATUS_DELETED) {
+                // Idempotent soft-delete still heals a stale last-post pointer.
+                self::refreshForumLastPost($forumId, $db);
+
                 return true;
             }
             $ok = $db->update('topics', [
@@ -1778,8 +1782,8 @@ class AP_Forum
             if ($wasApproved) {
                 $postCount = self::countPosts($id, ['approved_only' => true], $db);
                 self::adjustForumStats($forumId, -1, -$postCount, $db);
-                self::refreshForumLastPost($forumId, $db);
             }
+            self::refreshForumLastPost($forumId, $db);
 
             if (function_exists('ap_do_action')) {
                 ap_do_action('ap_topic_deleted', $id, false);
@@ -1818,8 +1822,8 @@ class AP_Forum
             $replyCount = (int) $topic->reply_count;
             // topic_count -1, post_count -(replies + first post)
             self::adjustForumStats($forumId, -1, -($replyCount + 1), $db);
-            self::refreshForumLastPost($forumId, $db);
         }
+        self::refreshForumLastPost($forumId, $db);
 
         if (function_exists('ap_do_action')) {
             ap_do_action('ap_topic_deleted', $id, true);
@@ -4511,16 +4515,32 @@ class AP_Forum
         ], ['topic_id' => $topicId]);
     }
 
-    private static function refreshForumLastPost(int $forumId, AP_DB $db): void
+    /**
+     * Recount a forum's last-post columns from the newest approved, not-deleted post.
+     *
+     * Empty boards clear last_post_id, last_topic_id, last_poster_id, last_post_time.
+     * Soft-deleted topics keep their posts, so this join skips topic_status=deleted.
+     */
+    public static function refreshForumLastPost(int $forumId, ?AP_DB $db = null): void
     {
+        if ($forumId < 1) {
+            return;
+        }
+
+        $db = self::resolveDb($db);
         $table = $db->quoteIdentifier($db->table('forum_posts'));
+        $topicsTable = $db->quoteIdentifier($db->table('topics'));
         $row = $db->getRow(
-            'SELECT * FROM ' . $table
-            . ' WHERE ' . $db->quoteIdentifier('forum_id') . ' = ?'
-            . ' AND ' . $db->quoteIdentifier('post_approved') . ' = 1'
-            . ' ORDER BY ' . $db->quoteIdentifier('post_time') . ' DESC, '
+            'SELECT p.* FROM ' . $table . ' p'
+            . ' INNER JOIN ' . $topicsTable . ' t ON t.' . $db->quoteIdentifier('topic_id')
+            . ' = p.' . $db->quoteIdentifier('topic_id')
+            . ' WHERE p.' . $db->quoteIdentifier('forum_id') . ' = ?'
+            . ' AND p.' . $db->quoteIdentifier('post_approved') . ' = 1'
+            . ' AND t.' . $db->quoteIdentifier('topic_approved') . ' = 1'
+            . ' AND t.' . $db->quoteIdentifier('topic_status') . ' != ?'
+            . ' ORDER BY p.' . $db->quoteIdentifier('post_time') . ' DESC, p.'
             . $db->quoteIdentifier('post_id') . ' DESC LIMIT 1',
-            [$forumId]
+            [$forumId, self::TOPIC_STATUS_DELETED]
         );
         if ($row === null) {
             $db->update('forums', [

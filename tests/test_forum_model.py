@@ -39,6 +39,7 @@ def test_forum_class_defines_domain_api() -> None:
         "function createTopic",
         "function updateTopic",
         "function deleteTopic",
+        "function refreshForumLastPost",
         "function getTopics",
         "function createReply",
         "function updatePost",
