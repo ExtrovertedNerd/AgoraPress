@@ -361,7 +361,92 @@ class AP_Forum_Moderation
     }
 
     /**
+     * Whether the viewer may start a topic merge from this forum.
+     *
+     * True when they have `moderate_forum` on $forumId.
+     */
+    public static function userCanMergeTopic(int $userId, int $forumId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || $forumId < 1) {
+            return false;
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            return AP_Forum_Permissions::userCanModerate($userId, $forumId, $db);
+        }
+        if (function_exists('ap_user_can')) {
+            return ap_user_can($userId, 'manage_forums', null, $db)
+                || ap_user_can($userId, 'moderate_forums', null, $db);
+        }
+
+        return false;
+    }
+
+    /**
+     * Topics a user may merge into (forums they can moderate, not $sourceTopicId).
+     *
+     * Omits deleted and shadow `moved` rows. Categories and link boards have
+     * no topics. Newest last-post first, capped at 100.
+     *
+     * @return list<object>
+     */
+    public static function listMergeTargets(int $userId, int $sourceTopicId, ?AP_DB $db = null): array
+    {
+        if ($userId < 1 || $sourceTopicId < 1 || !class_exists('AP_Forum', false)) {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+        $forumIds = self::moderateableForumIds($userId, $db);
+        if ($forumIds === []) {
+            return [];
+        }
+
+        $topics = AP_Forum::queryTopics([
+            'forum_ids' => $forumIds,
+            'include_deleted' => false,
+            'approved_only' => null,
+            'per_page' => 100,
+            'orderby' => 'last_post',
+            'order' => 'DESC',
+        ], $db);
+
+        $forumNames = [];
+        $out = [];
+        foreach ($topics as $topic) {
+            $tid = (int) ($topic->topic_id ?? 0);
+            if ($tid < 1 || $tid === $sourceTopicId) {
+                continue;
+            }
+            $status = (string) ($topic->topic_status ?? '');
+            if ($status === AP_Forum::TOPIC_STATUS_DELETED || $status === AP_Forum::TOPIC_STATUS_MOVED) {
+                continue;
+            }
+            $fid = (int) ($topic->forum_id ?? 0);
+            if ($fid < 1 || !in_array($fid, $forumIds, true)) {
+                continue;
+            }
+            if (!isset($forumNames[$fid])) {
+                $forum = AP_Forum::getForum($fid, $db);
+                $forumNames[$fid] = $forum !== null
+                    ? trim((string) ($forum->forum_name ?? ''))
+                    : '';
+            }
+            $out[] = (object) [
+                'topic_id' => $tid,
+                'topic_title' => (string) ($topic->topic_title ?? ''),
+                'forum_id' => $fid,
+                'forum_name' => $forumNames[$fid],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * Merge source topic into target topic (all posts move; source is force-removed).
+     *
+     * Retargets `{prefix}topic_subscriptions` source → target and drops
+     * duplicate `(user_id, target_id)` pairs. No shadow row.
      *
      * @return bool True when merge completed.
      */
@@ -414,6 +499,8 @@ class AP_Forum_Moderation
         // Keep first_post_id as the earliest approved post when target was empty-ish.
         self::recalculateTopicFromPosts($targetTopicId, $db);
 
+        self::retargetTopicSubscriptions($sourceTopicId, $targetTopicId, $db);
+
         // Remove the empty source topic row (posts already moved — avoid double-decrement).
         $db->delete('topics', ['topic_id' => $sourceTopicId]);
 
@@ -426,15 +513,110 @@ class AP_Forum_Moderation
                 // Target forum gains only the posts (topic already exists there).
                 self::adjustForumStats($targetForum, 0, $sourceApprovedPosts, $db);
             }
-            self::refreshForumLastPost($sourceForum, $db);
-            self::refreshForumLastPost($targetForum, $db);
         }
+        self::refreshForumLastPost($sourceForum, $db);
+        self::refreshForumLastPost($targetForum, $db);
 
         if (function_exists('ap_do_action')) {
             ap_do_action('ap_moderation_topics_merged', $sourceTopicId, $targetTopicId, $moderatorId);
         }
 
         return true;
+    }
+
+    /**
+     * Point `{prefix}topic_subscriptions` at $targetTopicId.
+     *
+     * Source rows whose user already watches the target are dropped so the
+     * unique `(user_id, topic_id)` pair is preserved.
+     *
+     * @return int Number of rows retargeted (dropped duplicates are not counted).
+     */
+    public static function retargetTopicSubscriptions(
+        int $sourceTopicId,
+        int $targetTopicId,
+        ?AP_DB $db = null
+    ): int {
+        if ($sourceTopicId < 1 || $targetTopicId < 1 || $sourceTopicId === $targetTopicId) {
+            return 0;
+        }
+
+        $db = self::resolveDb($db);
+        $table = $db->quoteIdentifier($db->table('topic_subscriptions'));
+        $userCol = $db->quoteIdentifier('user_id');
+        $topicCol = $db->quoteIdentifier('topic_id');
+
+        try {
+            $rows = $db->getResults(
+                'SELECT ' . $userCol . ' FROM ' . $table . ' WHERE ' . $topicCol . ' = ?',
+                [$sourceTopicId]
+            );
+        } catch (Throwable) {
+            return 0;
+        }
+
+        if (!is_array($rows) || $rows === []) {
+            return 0;
+        }
+
+        $moved = 0;
+        foreach ($rows as $row) {
+            if (is_object($row)) {
+                $userId = (int) ($row->user_id ?? 0);
+            } elseif (is_array($row)) {
+                $userId = (int) ($row['user_id'] ?? 0);
+            } else {
+                $userId = 0;
+            }
+            if ($userId < 1) {
+                continue;
+            }
+            try {
+                $exists = (int) $db->getVar(
+                    'SELECT COUNT(*) FROM ' . $table
+                    . ' WHERE ' . $userCol . ' = ? AND ' . $topicCol . ' = ?',
+                    [$userId, $targetTopicId]
+                );
+            } catch (Throwable) {
+                continue;
+            }
+            if ($exists > 0) {
+                try {
+                    $db->delete('topic_subscriptions', [
+                        'user_id' => $userId,
+                        'topic_id' => $sourceTopicId,
+                    ]);
+                } catch (Throwable) {
+                    // Unique pair already on the target.
+                }
+                continue;
+            }
+            try {
+                $ok = $db->update(
+                    'topic_subscriptions',
+                    ['topic_id' => $targetTopicId],
+                    [
+                        'user_id' => $userId,
+                        'topic_id' => $sourceTopicId,
+                    ]
+                );
+            } catch (Throwable) {
+                try {
+                    $db->delete('topic_subscriptions', [
+                        'user_id' => $userId,
+                        'topic_id' => $sourceTopicId,
+                    ]);
+                } catch (Throwable) {
+                    // Unique pair already on the target.
+                }
+                continue;
+            }
+            if ($ok !== false) {
+                $moved++;
+            }
+        }
+
+        return $moved;
     }
 
     /**
@@ -1926,6 +2108,39 @@ class AP_Forum_Moderation
         }
 
         return AP_Forum_Permissions::userCanModerate($moderatorId, $forumId, $db);
+    }
+
+    /**
+     * Forum ids (not categories or link boards) the user can moderate.
+     *
+     * @return list<int>
+     */
+    private static function moderateableForumIds(int $userId, AP_DB $db): array
+    {
+        if ($userId < 1 || !class_exists('AP_Forum', false)) {
+            return [];
+        }
+
+        $ids = [];
+        foreach (AP_Forum::getForums(['include_hidden' => true], $db) as $forum) {
+            $id = (int) ($forum->forum_id ?? 0);
+            if ($id < 1) {
+                continue;
+            }
+            $type = (string) ($forum->forum_type ?? '');
+            if ($type !== AP_Forum::FORUM_TYPE_FORUM) {
+                continue;
+            }
+            if (
+                !class_exists('AP_Forum_Permissions', false)
+                || !AP_Forum_Permissions::userCanModerate($userId, $id, $db)
+            ) {
+                continue;
+            }
+            $ids[] = $id;
+        }
+
+        return $ids;
     }
 
     private static function adjustForumStats(int $forumId, int $topicDelta, int $postDelta, AP_DB $db): void

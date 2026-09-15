@@ -36,6 +36,10 @@ $canMoveTopic = $q instanceof AP_Query && !empty($q->get('can_move_topic', false
 $moveDestinations = $q instanceof AP_Query && is_array($q->get('move_destinations', null))
     ? $q->get('move_destinations', [])
     : [];
+$canMergeTopic = $q instanceof AP_Query && !empty($q->get('can_merge_topic', false));
+$mergeTargets = $q instanceof AP_Query && is_array($q->get('merge_targets', null))
+    ? $q->get('merge_targets', [])
+    : [];
 $canSubscribe = $q instanceof AP_Query && !empty($q->get('can_subscribe', false));
 $topicSubscribed = $q instanceof AP_Query && !empty($q->get('topic_subscribed', false));
 $topicType = $q instanceof AP_Query
@@ -164,7 +168,8 @@ endif; ?>
         </div>
         <?php
         $showMove = $canMoveTopic && $moveDestinations !== [];
-        if (($canModerate || $canSetTopicType || $canSubscribe || $showMove) && $topicId > 0) :
+        $showMerge = $canMergeTopic && $mergeTargets !== [];
+        if (($canModerate || $canSetTopicType || $canSubscribe || $showMove || $showMerge) && $topicId > 0) :
             ?>
             <div class="ap-forum-toolbar ap-forum-toolbar--topic" role="toolbar" aria-label="Topic actions">
                 <?php
@@ -241,6 +246,46 @@ endif; ?>
                         echo '</select></div>';
                         echo '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm"'
                             . ' aria-label="Move this topic to another forum">Move</button>';
+                        echo '</form>';
+                    }
+                }
+                if ($showMerge) {
+                    if (function_exists('ap_forum_merge_topic_form_html')) {
+                        echo ap_forum_merge_topic_form_html($topicId, $mergeTargets, [
+                            'id' => 'agora-merge-target-topic',
+                        ]);
+                    } else {
+                        echo '<form method="post" action="" class="ap-forum-action-form ap-forum-action-form--merge-topic">';
+                        echo '<input type="hidden" name="ap_forum_action" value="ap_forum_merge_topic">';
+                        echo '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">';
+                        if (function_exists('ap_nonce_field')) {
+                            echo ap_nonce_field('ap_forum_merge_topic_' . $topicId);
+                        }
+                        echo '<div class="ap-field ap-field--merge-target ap-field--inline">';
+                        echo '<label for="agora-merge-target-topic">Merge into</label>';
+                        echo '<select id="agora-merge-target-topic" name="target_topic_id" required>';
+                        echo '<option value="">Select topic</option>';
+                        foreach ($mergeTargets as $target) {
+                            if (!is_array($target)) {
+                                continue;
+                            }
+                            $targetId = (int) ($target['topic_id'] ?? 0);
+                            $targetTitle = trim((string) ($target['topic_title'] ?? ''));
+                            $targetForum = trim((string) ($target['forum_name'] ?? ''));
+                            if ($targetId < 1) {
+                                continue;
+                            }
+                            if ($targetTitle === '') {
+                                $targetTitle = '(no title)';
+                            }
+                            $optionLabel = $targetForum !== ''
+                                ? $targetTitle . ' — ' . $targetForum
+                                : $targetTitle;
+                            echo '<option value="' . $targetId . '">' . agora_esc($optionLabel) . '</option>';
+                        }
+                        echo '</select></div>';
+                        echo '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm"'
+                            . ' aria-label="Merge this topic into another topic">Merge</button>';
                         echo '</form>';
                     }
                 }

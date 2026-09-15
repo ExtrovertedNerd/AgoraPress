@@ -432,9 +432,10 @@ final class ForumPermissionMatrixTest extends TestCase
             $this->assertSame($spec['allowed_create'], $allowed, "{$role} allowed create types");
         }
 
-        // Topic view: can_reply / can_moderate / can_set_topic_type / can_move_topic.
+        // Topic view: can_reply / can_moderate / can_set_topic_type / can_move_topic / can_merge_topic.
         // Members without sticky/announce caps get empty edit types → can_set false.
         // Single public forum: move dest list is empty (no other moderateable forum).
+        // Lone topic: merge target list is empty (cannot merge into self).
         $topicCases = [
             'guest' => [
                 'user_id' => 0,
@@ -442,6 +443,7 @@ final class ForumPermissionMatrixTest extends TestCase
                 'can_moderate' => false,
                 'can_set_topic_type' => false,
                 'can_move_topic' => false,
+                'can_merge_topic' => false,
                 'can_subscribe' => false,
             ],
             'member' => [
@@ -450,6 +452,7 @@ final class ForumPermissionMatrixTest extends TestCase
                 'can_moderate' => false,
                 'can_set_topic_type' => false,
                 'can_move_topic' => false,
+                'can_merge_topic' => false,
                 'can_subscribe' => false,
             ],
             'mod' => [
@@ -458,6 +461,7 @@ final class ForumPermissionMatrixTest extends TestCase
                 'can_moderate' => true,
                 'can_set_topic_type' => true,
                 'can_move_topic' => true,
+                'can_merge_topic' => true,
                 'can_subscribe' => false,
             ],
             'admin' => [
@@ -466,6 +470,7 @@ final class ForumPermissionMatrixTest extends TestCase
                 'can_moderate' => true,
                 'can_set_topic_type' => true,
                 'can_move_topic' => true,
+                'can_merge_topic' => true,
                 'can_subscribe' => false,
             ],
         ];
@@ -502,6 +507,12 @@ final class ForumPermissionMatrixTest extends TestCase
                 "{$role} can_move_topic"
             );
             $this->assertSame([], $query->get('move_destinations', null), "{$role} move dests on lone forum");
+            $this->assertSame(
+                $spec['can_merge_topic'],
+                (bool) $query->get('can_merge_topic', false),
+                "{$role} can_merge_topic"
+            );
+            $this->assertSame([], $query->get('merge_targets', null), "{$role} merge targets on lone topic");
             $this->assertSame(
                 $spec['can_subscribe'],
                 (bool) $query->get('can_subscribe', false),

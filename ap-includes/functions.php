@@ -6456,6 +6456,100 @@ function ap_forum_move_topic_form_html(int $topicId, array $destinations, array 
 }
 
 /**
+ * Topic toolbar Merge form: target topic the actor can moderate.
+ *
+ * Empty when $topicId is invalid or $targets has no usable topics.
+ *
+ * @param list<object|array<string, mixed>> $targets topic_id + topic_title (+ forum_name)
+ * @param array<string, mixed>              $args    id, name, label, class, button_label
+ */
+function ap_forum_merge_topic_form_html(int $topicId, array $targets, array $args = []): string
+{
+    if ($topicId < 1) {
+        return '';
+    }
+
+    $options = [];
+    foreach ($targets as $target) {
+        $id = 0;
+        $title = '';
+        $forumName = '';
+        if (is_object($target)) {
+            $id = (int) ($target->topic_id ?? 0);
+            $title = trim((string) ($target->topic_title ?? ''));
+            $forumName = trim((string) ($target->forum_name ?? ''));
+        } elseif (is_array($target)) {
+            $id = (int) ($target['topic_id'] ?? $target['id'] ?? 0);
+            $title = trim((string) ($target['topic_title'] ?? $target['title'] ?? ''));
+            $forumName = trim((string) ($target['forum_name'] ?? ''));
+        }
+        if ($id < 1 || $id === $topicId) {
+            continue;
+        }
+        if ($title === '') {
+            $title = '(no title)';
+        }
+        $label = $forumName !== '' ? $title . ' — ' . $forumName : $title;
+        $options[$id] = $label;
+    }
+    if ($options === []) {
+        return '';
+    }
+
+    $selectId = (string) ($args['id'] ?? 'ap-merge-target-topic');
+    $selectName = (string) ($args['name'] ?? 'target_topic_id');
+    $label = (string) ($args['label'] ?? 'Merge into');
+    $buttonLabel = (string) ($args['button_label'] ?? 'Merge');
+    $class = trim((string) ($args['class'] ?? 'ap-forum-action-form ap-forum-action-form--merge-topic'));
+    $fieldClass = trim((string) ($args['field_class'] ?? 'ap-field ap-field--merge-target ap-field--inline'));
+    $action = class_exists('AP_Forum_Front', false)
+        ? AP_Forum_Front::ACTION_MERGE_TOPIC
+        : 'ap_forum_merge_topic';
+
+    $esc = static function (string $s): string {
+        if (function_exists('agora_esc')) {
+            return agora_esc($s);
+        }
+        if (function_exists('ap_esc_html')) {
+            return ap_esc_html($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+    $escAttr = static function (string $s): string {
+        if (function_exists('agora_esc_attr')) {
+            return agora_esc_attr($s);
+        }
+        if (function_exists('ap_esc_attr')) {
+            return ap_esc_attr($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+
+    $html = '<form method="post" action="" class="' . $escAttr($class) . '">';
+    $html .= '<input type="hidden" name="ap_forum_action" value="' . $escAttr($action) . '">';
+    $html .= '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">';
+    if (function_exists('ap_nonce_field')) {
+        $html .= ap_nonce_field($action . '_' . $topicId);
+    }
+    $html .= '<div class="' . $escAttr($fieldClass) . '">';
+    $html .= '<label for="' . $escAttr($selectId) . '">' . $esc($label) . '</label>';
+    $html .= '<select id="' . $escAttr($selectId) . '" name="' . $escAttr($selectName) . '" required>';
+    $html .= '<option value="">' . $esc('Select topic') . '</option>';
+    foreach ($options as $id => $name) {
+        $html .= '<option value="' . (int) $id . '">' . $esc($name) . '</option>';
+    }
+    $html .= '</select></div>';
+    $html .= '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm"'
+        . ' aria-label="' . $escAttr('Merge this topic into another topic') . '">';
+    $html .= $esc($buttonLabel);
+    $html .= '</button></form>';
+
+    return $html;
+}
+
+/**
  * Read/unread visual state for a board or topic row (SPEC A1).
  *
  * Returns one of:
@@ -7709,6 +7803,36 @@ function ap_forum_move_destinations(int $userId, int $fromForumId, ?AP_DB $db = 
     }
 
     return AP_Forum_Moderation::listMoveDestinations($userId, $fromForumId, $db);
+}
+
+/**
+ * Whether a user may start a topic merge from a forum (`moderate_forum`).
+ *
+ * @see AP_Forum_Moderation::userCanMergeTopic()
+ */
+function ap_forum_user_can_merge_topic(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Moderation', false)) {
+        return false;
+    }
+
+    return AP_Forum_Moderation::userCanMergeTopic($userId, $forumId, $db);
+}
+
+/**
+ * Topics a user may merge into (not $sourceTopicId; forums they can moderate).
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum_Moderation::listMergeTargets()
+ */
+function ap_forum_merge_targets(int $userId, int $sourceTopicId, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Forum_Moderation', false)) {
+        return [];
+    }
+
+    return AP_Forum_Moderation::listMergeTargets($userId, $sourceTopicId, $db);
 }
 
 /**

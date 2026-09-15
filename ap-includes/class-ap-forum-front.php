@@ -36,6 +36,9 @@ class AP_Forum_Front
     /** Move a topic to another forum the actor can moderate. */
     public const ACTION_MOVE_TOPIC = 'ap_forum_move_topic';
 
+    /** Merge this topic into another the actor can moderate. */
+    public const ACTION_MERGE_TOPIC = 'ap_forum_merge_topic';
+
     /** Per-topic email Subscribe (site on, logged in, can view_forum). */
     public const ACTION_SUBSCRIBE_TOPIC = 'ap_forum_subscribe_topic';
 
@@ -345,6 +348,12 @@ class AP_Forum_Front
             $args['move_destinations'] = !empty($args['can_move_topic'])
                 ? self::moveDestinationsForQuery($userId, $forumId, $db)
                 : [];
+            $args['can_merge_topic'] = $userId > 0
+                && class_exists('AP_Forum_Moderation', false)
+                && AP_Forum_Moderation::userCanMergeTopic($userId, $forumId, $db);
+            $args['merge_targets'] = !empty($args['can_merge_topic'])
+                ? self::mergeTargetsForQuery($userId, $topicId, $db)
+                : [];
             $args['can_subscribe'] = $userId > 0
                 && class_exists('AP_Forum_Notify', false)
                 && AP_Forum_Notify::viewerMaySubscribe($userId, $forumId, $db);
@@ -527,6 +536,9 @@ class AP_Forum_Front
         if ($action === self::ACTION_MOVE_TOPIC) {
             return self::handleMoveTopic($post, $db);
         }
+        if ($action === self::ACTION_MERGE_TOPIC) {
+            return self::handleMergeTopic($post, $db);
+        }
         if ($action === self::ACTION_SUBSCRIBE_TOPIC) {
             return self::handleSubscribeTopic($post, $db, true);
         }
@@ -586,6 +598,7 @@ class AP_Forum_Front
                 'topic_unlocked' => ['type' => 'success', 'message' => 'Topic unlocked.'],
                 'topic_type_updated' => ['type' => 'success', 'message' => 'Topic type updated.'],
                 'topic_moved' => ['type' => 'success', 'message' => 'Topic moved.'],
+                'topics_merged' => ['type' => 'success', 'message' => 'Topics merged.'],
                 'topic_subscribed' => ['type' => 'success', 'message' => 'Subscribed to this topic.'],
                 'topic_subscribed_email_on' => [
                     'type' => 'success',
@@ -771,6 +784,8 @@ class AP_Forum_Front
         $args['allowed_topic_types'] = [];
         $args['can_move_topic'] = false;
         $args['move_destinations'] = [];
+        $args['can_merge_topic'] = false;
+        $args['merge_targets'] = [];
         $args['can_subscribe'] = false;
         $args['topic_subscribed'] = false;
         $args['first_unread_post_id'] = 0;
@@ -904,6 +919,35 @@ class AP_Forum_Front
             $out[] = [
                 'forum_id' => $id,
                 'forum_name' => $name,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Slim merge-target rows for the topic toolbar Merge select.
+     *
+     * @return list<array{topic_id: int, topic_title: string, forum_id: int, forum_name: string}>
+     */
+    private static function mergeTargetsForQuery(int $userId, int $sourceTopicId, ?AP_DB $db): array
+    {
+        if ($userId < 1 || $sourceTopicId < 1 || !class_exists('AP_Forum_Moderation', false)) {
+            return [];
+        }
+
+        $out = [];
+        foreach (AP_Forum_Moderation::listMergeTargets($userId, $sourceTopicId, $db) as $topic) {
+            $id = (int) ($topic->topic_id ?? 0);
+            $title = trim((string) ($topic->topic_title ?? ''));
+            if ($id < 1) {
+                continue;
+            }
+            $out[] = [
+                'topic_id' => $id,
+                'topic_title' => $title,
+                'forum_id' => (int) ($topic->forum_id ?? 0),
+                'forum_name' => trim((string) ($topic->forum_name ?? '')),
             ];
         }
 
@@ -1525,6 +1569,90 @@ class AP_Forum_Front
         $sep = str_contains($url, '?') ? '&' : '?';
 
         return $url . $sep . 'ap_forum_notice=topic_moved';
+    }
+
+    /**
+     * Merge this topic into another the actor can moderate.
+     *
+     * Calls {@see AP_Forum_Moderation::mergeTopics()}. Success redirects
+     * to the target with `topics_merged`.
+     *
+     * @param array<string, mixed> $post
+     */
+    private static function handleMergeTopic(array $post, ?AP_DB $db): ?string
+    {
+        $topicId = (int) ($post['topic_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = self::ACTION_MERGE_TOPIC . '_' . $topicId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+
+        $userId = self::currentUserId($db);
+        if (
+            $userId < 1
+            || !class_exists('AP_Forum', false)
+            || !class_exists('AP_Forum_Moderation', false)
+        ) {
+            self::$notice = ['type' => 'error', 'message' => 'Permission denied.'];
+
+            return null;
+        }
+
+        $topic = AP_Forum::getTopic($topicId, $db);
+        if ($topic === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Topic not found.'];
+
+            return null;
+        }
+
+        $sourceForumId = (int) $topic->forum_id;
+        if (!AP_Forum_Moderation::userCanMergeTopic($userId, $sourceForumId, $db)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You do not have permission to merge this topic.',
+            ];
+
+            return null;
+        }
+
+        $targetTopicId = (int) ($post['target_topic_id'] ?? 0);
+        if ($targetTopicId < 1 || $targetTopicId === $topicId) {
+            self::$notice = ['type' => 'error', 'message' => 'Please choose a topic to merge into.'];
+
+            return null;
+        }
+
+        $targetAllowed = false;
+        foreach (AP_Forum_Moderation::listMergeTargets($userId, $topicId, $db) as $row) {
+            if ((int) ($row->topic_id ?? 0) === $targetTopicId) {
+                $targetAllowed = true;
+                break;
+            }
+        }
+        if (!$targetAllowed) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You cannot merge this topic into that topic.',
+            ];
+
+            return null;
+        }
+
+        $ok = AP_Forum_Moderation::mergeTopics($topicId, $targetTopicId, $userId, $db);
+        if (!$ok) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not merge these topics.'];
+
+            return null;
+        }
+
+        $target = AP_Forum::getTopic($targetTopicId, $db);
+        $url = AP_Forum::topicUrl($target ?? $targetTopicId);
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=topics_merged';
     }
 
     /**

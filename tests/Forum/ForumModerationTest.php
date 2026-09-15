@@ -408,6 +408,198 @@ final class ForumModerationTest extends TestCase
         $this->assertSame(3, (int) $forum?->post_count);
     }
 
+    public function testListMergeTargetsOmitsSourceDeletedMovedAndUnmoderateable(): void
+    {
+        $sourceForumId = AP_Forum::insertForum(['forum_name' => 'Merge List Source'], $this->db);
+        $otherForumId = AP_Forum::insertForum(['forum_name' => 'Merge List Other'], $this->db);
+        $hiddenForumId = AP_Forum::insertForum([
+            'forum_name' => 'Merge List Hidden',
+            'forum_status' => AP_Forum::FORUM_STATUS_HIDDEN,
+        ], $this->db);
+        $this->assertGreaterThan(0, $sourceForumId);
+        $this->assertGreaterThan(0, $otherForumId);
+        $this->assertGreaterThan(0, $hiddenForumId);
+
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Source thread',
+            'content' => 'Source OP',
+        ], $this->db);
+        $sameId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Same forum keep',
+            'content' => 'Same OP',
+        ], $this->db);
+        $otherId = AP_Forum::createTopic([
+            'forum_id' => $otherForumId,
+            'topic_title' => 'Other forum keep',
+            'content' => 'Other OP',
+        ], $this->db);
+        $hiddenId = AP_Forum::createTopic([
+            'forum_id' => $hiddenForumId,
+            'topic_title' => 'Hidden keep',
+            'content' => 'Hidden OP',
+        ], $this->db, ['check_open' => false]);
+        $deletedId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Deleted keep',
+            'content' => 'Deleted OP',
+        ], $this->db);
+        $movedId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Moved stub',
+            'content' => 'Moved OP',
+        ], $this->db);
+        $this->assertGreaterThan(0, $sourceId);
+        $this->assertGreaterThan(0, $sameId);
+        $this->assertGreaterThan(0, $otherId);
+        $this->assertGreaterThan(0, $hiddenId);
+        $this->assertGreaterThan(0, $deletedId);
+        $this->assertGreaterThan(0, $movedId);
+        $this->assertTrue(AP_Forum_Moderation::softDeleteTopic($deletedId, 0, $this->db));
+        $this->assertNotFalse($this->db->update(
+            'topics',
+            ['topic_status' => AP_Forum::TOPIC_STATUS_MOVED],
+            ['topic_id' => $movedId]
+        ));
+
+        $adminId = $this->createUser('merge_list_admin', 'merge_list_admin@example.test', 'administrator');
+        $memberId = $this->createUser('merge_list_member', 'merge_list_member@example.test', 'subscriber');
+        $localId = $this->createUser('merge_list_local', 'merge_list_local@example.test', 'subscriber');
+        $groupId = AP_Group::create(['group_name' => 'Source-only merge list'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceForumId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+
+        $this->assertTrue(AP_Forum_Moderation::userCanMergeTopic($adminId, $sourceForumId, $this->db));
+        $this->assertTrue(ap_forum_user_can_merge_topic($adminId, $sourceForumId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanMergeTopic($memberId, $sourceForumId, $this->db));
+        $this->assertTrue(AP_Forum_Moderation::userCanMergeTopic($localId, $sourceForumId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanMergeTopic($localId, $otherForumId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanMergeTopic(0, $sourceForumId, $this->db));
+
+        $adminIds = $this->mergeTargetIds($adminId, $sourceId);
+        $this->assertContains($sameId, $adminIds);
+        $this->assertContains($otherId, $adminIds);
+        $this->assertContains($hiddenId, $adminIds);
+        $this->assertNotContains($sourceId, $adminIds);
+        $this->assertNotContains($deletedId, $adminIds);
+        $this->assertNotContains($movedId, $adminIds);
+        $this->assertSame($adminIds, $this->mergeTargetIdsFromHelper($adminId, $sourceId));
+
+        $this->assertSame([], $this->mergeTargetIds($memberId, $sourceId));
+        $this->assertSame([], AP_Forum_Moderation::listMergeTargets(0, $sourceId, $this->db));
+
+        $localIds = $this->mergeTargetIds($localId, $sourceId);
+        $this->assertContains($sameId, $localIds);
+        $this->assertNotContains($otherId, $localIds);
+        $this->assertNotContains($hiddenId, $localIds);
+        $this->assertNotContains($sourceId, $localIds);
+        $this->assertSame($localIds, $this->mergeTargetIdsFromHelper($localId, $sourceId));
+    }
+
+    public function testUserCanMergeTopicRequiresModerateNotJustMove(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Merge move-only'], $this->db);
+        $userId = $this->createUser('merge_move_only', 'merge_move_only@example.test', 'subscriber');
+        $groupId = AP_Group::create(['group_name' => 'Movers without moderate merge'], $this->db);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $userId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $forumId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MOVE,
+            true,
+            $this->db
+        ));
+
+        $this->assertTrue(AP_Forum_Moderation::userCanMoveTopic($userId, $forumId, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanModerate($userId, $forumId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanMergeTopic($userId, $forumId, $this->db));
+        $this->assertSame([], $this->mergeTargetIds($userId, 1));
+    }
+
+    public function testMergeTopicsRetargetsSubscriptionsAndLastPost(): void
+    {
+        $sourceForumId = AP_Forum::insertForum(['forum_name' => 'Merge Last Source'], $this->db);
+        $targetForumId = AP_Forum::insertForum(['forum_name' => 'Merge Last Target'], $this->db);
+        $stayId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Stays on source',
+            'content' => 'Older source board post',
+            'poster_id' => 31,
+        ], $this->db);
+        $targetId = AP_Forum::createTopic([
+            'forum_id' => $targetForumId,
+            'topic_title' => 'Keep as target',
+            'content' => 'Target OP',
+            'poster_id' => 32,
+        ], $this->db);
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Absorb me',
+            'content' => 'Source OP',
+            'poster_id' => 33,
+        ], $this->db);
+        $sourceReply = AP_Forum::createReply([
+            'topic_id' => $sourceId,
+            'content' => 'Newest source reply',
+            'poster_id' => 34,
+        ], $this->db);
+        $this->assertGreaterThan(0, $stayId);
+        $this->assertGreaterThan(0, $sourceReply);
+
+        $sourceBefore = AP_Forum::getForum($sourceForumId, $this->db);
+        $this->assertSame($sourceId, (int) ($sourceBefore?->last_topic_id ?? 0));
+        $this->assertSame($sourceReply, (int) ($sourceBefore?->last_post_id ?? 0));
+
+        $dupId = $this->createUser('merge_last_dup', 'merge_last_dup@example.test');
+        $srcOnlyId = $this->createUser('merge_last_src', 'merge_last_src@example.test');
+        $tgtOnlyId = $this->createUser('merge_last_tgt', 'merge_last_tgt@example.test');
+        $this->assertTrue(AP_Forum_Notify::subscribe($dupId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($dupId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($srcOnlyId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($tgtOnlyId, $targetId, $this->db));
+
+        $this->assertTrue(AP_Forum_Moderation::mergeTopics($sourceId, $targetId, 0, $this->db));
+        $this->assertNull(AP_Forum::getTopic($sourceId, $this->db));
+        $this->assertNotNull(AP_Forum::getTopic($stayId, $this->db));
+        $this->assertNotNull(AP_Forum::getTopic($targetId, $this->db));
+
+        $posts = AP_Forum::getPosts($targetId, ['approved_only' => false], $this->db);
+        $this->assertCount(3, $posts);
+        $postIds = array_map(static fn ($p) => (int) $p->post_id, $posts);
+        $this->assertContains($sourceReply, $postIds);
+        foreach ($posts as $post) {
+            $this->assertSame($targetForumId, (int) $post->forum_id);
+            $this->assertSame($targetId, (int) $post->topic_id);
+        }
+
+        $sourceForum = AP_Forum::getForum($sourceForumId, $this->db);
+        $targetForum = AP_Forum::getForum($targetForumId, $this->db);
+        $this->assertSame(1, (int) ($sourceForum?->topic_count ?? -1));
+        $this->assertSame(1, (int) ($sourceForum?->post_count ?? -1));
+        $this->assertSame($stayId, (int) ($sourceForum?->last_topic_id ?? 0));
+        $this->assertSame(1, (int) ($targetForum?->topic_count ?? -1));
+        $this->assertSame(3, (int) ($targetForum?->post_count ?? -1));
+        $this->assertSame($targetId, (int) ($targetForum?->last_topic_id ?? 0));
+        $this->assertSame($sourceReply, (int) ($targetForum?->last_post_id ?? 0));
+        $this->assertSame(34, (int) ($targetForum?->last_poster_id ?? 0));
+
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($dupId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($dupId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($srcOnlyId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($tgtOnlyId, $targetId, $this->db));
+        $this->assertSame(0, $this->subscriptionCount($sourceId));
+        $this->assertSame(3, $this->subscriptionCount($targetId));
+        $this->assertSame(0, AP_Forum_Moderation::retargetTopicSubscriptions($sourceId, $targetId, $this->db));
+    }
+
     public function testSplitTopic(): void
     {
         $forumId = AP_Forum::insertForum(['forum_name' => 'Split'], $this->db);
@@ -734,6 +926,32 @@ final class ForumModerationTest extends TestCase
         $ids = [];
         foreach (ap_forum_move_destinations($userId, $fromForumId, $this->db) as $forum) {
             $ids[] = (int) ($forum->forum_id ?? 0);
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function mergeTargetIds(int $userId, int $sourceTopicId): array
+    {
+        $ids = [];
+        foreach (AP_Forum_Moderation::listMergeTargets($userId, $sourceTopicId, $this->db) as $topic) {
+            $ids[] = (int) ($topic->topic_id ?? 0);
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function mergeTargetIdsFromHelper(int $userId, int $sourceTopicId): array
+    {
+        $ids = [];
+        foreach (ap_forum_merge_targets($userId, $sourceTopicId, $this->db) as $topic) {
+            $ids[] = (int) ($topic->topic_id ?? 0);
         }
 
         return $ids;

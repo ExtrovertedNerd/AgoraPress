@@ -818,8 +818,11 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('Update type', $html);
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $html);
         $this->assertStringNotContainsString('ap_forum_move_topic', $html);
+        $this->assertStringNotContainsString('ap_forum_merge_topic', $html);
         $this->assertTrue((bool) $query->get('can_move_topic', false));
         $this->assertSame([], $query->get('move_destinations', null));
+        $this->assertTrue((bool) $query->get('can_merge_topic', false));
+        $this->assertSame([], $query->get('merge_targets', null));
     }
 
     public function testTopicToolbarMoveDestinationSelect(): void
@@ -1094,6 +1097,404 @@ final class ForumFrontTest extends TestCase
         $this->assertSame('error', $memberNotice['type'] ?? null);
         $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
         $this->assertSame($slug, (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? ''));
+    }
+
+    public function testTopicToolbarMergeTargetSelect(): void
+    {
+        $sourceForumId = AP_Forum::insertForum(['forum_name' => 'Merge Toolbar Source'], $this->db);
+        $otherForumId = AP_Forum::insertForum(['forum_name' => 'Merge Toolbar Other'], $this->db);
+        $this->assertGreaterThan(0, $sourceForumId);
+        $this->assertGreaterThan(0, $otherForumId);
+
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Merge me away',
+            'content' => 'Source body',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $sameForumTargetId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Keep in source',
+            'content' => 'Same forum target',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $otherTargetId = AP_Forum::createTopic([
+            'forum_id' => $otherForumId,
+            'topic_title' => 'Keep in other',
+            'content' => 'Other forum target',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $deletedId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Deleted merge target',
+            'content' => 'Gone',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertTrue(AP_Forum_Moderation::softDeleteTopic($deletedId, 0, $this->db));
+
+        $source = AP_Forum::getTopic($sourceId, $this->db);
+        $this->assertNotNull($source);
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $vars = AP_Rewrite::parseRequest('topic/' . $source->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        $this->assertTrue((bool) $query->get('can_merge_topic', false));
+        $targets = $query->get('merge_targets', []);
+        $this->assertIsArray($targets);
+        $targetIds = [];
+        foreach ($targets as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $targetIds[] = (int) ($row['topic_id'] ?? 0);
+        }
+        $this->assertContains($sameForumTargetId, $targetIds);
+        $this->assertContains($otherTargetId, $targetIds);
+        $this->assertNotContains($sourceId, $targetIds);
+        $this->assertNotContains($deletedId, $targetIds);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_merge_topic', $html);
+        $this->assertStringContainsString('name="target_topic_id"', $html);
+        $this->assertStringContainsString('>Keep in source — Merge Toolbar Source</option>', $html);
+        $this->assertStringContainsString('>Keep in other — Merge Toolbar Other</option>', $html);
+        $this->assertStringNotContainsString('<option value="' . $sourceId . '">', $html);
+        $this->assertStringNotContainsString('<option value="' . $deletedId . '">', $html);
+        $this->assertStringContainsString('>Merge</button>', $html);
+        $this->assertStringContainsString('id="agora-merge-target-topic"', $html);
+
+        $local = AP_User::create([
+            'user_login' => 'merge_local_mod',
+            'user_email' => 'merge_local_mod@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Local merge mod',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($local['ok'] ?? false);
+        $localId = (int) $local['id'];
+        $groupId = AP_Group::create(['group_name' => 'Source-only merge mods'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceForumId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+
+        $this->assertTrue(AP_Session::setAuthCookie($localId, false, $this->db));
+        $localQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($localQuery, $this->db);
+        ap_set_query($localQuery);
+        $this->assertTrue((bool) $localQuery->get('can_merge_topic', false));
+        $localIds = [];
+        foreach ($localQuery->get('merge_targets', []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $localIds[] = (int) ($row['topic_id'] ?? 0);
+        }
+        $this->assertContains($sameForumTargetId, $localIds);
+        $this->assertNotContains($otherTargetId, $localIds);
+        $this->assertNotContains($sourceId, $localIds);
+
+        $member = AP_User::create([
+            'user_login' => 'merge_guest_member',
+            'user_email' => 'merge_guest_member@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Member',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+
+        $memberQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($memberQuery, $this->db);
+        ap_set_query($memberQuery);
+        $this->assertFalse((bool) $memberQuery->get('can_merge_topic', false));
+        $this->assertSame([], $memberQuery->get('merge_targets', null));
+
+        ob_start();
+        AP_Theme::render($memberQuery, $this->db);
+        $memberHtml = (string) ob_get_clean();
+        $this->assertStringNotContainsString('ap_forum_merge_topic', $memberHtml);
+        $this->assertStringNotContainsString('name="target_topic_id"', $memberHtml);
+        $this->assertStringNotContainsString('>Merge</button>', $memberHtml);
+    }
+
+    public function testMergeTopicFormHtmlOmitsEmptyOrInvalidTargets(): void
+    {
+        $this->assertSame('', ap_forum_merge_topic_form_html(0, [
+            ['topic_id' => 2, 'topic_title' => 'Keep'],
+        ]));
+        $this->assertSame('', ap_forum_merge_topic_form_html(12, []));
+        $this->assertSame('', ap_forum_merge_topic_form_html(12, [
+            ['topic_id' => 0, 'topic_title' => 'Nope'],
+            ['topic_id' => 12, 'topic_title' => 'Self'],
+        ]));
+
+        $html = ap_forum_merge_topic_form_html(12, [
+            ['topic_id' => 4, 'topic_title' => 'Keep', 'forum_name' => 'General'],
+            (object) ['topic_id' => 5, 'topic_title' => 'Other', 'forum_name' => ''],
+            ['topic_id' => 12, 'topic_title' => 'Self'],
+            ['topic_id' => 6, 'topic_title' => ''],
+        ]);
+        $this->assertStringContainsString('ap_forum_merge_topic', $html);
+        $this->assertStringContainsString('name="target_topic_id"', $html);
+        $this->assertStringContainsString('value="4"', $html);
+        $this->assertStringContainsString('Keep — General', $html);
+        $this->assertStringContainsString('Other', $html);
+        $this->assertStringContainsString('(no title)', $html);
+        $this->assertStringNotContainsString('Self', $html);
+        $this->assertStringContainsString('>Merge</button>', $html);
+        $this->assertStringContainsString('Select topic', $html);
+    }
+
+    public function testMergeTopicViaFrontHandler(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Merge From Front'], $this->db);
+        $targetId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Survive merge',
+            'content' => 'Target OP',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Absorbed',
+            'content' => 'Source OP',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $sourceReply = AP_Forum::createReply([
+            'topic_id' => $sourceId,
+            'content' => 'Source reply',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $sourceReply);
+
+        $target = AP_Forum::getTopic($targetId, $this->db);
+        $this->assertNotNull($target);
+        $targetSlug = (string) ($target->topic_slug ?? '');
+        $this->assertNotSame('', $targetSlug);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $dup = AP_User::create([
+            'user_login' => 'merge_dup_sub',
+            'user_email' => 'merge_dup_sub@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Dup',
+            'role' => 'subscriber',
+        ], $this->db);
+        $onlySource = AP_User::create([
+            'user_login' => 'merge_src_sub',
+            'user_email' => 'merge_src_sub@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Source only',
+            'role' => 'subscriber',
+        ], $this->db);
+        $onlyTarget = AP_User::create([
+            'user_login' => 'merge_tgt_sub',
+            'user_email' => 'merge_tgt_sub@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Target only',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($dup['ok'] ?? false);
+        $this->assertTrue($onlySource['ok'] ?? false);
+        $this->assertTrue($onlyTarget['ok'] ?? false);
+        $dupId = (int) $dup['id'];
+        $onlySourceId = (int) $onlySource['id'];
+        $onlyTargetId = (int) $onlyTarget['id'];
+        $this->assertTrue(AP_Forum_Notify::subscribe($this->userId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($dupId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($dupId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($onlySourceId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($onlyTargetId, $targetId, $this->db));
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MERGE_TOPIC,
+            'topic_id' => $sourceId,
+            'target_topic_id' => $targetId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_merge_topic_' . $sourceId, $this->userId),
+        ], $this->db);
+
+        $this->assertIsString($redirect);
+        $this->assertStringContainsString('ap_forum_notice=topics_merged', (string) $redirect);
+        $this->assertStringContainsString($targetSlug, (string) $redirect);
+
+        $this->assertNull(AP_Forum::getTopic($sourceId, $this->db));
+        $posts = AP_Forum::getPosts($targetId, ['approved_only' => false], $this->db);
+        $this->assertCount(3, $posts);
+        $ids = array_map(static fn ($p) => (int) $p->post_id, $posts);
+        $this->assertContains($sourceReply, $ids);
+
+        $forum = AP_Forum::getForum($forumId, $this->db);
+        $this->assertNotNull($forum);
+        $this->assertSame(1, (int) ($forum->topic_count ?? -1));
+        $this->assertSame(3, (int) ($forum->post_count ?? -1));
+        $this->assertSame($targetId, (int) ($forum->last_topic_id ?? 0));
+        $this->assertSame($sourceReply, (int) ($forum->last_post_id ?? 0));
+        $kept = AP_Forum::getTopic($targetId, $this->db);
+        $this->assertNotNull($kept);
+        $this->assertNotSame(AP_Forum::TOPIC_STATUS_MOVED, (string) ($kept->topic_status ?? ''));
+
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($this->userId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($dupId, $targetId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($dupId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($onlySourceId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($onlyTargetId, $targetId, $this->db));
+        $subCount = (int) $this->db->getVar(
+            'SELECT COUNT(*) FROM '
+            . $this->db->quoteIdentifier($this->db->table('topic_subscriptions'))
+            . ' WHERE ' . $this->db->quoteIdentifier('topic_id') . ' = ?',
+            [$targetId]
+        );
+        $this->assertSame(4, $subCount);
+
+        $_GET['ap_forum_notice'] = 'topics_merged';
+        $notice = AP_Forum_Front::getNotice();
+        unset($_GET['ap_forum_notice']);
+        $this->assertNotNull($notice);
+        $this->assertSame('success', $notice['type'] ?? null);
+        $this->assertSame('Topics merged.', $notice['message'] ?? null);
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $targetSlug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+        $_GET['ap_forum_notice'] = 'topics_merged';
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        unset($_GET['ap_forum_notice']);
+        $this->assertSame($targetId, (int) $query->get('topic_id', 0));
+        $this->assertStringContainsString('ap-forum-notice--success', $html);
+        $this->assertStringContainsString('Topics merged.', $html);
+    }
+
+    public function testMergeTopicViaFrontHandlerRefusesUnmoderateableTargetAndMember(): void
+    {
+        $sourceForumId = AP_Forum::insertForum(['forum_name' => 'Merge Cap Source'], $this->db);
+        $otherForumId = AP_Forum::insertForum(['forum_name' => 'Merge Cap Other'], $this->db);
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Stay unless allowed',
+            'content' => 'Source body',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $sameTargetId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Same-forum keep',
+            'content' => 'Same body',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $otherTargetId = AP_Forum::createTopic([
+            'forum_id' => $otherForumId,
+            'topic_title' => 'Off-limits keep',
+            'content' => 'Other body',
+            'poster_id' => $this->userId,
+        ], $this->db);
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $selfRedirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MERGE_TOPIC,
+            'topic_id' => $sourceId,
+            'target_topic_id' => $sourceId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_merge_topic_' . $sourceId, $this->userId),
+        ], $this->db);
+        $this->assertNull($selfRedirect);
+        $selfNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $selfNotice['type'] ?? null);
+        $this->assertNotNull(AP_Forum::getTopic($sourceId, $this->db));
+
+        AP_Forum_Front::setNotice(null);
+        $missing = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MERGE_TOPIC,
+            'topic_id' => $sourceId,
+            'target_topic_id' => 0,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_merge_topic_' . $sourceId, $this->userId),
+        ], $this->db);
+        $this->assertNull($missing);
+        $this->assertNotNull(AP_Forum::getTopic($sourceId, $this->db));
+
+        $local = AP_User::create([
+            'user_login' => 'merge_cap_local',
+            'user_email' => 'merge_cap_local@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Local mod',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($local['ok'] ?? false);
+        $localId = (int) $local['id'];
+        $groupId = AP_Group::create(['group_name' => 'Merge source-only mods'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceForumId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+
+        AP_Forum_Front::setNotice(null);
+        $this->assertTrue(AP_Session::setAuthCookie($localId, false, $this->db));
+        $missingCap = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MERGE_TOPIC,
+            'topic_id' => $sourceId,
+            'target_topic_id' => $otherTargetId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_merge_topic_' . $sourceId, $localId),
+        ], $this->db);
+        $this->assertNull($missingCap);
+        $missingNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $missingNotice['type'] ?? null);
+        $this->assertNotNull(AP_Forum::getTopic($sourceId, $this->db));
+        $this->assertNotNull(AP_Forum::getTopic($otherTargetId, $this->db));
+
+        $member = AP_User::create([
+            'user_login' => 'merge_plain_member',
+            'user_email' => 'merge_plain_member@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Member',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+        AP_Forum_Front::setNotice(null);
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+        $memberDenied = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MERGE_TOPIC,
+            'topic_id' => $sourceId,
+            'target_topic_id' => $sameTargetId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_merge_topic_' . $sourceId, $memberId),
+        ], $this->db);
+        $this->assertNull($memberDenied);
+        $memberNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $memberNotice['type'] ?? null);
+        $this->assertNotNull(AP_Forum::getTopic($sourceId, $this->db));
+
+        AP_Forum_Front::setNotice(null);
+        $this->assertTrue(AP_Session::setAuthCookie($localId, false, $this->db));
+        $ok = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MERGE_TOPIC,
+            'topic_id' => $sourceId,
+            'target_topic_id' => $sameTargetId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_merge_topic_' . $sourceId, $localId),
+        ], $this->db);
+        $this->assertIsString($ok);
+        $this->assertStringContainsString('ap_forum_notice=topics_merged', (string) $ok);
+        $this->assertNull(AP_Forum::getTopic($sourceId, $this->db));
+        $this->assertNotNull(AP_Forum::getTopic($sameTargetId, $this->db));
+        $this->assertNotNull(AP_Forum::getTopic($otherTargetId, $this->db));
     }
 
     public function testTopicSubscribeChromeWhenSiteOnLoggedInCanView(): void

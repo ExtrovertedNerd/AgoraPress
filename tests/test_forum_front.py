@@ -58,12 +58,15 @@ def test_forum_front_class_api() -> None:
         "ACTION_REPLY",
         "ACTION_SET_TOPIC_TYPE",
         "ACTION_MOVE_TOPIC",
+        "ACTION_MERGE_TOPIC",
         "ACTION_SUBSCRIBE_TOPIC",
         "ACTION_UNSUBSCRIBE_TOPIC",
         "handleSetTopicType",
         "handleMoveTopic",
+        "handleMergeTopic",
         "handleSubscribeTopic",
         "topic_moved",
+        "topics_merged",
         "topic_subscribed_email_on",
         "topic_created_email_on",
         "reply_posted_email_on",
@@ -73,6 +76,8 @@ def test_forum_front_class_api() -> None:
         "topic_type",
         "can_move_topic",
         "move_destinations",
+        "can_merge_topic",
+        "merge_targets",
         "can_subscribe",
         "topic_subscribed",
         "viewerMaySubscribe",
@@ -86,6 +91,10 @@ def test_forum_front_class_api() -> None:
         "function testMoveTopicFormHtmlOmitsEmptyOrInvalidDests",
         "function testMoveTopicViaFrontHandler",
         "function testMoveTopicViaFrontHandlerRefusesCategoryMissingCapAndMember",
+        "function testTopicToolbarMergeTargetSelect",
+        "function testMergeTopicFormHtmlOmitsEmptyOrInvalidTargets",
+        "function testMergeTopicViaFrontHandler",
+        "function testMergeTopicViaFrontHandlerRefusesUnmoderateableTargetAndMember",
         "function testTopicSubscribeChromeWhenSiteOnLoggedInCanView",
         "function testSubscribeWhenMembersReadonlyCanViewButNotReply",
         "function testSubscribeHonorsGroupOnlyViewForum",
@@ -137,6 +146,10 @@ def test_agora_templates_have_live_forms() -> None:
     assert "move_destinations" in topic
     assert "ap_forum_move_topic" in topic
     assert "ap_forum_move_topic_form_html" in topic
+    assert "can_merge_topic" in topic
+    assert "merge_targets" in topic
+    assert "ap_forum_merge_topic" in topic
+    assert "ap_forum_merge_topic_form_html" in topic
     assert "can_subscribe" in topic
     assert "topic_subscribed" in topic
     assert "ap_forum_topic_subscribe_form_html" in topic
@@ -156,6 +169,8 @@ def test_agora_templates_have_live_forms() -> None:
     assert ".ap-field--topic-type" in style
     assert ".ap-field--move-dest" in style
     assert ".ap-forum-action-form--move-topic" in style
+    assert ".ap-field--merge-target" in style
+    assert ".ap-forum-action-form--merge-topic" in style
     assert ".ap-forum-post__actions" in style
     assert ".ap-forum-subscribe" in style
     assert ".ap-forum-toolbar--topic" in style
