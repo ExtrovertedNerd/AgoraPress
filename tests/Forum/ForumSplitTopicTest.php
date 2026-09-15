@@ -98,6 +98,7 @@ final class ForumSplitTopicTest extends TestCase
 
         $opId = (int) (AP_Forum::getTopic($topicId, $this->db)?->first_post_id ?? 0);
         $this->assertGreaterThan(0, $opId);
+        $this->assertSame(4, $this->postCountForTopic($topicId));
 
         $newId = AP_Forum_Moderation::splitTopic($topicId, [$r1, $r2], [
             'title' => 'Split off',
@@ -107,6 +108,7 @@ final class ForumSplitTopicTest extends TestCase
 
         $newPosts = AP_Forum::getPosts($newId, ['approved_only' => false], $this->db);
         $this->assertCount(2, $newPosts);
+        $this->assertSame(2, $this->postCountForTopic($newId));
         $newIds = array_map(static fn ($p) => (int) $p->post_id, $newPosts);
         $this->assertContains($r1, $newIds);
         $this->assertContains($r2, $newIds);
@@ -118,11 +120,27 @@ final class ForumSplitTopicTest extends TestCase
         }
 
         $origPosts = AP_Forum::getPosts($topicId, ['approved_only' => false], $this->db);
+        $this->assertCount(2, $origPosts);
+        $this->assertSame(2, $this->postCountForTopic($topicId));
         $origIds = array_map(static fn ($p) => (int) $p->post_id, $origPosts);
         $this->assertContains($opId, $origIds);
         $this->assertContains($stay, $origIds);
         $this->assertNotContains($r1, $origIds);
         $this->assertNotContains($r2, $origIds);
+        foreach ($origPosts as $post) {
+            $this->assertSame($topicId, (int) $post->topic_id);
+            $this->assertSame($forumId, (int) $post->forum_id);
+        }
+
+        $this->assertSame(4, $this->postCountForTopic($topicId) + $this->postCountForTopic($newId));
+        $this->assertSame(0, $this->topicCountByStatus(AP_Forum::TOPIC_STATUS_MOVED));
+
+        $orig = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($orig);
+        $this->assertSame($opId, (int) $orig->first_post_id);
+        $this->assertSame($stay, (int) $orig->last_post_id);
+        $this->assertSame(1, (int) $orig->reply_count);
+        $this->assertSame('Original thread', (string) $orig->topic_title);
 
         $new = AP_Forum::getTopic($newId, $this->db);
         $this->assertNotNull($new);
@@ -131,6 +149,7 @@ final class ForumSplitTopicTest extends TestCase
         $this->assertSame($r2, (int) $new->last_post_id);
         $this->assertSame(1, (int) $new->reply_count);
         $this->assertNotSame(AP_Forum::TOPIC_STATUS_MOVED, (string) $new->topic_status);
+        $this->assertNotSame((string) $orig->topic_slug, (string) $new->topic_slug);
     }
 
     /**
@@ -162,11 +181,34 @@ final class ForumSplitTopicTest extends TestCase
         $opId = (int) (AP_Forum::getTopic($topicId, $this->db)?->first_post_id ?? 0);
         $this->assertGreaterThan(0, $opId);
 
+        $this->assertSame(0, AP_Forum_Moderation::splitTopic($topicId, [], [
+            'title' => 'Should fail empty',
+        ], $this->db));
+        $this->assertSame(0, AP_Forum_Moderation::splitTopic($topicId, [0, -1], [
+            'title' => 'Should fail junk',
+        ], $this->db));
         $this->assertSame(0, AP_Forum_Moderation::splitTopic($topicId, [$opId, $r1, $r2], [
             'title' => 'Should fail',
         ], $this->db));
         $this->assertCount(3, AP_Forum::getPosts($topicId, ['approved_only' => false], $this->db));
         $this->assertSame(1, $this->topicCount($forumId));
+
+        $soloForumId = AP_Forum::insertForum(['forum_name' => 'Split Solo'], $this->db);
+        $soloId = AP_Forum::createTopic([
+            'forum_id' => $soloForumId,
+            'topic_title' => 'Only the OP',
+            'content' => 'Solo OP',
+            'poster_id' => 24,
+        ], $this->db);
+        $this->assertGreaterThan(0, $soloId);
+        $soloOpId = (int) (AP_Forum::getTopic($soloId, $this->db)?->first_post_id ?? 0);
+        $this->assertGreaterThan(0, $soloOpId);
+        $this->assertSame(0, AP_Forum_Moderation::splitTopic($soloId, [$soloOpId], [
+            'title' => 'Cannot empty a single-post topic',
+        ], $this->db));
+        $this->assertCount(1, AP_Forum::getPosts($soloId, ['approved_only' => false], $this->db));
+        $this->assertSame(1, $this->topicCount($soloForumId));
+        $this->assertNotNull(AP_Forum::getTopic($soloId, $this->db));
 
         $newId = AP_Forum_Moderation::splitTopic($topicId, [$r1, $r2], [
             'title' => 'Offshoot',
@@ -186,6 +228,54 @@ final class ForumSplitTopicTest extends TestCase
         $this->assertSame(0, (int) $orig->reply_count);
         $this->assertNotNull(AP_Forum::getTopic($newId, $this->db));
         $this->assertSame(2, $this->topicCount($forumId));
+
+        $opForumId = AP_Forum::insertForum(['forum_name' => 'Split Keep Replies'], $this->db);
+        $opSourceId = AP_Forum::createTopic([
+            'forum_id' => $opForumId,
+            'topic_title' => 'OP moves away',
+            'content' => 'Opening that leaves',
+            'poster_id' => 25,
+        ], $this->db);
+        $keepA = AP_Forum::createReply([
+            'topic_id' => $opSourceId,
+            'content' => 'Keep A',
+            'poster_id' => 26,
+        ], $this->db);
+        $keepB = AP_Forum::createReply([
+            'topic_id' => $opSourceId,
+            'content' => 'Keep B',
+            'poster_id' => 27,
+        ], $this->db);
+        $this->assertGreaterThan(0, $opSourceId);
+        $this->assertGreaterThan(0, $keepA);
+        $this->assertGreaterThan(0, $keepB);
+        $movedOpId = (int) (AP_Forum::getTopic($opSourceId, $this->db)?->first_post_id ?? 0);
+        $this->assertGreaterThan(0, $movedOpId);
+
+        $opOffshootId = AP_Forum_Moderation::splitTopic($opSourceId, [$movedOpId], [
+            'title' => 'Opening offshoot',
+        ], $this->db);
+        $this->assertGreaterThan(0, $opOffshootId);
+
+        $kept = AP_Forum::getPosts($opSourceId, ['approved_only' => false], $this->db);
+        $this->assertGreaterThanOrEqual(1, count($kept));
+        $this->assertCount(2, $kept);
+        $keptIds = array_map(static fn ($p) => (int) $p->post_id, $kept);
+        $this->assertContains($keepA, $keptIds);
+        $this->assertContains($keepB, $keptIds);
+        $this->assertNotContains($movedOpId, $keptIds);
+
+        $keptTopic = AP_Forum::getTopic($opSourceId, $this->db);
+        $this->assertNotNull($keptTopic);
+        $this->assertSame($keepA, (int) $keptTopic->first_post_id);
+        $this->assertSame($keepB, (int) $keptTopic->last_post_id);
+        $this->assertSame(1, (int) $keptTopic->reply_count);
+
+        $opOffshoot = AP_Forum::getTopic($opOffshootId, $this->db);
+        $this->assertNotNull($opOffshoot);
+        $this->assertSame($movedOpId, (int) $opOffshoot->first_post_id);
+        $this->assertSame($movedOpId, (int) $opOffshoot->last_post_id);
+        $this->assertCount(1, AP_Forum::getPosts($opOffshootId, ['approved_only' => false], $this->db));
     }
 
     /**
@@ -223,6 +313,15 @@ final class ForumSplitTopicTest extends TestCase
         $this->assertGreaterThan(0, $r1);
         $this->assertGreaterThan(0, $r2);
 
+        $older = AP_Forum::getTopic($olderId, $this->db);
+        $source = AP_Forum::getTopic($sourceId, $this->db);
+        $this->assertNotNull($older);
+        $this->assertNotNull($source);
+        $olderSlug = (string) $older->topic_slug;
+        $sourceSlug = (string) $source->topic_slug;
+        $sourceOpId = (int) $source->first_post_id;
+        $this->assertGreaterThan(0, $sourceOpId);
+
         $before = AP_Forum::getForum($forumId, $this->db);
         $this->assertSame($sourceId, (int) ($before?->last_topic_id ?? 0));
         $this->assertSame($r2, (int) ($before?->last_post_id ?? 0));
@@ -231,8 +330,15 @@ final class ForumSplitTopicTest extends TestCase
             'title' => 'Newest offshoot',
         ], $this->db);
         $this->assertGreaterThan(0, $newId);
+
+        $origAfter = AP_Forum::getTopic($sourceId, $this->db);
+        $this->assertNotNull($origAfter);
+        $this->assertSame($sourceOpId, (int) $origAfter->last_post_id);
+        $this->assertSame(0, (int) $origAfter->reply_count);
+
         $this->assertSameLastPost($forumId, $newId, $r2, 34, 'Newest offshoot');
-        $this->assertLastPostDoesNotPointAt($forumId, $olderId, 'Older stay');
+        $this->assertLastPostDoesNotPointAt($forumId, $olderId, (int) $older->last_post_id, 'Older stay', $olderSlug);
+        $this->assertLastPostDoesNotPointAt($forumId, $sourceId, $sourceOpId, 'Split source', $sourceSlug);
 
         $keepNewestForum = AP_Forum::insertForum(['forum_name' => 'Split Last Keep'], $this->db);
         $keepSourceId = AP_Forum::createTopic([
@@ -259,13 +365,29 @@ final class ForumSplitTopicTest extends TestCase
             'title' => 'Mid offshoot',
         ], $this->db);
         $this->assertGreaterThan(0, $offshootId);
+
+        $keepAfter = AP_Forum::getTopic($keepSourceId, $this->db);
+        $this->assertNotNull($keepAfter);
+        $this->assertSame($newest, (int) $keepAfter->last_post_id);
+
+        $offshoot = AP_Forum::getTopic($offshootId, $this->db);
+        $this->assertNotNull($offshoot);
+        $offshootSlug = (string) $offshoot->topic_slug;
+
         $this->assertSameLastPost($keepNewestForum, $keepSourceId, $newest, 43, 'Keep newest here');
-        $this->assertLastPostDoesNotPointAt($keepNewestForum, $offshootId, 'Mid offshoot');
+        $this->assertLastPostDoesNotPointAt(
+            $keepNewestForum,
+            $offshootId,
+            $mid,
+            'Mid offshoot',
+            $offshootSlug
+        );
 
         $sourceForumId = AP_Forum::insertForum(['forum_name' => 'Split Last Src'], $this->db);
         $destForumId = AP_Forum::insertForum(['forum_name' => 'Split Last Dest'], $this->db);
         $this->assertGreaterThan(0, $sourceForumId);
         $this->assertGreaterThan(0, $destForumId);
+        $this->assertEmptyLastPost($destForumId);
 
         $stayId = AP_Forum::createTopic([
             'forum_id' => $sourceForumId,
@@ -288,7 +410,13 @@ final class ForumSplitTopicTest extends TestCase
         $this->assertGreaterThan(0, $crossSourceId);
         $this->assertGreaterThan(0, $crossReply);
 
-        $crossOpId = (int) (AP_Forum::getTopic($crossSourceId, $this->db)?->first_post_id ?? 0);
+        $stay = AP_Forum::getTopic($stayId, $this->db);
+        $crossSource = AP_Forum::getTopic($crossSourceId, $this->db);
+        $this->assertNotNull($stay);
+        $this->assertNotNull($crossSource);
+        $staySlug = (string) $stay->topic_slug;
+        $crossSlug = (string) $crossSource->topic_slug;
+        $crossOpId = (int) $crossSource->first_post_id;
         $this->assertGreaterThan(0, $crossOpId);
         $sourceBefore = AP_Forum::getForum($sourceForumId, $this->db);
         $this->assertSame($crossSourceId, (int) ($sourceBefore?->last_topic_id ?? 0));
@@ -300,12 +428,105 @@ final class ForumSplitTopicTest extends TestCase
         ], $this->db);
         $this->assertGreaterThan(0, $crossNewId);
 
+        $crossNew = AP_Forum::getTopic($crossNewId, $this->db);
+        $this->assertNotNull($crossNew);
+        $crossNewSlug = (string) $crossNew->topic_slug;
+        $this->assertNotSame($crossSlug, $crossNewSlug);
+
         $this->assertSameLastPost($sourceForumId, $crossSourceId, $crossOpId, 52, 'Cross split source');
-        $this->assertLastPostDoesNotPointAt($sourceForumId, $crossNewId, 'Cross offshoot');
-        $this->assertLastPostDoesNotPointAt($sourceForumId, $stayId, 'Stays on source');
+        $this->assertLastPostDoesNotPointAt(
+            $sourceForumId,
+            $crossNewId,
+            $crossReply,
+            'Cross offshoot',
+            $crossNewSlug
+        );
+        $this->assertLastPostDoesNotPointAt(
+            $sourceForumId,
+            $stayId,
+            (int) $stay->last_post_id,
+            'Stays on source',
+            $staySlug
+        );
         $this->assertSameLastPost($destForumId, $crossNewId, $crossReply, 53, 'Cross offshoot');
-        $this->assertLastPostDoesNotPointAt($destForumId, $crossSourceId, 'Cross split source');
-        $this->assertEmptyLastPostDoesNotApply($destForumId);
+        $this->assertLastPostDoesNotPointAt(
+            $destForumId,
+            $crossSourceId,
+            $crossOpId,
+            'Cross split source',
+            $crossSlug
+        );
+
+        $busyDestId = AP_Forum::insertForum(['forum_name' => 'Split Last Busy Dest'], $this->db);
+        $busySrcId = AP_Forum::insertForum(['forum_name' => 'Split Last Busy Src'], $this->db);
+        $this->assertGreaterThan(0, $busyDestId);
+        $this->assertGreaterThan(0, $busySrcId);
+
+        $destStayId = AP_Forum::createTopic([
+            'forum_id' => $busyDestId,
+            'topic_title' => 'Dest older stay',
+            'content' => 'Dest older OP',
+            'poster_id' => 61,
+        ], $this->db);
+        $busySourceId = AP_Forum::createTopic([
+            'forum_id' => $busySrcId,
+            'topic_title' => 'Busy source',
+            'content' => 'Busy OP',
+            'poster_id' => 62,
+        ], $this->db);
+        $busyReply = AP_Forum::createReply([
+            'topic_id' => $busySourceId,
+            'content' => 'Busy newest',
+            'poster_id' => 63,
+        ], $this->db);
+        $this->assertGreaterThan(0, $destStayId);
+        $this->assertGreaterThan(0, $busySourceId);
+        $this->assertGreaterThan(0, $busyReply);
+
+        $destStay = AP_Forum::getTopic($destStayId, $this->db);
+        $busySource = AP_Forum::getTopic($busySourceId, $this->db);
+        $this->assertNotNull($destStay);
+        $this->assertNotNull($busySource);
+        $destStaySlug = (string) $destStay->topic_slug;
+        $busyOpId = (int) $busySource->first_post_id;
+        $this->assertGreaterThan(0, $busyOpId);
+        $this->assertSameLastPost(
+            $busyDestId,
+            $destStayId,
+            (int) $destStay->last_post_id,
+            61,
+            'Dest older stay'
+        );
+
+        $busyNewId = AP_Forum_Moderation::splitTopic($busySourceId, [$busyReply], [
+            'title' => 'Busy offshoot',
+            'forum_id' => $busyDestId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $busyNewId);
+
+        $this->assertSameLastPost($busyDestId, $busyNewId, $busyReply, 63, 'Busy offshoot');
+        $this->assertLastPostDoesNotPointAt(
+            $busyDestId,
+            $destStayId,
+            (int) $destStay->last_post_id,
+            'Dest older stay',
+            $destStaySlug
+        );
+        $this->assertSameLastPost($busySrcId, $busySourceId, $busyOpId, 62, 'Busy source');
+        $this->assertLastPostDoesNotPointAt(
+            $busySrcId,
+            $busyNewId,
+            $busyReply,
+            'Busy offshoot',
+            (string) (AP_Forum::getTopic($busyNewId, $this->db)?->topic_slug ?? '')
+        );
+        $this->assertLastPostDoesNotPointAt(
+            $busySrcId,
+            $destStayId,
+            (int) $destStay->last_post_id,
+            'Dest older stay',
+            $destStaySlug
+        );
     }
 
     private function assertSameLastPost(
@@ -331,33 +552,66 @@ final class ForumSplitTopicTest extends TestCase
         $url = (string) $last['url'];
         $this->assertStringContainsString('#post-' . $postId, $url);
         $this->assertStringContainsString('topic_id=' . $topicId, $url);
+        $this->assertNotSame('', $url);
+        $this->assertNotSame('', (string) $last['title']);
     }
 
-    private function assertLastPostDoesNotPointAt(int $forumId, int $otherTopicId, string $otherTitle): void
-    {
+    private function assertLastPostDoesNotPointAt(
+        int $forumId,
+        int $otherTopicId,
+        int $otherPostId,
+        string $otherTitle,
+        string $otherSlug
+    ): void {
         $forum = AP_Forum::getForum($forumId, $this->db);
         $this->assertNotNull($forum);
         $this->assertNotSame($otherTopicId, (int) $forum->last_topic_id);
 
         $row = AP_Forum::forumToDisplayRow($forum, $this->db);
         $last = $row['last_post'] ?? null;
-        $this->assertIsArray($last);
+        if ($last === null) {
+            $this->assertSame('', (string) ($row['last_post']['title'] ?? ''));
+            $this->assertSame('', (string) ($row['last_post']['url'] ?? ''));
+
+            return;
+        }
+
         $this->assertNotSame($otherTopicId, (int) ($last['topic_id'] ?? 0));
         $this->assertNotSame($otherTitle, (string) ($last['title'] ?? ''));
         $url = (string) ($last['url'] ?? '');
         $this->assertStringNotContainsString('topic_id=' . $otherTopicId, $url);
+        if ($otherSlug !== '') {
+            $this->assertStringNotContainsString('topic/' . $otherSlug, $url);
+        }
+        if ((int) ($last['post_id'] ?? 0) === $otherPostId) {
+            $this->assertSame((int) $forum->last_topic_id, (int) ($last['topic_id'] ?? 0));
+            $this->assertNotSame($otherTopicId, (int) ($last['topic_id'] ?? 0));
+        }
     }
 
-    private function assertEmptyLastPostDoesNotApply(int $forumId): void
+    private function assertEmptyLastPost(int $forumId): void
     {
         $forum = AP_Forum::getForum($forumId, $this->db);
         $this->assertNotNull($forum);
-        $this->assertGreaterThan(0, (int) $forum->last_post_id);
-        $this->assertGreaterThan(0, (int) $forum->last_topic_id);
+        $this->assertSame(0, (int) $forum->last_post_id);
+        $this->assertSame(0, (int) $forum->last_topic_id);
+        $this->assertSame(0, (int) $forum->last_poster_id);
+        $this->assertSame(AP_Forum::EMPTY_DATETIME, (string) $forum->last_post_time);
+
         $row = AP_Forum::forumToDisplayRow($forum, $this->db);
-        $this->assertIsArray($row['last_post'] ?? null);
-        $this->assertNotSame('', (string) ($row['last_post']['url'] ?? ''));
-        $this->assertNotSame('', (string) ($row['last_post']['title'] ?? ''));
+        $this->assertNull($row['last_post']);
+        $this->assertSame('', (string) ($row['last_post']['title'] ?? ''));
+        $this->assertSame('', (string) ($row['last_post']['url'] ?? ''));
+    }
+
+    private function postCountForTopic(int $topicId): int
+    {
+        return (int) $this->db->getVar(
+            'SELECT COUNT(*) FROM '
+            . $this->db->quoteIdentifier($this->db->table('forum_posts'))
+            . ' WHERE ' . $this->db->quoteIdentifier('topic_id') . ' = ?',
+            [$topicId]
+        );
     }
 
     private function topicCount(int $forumId): int
@@ -367,6 +621,16 @@ final class ForumSplitTopicTest extends TestCase
             . $this->db->quoteIdentifier($this->db->table('topics'))
             . ' WHERE ' . $this->db->quoteIdentifier('forum_id') . ' = ?',
             [$forumId]
+        );
+    }
+
+    private function topicCountByStatus(string $status): int
+    {
+        return (int) $this->db->getVar(
+            'SELECT COUNT(*) FROM '
+            . $this->db->quoteIdentifier($this->db->table('topics'))
+            . ' WHERE ' . $this->db->quoteIdentifier('topic_status') . ' = ?',
+            [$status]
         );
     }
 }

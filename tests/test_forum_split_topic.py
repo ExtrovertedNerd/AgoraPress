@@ -37,7 +37,14 @@ def test_phpunit_covers_split_spec_cases() -> None:
         "EMPTY_DATETIME",
         "forumToDisplayRow",
         "assertLastPostDoesNotPointAt",
+        "assertEmptyLastPost",
+        "postCountForTopic",
+        "topic_slug",
         "keeps at least one",
+        "single-post topic",
+        "Newest offshoot",
+        "Cross offshoot",
+        "Busy offshoot",
     ):
         assert needle in src, f"Expected {needle!r} in ForumSplitTopicTest.php"
 
