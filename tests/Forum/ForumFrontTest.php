@@ -1488,6 +1488,10 @@ final class ForumFrontTest extends TestCase
             $base . $sep . 'ap_forum_notice=topics_merged',
             AP_Forum::topicUrlWithNotice(42, 'TOPICS_MERGED')
         );
+        $this->assertSame(
+            $base . $sep . 'ap_forum_notice=topic_split',
+            AP_Forum::topicUrlWithNotice(42, 'topic_split')
+        );
         $this->assertSame($base, AP_Forum::topicUrlWithNotice(42, '!!!'));
     }
 
@@ -1738,6 +1742,300 @@ final class ForumFrontTest extends TestCase
             (string) $ok
         );
         $this->assertNotNull(AP_Forum::getTopic($otherTargetId, $this->db));
+    }
+
+    public function testSplitTopicViaFrontHandler(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Split From Front'], $this->db);
+        $olderId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Older stay',
+            'content' => 'Older OP',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Split source',
+            'content' => 'Source OP stays',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $r1 = AP_Forum::createReply([
+            'topic_id' => $sourceId,
+            'content' => 'Move me',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $r2 = AP_Forum::createReply([
+            'topic_id' => $sourceId,
+            'content' => 'Move me too',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $olderId);
+        $this->assertGreaterThan(0, $sourceId);
+        $this->assertGreaterThan(0, $r1);
+        $this->assertGreaterThan(0, $r2);
+
+        $source = AP_Forum::getTopic($sourceId, $this->db);
+        $this->assertNotNull($source);
+        $opId = (int) ($source->first_post_id ?? 0);
+        $this->assertGreaterThan(0, $opId);
+        $sourceSlug = (string) ($source->topic_slug ?? '');
+        $this->assertNotSame('', $sourceSlug);
+
+        $seen = [
+            'source' => 0,
+            'new' => 0,
+            'moved' => [],
+            'moderator' => 0,
+        ];
+        ap_add_action(
+            'ap_moderation_topic_split',
+            static function (
+                mixed $sourceTopicId,
+                mixed $newTopicId,
+                mixed $movedIds,
+                mixed $moderatorId
+            ) use (&$seen): void {
+                $seen['source'] = (int) $sourceTopicId;
+                $seen['new'] = (int) $newTopicId;
+                $seen['moved'] = is_array($movedIds)
+                    ? array_map(static fn ($id): int => (int) $id, $movedIds)
+                    : [];
+                $seen['moderator'] = (int) $moderatorId;
+            },
+            10,
+            4
+        );
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SPLIT_TOPIC,
+            'topic_id' => $sourceId,
+            'topic_title' => 'Split off',
+            'post_ids' => [$r1, $r2],
+            '_ap_nonce' => AP_Nonce::create('ap_forum_split_topic_' . $sourceId, $this->userId),
+        ], $this->db);
+
+        $this->assertSame($sourceId, $seen['source']);
+        $this->assertSame($this->userId, $seen['moderator']);
+        $this->assertGreaterThan(0, $seen['new']);
+        $this->assertNotSame($sourceId, $seen['new']);
+        $this->assertContains($r1, $seen['moved']);
+        $this->assertContains($r2, $seen['moved']);
+
+        $created = AP_Forum::getTopic($seen['new'], $this->db);
+        $this->assertNotNull($created);
+        $newSlug = (string) ($created->topic_slug ?? '');
+        $this->assertNotSame('', $newSlug);
+        $this->assertNotSame($sourceSlug, $newSlug);
+
+        $this->assertIsString($redirect);
+        $this->assertStringContainsString('ap_forum_notice=topic_split', (string) $redirect);
+        $this->assertStringContainsString($newSlug, (string) $redirect);
+        $this->assertStringNotContainsString($sourceSlug, (string) $redirect);
+        $this->assertSame(
+            AP_Forum::topicUrlWithNotice($created, 'topic_split'),
+            (string) $redirect
+        );
+
+        $this->assertNotNull(AP_Forum::getTopic($sourceId, $this->db));
+        $origPosts = AP_Forum::getPosts($sourceId, ['approved_only' => false], $this->db);
+        $this->assertCount(1, $origPosts);
+        $this->assertSame($opId, (int) $origPosts[0]->post_id);
+
+        $newPosts = AP_Forum::getPosts($seen['new'], ['approved_only' => false], $this->db);
+        $this->assertCount(2, $newPosts);
+        $newIds = array_map(static fn ($p) => (int) $p->post_id, $newPosts);
+        $this->assertContains($r1, $newIds);
+        $this->assertContains($r2, $newIds);
+        $this->assertSame('Split off', (string) ($created->topic_title ?? ''));
+        $this->assertSame($forumId, (int) ($created->forum_id ?? 0));
+        $this->assertNotSame(AP_Forum::TOPIC_STATUS_MOVED, (string) ($created->topic_status ?? ''));
+
+        $forum = AP_Forum::getForum($forumId, $this->db);
+        $this->assertNotNull($forum);
+        $this->assertSame(3, (int) ($forum->topic_count ?? -1));
+        $this->assertSame(4, (int) ($forum->post_count ?? -1));
+        $this->assertSame($seen['new'], (int) ($forum->last_topic_id ?? 0));
+        $this->assertSame($r2, (int) ($forum->last_post_id ?? 0));
+        $this->assertSame($this->userId, (int) ($forum->last_poster_id ?? 0));
+
+        $_GET['ap_forum_notice'] = 'topic_split';
+        $notice = AP_Forum_Front::getNotice();
+        unset($_GET['ap_forum_notice']);
+        $this->assertNotNull($notice);
+        $this->assertSame('success', $notice['type'] ?? null);
+        $this->assertSame('Topic split.', $notice['message'] ?? null);
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $newSlug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+        $_GET['ap_forum_notice'] = 'topic_split';
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        unset($_GET['ap_forum_notice']);
+        $this->assertSame($seen['new'], (int) $query->get('topic_id', 0));
+        $this->assertStringContainsString('ap-forum-notice--success', $html);
+        $this->assertStringContainsString('Topic split.', $html);
+    }
+
+    public function testSplitTopicViaFrontHandlerRefusesLeaveNoneDestCapAndMember(): void
+    {
+        $sourceForumId = AP_Forum::insertForum(['forum_name' => 'Split Cap Source'], $this->db);
+        $destForumId = AP_Forum::insertForum(['forum_name' => 'Split Cap Dest'], $this->db);
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $sourceForumId,
+            'topic_title' => 'Stay unless allowed',
+            'content' => 'Source OP',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $r1 = AP_Forum::createReply([
+            'topic_id' => $sourceId,
+            'content' => 'Reply one',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $r2 = AP_Forum::createReply([
+            'topic_id' => $sourceId,
+            'content' => 'Reply two',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $r1);
+        $this->assertGreaterThan(0, $r2);
+
+        $opId = (int) (AP_Forum::getTopic($sourceId, $this->db)?->first_post_id ?? 0);
+        $this->assertGreaterThan(0, $opId);
+        $topicCountBefore = $this->topicCountOnForum($sourceForumId);
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $none = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SPLIT_TOPIC,
+            'topic_id' => $sourceId,
+            'topic_title' => 'Should fail empty',
+            'post_ids' => [],
+            '_ap_nonce' => AP_Nonce::create('ap_forum_split_topic_' . $sourceId, $this->userId),
+        ], $this->db);
+        $this->assertNull($none);
+        $noneNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $noneNotice['type'] ?? null);
+        $this->assertCount(3, AP_Forum::getPosts($sourceId, ['approved_only' => false], $this->db));
+        $this->assertSame($topicCountBefore, $this->topicCountOnForum($sourceForumId));
+
+        AP_Forum_Front::setNotice(null);
+        $all = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SPLIT_TOPIC,
+            'topic_id' => $sourceId,
+            'topic_title' => 'Should fail all',
+            'post_ids' => [$opId, $r1, $r2],
+            '_ap_nonce' => AP_Nonce::create('ap_forum_split_topic_' . $sourceId, $this->userId),
+        ], $this->db);
+        $this->assertNull($all);
+        $allNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $allNotice['type'] ?? null);
+        $this->assertStringContainsString('at least one', strtolower((string) ($allNotice['message'] ?? '')));
+        $this->assertCount(3, AP_Forum::getPosts($sourceId, ['approved_only' => false], $this->db));
+        $this->assertSame($topicCountBefore, $this->topicCountOnForum($sourceForumId));
+
+        $local = AP_User::create([
+            'user_login' => 'split_cap_local',
+            'user_email' => 'split_cap_local@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Local split mod',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($local['ok'] ?? false);
+        $localId = (int) $local['id'];
+        $groupId = AP_Group::create(['group_name' => 'Split source-only mods'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceForumId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+
+        AP_Forum_Front::setNotice(null);
+        $this->assertTrue(AP_Session::setAuthCookie($localId, false, $this->db));
+        $missingCap = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SPLIT_TOPIC,
+            'topic_id' => $sourceId,
+            'topic_title' => 'Off-limits dest',
+            'dest_forum_id' => $destForumId,
+            'post_ids' => [$r1],
+            '_ap_nonce' => AP_Nonce::create('ap_forum_split_topic_' . $sourceId, $localId),
+        ], $this->db);
+        $this->assertNull($missingCap);
+        $missingNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $missingNotice['type'] ?? null);
+        $this->assertCount(3, AP_Forum::getPosts($sourceId, ['approved_only' => false], $this->db));
+        $this->assertSame($topicCountBefore, $this->topicCountOnForum($sourceForumId));
+        $this->assertSame(0, $this->topicCountOnForum($destForumId));
+
+        $member = AP_User::create([
+            'user_login' => 'split_plain_member',
+            'user_email' => 'split_plain_member@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Member',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+        AP_Forum_Front::setNotice(null);
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+        $memberDenied = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SPLIT_TOPIC,
+            'topic_id' => $sourceId,
+            'topic_title' => 'Member cannot',
+            'post_ids' => [$r1],
+            '_ap_nonce' => AP_Nonce::create('ap_forum_split_topic_' . $sourceId, $memberId),
+        ], $this->db);
+        $this->assertNull($memberDenied);
+        $memberNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $memberNotice['type'] ?? null);
+        $this->assertCount(3, AP_Forum::getPosts($sourceId, ['approved_only' => false], $this->db));
+
+        AP_Forum_Front::setNotice(null);
+        $this->assertTrue(AP_Session::setAuthCookie($localId, false, $this->db));
+        $ok = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_SPLIT_TOPIC,
+            'topic_id' => $sourceId,
+            'topic_title' => 'Local offshoot',
+            'post_ids' => [$r2],
+            '_ap_nonce' => AP_Nonce::create('ap_forum_split_topic_' . $sourceId, $localId),
+        ], $this->db);
+        $this->assertIsString($ok);
+        $this->assertStringContainsString('ap_forum_notice=topic_split', (string) $ok);
+
+        $origPosts = AP_Forum::getPosts($sourceId, ['approved_only' => false], $this->db);
+        $origIds = array_map(static fn ($p) => (int) $p->post_id, $origPosts);
+        $this->assertGreaterThanOrEqual(1, count($origPosts));
+        $this->assertContains($opId, $origIds);
+        $this->assertContains($r1, $origIds);
+        $this->assertNotContains($r2, $origIds);
+        $this->assertSame($topicCountBefore + 1, $this->topicCountOnForum($sourceForumId));
+        $this->assertSame(0, $this->topicCountOnForum($destForumId));
+
+        $newId = 0;
+        foreach (AP_Forum::getTopics($sourceForumId, ['approved_only' => false], $this->db) as $row) {
+            $tid = (int) ($row->topic_id ?? 0);
+            if ($tid > 0 && $tid !== $sourceId) {
+                $newId = $tid;
+                break;
+            }
+        }
+        $this->assertGreaterThan(0, $newId);
+        $keptNew = AP_Forum::getTopic($newId, $this->db);
+        $this->assertNotNull($keptNew);
+        $this->assertSame(
+            AP_Forum::topicUrlWithNotice($keptNew, 'topic_split'),
+            (string) $ok
+        );
+        $newPosts = AP_Forum::getPosts($newId, ['approved_only' => false], $this->db);
+        $this->assertCount(1, $newPosts);
+        $this->assertSame($r2, (int) $newPosts[0]->post_id);
+        $this->assertSame($sourceForumId, (int) ($keptNew->forum_id ?? 0));
     }
 
     public function testTopicSubscribeChromeWhenSiteOnLoggedInCanView(): void
@@ -2763,6 +3061,16 @@ final class ForumFrontTest extends TestCase
         return (int) $this->db->getVar(
             'SELECT COUNT(*) FROM '
             . $this->db->quoteIdentifier($this->db->table('topic_subscriptions'))
+        );
+    }
+
+    private function topicCountOnForum(int $forumId): int
+    {
+        return (int) $this->db->getVar(
+            'SELECT COUNT(*) FROM '
+            . $this->db->quoteIdentifier($this->db->table('topics'))
+            . ' WHERE ' . $this->db->quoteIdentifier('forum_id') . ' = ?',
+            [$forumId]
         );
     }
 }
