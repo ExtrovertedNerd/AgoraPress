@@ -524,6 +524,9 @@ class AP_Forum_Front
         if ($action === self::ACTION_SET_TOPIC_TYPE) {
             return self::handleSetTopicType($post, $db);
         }
+        if ($action === self::ACTION_MOVE_TOPIC) {
+            return self::handleMoveTopic($post, $db);
+        }
         if ($action === self::ACTION_SUBSCRIBE_TOPIC) {
             return self::handleSubscribeTopic($post, $db, true);
         }
@@ -582,6 +585,7 @@ class AP_Forum_Front
                 'topic_locked' => ['type' => 'success', 'message' => 'Topic locked.'],
                 'topic_unlocked' => ['type' => 'success', 'message' => 'Topic unlocked.'],
                 'topic_type_updated' => ['type' => 'success', 'message' => 'Topic type updated.'],
+                'topic_moved' => ['type' => 'success', 'message' => 'Topic moved.'],
                 'topic_subscribed' => ['type' => 'success', 'message' => 'Subscribed to this topic.'],
                 'topic_subscribed_email_on' => [
                     'type' => 'success',
@@ -1437,6 +1441,90 @@ class AP_Forum_Front
         $sep = str_contains($url, '?') ? '&' : '?';
 
         return $url . $sep . 'ap_forum_notice=topic_type_updated';
+    }
+
+    /**
+     * Move a topic to another forum the actor can moderate.
+     *
+     * Calls {@see AP_Forum_Moderation::moveTopic()}. Same topic_id and slug;
+     * no shadow row. Success redirects with `topic_moved`.
+     *
+     * @param array<string, mixed> $post
+     */
+    private static function handleMoveTopic(array $post, ?AP_DB $db): ?string
+    {
+        $topicId = (int) ($post['topic_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = self::ACTION_MOVE_TOPIC . '_' . $topicId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+
+        $userId = self::currentUserId($db);
+        if (
+            $userId < 1
+            || !class_exists('AP_Forum', false)
+            || !class_exists('AP_Forum_Moderation', false)
+        ) {
+            self::$notice = ['type' => 'error', 'message' => 'Permission denied.'];
+
+            return null;
+        }
+
+        $topic = AP_Forum::getTopic($topicId, $db);
+        if ($topic === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Topic not found.'];
+
+            return null;
+        }
+
+        $sourceForumId = (int) $topic->forum_id;
+        if (!AP_Forum_Moderation::userCanMoveTopic($userId, $sourceForumId, $db)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You do not have permission to move this topic.',
+            ];
+
+            return null;
+        }
+
+        $destForumId = (int) ($post['dest_forum_id'] ?? 0);
+        if ($destForumId < 1 || $destForumId === $sourceForumId) {
+            self::$notice = ['type' => 'error', 'message' => 'Please choose a destination forum.'];
+
+            return null;
+        }
+
+        $destAllowed = false;
+        foreach (AP_Forum_Moderation::listMoveDestinations($userId, $sourceForumId, $db) as $forum) {
+            if ((int) ($forum->forum_id ?? 0) === $destForumId) {
+                $destAllowed = true;
+                break;
+            }
+        }
+        if (!$destAllowed) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You cannot move this topic to that forum.',
+            ];
+
+            return null;
+        }
+
+        $ok = AP_Forum_Moderation::moveTopic($topicId, $destForumId, $userId, $db);
+        if (!$ok) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not move this topic.'];
+
+            return null;
+        }
+
+        $moved = AP_Forum::getTopic($topicId, $db);
+        $url = AP_Forum::topicUrl($moved ?? $topic);
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=topic_moved';
     }
 
     /**

@@ -928,6 +928,174 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('Select forum', $html);
     }
 
+    public function testMoveTopicViaFrontHandler(): void
+    {
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Move From'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Move To'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Relocate me',
+            'content' => 'Opening post',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => 'A reply',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $before = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($before);
+        $slug = (string) ($before->topic_slug ?? '');
+        $this->assertNotSame('', $slug);
+
+        AP_Options::update('forum_topic_notify_enabled', '1', $this->db);
+        $this->assertTrue(AP_Forum_Notify::subscribe($this->userId, $topicId, $this->db));
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $nonce = AP_Nonce::create('ap_forum_move_topic_' . $topicId, $this->userId);
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MOVE_TOPIC,
+            'topic_id' => $topicId,
+            'dest_forum_id' => $destId,
+            '_ap_nonce' => $nonce,
+        ], $this->db);
+
+        $this->assertIsString($redirect);
+        $this->assertStringContainsString('ap_forum_notice=topic_moved', (string) $redirect);
+
+        $after = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($after);
+        $this->assertSame($topicId, (int) $after->topic_id);
+        $this->assertSame($destId, (int) $after->forum_id);
+        $this->assertSame($slug, (string) ($after->topic_slug ?? ''));
+        $this->assertNotSame(AP_Forum::TOPIC_STATUS_MOVED, (string) ($after->topic_status ?? ''));
+
+        $source = AP_Forum::getForum($sourceId, $this->db);
+        $dest = AP_Forum::getForum($destId, $this->db);
+        $this->assertSame(0, (int) ($source->topic_count ?? -1));
+        $this->assertSame(0, (int) ($source->post_count ?? -1));
+        $this->assertSame(0, (int) ($source->last_topic_id ?? -1));
+        $this->assertSame(1, (int) ($dest->topic_count ?? 0));
+        $this->assertSame(2, (int) ($dest->post_count ?? 0));
+        $this->assertSame($topicId, (int) ($dest->last_topic_id ?? 0));
+
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->userId, $topicId, $this->db));
+
+        $_GET['ap_forum_notice'] = 'topic_moved';
+        $notice = AP_Forum_Front::getNotice();
+        unset($_GET['ap_forum_notice']);
+        $this->assertNotNull($notice);
+        $this->assertSame('success', $notice['type'] ?? null);
+        $this->assertSame('Topic moved.', $notice['message'] ?? null);
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+        $_GET['ap_forum_notice'] = 'topic_moved';
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        unset($_GET['ap_forum_notice']);
+        $this->assertSame($destId, (int) $query->get('forum_id', 0));
+        $this->assertStringContainsString('ap-forum-notice--success', $html);
+        $this->assertStringContainsString('Topic moved.', $html);
+    }
+
+    public function testMoveTopicViaFrontHandlerRefusesCategoryMissingCapAndMember(): void
+    {
+        $categoryId = AP_Forum::insertForum([
+            'forum_name' => 'Move Cat Dest',
+            'forum_type' => AP_Forum::FORUM_TYPE_CATEGORY,
+        ], $this->db);
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Move Cap Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Move Cap Dest'], $this->db);
+        $otherId = AP_Forum::insertForum(['forum_name' => 'Move Cap Other'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Stay put unless allowed',
+            'content' => 'Body',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $slug = (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? '');
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $catRedirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MOVE_TOPIC,
+            'topic_id' => $topicId,
+            'dest_forum_id' => $categoryId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_move_topic_' . $topicId, $this->userId),
+        ], $this->db);
+        $this->assertNull($catRedirect);
+        $catNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $catNotice['type'] ?? null);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+        $this->assertSame($slug, (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? ''));
+
+        $local = AP_User::create([
+            'user_login' => 'move_local_mod',
+            'user_email' => 'move_local_mod@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Local mod',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($local['ok'] ?? false);
+        $localId = (int) $local['id'];
+        $groupId = AP_Group::create(['group_name' => 'Source-only mods'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $otherId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+
+        AP_Forum_Front::setNotice(null);
+        $this->assertTrue(AP_Session::setAuthCookie($localId, false, $this->db));
+        $missingCap = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MOVE_TOPIC,
+            'topic_id' => $topicId,
+            'dest_forum_id' => $destId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_move_topic_' . $topicId, $localId),
+        ], $this->db);
+        $this->assertNull($missingCap);
+        $missingNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $missingNotice['type'] ?? null);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+
+        $member = AP_User::create([
+            'user_login' => 'move_plain_member',
+            'user_email' => 'move_plain_member@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Member',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+        AP_Forum_Front::setNotice(null);
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+        $memberDenied = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_MOVE_TOPIC,
+            'topic_id' => $topicId,
+            'dest_forum_id' => $destId,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_move_topic_' . $topicId, $memberId),
+        ], $this->db);
+        $this->assertNull($memberDenied);
+        $memberNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $memberNotice['type'] ?? null);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+        $this->assertSame($slug, (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? ''));
+    }
+
     public function testTopicSubscribeChromeWhenSiteOnLoggedInCanView(): void
     {
         $forumId = AP_Forum::insertForum(['forum_name' => 'Notify Chrome'], $this->db);

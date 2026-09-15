@@ -141,6 +141,7 @@ Query var `ap_forum_notice` (and same-request flash via
 | `post_liked` / `post_unliked` | Thanks for the like. / Like removed. |
 | `topic_locked` / `topic_unlocked` | Topic locked. / Topic unlocked. |
 | `topic_type_updated` | Topic type updated. |
+| `topic_moved` | Topic moved. |
 | `topic_subscribed` / `topic_unsubscribed` | Subscribed to this topic. / Unsubscribed from this topic. |
 | `topic_subscribed_email_on` | Subscribed to this topic. Email notifications for topics you subscribe to are now on. |
 | `topic_created_email_on` / `reply_posted_email_on` | Topic created. / Reply posted. Plus the same email-on sentence when compose **Notify me of replies** flipped the user master. Pending start/reply keep `topic_pending` / `reply_pending`. |
@@ -288,7 +289,8 @@ When `moderate_forum` (or the matching own-post ACL) allows:
 `moderate_forum` on the current forum **and** at least one other forum they
 can moderate exists. The destination select lists forums the actor can
 moderate; it omits categories, link boards, and the current forum. POST
-`ap_forum_move_topic` (nonce `ap_forum_move_topic_{id}`). Helpers:
+`ap_forum_move_topic` (nonce `ap_forum_move_topic_{id}`) calls
+`AP_Forum_Moderation::moveTopic` and redirects with `topic_moved`. Helpers:
 `ap_forum_user_can_move_topic()`, `ap_forum_move_destinations()`,
 `ap_forum_move_topic_form_html()`.
 

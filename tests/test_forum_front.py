@@ -61,7 +61,9 @@ def test_forum_front_class_api() -> None:
         "ACTION_SUBSCRIBE_TOPIC",
         "ACTION_UNSUBSCRIBE_TOPIC",
         "handleSetTopicType",
+        "handleMoveTopic",
         "handleSubscribeTopic",
+        "topic_moved",
         "topic_subscribed_email_on",
         "topic_created_email_on",
         "reply_posted_email_on",
@@ -82,6 +84,8 @@ def test_forum_front_class_api() -> None:
     for needle in (
         "function testTopicToolbarMoveDestinationSelect",
         "function testMoveTopicFormHtmlOmitsEmptyOrInvalidDests",
+        "function testMoveTopicViaFrontHandler",
+        "function testMoveTopicViaFrontHandlerRefusesCategoryMissingCapAndMember",
         "function testTopicSubscribeChromeWhenSiteOnLoggedInCanView",
         "function testSubscribeWhenMembersReadonlyCanViewButNotReply",
         "function testSubscribeHonorsGroupOnlyViewForum",
