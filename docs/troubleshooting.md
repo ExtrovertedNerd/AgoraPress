@@ -780,8 +780,8 @@ Merge and Split are different toolbar forms
 and **no** split control. Depth:
 [forums.md](forums.md#moderation),
 [admin.md](admin.md#topics-move-and-merge), [roles.md](roles.md).
-Generic examples only (`example.com`). Do not name private hosts, persona
-mailboxes, or live fleet inventory here.
+Generic examples only (`example.com`). Do not name private hosts,
+persona mailboxes, or live fleet inventory here.
 
 ---
 

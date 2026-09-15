@@ -1044,6 +1044,50 @@ final class DocsPresenceTest extends TestCase
         );
     }
 
+    /**
+     * Charter Last Post / move / merge / split / report sections must restate
+     * the public-safe rule in-section (not only elsewhere in the same file).
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function charterPublicSafeSectionProvider(): array
+    {
+        return [
+            'forums last post' => ['forums.md', 'Last Post'],
+            'forums moderation' => ['forums.md', 'Moderation'],
+            'admin topics' => ['admin.md', 'Topics (move and merge)'],
+            'troubleshooting last post' => ['troubleshooting.md', 'Last Post points at a deleted topic'],
+            'troubleshooting cannot move' => ['troubleshooting.md', 'Cannot move a topic'],
+            'catalog forum moderation' => ['features_and_functions.md', 'Forum moderation'],
+        ];
+    }
+
+    #[DataProvider('charterPublicSafeSectionProvider')]
+    public function testCharterSectionStatesPublicSafeRule(string $relative, string $heading): void
+    {
+        $text = $this->readDoc($relative);
+        $section = $this->markdownH2Section($text, $heading);
+        $this->assertDocumentIsPublicSafe('docs/' . $relative . '#' . $heading, $section);
+        $lower = strtolower($section);
+        $this->assertTrue(
+            str_contains($lower, 'private host'),
+            "docs/{$relative} ## {$heading} should forbid private hosts"
+        );
+        $this->assertTrue(
+            str_contains($lower, 'persona mailbox'),
+            "docs/{$relative} ## {$heading} should forbid persona mailboxes"
+        );
+        $this->assertTrue(
+            str_contains($lower, 'fleet inventory'),
+            "docs/{$relative} ## {$heading} should forbid live fleet inventory"
+        );
+        $this->assertStringContainsString(
+            'example.com',
+            $section,
+            "docs/{$relative} ## {$heading} should use generic example.com"
+        );
+    }
+
     public function testDocsIndexAndHandbookStateFleetAndPersonaRule(): void
     {
         foreach (['docs/README.md', 'docs/bot_handbook.md'] as $relative) {
@@ -1469,6 +1513,26 @@ final class DocsPresenceTest extends TestCase
         sort($files, SORT_STRING);
 
         return $files;
+    }
+
+    private function markdownH2Section(string $text, string $heading): string
+    {
+        $quoted = preg_quote($heading, '/');
+        $matched = preg_match(
+            '/(?im)^##\s+' . $quoted . '\s*$/m',
+            $text,
+            $hit,
+            PREG_OFFSET_CAPTURE
+        );
+        $this->assertSame(1, $matched, "Missing ## {$heading}");
+        $start = (int) $hit[0][1];
+        $headingLen = strlen($hit[0][0]);
+        $after = substr($text, $start + $headingLen);
+        if (preg_match('/(?im)^##\s+/m', $after, $next, PREG_OFFSET_CAPTURE) === 1) {
+            return substr($text, $start, $headingLen + (int) $next[0][1]);
+        }
+
+        return substr($text, $start);
     }
 
     private function isAllowedPublicHost(string $host): bool

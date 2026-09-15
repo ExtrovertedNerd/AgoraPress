@@ -2420,6 +2420,80 @@ def test_forums_doc_covers_topic_email_notify(docs_root: Path) -> None:
         )
 
 
+def test_forums_doc_covers_move_merge_split_report_and_last_post(docs_root: Path) -> None:
+    """SPEC: forums.md documents last-post recount, move, merge, split, report."""
+    text = (docs_root / "forums.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^##\s+Last Post\s*$", text)
+    for heading in (
+        r"(?im)^###\s+Recount",
+        r"(?im)^###\s+When it runs\s*$",
+        r"(?im)^###\s+Index cell\s*$",
+    ):
+        assert re.search(heading, text), (
+            f"docs/forums.md must have heading matching {heading}"
+        )
+    for needle in (
+        "AP_Forum::refreshForumLastPost",
+        "last_post_id",
+        "last_topic_id",
+        "last_poster_id",
+        "last_post_time",
+        "AP_Forum::EMPTY_DATETIME",
+        "1970-01-01 00:00:00",
+        "post_approved=1",
+        "topic_approved=1",
+        "deleted topic",
+        "buildForumLastPostPayload",
+        "ap_forum_empty_last_post_html",
+        "No posts",
+        "moveTopic",
+        "mergeTopics",
+        "splitTopic",
+        "ap_forum_move_topic",
+        "ap_forum_merge_topic",
+        "ap_forum_split_topic",
+        "ap_forum_report_post",
+        "dest_forum_id",
+        "target_topic_id",
+        "post_ids[]",
+        "topic_title",
+        "report_reason",
+        "topic_moved",
+        "topics_merged",
+        "topic_split",
+        "post_reported",
+        "topic_subscriptions",
+        "createReport",
+        "isReportFlooding",
+        "One open report",
+        "shadow",
+        "view_forum",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, (
+            f"docs/forums.md must document move/merge/split/report/last-post: {needle!r}"
+        )
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, (
+            f"docs/forums.md must not contain private marker: {banned}"
+        )
+
+
 def test_roles_doc_content(docs_root: Path) -> None:
     path = docs_root / "roles.md"
     assert path.is_file(), "Missing docs/roles.md"

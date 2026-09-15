@@ -39,7 +39,8 @@ default Agora templates `forum.php` / `forum-view.php` / `topic.php` /
 
 There is **no** `php ap-cli forum` verb, **no** Gutenberg blocks for topics,
 and **no** official phpBB skin in core. Missing from this guide and from core
-means **not in core**.
+means **not in core**. Generic examples only (`example.com`). Do not document
+private hosts, persona mailboxes, or live fleet inventory here.
 
 ---
 
@@ -270,6 +271,9 @@ Empty cell: `ap_forum_empty_last_post_html()` — **No posts** / **—** / **—
 Loading `/forums/` once heals a stale pointer (the renderer recounts, then
 writes the columns). There is **no** ACP “rebuild last post” button.
 
+Generic examples only (`example.com`). Do not document private hosts,
+persona mailboxes, or live fleet inventory here.
+
 ---
 
 ## Topic types
@@ -467,6 +471,9 @@ New posts may start **pending** when Settings → Forums has “New posts
 require moderator approval” (`forum_posts_require_approval`). Users with
 `manage_forums` or `moderate_forums` skip the queue. Filter
 `ap_pre_forum_post_status` can override.
+
+Generic examples only (`example.com`). Do not document private hosts,
+persona mailboxes, or live fleet inventory here.
 
 ---
 
@@ -1124,6 +1131,8 @@ Do not tell operators these exist in AgoraPress core:
 - Forum ACL applied to blog posts or static pages
 - Gutenberg / blocks for topics
 - A second permission system besides [roles.md](roles.md) + this ACL
+- Private hosts, persona mailboxes, or live fleet inventory in this guide
+  (generic examples only: `example.com`)
 
 ---
 

@@ -387,6 +387,7 @@
 | ACP Topics **Split**; ACP row **Merge**; ACP “rebuild last post” button | [admin.md](admin.md#topics-move-and-merge) · [forums.md](forums.md#not-in-core) |
 | Warning / ban issue screens | [forums.md](forums.md#not-in-core) |
 | `php ap-cli forum` moderate verb | [cli.md](cli.md) |
+| Private hosts, persona mailboxes, live fleet inventory | Generic examples only (`example.com`) — [README.md](README.md#public-safe-rule) · [forums.md](forums.md#last-post) |
 
 ## `ap-cli` verbs
 

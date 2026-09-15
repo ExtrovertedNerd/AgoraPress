@@ -804,6 +804,25 @@ CHARTER_PUBLIC_SAFE_GUIDES = (
     "features_and_functions.md",
 )
 
+CHARTER_PUBLIC_SAFE_SECTIONS = (
+    ("forums.md", "Last Post"),
+    ("forums.md", "Moderation"),
+    ("admin.md", "Topics (move and merge)"),
+    ("troubleshooting.md", "Last Post points at a deleted topic"),
+    ("troubleshooting.md", "Cannot move a topic"),
+    ("features_and_functions.md", "Forum moderation"),
+)
+
+
+def _markdown_h2_section(text: str, heading: str) -> str:
+    match = re.search(rf"(?im)^##\s+{re.escape(heading)}\s*$", text)
+    assert match, f"Missing ## {heading}"
+    rest = text[match.end() :]
+    nxt = re.search(r"(?im)^##\s+", rest)
+    if nxt:
+        return text[match.start() : match.end() + nxt.start()]
+    return text[match.start() :]
+
 
 @pytest.mark.parametrize("name", CHARTER_PUBLIC_SAFE_GUIDES)
 def test_charter_guide_states_public_safe_rule(docs_root: Path, name: str) -> None:
@@ -815,6 +834,27 @@ def test_charter_guide_states_public_safe_rule(docs_root: Path, name: str) -> No
     assert "persona mailbox" in lower, f"docs/{name} should forbid persona mailboxes"
     assert "fleet inventory" in lower, f"docs/{name} should forbid live fleet inventory"
     assert "example.com" in text, f"docs/{name} should use generic example.com"
+
+
+@pytest.mark.parametrize("name,heading", CHARTER_PUBLIC_SAFE_SECTIONS)
+def test_charter_section_states_public_safe_rule(
+    docs_root: Path, name: str, heading: str
+) -> None:
+    """Last Post / move / merge / split / report sections restate public-safe in-section."""
+    text = (docs_root / name).read_text(encoding="utf-8")
+    section = _markdown_h2_section(text, heading)
+    _assert_document_is_public_safe(f"docs/{name}#{heading}", section)
+    lower = section.lower()
+    assert "private host" in lower, f"docs/{name} ## {heading} should forbid private hosts"
+    assert "persona mailbox" in lower, (
+        f"docs/{name} ## {heading} should forbid persona mailboxes"
+    )
+    assert "fleet inventory" in lower, (
+        f"docs/{name} ## {heading} should forbid live fleet inventory"
+    )
+    assert "example.com" in section, (
+        f"docs/{name} ## {heading} should use generic example.com"
+    )
 
 
 def test_docs_index_and_handbook_state_fleet_and_persona_rule() -> None:

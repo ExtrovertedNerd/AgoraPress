@@ -2725,6 +2725,9 @@ final class DeveloperDocsTest extends TestCase
                 'shadow',
                 'view_forum',
                 'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
             ] as $needle
         ) {
             $this->assertStringContainsString(
