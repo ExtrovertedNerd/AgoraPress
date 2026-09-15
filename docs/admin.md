@@ -332,7 +332,7 @@ for hierarchy, topic types, likes, ACL, PMs, and module-off behaviour:
 |------|------|-----|-------|
 | Forum tree | Forums (`forums.php`) | `manage_forums` | Categories and forums; bulk delete. |
 | Create / edit a forum | `forum-edit.php` | `manage_forums` | Per-forum visibility (`forum_access_level`): Public, Members only, Read only (members), Moderators only, Administrators only, **This group only** (`group_only`, named non-system groups + administrators), or Custom (Guest / Registered / Moderator / Administrator matrix). Depth: [forums.md](forums.md). Forum ACL is never applied to blog posts or pages. |
-| Topics | Topics (`forum-topics.php`) | `moderate_forums` | Lock, sticky, approve, trash, delete, row **Move** / bulk **Move to…**. Topic types: `standard` / `sticky` / `announcement` / `rules`. |
+| Topics | Topics (`forum-topics.php`) | `moderate_forums` | Lock, sticky, approve, trash, delete, row **Move** / bulk **Move to…**, bulk **Merge into…** (redirects to the target with `topics_merged`). Topic types: `standard` / `sticky` / `announcement` / `rules`. |
 | Moderation queue | Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and reports. |
 | Groups | Groups (`forum-groups.php`) | `manage_forums` | Named groups and membership; used with per-forum ACL. |
 

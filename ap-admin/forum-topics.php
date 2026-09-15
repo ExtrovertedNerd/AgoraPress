@@ -73,6 +73,10 @@ if ($method === 'POST') {
     }
 
     $result = $listTable->processBulkAction($_POST);
+    $frontRedirect = (string) ($result['redirect'] ?? '');
+    if ($result['ok'] && $frontRedirect !== '') {
+        AP_Admin::redirect($frontRedirect);
+    }
     if ($result['message_key'] !== '' || $result['ok']) {
         $redirect = AP_Admin::url('forum-topics.php', array_filter([
             'topic_status' => (string) ($_POST['topic_status'] ?? $_GET['topic_status'] ?? '') ?: null,
@@ -102,7 +106,7 @@ require __DIR__ . '/admin-header.php';
     <h1>Topics</h1>
 </div>
 
-<p class="ap-help">Moderate topics across all forums: lock, sticky, move, soft-delete, approve.</p>
+<p class="ap-help">Moderate topics across all forums: lock, sticky, move, merge, soft-delete, approve.</p>
 
 <div class="ap-list-toolbar">
     <?php echo $listTable->renderViews(); ?>

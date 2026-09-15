@@ -1257,6 +1257,21 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('Select topic', $html);
     }
 
+    public function testTopicUrlWithNoticeAppendsSanitizedForumNotice(): void
+    {
+        $base = AP_Forum::topicUrl(42);
+        $sep = str_contains($base, '?') ? '&' : '?';
+        $this->assertSame(
+            $base . $sep . 'ap_forum_notice=topics_merged',
+            AP_Forum::topicUrlWithNotice(42, 'topics_merged')
+        );
+        $this->assertSame(
+            $base . $sep . 'ap_forum_notice=topics_merged',
+            AP_Forum::topicUrlWithNotice(42, 'TOPICS_MERGED')
+        );
+        $this->assertSame($base, AP_Forum::topicUrlWithNotice(42, '!!!'));
+    }
+
     public function testMergeTopicViaFrontHandler(): void
     {
         $forumId = AP_Forum::insertForum(['forum_name' => 'Merge From Front'], $this->db);
@@ -1329,6 +1344,10 @@ final class ForumFrontTest extends TestCase
         $this->assertIsString($redirect);
         $this->assertStringContainsString('ap_forum_notice=topics_merged', (string) $redirect);
         $this->assertStringContainsString($targetSlug, (string) $redirect);
+        $this->assertSame(
+            AP_Forum::topicUrlWithNotice($target, 'topics_merged'),
+            (string) $redirect
+        );
 
         $this->assertNull(AP_Forum::getTopic($sourceId, $this->db));
         $posts = AP_Forum::getPosts($targetId, ['approved_only' => false], $this->db);
@@ -1493,7 +1512,12 @@ final class ForumFrontTest extends TestCase
         $this->assertIsString($ok);
         $this->assertStringContainsString('ap_forum_notice=topics_merged', (string) $ok);
         $this->assertNull(AP_Forum::getTopic($sourceId, $this->db));
-        $this->assertNotNull(AP_Forum::getTopic($sameTargetId, $this->db));
+        $sameKept = AP_Forum::getTopic($sameTargetId, $this->db);
+        $this->assertNotNull($sameKept);
+        $this->assertSame(
+            AP_Forum::topicUrlWithNotice($sameKept, 'topics_merged'),
+            (string) $ok
+        );
         $this->assertNotNull(AP_Forum::getTopic($otherTargetId, $this->db));
     }
 

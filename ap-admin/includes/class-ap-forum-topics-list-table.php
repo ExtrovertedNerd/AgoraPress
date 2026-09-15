@@ -40,10 +40,15 @@ class AP_Forum_Topics_List_Table
 
     private int $destForumId = 0;
 
+    private int $targetTopicId = 0;
+
     private ?object $movePickerTopic = null;
 
     /** @var array<string, list<object>> */
     private array $moveDestCache = [];
+
+    /** @var array<int, list<object>> */
+    private array $mergeTargetCache = [];
 
     public function __construct(?AP_DB $db = null, int $actorId = 0)
     {
@@ -69,7 +74,7 @@ class AP_Forum_Topics_List_Table
     /**
      * @param array<string, mixed> $post
      *
-     * @return array{ok: bool, message_key: string, count: int, errors: list<string>}
+     * @return array{ok: bool, message_key: string, count: int, errors: list<string>, redirect?: string}
      */
     public function processBulkAction(array $post, int $actorId = 0): array
     {
@@ -131,6 +136,57 @@ class AP_Forum_Topics_List_Table
             }
         }
 
+        if ($action === 'merge') {
+            $usedAction2 = ($postActionRaw === '' || $postActionRaw === '-1');
+            $this->targetTopicId = $this->targetTopicIdFromRequest($post, $usedAction2);
+            if ($this->targetTopicId < 1) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'count' => 0,
+                    'errors' => ['Please choose a topic to merge into.'],
+                ];
+            }
+            $target = AP_Forum::getTopic($this->targetTopicId, $db);
+            $targetStatus = is_object($target) ? (string) ($target->topic_status ?? '') : '';
+            if (
+                $target === null
+                || $targetStatus === AP_Forum::TOPIC_STATUS_DELETED
+                || $targetStatus === AP_Forum::TOPIC_STATUS_MOVED
+            ) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'count' => 0,
+                    'errors' => ['Please choose a topic to merge into.'],
+                ];
+            }
+            $targetForumId = (int) ($target->forum_id ?? 0);
+            if (
+                !class_exists('AP_Forum_Moderation', false)
+                || !AP_Forum_Moderation::userCanMergeTopic($actorId, $targetForumId, $db)
+            ) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'count' => 0,
+                    'errors' => ['You cannot merge into that topic.'],
+                ];
+            }
+            $ids = array_values(array_filter(
+                $ids,
+                fn (int $id): bool => $id !== $this->targetTopicId
+            ));
+            if ($ids === []) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'count' => 0,
+                    'errors' => ['Select at least one topic besides the merge target.'],
+                ];
+            }
+        }
+
         $count = 0;
         $errors = [];
         foreach ($ids as $id) {
@@ -153,14 +209,21 @@ class AP_Forum_Topics_List_Table
             'restore' => 'bulk_topic_restored',
             'delete' => 'bulk_topic_deleted',
             'move' => 'bulk_topic_moved',
+            'merge' => $count > 0 ? 'topics_merged' : 'error',
             default => $count > 0 ? 'updated' : 'error',
         };
+
+        $redirect = '';
+        if ($action === 'merge' && $count > 0 && $this->targetTopicId > 0) {
+            $redirect = $this->topicsMergedRedirect($this->targetTopicId, $db);
+        }
 
         return [
             'ok' => $count > 0,
             'message_key' => $messageKey,
             'count' => $count,
             'errors' => $errors,
+            'redirect' => $redirect,
         ];
     }
 
@@ -304,6 +367,9 @@ class AP_Forum_Topics_List_Table
         if ($action === 'move') {
             return $this->moveSelectedTopic($id, $actorId, $db);
         }
+        if ($action === 'merge') {
+            return $this->mergeSelectedTopic($id, $actorId, $db);
+        }
 
         return match ($action) {
             'lock' => AP_Forum_Moderation::lockTopic($id, $actorId, $db),
@@ -351,6 +417,55 @@ class AP_Forum_Topics_List_Table
         return AP_Forum_Moderation::moveTopic($topicId, $destForumId, $actorId, $db);
     }
 
+    private function mergeSelectedTopic(int $topicId, int $actorId, AP_DB $db): bool
+    {
+        $targetTopicId = $this->targetTopicId;
+        if ($topicId < 1 || $targetTopicId < 1 || $topicId === $targetTopicId) {
+            return false;
+        }
+
+        $topic = AP_Forum::getTopic($topicId, $db);
+        if ($topic === null) {
+            return false;
+        }
+        $status = (string) ($topic->topic_status ?? '');
+        if (
+            $status === AP_Forum::TOPIC_STATUS_DELETED
+            || $status === AP_Forum::TOPIC_STATUS_MOVED
+        ) {
+            return false;
+        }
+
+        $sourceForumId = (int) $topic->forum_id;
+        if (
+            !class_exists('AP_Forum_Moderation', false)
+            || !AP_Forum_Moderation::userCanMergeTopic($actorId, $sourceForumId, $db)
+        ) {
+            return false;
+        }
+        if (!$this->isAllowedMergeTarget($actorId, $topicId, $targetTopicId, $db)) {
+            return false;
+        }
+
+        return AP_Forum_Moderation::mergeTopics($topicId, $targetTopicId, $actorId, $db);
+    }
+
+    /**
+     * Front URL for the surviving topic with notice `topics_merged`.
+     */
+    private function topicsMergedRedirect(int $targetTopicId, AP_DB $db): string
+    {
+        if ($targetTopicId < 1) {
+            return '';
+        }
+        $target = AP_Forum::getTopic($targetTopicId, $db);
+        if ($target === null) {
+            return '';
+        }
+
+        return AP_Forum::topicUrlWithNotice($target, 'topics_merged');
+    }
+
     /**
      * @return array<string, string>
      */
@@ -381,11 +496,14 @@ class AP_Forum_Topics_List_Table
         $move = $this->moveDestinations($this->forumId) !== []
             ? ['move' => 'Move to…']
             : [];
+        $merge = count($this->mergeTargets()) >= 2
+            ? ['merge' => 'Merge into…']
+            : [];
 
         if ($this->statusView === 'pending') {
             return [
                 'approve' => 'Approve',
-            ] + $move + [
+            ] + $move + $merge + [
                 'trash' => 'Soft-delete',
             ];
         }
@@ -395,7 +513,7 @@ class AP_Forum_Topics_List_Table
             'unlock' => 'Unlock',
             'sticky' => 'Make sticky',
             'unsticky' => 'Remove sticky',
-        ] + $move + [
+        ] + $move + $merge + [
             'approve' => 'Approve',
             'unapprove' => 'Unapprove',
             'trash' => 'Soft-delete',
@@ -801,6 +919,14 @@ class AP_Forum_Topics_List_Table
                 $destName
             );
         }
+        if (isset($actions['merge'])) {
+            $targetName = $name === 'action2' ? 'target_topic_id2' : 'target_topic_id';
+            $html .= $this->renderMergeTargetSelect(
+                $targetName,
+                $this->mergeTargets(),
+                $targetName
+            );
+        }
 
         return $html;
     }
@@ -896,6 +1022,62 @@ class AP_Forum_Topics_List_Table
     }
 
     /**
+     * @param array<string, mixed> $request
+     */
+    private function targetTopicIdFromRequest(array $request, bool $preferSecond): int
+    {
+        $first = max(0, (int) ($request['target_topic_id'] ?? 0));
+        $second = max(0, (int) ($request['target_topic_id2'] ?? 0));
+        if ($preferSecond && $second > 0) {
+            return $second;
+        }
+        if ($first > 0) {
+            return $first;
+        }
+
+        return $second;
+    }
+
+    /**
+     * @return list<object>
+     */
+    private function mergeTargets(): array
+    {
+        $actorId = $this->resolveActorId();
+        if (isset($this->mergeTargetCache[$actorId])) {
+            return $this->mergeTargetCache[$actorId];
+        }
+        if ($actorId < 1 || !class_exists('AP_Forum_Moderation', false)) {
+            $this->mergeTargetCache[$actorId] = [];
+
+            return [];
+        }
+
+        $this->mergeTargetCache[$actorId] = AP_Forum_Moderation::listMergeTargets(
+            $actorId,
+            0,
+            $this->resolveDb()
+        );
+
+        return $this->mergeTargetCache[$actorId];
+    }
+
+    private function isAllowedMergeTarget(
+        int $actorId,
+        int $sourceTopicId,
+        int $targetTopicId,
+        AP_DB $db
+    ): bool {
+        foreach (AP_Forum_Moderation::listMergeTargets($actorId, $sourceTopicId, $db) as $topic) {
+            if ((int) ($topic->topic_id ?? 0) === $targetTopicId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param list<object> $destinations
      */
     private function renderMoveDestSelect(
@@ -915,6 +1097,33 @@ class AP_Forum_Topics_List_Table
                 continue;
             }
             $html .= '<option value="' . $fid . '">' . ap_esc_html($fname) . '</option>';
+        }
+        $html .= '</select> ';
+
+        return $html;
+    }
+
+    /**
+     * @param list<object> $targets
+     */
+    private function renderMergeTargetSelect(string $id, array $targets, string $name): string
+    {
+        $html = ' <label for="' . ap_esc_attr($id) . '">Merge into</label> '
+            . '<select name="' . ap_esc_attr($name) . '" id="' . ap_esc_attr($id)
+            . '" class="ap-merge-target">'
+            . '<option value="">Select topic</option>';
+        foreach ($targets as $topic) {
+            $tid = (int) ($topic->topic_id ?? 0);
+            $title = trim((string) ($topic->topic_title ?? ''));
+            $forumName = trim((string) ($topic->forum_name ?? ''));
+            if ($tid < 1) {
+                continue;
+            }
+            if ($title === '') {
+                $title = '(no title)';
+            }
+            $label = $forumName !== '' ? $title . ' — ' . $forumName : $title;
+            $html .= '<option value="' . $tid . '">' . ap_esc_html($label) . '</option>';
         }
         $html .= '</select> ';
 

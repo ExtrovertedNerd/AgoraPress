@@ -4386,6 +4386,23 @@ class AP_Forum
     }
 
     /**
+     * Topic permalink with a front flash (`ap_forum_notice=`).
+     *
+     * Empty or unsafe $notice codes are omitted.
+     */
+    public static function topicUrlWithNotice(object|int $topic, string $notice): string
+    {
+        $url = self::topicUrl($topic);
+        $code = preg_replace('/[^a-z0-9_\-]/', '', strtolower($notice)) ?? '';
+        if ($code === '') {
+            return $url;
+        }
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=' . $code;
+    }
+
+    /**
      * Forum index URL (/forums/ or plain query).
      */
     public static function forumsIndexUrl(): string

@@ -67,6 +67,7 @@ def test_forum_front_class_api() -> None:
         "handleSubscribeTopic",
         "topic_moved",
         "topics_merged",
+        "topicUrlWithNotice",
         "topic_subscribed_email_on",
         "topic_created_email_on",
         "reply_posted_email_on",

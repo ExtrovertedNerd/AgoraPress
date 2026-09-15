@@ -7822,11 +7822,13 @@ function ap_forum_user_can_merge_topic(int $userId, int $forumId, ?AP_DB $db = n
 /**
  * Topics a user may merge into (not $sourceTopicId; forums they can moderate).
  *
+ * Pass 0 for $sourceTopicId to list every mergeable topic.
+ *
  * @return list<object>
  *
  * @see AP_Forum_Moderation::listMergeTargets()
  */
-function ap_forum_merge_targets(int $userId, int $sourceTopicId, ?AP_DB $db = null): array
+function ap_forum_merge_targets(int $userId, int $sourceTopicId = 0, ?AP_DB $db = null): array
 {
     if (!class_exists('AP_Forum_Moderation', false)) {
         return [];

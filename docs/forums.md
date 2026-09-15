@@ -313,7 +313,7 @@ replies (`ap_forum_notice=locked`).
 
 | Screen | Cap | What it does |
 |--------|-----|----------------|
-| Topics (`forum-topics.php`) | `moderate_forums` | Row/bulk allowlist: `lock`, `unlock`, `sticky`, `unsticky`, `approve`, `unapprove`, `trash`, `soft_delete`, `restore`, `delete`, `move`. Filter by `topic_status` and `forum_id`. Row **Move** and bulk **Move to…** use the same destination rule as the topic toolbar (forums the actor can moderate; not categories, not the topic’s current forum). **No** merge / split controls on this screen. |
+| Topics (`forum-topics.php`) | `moderate_forums` | Row/bulk allowlist: `lock`, `unlock`, `sticky`, `unsticky`, `approve`, `unapprove`, `trash`, `soft_delete`, `restore`, `delete`, `move`, `merge`. Filter by `topic_status` and `forum_id`. Row **Move** and bulk **Move to…** use the same destination rule as the topic toolbar (forums the actor can moderate; not categories, not the topic’s current forum). Bulk **Merge into…** merges selected topics into one target the actor can moderate (same `mergeTopics` rule; target is skipped if it is also checked). Success redirects to the target with `topics_merged`. **No** split controls on this screen. |
 | Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and **reports**. Row actions: `approve_topic`, `trash_topic`, `reject_topic`, `approve_post`, `trash_post`, `reject_post`, `resolve_report`, `dismiss_report`, `reopen_report`. |
 
 Module-off on these ACP screens is HTTP **403**:
@@ -331,8 +331,9 @@ skips ACL — installers / CLI / tests only).
   **Move to…** with the same destination rule. Same `topic_id` and slug; no
   shadow row.
 - **Merge topics** — `mergeTopics`. Default Agora shows toolbar **Merge**
-  (`ap_forum_merge_topic`) as above. ACP Topics does **not** expose merge.
-  No shadow row.
+  (`ap_forum_merge_topic`) as above. ACP Topics bulk **Merge into…** calls
+  the same API and redirects to the target with `topics_merged`. No shadow
+  row.
 - **Split topics** — API only (`splitTopic`). Default Agora and the Topics
   screen do **not** expose this.
 - Reports (`reports` table): types `post` / `topic` / `user` / `message`;

@@ -62,7 +62,13 @@ def test_admin_forum_screens_gate_caps_and_module() -> None:
         assert needle in src, f"{file} missing {needle!r}"
 
     topics_page = (ADMIN / "forum-topics.php").read_text(encoding="utf-8")
-    for needle in ("prepareRowMovePicker", "'move'", "dest_forum_id"):
+    for needle in (
+        "prepareRowMovePicker",
+        "'move'",
+        "dest_forum_id",
+        "$result['redirect']",
+        "AP_Admin::redirect($frontRedirect)",
+    ):
         assert needle in topics_page, f"forum-topics.php missing {needle!r}"
 
 
@@ -109,9 +115,15 @@ def test_admin_forum_classes_define_core_api() -> None:
         "approveTopic",
         "softDeleteTopic",
         "moveTopic",
+        "mergeTopics",
         "Move to…",
+        "Merge into…",
         "dest_forum_id",
+        "target_topic_id",
         "function prepareRowMovePicker",
+        "topics_merged",
+        "topicUrlWithNotice",
+        "function topicsMergedRedirect",
     ):
         assert needle in topics_src, f"Expected {needle!r} in topics list table"
 
@@ -172,6 +184,8 @@ def test_admin_menu_and_bootstrap_wire_forums() -> None:
         "bulk_topic_locked",
         "topic_moved",
         "bulk_topic_moved",
+        "topics_merged",
+        "bulk_topic_merged",
         "report_resolved",
         "forums_saved",
     ):

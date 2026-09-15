@@ -1649,10 +1649,8 @@ class AP_Forum_Front
         }
 
         $target = AP_Forum::getTopic($targetTopicId, $db);
-        $url = AP_Forum::topicUrl($target ?? $targetTopicId);
-        $sep = str_contains($url, '?') ? '&' : '?';
 
-        return $url . $sep . 'ap_forum_notice=topics_merged';
+        return AP_Forum::topicUrlWithNotice($target ?? $targetTopicId, 'topics_merged');
     }
 
     /**

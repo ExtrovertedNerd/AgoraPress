@@ -60,6 +60,7 @@ def test_forum_class_defines_domain_api() -> None:
         "function topicIconType",
         "function buildForumLastPostPayload",
         "function postUrl",
+        "function topicUrlWithNotice",
         "function buildForumRowPreload",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-forum.php"
