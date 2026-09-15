@@ -403,6 +403,7 @@ endif; ?>
             $likeCount = (int) ($post['like_count'] ?? 0);
             $likedByMe = !empty($post['liked_by_me']);
             $canLike = !empty($post['can_like']);
+            $canReport = !empty($post['can_report']);
             $canEdit = !empty($post['can_edit']);
             $canDelete = !empty($post['can_delete']);
             // Quote when the viewer can reply (display flag or topic-level can_reply).
@@ -452,8 +453,8 @@ endif; ?>
                 || $authorLikesGiven > 0
                 || $authorLikesReceived > 0
                 || $joinedDisplay !== '';
-            // SPEC B2 actions L→R: Quote → Edit/mod → Like/Unlike.
-            $hasActions = $canQuote || $canLike || $likeCount > 0 || $canEdit || $canDelete;
+            // SPEC B2 actions L→R: Quote → Edit/mod → Like/Unlike → Report.
+            $hasActions = $canQuote || $canLike || $likeCount > 0 || $canEdit || $canDelete || $canReport;
             ?>
             <section class="ap-forum-post ap-forum-post--two-pane" id="post-<?php echo $postId; ?>" aria-label="<?php echo agora_esc_attr('Post #' . $postNum . ' by ' . $author); ?>">
                 <?php // Left pane — author (SPEC B2): avatar, name, role, posts, likes, joined, location. ?>
@@ -586,6 +587,33 @@ endif; ?>
                                             <span class="ap-forum-like__count" aria-hidden="true"><?php echo (int) $likeCount; ?></span>
                                         </span>
                                     <?php endif; ?>
+                                <?php endif; ?>
+                                <?php if ($canReport) : ?>
+                                    <?php
+                                    if (function_exists('ap_forum_report_post_form_html')) {
+                                        echo ap_forum_report_post_form_html($postId, [
+                                            'id' => 'agora-report-reason-' . $postId,
+                                            'post_number' => $postNum,
+                                        ]);
+                                    } else {
+                                        echo '<form method="post" action="" class="ap-forum-action-form ap-forum-action-form--report-post">';
+                                        echo '<input type="hidden" name="ap_forum_action" value="ap_forum_report_post">';
+                                        echo '<input type="hidden" name="post_id" value="' . (int) $postId . '">';
+                                        if (function_exists('ap_nonce_field')) {
+                                            echo ap_nonce_field('ap_forum_report_post_' . $postId);
+                                        }
+                                        echo '<div class="ap-field ap-field--report-reason ap-field--inline">';
+                                        echo '<label class="screen-reader-text" for="agora-report-reason-'
+                                            . (int) $postId . '">Reason</label>';
+                                        echo '<input type="text" id="agora-report-reason-' . (int) $postId
+                                            . '" name="report_reason" required maxlength="255" placeholder="Reason"'
+                                            . ' autocomplete="off">';
+                                        echo '</div>';
+                                        echo '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-forum-report"'
+                                            . ' aria-label="' . agora_esc_attr('Report post #' . $postNum) . '">Report</button>';
+                                        echo '</form>';
+                                    }
+                                    ?>
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>

@@ -59,6 +59,7 @@ def test_permission_matrix_api_surface() -> None:
     for needle in (
         "can_quote",
         "can_like",
+        "can_report",
         "can_edit",
         "can_delete",
         "can_moderate",
@@ -103,6 +104,7 @@ def test_phpunit_defines_role_matrix_cases() -> None:
         "'admin'",
         "can_quote",
         "can_like",
+        "can_report",
         "can_moderate",
         "can_move_topic",
         "can_merge_topic",

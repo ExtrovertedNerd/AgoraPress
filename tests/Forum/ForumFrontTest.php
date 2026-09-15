@@ -267,8 +267,10 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('id="ap-topic-top"', $html);
         $this->assertStringContainsString('ap-forum-post__top', $html);
         $this->assertStringContainsString('href="#ap-topic-top"', $html);
-        // Guests see a login prompt instead of the reply form.
+        // Guests see a login prompt instead of the reply form. No Report form.
         $this->assertStringContainsString('Log in', $html);
+        $this->assertStringNotContainsString('ap_forum_report_post', $html);
+        $this->assertStringNotContainsString('name="report_reason"', $html);
         // Site notify default off: no Subscribe chrome for guests.
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $html);
         $this->assertStringNotContainsString('ap-forum-subscribe', $html);
@@ -294,6 +296,9 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('ap_forum_like_post', $html2);
         $this->assertStringContainsString('ap-forum-like', $html2);
         $this->assertMatchesRegularExpression('/\bLike\b/', $html2);
+        $this->assertStringContainsString('ap_forum_report_post', $html2);
+        $this->assertStringContainsString('name="report_reason"', $html2);
+        $this->assertStringContainsString('>Report</button>', $html2);
         // Author is admin → can edit own OP.
         $this->assertStringContainsString('edit_post=', $html2);
         $this->assertStringContainsString('>Edit</a>', $html2);

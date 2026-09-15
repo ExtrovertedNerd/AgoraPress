@@ -334,6 +334,7 @@ final class ForumPermissionMatrixTest extends TestCase
         foreach ($guestRows as $row) {
             $this->assertFalse((bool) ($row['can_quote'] ?? false), 'guest quote');
             $this->assertFalse((bool) ($row['can_like'] ?? false), 'guest like');
+            $this->assertFalse((bool) ($row['can_report'] ?? false), 'guest report');
             $this->assertFalse((bool) ($row['can_edit'] ?? false), 'guest edit');
             $this->assertFalse((bool) ($row['can_delete'] ?? false), 'guest delete');
             $this->assertFalse((bool) ($row['can_moderate'] ?? false), 'guest moderate');
@@ -346,6 +347,7 @@ final class ForumPermissionMatrixTest extends TestCase
         $this->assertNotNull($opRow);
         $this->assertTrue((bool) ($opRow['can_quote'] ?? false), 'member quote');
         $this->assertTrue((bool) ($opRow['can_like'] ?? false), 'member like');
+        $this->assertTrue((bool) ($opRow['can_report'] ?? false), 'member report');
         $this->assertFalse((bool) ($opRow['can_edit'] ?? false), 'other member edit OP');
         $this->assertFalse((bool) ($opRow['can_delete'] ?? false), 'other member delete OP');
         $this->assertFalse((bool) ($opRow['can_moderate'] ?? false), 'member moderate');
@@ -359,6 +361,7 @@ final class ForumPermissionMatrixTest extends TestCase
         $this->assertTrue((bool) ($authorOp['can_delete'] ?? false), 'author delete own');
         $this->assertTrue((bool) ($authorOp['can_quote'] ?? false));
         $this->assertTrue((bool) ($authorOp['can_like'] ?? false));
+        $this->assertTrue((bool) ($authorOp['can_report'] ?? false));
         $this->assertFalse((bool) ($authorOp['can_moderate'] ?? false));
 
         // Moderator: quote/like + edit others + moderate.
@@ -368,6 +371,7 @@ final class ForumPermissionMatrixTest extends TestCase
         $this->assertNotNull($modOp);
         $this->assertTrue((bool) ($modOp['can_quote'] ?? false), 'mod quote');
         $this->assertTrue((bool) ($modOp['can_like'] ?? false), 'mod like');
+        $this->assertTrue((bool) ($modOp['can_report'] ?? false), 'mod report');
         $this->assertTrue((bool) ($modOp['can_edit'] ?? false), 'mod edit others');
         $this->assertTrue((bool) ($modOp['can_delete'] ?? false), 'mod delete others');
         $this->assertTrue((bool) ($modOp['can_moderate'] ?? false), 'mod moderate flag');
@@ -379,6 +383,7 @@ final class ForumPermissionMatrixTest extends TestCase
         $this->assertNotNull($adminOp);
         $this->assertTrue((bool) ($adminOp['can_quote'] ?? false));
         $this->assertTrue((bool) ($adminOp['can_like'] ?? false));
+        $this->assertTrue((bool) ($adminOp['can_report'] ?? false));
         $this->assertTrue((bool) ($adminOp['can_edit'] ?? false));
         $this->assertTrue((bool) ($adminOp['can_delete'] ?? false));
         $this->assertTrue((bool) ($adminOp['can_moderate'] ?? false));

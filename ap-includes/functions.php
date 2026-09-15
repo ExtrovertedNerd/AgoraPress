@@ -6662,6 +6662,83 @@ function ap_forum_split_topic_form_html(int $topicId, array $destinations = [], 
 }
 
 /**
+ * Per-post Report form: required reason, POST `ap_forum_report_post`.
+ *
+ * Empty when $postId is invalid. Guests never see this — callers gate on
+ * logged-in + `view_forum` (`can_report` from getPostsDisplayData).
+ *
+ * @param array<string, mixed> $args id, name, label, class, button_label,
+ *                                   field_class, post_number, placeholder
+ */
+function ap_forum_report_post_form_html(int $postId, array $args = []): string
+{
+    if ($postId < 1) {
+        return '';
+    }
+
+    $inputId = (string) ($args['id'] ?? ('ap-report-reason-' . $postId));
+    $inputName = (string) ($args['name'] ?? 'report_reason');
+    $label = (string) ($args['label'] ?? 'Reason');
+    $placeholder = (string) ($args['placeholder'] ?? 'Reason');
+    $buttonLabel = (string) ($args['button_label'] ?? 'Report');
+    $class = trim(
+        (string) ($args['class'] ?? 'ap-forum-action-form ap-forum-action-form--report-post')
+    );
+    $fieldClass = trim(
+        (string) ($args['field_class'] ?? 'ap-field ap-field--report-reason ap-field--inline')
+    );
+    $postNumber = max(0, (int) ($args['post_number'] ?? 0));
+    $action = class_exists('AP_Forum_Front', false)
+        ? AP_Forum_Front::ACTION_REPORT_POST
+        : 'ap_forum_report_post';
+
+    $esc = static function (string $s): string {
+        if (function_exists('agora_esc')) {
+            return agora_esc($s);
+        }
+        if (function_exists('ap_esc_html')) {
+            return ap_esc_html($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+    $escAttr = static function (string $s): string {
+        if (function_exists('agora_esc_attr')) {
+            return agora_esc_attr($s);
+        }
+        if (function_exists('ap_esc_attr')) {
+            return ap_esc_attr($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+
+    $aria = $postNumber > 0
+        ? 'Report post #' . $postNumber
+        : 'Report this post';
+
+    $html = '<form method="post" action="" class="' . $escAttr($class) . '">';
+    $html .= '<input type="hidden" name="ap_forum_action" value="' . $escAttr($action) . '">';
+    $html .= '<input type="hidden" name="post_id" value="' . (int) $postId . '">';
+    if (function_exists('ap_nonce_field')) {
+        $html .= ap_nonce_field($action . '_' . $postId);
+    }
+    $html .= '<div class="' . $escAttr($fieldClass) . '">';
+    $html .= '<label class="screen-reader-text" for="' . $escAttr($inputId) . '">'
+        . $esc($label) . '</label>';
+    $html .= '<input type="text" id="' . $escAttr($inputId) . '" name="' . $escAttr($inputName) . '"'
+        . ' required maxlength="255" placeholder="' . $escAttr($placeholder) . '"'
+        . ' autocomplete="off">';
+    $html .= '</div>';
+    $html .= '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm ap-forum-report"'
+        . ' aria-label="' . $escAttr($aria) . '">';
+    $html .= $esc($buttonLabel);
+    $html .= '</button></form>';
+
+    return $html;
+}
+
+/**
  * Read/unread visual state for a board or topic row (SPEC A1).
  *
  * Returns one of:
@@ -8060,6 +8137,20 @@ function ap_mod_edit_forum_post(
 function ap_create_report(array $data, ?AP_DB $db = null): int
 {
     return AP_Forum_Moderation::createReport($data, $db);
+}
+
+/**
+ * Whether the user already has an open report on this object.
+ *
+ * @see AP_Forum_Moderation::hasOpenReport()
+ */
+function ap_forum_has_open_report(
+    int $reporterId,
+    string $type,
+    int $objectId,
+    ?AP_DB $db = null
+): bool {
+    return AP_Forum_Moderation::hasOpenReport($reporterId, $type, $objectId, $db);
 }
 
 /**

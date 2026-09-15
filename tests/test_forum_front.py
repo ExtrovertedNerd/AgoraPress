@@ -60,16 +60,19 @@ def test_forum_front_class_api() -> None:
         "ACTION_MOVE_TOPIC",
         "ACTION_MERGE_TOPIC",
         "ACTION_SPLIT_TOPIC",
+        "ACTION_REPORT_POST",
         "ACTION_SUBSCRIBE_TOPIC",
         "ACTION_UNSUBSCRIBE_TOPIC",
         "handleSetTopicType",
         "handleMoveTopic",
         "handleMergeTopic",
         "handleSplitTopic",
+        "handleReportPost",
         "handleSubscribeTopic",
         "topic_moved",
         "topics_merged",
         "topic_split",
+        "post_reported",
         "topicUrlWithNotice",
         "topic_subscribed_email_on",
         "topic_created_email_on",
@@ -177,6 +180,10 @@ def test_agora_templates_have_live_forms() -> None:
     assert "ap_forum_like_post" in topic
     assert "ap_forum_edit_post" in topic
     assert "ap_forum_delete_post" in topic
+    assert "ap_forum_report_post" in topic
+    assert "ap_forum_report_post_form_html" in topic
+    assert "can_report" in topic
+    assert "name=\"report_reason\"" in topic
     assert "quoteMarkup" in topic or "quote_markup" in topic or "$quoteMarkup" in topic
     assert 'name="reply_body"' in topic
     assert "ap_forum_notify_compose_checkbox_html" in topic
@@ -192,6 +199,8 @@ def test_agora_templates_have_live_forms() -> None:
     assert ".ap-forum-action-form--split-topic" in style
     assert ".ap-forum-post__split" in style
     assert ".ap-forum-post__actions" in style
+    assert ".ap-forum-action-form--report-post" in style
+    assert ".ap-field--report-reason" in style
     assert ".ap-forum-subscribe" in style
     assert ".ap-forum-toolbar--topic" in style
     assert ".ap-field--notify-replies" in style

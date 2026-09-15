@@ -1152,6 +1152,10 @@ class AP_Forum_Moderation
     /**
      * File a moderation report.
      *
+     * Requires a logged-in reporter_id and a non-empty reason. One open report
+     * per user per object; guests and duplicates return 0. Failed insert
+     * returns 0 (does not claim success).
+     *
      * @param array<string, mixed> $data Keys: reporter_id, report_type, report_object_id,
      *                                   report_reason, report_details
      *
@@ -1167,7 +1171,10 @@ class AP_Forum_Moderation
         $reason = trim((string) ($data['report_reason'] ?? $data['reason'] ?? ''));
         $details = (string) ($data['report_details'] ?? $data['details'] ?? '');
 
-        if ($objectId < 1) {
+        if ($objectId < 1 || $reporterId < 1 || $reason === '') {
+            return 0;
+        }
+        if (self::hasOpenReport($reporterId, $type, $objectId, $db)) {
             return 0;
         }
         if (function_exists('mb_substr')) {
@@ -1298,6 +1305,86 @@ class AP_Forum_Moderation
         }
 
         return (int) $db->getVar($sql, $params);
+    }
+
+    /**
+     * Whether this user already has an open report on the object.
+     */
+    public static function hasOpenReport(
+        int $reporterId,
+        string $type,
+        int $objectId,
+        ?AP_DB $db = null
+    ): bool {
+        if ($reporterId < 1 || $objectId < 1) {
+            return false;
+        }
+
+        $db = self::resolveDb($db);
+        $table = $db->quoteIdentifier($db->table('reports'));
+        $sql = 'SELECT COUNT(*) FROM ' . $table
+            . ' WHERE ' . $db->quoteIdentifier('reporter_id') . ' = ?'
+            . ' AND ' . $db->quoteIdentifier('report_type') . ' = ?'
+            . ' AND ' . $db->quoteIdentifier('report_object_id') . ' = ?'
+            . ' AND ' . $db->quoteIdentifier('report_status') . ' = ?';
+        $count = (int) $db->getVar($sql, [
+            $reporterId,
+            self::normalizeReportType($type),
+            $objectId,
+            self::REPORT_STATUS_OPEN,
+        ]);
+
+        return $count > 0;
+    }
+
+    /**
+     * Timestamp of the reporter's most recent report (any status), or null.
+     */
+    public static function getLastReportTime(int $reporterId, ?AP_DB $db = null): ?string
+    {
+        if ($reporterId < 1) {
+            return null;
+        }
+
+        $db = self::resolveDb($db);
+        $table = $db->quoteIdentifier($db->table('reports'));
+        $val = $db->getVar(
+            'SELECT ' . $db->quoteIdentifier('reported_at') . ' FROM ' . $table
+            . ' WHERE ' . $db->quoteIdentifier('reporter_id') . ' = ?'
+            . ' ORDER BY ' . $db->quoteIdentifier('reported_at') . ' DESC, '
+            . $db->quoteIdentifier('report_id') . ' DESC LIMIT 1',
+            [$reporterId]
+        );
+
+        return $val !== null && $val !== '' ? (string) $val : null;
+    }
+
+    /**
+     * Front report flood: same interval as posting, keyed off last report time.
+     *
+     * Moderators / manage_forums skip. Interval 0 disables. Guard missing → off.
+     */
+    public static function isReportFlooding(int $reporterId, ?AP_DB $db = null): bool
+    {
+        if ($reporterId < 1 || !class_exists('AP_Forum_Guard', false)) {
+            return false;
+        }
+
+        $interval = AP_Forum_Guard::getFloodInterval($db);
+        if ($interval < 1 || AP_Forum_Guard::isExemptFromFlood($reporterId, $db)) {
+            return false;
+        }
+
+        $last = self::getLastReportTime($reporterId, $db);
+        if ($last === null || $last === '') {
+            return false;
+        }
+        $lastTs = strtotime($last);
+        if ($lastTs === false) {
+            return false;
+        }
+
+        return (time() - $lastTs) < $interval;
     }
 
     /**

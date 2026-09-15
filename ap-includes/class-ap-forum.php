@@ -2559,7 +2559,7 @@ class AP_Forum
     /**
      * Theme-friendly post list for a topic.
      *
-     * Action flags (SPEC B2): can_quote, can_edit, can_delete, can_like, can_moderate.
+     * Action flags (SPEC B2): can_quote, can_edit, can_delete, can_like, can_moderate, can_report.
      *
      * @return list<array<string, mixed>>
      */
@@ -2673,6 +2673,7 @@ class AP_Forum
             $row = self::postToDisplayRow($post, $n, $db, $preloaded);
             $row['liked_by_me'] = !empty($likedMap[(int) $post->post_id]);
             $row['can_like'] = $viewerId > 0 && $canViewForum;
+            $row['can_report'] = $viewerId > 0 && $canViewForum;
             $row['can_quote'] = $canQuote;
             $row['can_edit'] = self::userCanEditPost($viewerId, $post, $db);
             $row['can_delete'] = self::userCanDeletePost($viewerId, $post, $db);
@@ -4311,6 +4312,7 @@ class AP_Forum
             'like_count' => max(0, $likeCount),
             'liked_by_me' => false,
             'can_like' => false,
+            'can_report' => false,
             'can_quote' => false,
             'can_edit' => false,
             'can_delete' => false,

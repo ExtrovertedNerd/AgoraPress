@@ -317,6 +317,7 @@ final class ForumLikesStatsTest extends TestCase
         foreach ($guestRows as $row) {
             $this->assertFalse((bool) ($row['can_quote'] ?? false), 'guest cannot quote');
             $this->assertFalse((bool) ($row['can_like'] ?? false), 'guest cannot like');
+            $this->assertFalse((bool) ($row['can_report'] ?? false), 'guest cannot report');
             $this->assertFalse((bool) ($row['can_edit'] ?? false), 'guest cannot edit');
         }
 
@@ -332,6 +333,7 @@ final class ForumLikesStatsTest extends TestCase
         foreach ($memberRows as $row) {
             $this->assertTrue((bool) ($row['can_quote'] ?? false), 'member with reply cap can quote');
             $this->assertTrue((bool) ($row['can_like'] ?? false), 'member can like');
+            $this->assertTrue((bool) ($row['can_report'] ?? false), 'member can report');
             if ((int) ($row['id'] ?? 0) === $this->replyId) {
                 $replyRow = $row;
             }

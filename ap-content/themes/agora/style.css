@@ -2697,9 +2697,34 @@ body.agora-theme {
 .ap-forum-like:focus-visible,
 .ap-forum-quote:focus-visible,
 .ap-forum-edit:focus-visible,
-.ap-forum-delete:focus-visible {
+.ap-forum-delete:focus-visible,
+.ap-forum-report:focus-visible {
   outline: var(--ap-focus-ring) solid var(--ap-accent);
   outline-offset: 2px;
+}
+
+.ap-forum-action-form--report-post {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ap-forum-action-form--report-post .ap-field--report-reason {
+  margin: 0;
+}
+
+.ap-forum-action-form--report-post input[type="text"] {
+  width: 8.5rem;
+  max-width: 100%;
+  min-height: 2rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--ap-border);
+  border-radius: var(--ap-radius-sm);
+  background: var(--ap-field-bg, var(--ap-bg-accent, var(--ap-bg)));
+  color: var(--ap-fg);
+  font: inherit;
+  font-size: 0.85rem;
 }
 
 .ap-forum-delete:focus-visible {

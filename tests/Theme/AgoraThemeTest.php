@@ -1844,6 +1844,7 @@ final class AgoraThemeTest extends TestCase
                         'can_edit' => true,
                         'can_delete' => true,
                         'can_like' => true,
+                        'can_report' => true,
                         'like_count' => 3,
                         'liked_by_me' => false,
                         'author_stats' => [
@@ -1875,6 +1876,10 @@ final class AgoraThemeTest extends TestCase
         $this->assertStringContainsString('aria-label="Delete post #1"', $html);
         $this->assertStringContainsString('aria-label="Like post #1 (3 likes)"', $html);
         $this->assertStringContainsString('aria-pressed="false"', $html);
+        $this->assertStringContainsString('aria-label="Report post #1"', $html);
+        $this->assertStringContainsString('ap_forum_report_post', $html);
+        $this->assertStringContainsString('name="report_reason"', $html);
+        $this->assertMatchesRegularExpression('/name="report_reason"[^>]*\brequired\b/', $html);
         $this->assertStringContainsString('aria-label="Back to top of topic"', $html);
     }
 

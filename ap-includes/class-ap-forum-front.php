@@ -42,6 +42,9 @@ class AP_Forum_Front
     /** Split selected posts into a new topic the actor can moderate. */
     public const ACTION_SPLIT_TOPIC = 'ap_forum_split_topic';
 
+    /** Report a post into the existing moderation queue (logged-in + view_forum). */
+    public const ACTION_REPORT_POST = 'ap_forum_report_post';
+
     /** Per-topic email Subscribe (site on, logged in, can view_forum). */
     public const ACTION_SUBSCRIBE_TOPIC = 'ap_forum_subscribe_topic';
 
@@ -552,6 +555,9 @@ class AP_Forum_Front
         if ($action === self::ACTION_SPLIT_TOPIC) {
             return self::handleSplitTopic($post, $db);
         }
+        if ($action === self::ACTION_REPORT_POST) {
+            return self::handleReportPost($post, $db);
+        }
         if ($action === self::ACTION_SUBSCRIBE_TOPIC) {
             return self::handleSubscribeTopic($post, $db, true);
         }
@@ -613,6 +619,7 @@ class AP_Forum_Front
                 'topic_moved' => ['type' => 'success', 'message' => 'Topic moved.'],
                 'topics_merged' => ['type' => 'success', 'message' => 'Topics merged.'],
                 'topic_split' => ['type' => 'success', 'message' => 'Topic split.'],
+                'post_reported' => ['type' => 'success', 'message' => 'Report submitted.'],
                 'topic_subscribed' => ['type' => 'success', 'message' => 'Subscribed to this topic.'],
                 'topic_subscribed_email_on' => [
                     'type' => 'success',
@@ -1801,6 +1808,111 @@ class AP_Forum_Front
         $created = AP_Forum::getTopic($newTopicId, $db);
 
         return AP_Forum::topicUrlWithNotice($created ?? $newTopicId, 'topic_split');
+    }
+
+    /**
+     * Report a post into `{prefix}reports` (type post, status open).
+     *
+     * Logged-in + `view_forum`. Reason required. Guests are refused. One open
+     * report per user per post. Flood uses the forum flood interval against
+     * last report time. Failed insert does not claim success. No report mail.
+     *
+     * @param array<string, mixed> $post
+     */
+    private static function handleReportPost(array $post, ?AP_DB $db): ?string
+    {
+        $postId = (int) ($post['post_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = self::ACTION_REPORT_POST . '_' . $postId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+
+        $userId = self::currentUserId($db);
+        if ($userId < 1) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You must be logged in to report posts.',
+            ];
+
+            return null;
+        }
+
+        if (!class_exists('AP_Forum', false) || !class_exists('AP_Forum_Moderation', false)) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not submit the report.'];
+
+            return null;
+        }
+
+        $existing = AP_Forum::getPost($postId, $db);
+        if ($existing === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Post not found.'];
+
+            return null;
+        }
+
+        $forumId = (int) ($existing->forum_id ?? 0);
+        if ($forumId < 1 || !self::userCanViewForum($userId, $forumId, $db)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You do not have permission to report this post.',
+            ];
+
+            return null;
+        }
+
+        $reason = trim((string) ($post['report_reason'] ?? $post['reason'] ?? ''));
+        if ($reason === '') {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'Please provide a reason for this report.',
+            ];
+
+            return null;
+        }
+
+        if (AP_Forum_Moderation::hasOpenReport($userId, AP_Forum_Moderation::REPORT_TYPE_POST, $postId, $db)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You have already reported this post.',
+            ];
+
+            return null;
+        }
+
+        if (AP_Forum_Moderation::isReportFlooding($userId, $db)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You are reporting too quickly. Please wait a moment and try again.',
+            ];
+
+            return null;
+        }
+
+        $details = trim((string) ($post['report_details'] ?? $post['details'] ?? ''));
+        $reportId = AP_Forum_Moderation::createReport([
+            'reporter_id' => $userId,
+            'report_type' => AP_Forum_Moderation::REPORT_TYPE_POST,
+            'report_object_id' => $postId,
+            'report_reason' => $reason,
+            'report_details' => $details,
+        ], $db);
+        if ($reportId < 1) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not submit the report.'];
+
+            return null;
+        }
+
+        $topic = AP_Forum::getTopic((int) $existing->topic_id, $db);
+        if ($topic !== null) {
+            return AP_Forum::topicUrlWithNotice($topic, 'post_reported') . '#post-' . $postId;
+        }
+        $url = AP_Forum::forumsIndexUrl();
+        $sep = str_contains($url, '?') ? '&' : '?';
+
+        return $url . $sep . 'ap_forum_notice=post_reported';
     }
 
     /**
