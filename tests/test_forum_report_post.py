@@ -30,11 +30,14 @@ def test_phpunit_covers_report_spec_cases() -> None:
         "function testLoggedInMemberCreatesOneOpenPostReport",
         "function testGuestCannotReportPost",
         "function testDuplicateOpenReportRefused",
+        "function testReportPostInsertIgnoresCraftedTypeAndStatus",
         "function testReasonRequiredAndFailedInsertDoesNotClaimSuccess",
         "function testReportFloodGuard",
         "function testMissingViewForumRefused",
         "function testTopicViewShowsReportForLoggedInNotGuest",
         "function testReportPostFormHtmlRequiresPostIdAndReason",
+        "function rawReportRow",
+        "ap_reports",
         "REPORT_STATUS_OPEN",
         "REPORT_TYPE_POST",
         "hasOpenReport",
@@ -66,6 +69,8 @@ def test_report_post_inserts_open_post_row_and_guards() -> None:
     assert "ap_forum_report_post" in front
     assert "function handleReportPost" in front
     assert "createReport" in front
+    assert "REPORT_TYPE_POST" in front
+    assert "REPORT_STATUS_OPEN" in front
     assert "post_reported" in front
     assert "isReportFlooding" in front
     assert "hasOpenReport" in front

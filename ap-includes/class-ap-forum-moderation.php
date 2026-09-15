@@ -1154,7 +1154,8 @@ class AP_Forum_Moderation
      *
      * Requires a logged-in reporter_id and a non-empty reason. One open report
      * per user per object; guests and duplicates return 0. Failed insert
-     * returns 0 (does not claim success).
+     * returns 0 (does not claim success). New rows are always `report_status`
+     * open — a crafted status is ignored.
      *
      * @param array<string, mixed> $data Keys: reporter_id, report_type, report_object_id,
      *                                   report_reason, report_details

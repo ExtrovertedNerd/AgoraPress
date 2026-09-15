@@ -193,6 +193,20 @@ final class ForumReportPostTest extends TestCase
         $this->assertStringContainsString('ap_forum_notice=post_reported', (string) $redirect);
         $this->assertStringContainsString('#post-' . $postId, (string) $redirect);
 
+        $this->assertSame('ap_reports', $this->db->reports);
+        $raw = $this->rawReportRow($postId, $memberId);
+        $this->assertNotNull($raw);
+        $this->assertSame('post', (string) ($raw->report_type ?? ''));
+        $this->assertSame('open', (string) ($raw->report_status ?? ''));
+        $this->assertSame($memberId, (int) ($raw->reporter_id ?? 0));
+        $this->assertSame($postId, (int) ($raw->report_object_id ?? 0));
+        $this->assertSame('spam', (string) ($raw->report_reason ?? ''));
+        $this->assertTrue(
+            $raw->resolved_at === null || $raw->resolved_at === '',
+            'new report is unresolved'
+        );
+        $this->assertSame(0, (int) ($raw->resolved_by ?? 0));
+
         $open = AP_Forum_Moderation::queryReports([
             'status' => AP_Forum_Moderation::REPORT_STATUS_OPEN,
             'type' => AP_Forum_Moderation::REPORT_TYPE_POST,
@@ -317,6 +331,41 @@ final class ForumReportPostTest extends TestCase
         $this->assertIsString($third);
         $this->assertSame(1, $this->openReportCount($postId, $memberId));
         $this->assertSame(2, $this->reportCount($postId, $memberId));
+    }
+
+    /**
+     * POST ap_forum_report_post always inserts type post / status open.
+     * Crafted type, status, and object id on the form are ignored.
+     */
+    public function testReportPostInsertIgnoresCraftedTypeAndStatus(): void
+    {
+        $memberId = $this->createSubscriber('report_crafted');
+        [$postId] = $this->seedTopicWithReply();
+
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $postId,
+            'report_reason' => 'spam',
+            'report_type' => 'user',
+            'type' => 'topic',
+            'report_status' => 'closed',
+            'status' => 'dismissed',
+            'report_object_id' => 99999,
+            'object_id' => 88888,
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $postId, $memberId),
+        ], $this->db);
+
+        $this->assertIsString($redirect);
+        $this->assertSame('ap_reports', $this->db->reports);
+        $raw = $this->rawReportRow($postId, $memberId);
+        $this->assertNotNull($raw);
+        $this->assertSame('post', (string) ($raw->report_type ?? ''));
+        $this->assertSame('open', (string) ($raw->report_status ?? ''));
+        $this->assertSame($postId, (int) ($raw->report_object_id ?? 0));
+        $this->assertSame($memberId, (int) ($raw->reporter_id ?? 0));
+        $this->assertSame(0, $this->reportCount(99999, $memberId));
+        $this->assertSame(0, $this->reportCount(88888, $memberId));
     }
 
     public function testReasonRequiredAndFailedInsertDoesNotClaimSuccess(): void
@@ -530,6 +579,19 @@ final class ForumReportPostTest extends TestCase
         $this->assertGreaterThan(0, $id);
 
         return $id;
+    }
+
+    private function rawReportRow(int $postId, int $reporterId): ?object
+    {
+        $table = $this->db->quoteIdentifier($this->db->reports);
+
+        return $this->db->getRow(
+            'SELECT * FROM ' . $table
+            . ' WHERE ' . $this->db->quoteIdentifier('report_object_id') . ' = ?'
+            . ' AND ' . $this->db->quoteIdentifier('reporter_id') . ' = ?'
+            . ' ORDER BY ' . $this->db->quoteIdentifier('report_id') . ' DESC',
+            [$postId, $reporterId]
+        );
     }
 
     private function openReportCount(int $postId, int $reporterId = 0): int

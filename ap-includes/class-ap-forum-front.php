@@ -1892,12 +1892,15 @@ class AP_Forum_Front
         }
 
         $details = trim((string) ($post['report_details'] ?? $post['details'] ?? ''));
+        // Type/status come from this handler, not the form — a crafted POST
+        // cannot file a closed row or a non-post report.
         $reportId = AP_Forum_Moderation::createReport([
             'reporter_id' => $userId,
             'report_type' => AP_Forum_Moderation::REPORT_TYPE_POST,
             'report_object_id' => $postId,
             'report_reason' => $reason,
             'report_details' => $details,
+            'report_status' => AP_Forum_Moderation::REPORT_STATUS_OPEN,
         ], $db);
         if ($reportId < 1) {
             self::$notice = ['type' => 'error', 'message' => 'Could not submit the report.'];
