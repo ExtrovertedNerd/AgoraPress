@@ -4516,10 +4516,13 @@ class AP_Forum
     }
 
     /**
-     * Recount a forum's last-post columns from the newest approved, not-deleted post.
+     * Recount a forum's last-post columns from the newest visible post.
      *
-     * Empty boards clear last_post_id, last_topic_id, last_poster_id, last_post_time.
-     * Soft-deleted topics keep their posts, so this join skips topic_status=deleted.
+     * Visible means an approved post (`post_approved=1`) on an approved,
+     * not-deleted topic (`topic_approved=1` and `topic_status != deleted`).
+     * Soft-deleted topics keep their posts, so the join is required.
+     * Empty boards clear last_post_id, last_topic_id, last_poster_id,
+     * and last_post_time (epoch sentinel).
      */
     public static function refreshForumLastPost(int $forumId, ?AP_DB $db = null): void
     {
@@ -4535,12 +4538,13 @@ class AP_Forum
             . ' INNER JOIN ' . $topicsTable . ' t ON t.' . $db->quoteIdentifier('topic_id')
             . ' = p.' . $db->quoteIdentifier('topic_id')
             . ' WHERE p.' . $db->quoteIdentifier('forum_id') . ' = ?'
+            . ' AND t.' . $db->quoteIdentifier('forum_id') . ' = ?'
             . ' AND p.' . $db->quoteIdentifier('post_approved') . ' = 1'
             . ' AND t.' . $db->quoteIdentifier('topic_approved') . ' = 1'
             . ' AND t.' . $db->quoteIdentifier('topic_status') . ' != ?'
             . ' ORDER BY p.' . $db->quoteIdentifier('post_time') . ' DESC, p.'
             . $db->quoteIdentifier('post_id') . ' DESC LIMIT 1',
-            [$forumId, self::TOPIC_STATUS_DELETED]
+            [$forumId, $forumId, self::TOPIC_STATUS_DELETED]
         );
         if ($row === null) {
             $db->update('forums', [

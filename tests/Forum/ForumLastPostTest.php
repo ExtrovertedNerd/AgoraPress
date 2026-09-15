@@ -1,7 +1,8 @@
 <?php
 
 /**
- * Last-post recount after topic delete (soft and force).
+ * Last-post recount: refreshForumLastPost skips deleted/unapproved
+ * topics and posts; empty boards clear last_* columns.
  *
  * @package AgoraPress
  */
@@ -214,6 +215,145 @@ final class ForumLastPostTest extends TestCase
         );
     }
 
+    public function testRefreshIgnoresDeletedTopic(): void
+    {
+        $board = $this->twoTopicBoard();
+        $this->db->update(
+            'topics',
+            ['topic_status' => AP_Forum::TOPIC_STATUS_DELETED],
+            ['topic_id' => $board['newerId']]
+        );
+
+        AP_Forum::refreshForumLastPost($board['forumId'], $this->db);
+        $this->assertSameLastPost(
+            $board['forumId'],
+            $board['olderId'],
+            $board['olderPostId'],
+            $board['olderPosterId'],
+            'Older thread'
+        );
+    }
+
+    public function testRefreshIgnoresUnapprovedTopic(): void
+    {
+        $board = $this->twoTopicBoard();
+        $this->db->update(
+            'topics',
+            ['topic_approved' => 0],
+            ['topic_id' => $board['newerId']]
+        );
+
+        AP_Forum::refreshForumLastPost($board['forumId'], $this->db);
+        $this->assertSameLastPost(
+            $board['forumId'],
+            $board['olderId'],
+            $board['olderPostId'],
+            $board['olderPosterId'],
+            'Older thread'
+        );
+    }
+
+    public function testRefreshIgnoresUnapprovedPost(): void
+    {
+        $board = $this->twoTopicBoard();
+        $newer = AP_Forum::getTopic($board['newerId'], $this->db);
+        $this->assertNotNull($newer);
+        $openingId = (int) $newer->first_post_id;
+        $opening = AP_Forum::getPost($openingId, $this->db);
+        $this->assertNotNull($opening);
+
+        $this->db->update(
+            'forum_posts',
+            ['post_approved' => 0],
+            ['post_id' => $board['newerPostId']]
+        );
+
+        AP_Forum::refreshForumLastPost($board['forumId'], $this->db);
+        $this->assertSameLastPost(
+            $board['forumId'],
+            $board['newerId'],
+            $openingId,
+            (int) $opening->poster_id,
+            'Newer thread'
+        );
+    }
+
+    public function testRefreshKeepsLockedTopicAsLastPost(): void
+    {
+        $board = $this->twoTopicBoard();
+        $this->db->update(
+            'topics',
+            ['topic_status' => AP_Forum::TOPIC_STATUS_LOCKED],
+            ['topic_id' => $board['newerId']]
+        );
+
+        AP_Forum::refreshForumLastPost($board['forumId'], $this->db);
+        $this->assertSameLastPost(
+            $board['forumId'],
+            $board['newerId'],
+            $board['newerPostId'],
+            $board['newerPosterId'],
+            'Newer thread'
+        );
+    }
+
+    public function testRefreshEmptyBoardClearsLastPostColumns(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Empty Last Post'], $this->db);
+        $this->assertGreaterThan(0, $forumId);
+        $this->plantArbitraryLastPost($forumId, 99, 88, 77, '2026-01-02 03:04:05');
+
+        AP_Forum::refreshForumLastPost($forumId, $this->db);
+        $this->assertEmptyLastPost($forumId);
+    }
+
+    public function testRefreshOnlyHiddenContentClearsLastPostColumns(): void
+    {
+        $board = $this->twoTopicBoard();
+        $this->db->update(
+            'topics',
+            ['topic_status' => AP_Forum::TOPIC_STATUS_DELETED],
+            ['topic_id' => $board['newerId']]
+        );
+        $this->db->update(
+            'topics',
+            ['topic_approved' => 0],
+            ['topic_id' => $board['olderId']]
+        );
+
+        AP_Forum::refreshForumLastPost($board['forumId'], $this->db);
+        $this->assertEmptyLastPost($board['forumId']);
+    }
+
+    public function testRefreshOnlyUnapprovedPostsClearsLastPostColumns(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Unapproved Posts Board'], $this->db);
+        $this->assertGreaterThan(0, $forumId);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Held thread',
+            'content' => 'Opening post',
+            'poster_id' => 41,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+        $replyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => 'Held reply',
+            'poster_id' => 42,
+        ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
+
+        $this->db->query(
+            'UPDATE ' . $this->db->quoteIdentifier($this->db->table('forum_posts'))
+            . ' SET ' . $this->db->quoteIdentifier('post_approved') . ' = 0 WHERE '
+            . $this->db->quoteIdentifier('topic_id') . ' = ?',
+            [$topicId]
+        );
+
+        AP_Forum::refreshForumLastPost($forumId, $this->db);
+        $this->assertEmptyLastPost($forumId);
+    }
+
     /**
      * @return array{
      *   forumId: int,
@@ -291,12 +431,28 @@ final class ForumLastPostTest extends TestCase
      */
     private function plantStaleLastPost(array $board): void
     {
+        $this->plantArbitraryLastPost(
+            $board['forumId'],
+            $board['newerPostId'],
+            $board['newerId'],
+            $board['newerPosterId'],
+            $board['newerPostTime']
+        );
+    }
+
+    private function plantArbitraryLastPost(
+        int $forumId,
+        int $postId,
+        int $topicId,
+        int $posterId,
+        string $postTime
+    ): void {
         $this->db->update('forums', [
-            'last_post_id' => $board['newerPostId'],
-            'last_poster_id' => $board['newerPosterId'],
-            'last_post_time' => $board['newerPostTime'],
-            'last_topic_id' => $board['newerId'],
-        ], ['forum_id' => $board['forumId']]);
+            'last_post_id' => $postId,
+            'last_poster_id' => $posterId,
+            'last_post_time' => $postTime,
+            'last_topic_id' => $topicId,
+        ], ['forum_id' => $forumId]);
     }
 
     private function assertSameLastPost(

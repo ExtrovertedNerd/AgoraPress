@@ -42,8 +42,20 @@ def test_forum_refresh_helper_is_public_and_skips_deleted() -> None:
     body = src[start:end]
     assert "INNER JOIN" in body
     assert "topic_approved" in body
+    assert "post_approved" in body
     assert "TOPIC_STATUS_DELETED" in body
     assert "last_topic_id" in body
+    assert "last_poster_id" in body
+    assert "last_post_time" in body
+    assert "last_post_id" in body
+
+    empty_start = body.index("if ($row === null)")
+    empty_end = body.index("return;", empty_start)
+    empty = body[empty_start:empty_end]
+    assert "'last_post_id' => 0" in empty
+    assert "'last_topic_id' => 0" in empty
+    assert "'last_poster_id' => 0" in empty
+    assert "EMPTY_DATETIME" in empty
 
 
 def test_moderation_delegates_to_forum_refresh_helper() -> None:
