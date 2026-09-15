@@ -1197,11 +1197,23 @@ class AP_Forum_Moderation
             'resolved_by' => 0,
         ];
 
-        if ($db->insert('reports', $row) === false) {
+        $inserted = $db->insert('reports', $row);
+        if ($inserted === false || (int) $inserted < 1) {
             return 0;
         }
         $id = (int) $db->lastInsertId();
         if ($id < 1) {
+            return 0;
+        }
+
+        $created = self::getReport($id, $db);
+        if (
+            $created === null
+            || (int) $created->reporter_id !== $reporterId
+            || (int) $created->report_object_id !== $objectId
+            || (string) $created->report_type !== $type
+            || (string) $created->report_status !== self::REPORT_STATUS_OPEN
+        ) {
             return 0;
         }
 
@@ -1210,7 +1222,7 @@ class AP_Forum_Moderation
         }
 
         if (function_exists('ap_do_action')) {
-            ap_do_action('ap_report_created', $id, self::getReport($id, $db));
+            ap_do_action('ap_report_created', $id, $created);
         }
 
         return $id;

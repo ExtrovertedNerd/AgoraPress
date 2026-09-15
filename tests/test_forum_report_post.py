@@ -32,7 +32,11 @@ def test_phpunit_covers_report_spec_cases() -> None:
         "function testDuplicateOpenReportRefused",
         "function testTwoUsersMayEachHaveOneOpenReportOnSamePost",
         "function testReportPostInsertIgnoresCraftedTypeAndStatus",
-        "function testReasonRequiredAndFailedInsertDoesNotClaimSuccess",
+        "function testReasonRequired",
+        "function testFailedInsertDoesNotClaimSuccess",
+        "Could not submit the report.",
+        "ForumReportInsertFailsDb",
+        "ForumReportLastInsertIdZeroDb",
         "function testReportFloodGuard",
         "function testFloodOffAllowsRapidReportsOnDifferentPosts",
         "function testMissingViewForumRefused",
@@ -63,6 +67,10 @@ def test_report_post_inserts_open_post_row_and_guards() -> None:
     assert "$reporterId < 1" in body
     assert "$reason === ''" in body
     assert "report_type" in body
+    assert "$inserted === false" in body
+    assert "(int) $inserted < 1" in body
+    assert "lastInsertId" in body
+    assert "ap_report_created" in body
     assert "function hasOpenReport" in mod
     assert "function openReportObjectIdSet" in mod
     assert "function isReportFlooding" in mod
@@ -83,6 +91,32 @@ def test_report_post_inserts_open_post_row_and_guards() -> None:
     assert "Could not submit the report." in front
     assert "You must be logged in to report posts." in front
     assert "Please provide a reason for this report." in front
+    handle = front.split("function handleReportPost", 1)[1].split(
+        "function postIdsFromRequest", 1
+    )[0]
+    assert "$reportId < 1" in handle
+    assert "getReport" in handle
+    assert "ap_forum_notice=post_reported" in handle
+    assert "Could not submit the report." in handle
+    assert "AP_Forum_Moderation_Queue" not in handle
+    assert "forum-moderation.php" not in handle
+    assert "forum-reports.php" not in handle
+
+
+def test_front_report_does_not_rebuild_acp_queue() -> None:
+    """ACP Moderation already lists {prefix}reports — do not add a second queue."""
+    assert not (ROOT / "ap-admin" / "forum-reports.php").exists()
+    queue = (
+        ROOT / "ap-admin" / "includes" / "class-ap-forum-moderation-queue.php"
+    ).read_text(encoding="utf-8")
+    assert "function queryReports" not in queue
+    assert "AP_Forum_Moderation::queryReports" in queue
+    assert "resolve_report" in queue
+    assert "dismiss_report" in queue
+    assert "reopen_report" in queue
+    page = (ROOT / "ap-admin" / "forum-moderation.php").read_text(encoding="utf-8")
+    assert "AP_Forum_Moderation_Queue" in page
+    assert "'view' => 'reports'" in queue
 
 
 def test_topic_view_report_form_logged_in_reason_required() -> None:

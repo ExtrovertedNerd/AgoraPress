@@ -1902,7 +1902,14 @@ class AP_Forum_Front
             'report_details' => $details,
             'report_status' => AP_Forum_Moderation::REPORT_STATUS_OPEN,
         ], $db);
-        if ($reportId < 1) {
+        $stored = $reportId > 0 ? AP_Forum_Moderation::getReport($reportId, $db) : null;
+        if (
+            $reportId < 1
+            || $stored === null
+            || (int) ($stored->report_object_id ?? 0) !== $postId
+            || (string) ($stored->report_type ?? '') !== AP_Forum_Moderation::REPORT_TYPE_POST
+            || (string) ($stored->report_status ?? '') !== AP_Forum_Moderation::REPORT_STATUS_OPEN
+        ) {
             self::$notice = ['type' => 'error', 'message' => 'Could not submit the report.'];
 
             return null;

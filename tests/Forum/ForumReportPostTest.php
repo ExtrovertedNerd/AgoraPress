@@ -428,7 +428,7 @@ final class ForumReportPostTest extends TestCase
         $this->assertSame(0, $this->reportCount(88888, $memberId));
     }
 
-    public function testReasonRequiredAndFailedInsertDoesNotClaimSuccess(): void
+    public function testReasonRequired(): void
     {
         $memberId = $this->createSubscriber('report_reason');
         [$postId] = $this->seedTopicWithReply();
@@ -453,6 +453,78 @@ final class ForumReportPostTest extends TestCase
             'report_reason' => '',
         ], $this->db));
         $this->assertSame(0, $this->openReportCount($postId));
+    }
+
+    /**
+     * Failed INSERT (false or zero rows, or no insert id) must not flash
+     * "Report submitted." / post_reported. ACP already lists {prefix}reports.
+     */
+    public function testFailedInsertDoesNotClaimSuccess(): void
+    {
+        $memberId = $this->createSubscriber('report_fail');
+        [$postId] = $this->seedTopicWithReply();
+        $payload = [
+            'reporter_id' => $memberId,
+            'report_type' => AP_Forum_Moderation::REPORT_TYPE_POST,
+            'report_object_id' => $postId,
+            'report_reason' => 'spam',
+        ];
+
+        $createdFired = 0;
+        if (function_exists('ap_add_action')) {
+            ap_add_action('ap_report_created', static function () use (&$createdFired): void {
+                $createdFired++;
+            });
+        }
+
+        $falseInsert = $this->reportsInsertFailsDb();
+        $this->assertSame(0, AP_Forum_Moderation::createReport($payload, $falseInsert));
+        $this->assertSame(1, $falseInsert->reportInsertAttempts);
+        $this->assertSame(0, $this->openReportCount($postId));
+        $this->assertSame(0, $createdFired);
+
+        $zeroRows = $this->reportsInsertFailsDb();
+        $zeroRows->reportsInsertResult = 0;
+        $this->assertSame(0, AP_Forum_Moderation::createReport($payload, $zeroRows));
+        $this->assertSame(1, $zeroRows->reportInsertAttempts);
+        $this->assertSame(0, $this->openReportCount($postId));
+        $this->assertSame(0, $createdFired);
+
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+        $failing = $this->reportsInsertFailsDb();
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $postId,
+            'report_reason' => 'spam',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $postId, $memberId),
+        ], $failing);
+        $this->assertNull($redirect);
+        $notice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $notice['type'] ?? null);
+        $this->assertSame('Could not submit the report.', $notice['message'] ?? null);
+        $this->assertStringNotContainsString('Report submitted.', (string) ($notice['message'] ?? ''));
+        $this->assertSame(0, $this->openReportCount($postId));
+        $this->assertSame(0, $createdFired);
+        $this->assertGreaterThanOrEqual(1, $failing->reportInsertAttempts);
+
+        $post = AP_Forum::getPost($postId, $this->db);
+        $this->assertSame(0, (int) ($post?->post_reported ?? 0));
+
+        AP_Forum_Front::setNotice(null);
+        $noId = $this->reportsLastInsertIdZeroDb();
+        $noIdRedirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $postId,
+            'report_reason' => 'spam',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $postId, $memberId),
+        ], $noId);
+        $this->assertNull($noIdRedirect);
+        $noIdNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $noIdNotice['type'] ?? null);
+        $this->assertSame('Could not submit the report.', $noIdNotice['message'] ?? null);
+        $this->assertSame(0, $createdFired);
+        $postAfter = AP_Forum::getPost($postId, $this->db);
+        $this->assertSame(0, (int) ($postAfter?->post_reported ?? 0));
     }
 
     public function testReportFloodGuard(): void
@@ -775,5 +847,47 @@ final class ForumReportPostTest extends TestCase
         }
 
         return count(AP_Forum_Moderation::queryReports($args, $this->db));
+    }
+
+    private function reportsInsertFailsDb(): ForumReportInsertFailsDb
+    {
+        return new ForumReportInsertFailsDb($this->db->pdo(), 'sqlite', $this->db->getPrefix());
+    }
+
+    private function reportsLastInsertIdZeroDb(): ForumReportLastInsertIdZeroDb
+    {
+        return new ForumReportLastInsertIdZeroDb($this->db->pdo(), 'sqlite', $this->db->getPrefix());
+    }
+}
+
+/**
+ * Test double: `{prefix}reports` INSERT never lands (false or zero rows).
+ */
+final class ForumReportInsertFailsDb extends AP_DB
+{
+    public int $reportInsertAttempts = 0;
+
+    public int|false $reportsInsertResult = false;
+
+    public function insert(string $table, array $data): int|false
+    {
+        if ($table === 'reports') {
+            $this->reportInsertAttempts++;
+
+            return $this->reportsInsertResult;
+        }
+
+        return parent::insert($table, $data);
+    }
+}
+
+/**
+ * Test double: INSERT may land, but lastInsertId() is always 0.
+ */
+final class ForumReportLastInsertIdZeroDb extends AP_DB
+{
+    public function lastInsertId(): string
+    {
+        return '0';
     }
 }
