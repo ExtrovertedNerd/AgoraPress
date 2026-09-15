@@ -108,6 +108,7 @@ Custom themes override the same filenames in the child/parent stack
 `ap_forum_delete_post`, `ap_forum_like_post`, `ap_forum_lock_topic`,
 `ap_forum_unlock_topic`, `ap_forum_set_topic_type`,
 `ap_forum_move_topic`, `ap_forum_merge_topic`, `ap_forum_split_topic`,
+`ap_forum_report_post`,
 `ap_forum_subscribe_topic`, `ap_forum_unsubscribe_topic`.
 
 Sitemaps include the board index, forums, and topics when the module is on
@@ -144,6 +145,7 @@ Query var `ap_forum_notice` (and same-request flash via
 | `topic_moved` | Topic moved. |
 | `topics_merged` | Topics merged. |
 | `topic_split` | Topic split. |
+| `post_reported` | Report submitted. |
 | `topic_subscribed` / `topic_unsubscribed` | Subscribed to this topic. / Unsubscribed from this topic. |
 | `topic_subscribed_email_on` | Subscribed to this topic. Email notifications for topics you subscribe to are now on. |
 | `topic_created_email_on` / `reply_posted_email_on` | Topic created. / Reply posted. Plus the same email-on sentence when compose **Notify me of replies** flipped the user master. Pending start/reply keep `topic_pending` / `reply_pending`. |
@@ -319,6 +321,16 @@ must remain in the original topic. Success redirects to the new topic with
 `topic_split`. Helpers: `ap_forum_user_can_split_topic()`,
 `ap_forum_split_destinations()`, `ap_forum_split_topic_form_html()`.
 
+**Report** is on **each** post when the viewer is logged in and has
+`view_forum` on that forum (`can_report` from `getPostsDisplayData`).
+Guests see no form. Reason is required (`name="report_reason"`). POST
+`ap_forum_report_post` (nonce `ap_forum_report_post_{id}`) inserts
+`{prefix}reports` type `post`, status `open`. One open report per user per
+post. Flood uses the same interval as posting (`forum_flood_interval`)
+against last report time; moderators / `manage_forums` skip. Failed insert
+does not claim success. No report mail this pass. Helper:
+`ap_forum_report_post_form_html()`.
+
 Nonces are per action (`ap_forum_lock_topic_{id}`, …). Locked topics reject
 replies (`ap_forum_notice=locked`).
 
@@ -352,14 +364,15 @@ skips ACL — installers / CLI / tests only).
   destination forum (default current). At least one post stays on the
   original topic. The Topics screen does **not** expose split.
 - Reports (`reports` table): types `post` / `topic` / `user` / `message`;
-  statuses `open` / `closed` / `dismissed`
+  statuses `open` / `closed` / `dismissed`. Default Agora shows **Report**
+  on each post (`ap_forum_report_post`) as above. ACP Moderation lists the
+  same `{prefix}reports` queue (resolve / dismiss / reopen).
 - Warnings (`warnings`): `active` / `expired` / `revoked`
 - Bans (`bans`): `user` / `ip` / `email`; statuses `active` / `expired` /
   `lifted`; banned accounts get `user_status` = 1
 
-Default Agora **does not** ship a “Report this post” form. Reports are
-handled in the ACP queue. There is **no** ranks admin UI (the `ranks` table
-exists; phpBB ranks are **not** imported).
+There is **no** ranks admin UI (the `ranks` table exists; phpBB ranks are
+**not** imported).
 
 New posts may start **pending** when Settings → Forums has “New posts
 require moderator approval” (`forum_posts_require_approval`). Users with
@@ -990,7 +1003,8 @@ Do not tell operators these exist in AgoraPress core:
 - A “Who’s online” block on the default board index (tracking API only)
 - A “Mark all as read” / “Mark forum read” button on default Agora
 - A file picker on the default new-topic / reply composer
-- A front-end “Report post” button (ACP reports queue exists)
+- Guest reports or report-notification email (logged-in + `view_forum` only;
+  ACP reports queue already lists front inserts)
 - ACP merge / split (those exist on `AP_Forum_Moderation` only; default Agora
   has toolbar **Merge**, not split)
 - A Settings → Forums guest checkbox that bypasses per-forum ACL (the
