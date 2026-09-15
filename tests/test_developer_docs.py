@@ -1839,6 +1839,10 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "forum_topic_notify_enabled",
         "email me about topics i subscribe to",
         "forum_notify_email",
+        "move to…",
+        "merge into…",
+        "ap_forum_topics_list_table",
+        "topics_merged",
     ):
         assert phrase in lower, f"admin.md missing: {phrase}"
     for banned in ("roland", "stallboy", "mail.0shits.com", "keepass", "stalwart"):
@@ -2024,6 +2028,83 @@ def test_admin_doc_covers_forum_topic_notify(docs_root: Path) -> None:
     ):
         assert needle in text, (
             f"docs/admin.md must document Settings → Forums notify: {needle!r}"
+        )
+    lower = text.lower()
+    for banned in (
+        "roland",
+        "stallboy",
+        "mail.0shits.com",
+        "0shits.com",
+        "keepass",
+        "stalwart",
+        "jarvis",
+        "blindvault",
+        "mensbs",
+        "agorapress_addons",
+    ):
+        assert banned not in lower, (
+            f"docs/admin.md must not contain private marker: {banned}"
+        )
+
+
+def test_admin_doc_covers_topics_move_merge(docs_root: Path) -> None:
+    """SPEC: admin.md documents ACP Topics row/bulk Move and bulk Merge."""
+    text = (docs_root / "admin.md").read_text(encoding="utf-8")
+    assert re.search(r"(?im)^##\s+Topics \(move and merge\)\s*$", text)
+    for needle in (
+        "forum-topics.php",
+        "moderate_forums",
+        "AP_Forum_Topics_List_Table",
+        "prepareRowMovePicker",
+        "processRowAction",
+        "processBulkAction",
+        "Move to…",
+        "Merge into…",
+        "dest_forum_id",
+        "dest_forum_id2",
+        "target_topic_id",
+        "target_topic_id2",
+        "topic-move-",
+        "bulk-forum-topics",
+        "ap-topic-move-picker",
+        "AP_Forum_Moderation::moveTopic",
+        "AP_Forum_Moderation::mergeTopics",
+        "listMoveDestinations",
+        "listMergeTargets",
+        "userCanMoveTopic",
+        "userCanMergeTopic",
+        "move_topics",
+        "moderate_forum",
+        "topic_moved",
+        "bulk_topic_moved",
+        "topics_merged",
+        "Topic moved.",
+        "Selected topics moved.",
+        "Topics merged.",
+        "Same `topic_id` and slug",
+        "{prefix}topic_subscriptions",
+        "duplicate `(user_id, target_id)`",
+        "Deleted topics cannot be moved.",
+        "Please choose a destination forum.",
+        "Please choose a topic to merge into.",
+        "Select at least one topic besides the merge target.",
+        "You cannot merge into that topic.",
+        "No destination forums available.",
+        "**no** split control",
+        "**no** row",
+        "categories",
+        "link boards",
+        "AP_Forum::refreshForumLastPost",
+        "ap_forum_split_topic",
+        "rebuild last post",
+        "No shadow",
+        "example.com",
+        "private hosts",
+        "persona mailboxes",
+        "live fleet inventory",
+    ):
+        assert needle in text, (
+            f"docs/admin.md must document ACP Topics move/merge: {needle!r}"
         )
     lower = text.lower()
     for banned in (

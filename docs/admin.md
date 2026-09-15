@@ -19,7 +19,10 @@ meta-caps are in [roles.md](roles.md).
 `ap-admin/includes/class-ap-admin-terms.php` (`AP_Admin_Terms`),
 `ap-admin/includes/class-ap-admin-user-edit.php` (`AP_Admin_User_Edit`),
 `ap-admin/edit-tags.php`, `ap-admin/options-writing.php`,
-`ap-admin/options-forums.php`,
+`ap-admin/options-forums.php`, `ap-admin/forum-topics.php`,
+`ap-admin/includes/class-ap-forum-topics-list-table.php`
+(`AP_Forum_Topics_List_Table`),
+`ap-includes/class-ap-forum-moderation.php` (`AP_Forum_Moderation`),
 `ap-includes/class-ap-taxonomy.php` (`AP_Taxonomy`),
 `ap-includes/class-ap-settings.php` (`AP_Settings`),
 `ap-includes/class-ap-admin-menu.php` (`AP_Admin_Menu`),
@@ -332,7 +335,7 @@ for hierarchy, topic types, likes, ACL, PMs, and module-off behaviour:
 |------|------|-----|-------|
 | Forum tree | Forums (`forums.php`) | `manage_forums` | Categories and forums; bulk delete. |
 | Create / edit a forum | `forum-edit.php` | `manage_forums` | Per-forum visibility (`forum_access_level`): Public, Members only, Read only (members), Moderators only, Administrators only, **This group only** (`group_only`, named non-system groups + administrators), or Custom (Guest / Registered / Moderator / Administrator matrix). Depth: [forums.md](forums.md). Forum ACL is never applied to blog posts or pages. |
-| Topics | Topics (`forum-topics.php`) | `moderate_forums` | Lock, sticky, approve, trash, delete, row **Move** / bulk **Move to…**, bulk **Merge into…** (redirects to the target with `topics_merged`). Topic types: `standard` / `sticky` / `announcement` / `rules`. |
+| Topics | Topics (`forum-topics.php`) | `moderate_forums` | Lock, sticky, approve, trash, restore, delete. Row **Move** / bulk **Move to…**, bulk **Merge into…**. **No** split on this screen. Topic types: `standard` / `sticky` / `announcement` / `rules`. Depth: [Topics (move and merge)](#topics-move-and-merge). |
 | Moderation queue | Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and reports. |
 | Groups | Groups (`forum-groups.php`) | `manage_forums` | Named groups and membership; used with per-forum ACL. |
 
@@ -344,6 +347,92 @@ Forums menu. Depth for that checkbox:
 (CLI only — [cli.md](cli.md) / [forums.md](forums.md)):
 `forum_attachment_max_per_post`, `forum_attachment_user_quota`,
 `forum_online_window`, `forum_notify_max_per_minute` (default **4**).
+
+---
+
+## Topics (move and merge)
+
+**Screen:** Topics (`forum-topics.php`) · **Cap:** `moderate_forums` ·
+**Module:** Forum must be on (otherwise HTTP 403: “The Forum module is
+disabled. Enable it under Settings → Modules.”).
+
+**Source:** `ap-admin/forum-topics.php`,
+`ap-admin/includes/class-ap-forum-topics-list-table.php`
+(`AP_Forum_Topics_List_Table`). The screen calls
+`AP_Forum_Moderation::moveTopic` and `AP_Forum_Moderation::mergeTopics`.
+Front toolbar Move / Merge / Split: [forums.md](forums.md#moderation).
+Last-post recount: [forums.md](forums.md#last-post).
+
+Help copy on the screen: “Moderate topics across all forums: lock,
+sticky, move, merge, soft-delete, approve.” Filters: `topic_status`
+(`all` / `open` / `locked` / `pending` / `sticky` / `deleted`) and
+`forum_id`. The UI **calls** `moveTopic` / `mergeTopics`; it does not
+reimplement them. There is **no** split control here and **no** row
+**Merge** (bulk **Merge into…** only). No shadow / “moved from” stub.
+
+| Piece | As built |
+|-------|----------|
+| Screen cap | `moderate_forums` (`AP_Admin::requireCapability()`). |
+| Row nonce | `topic-{action}-{id}` (`_ap_nonce` or `_wpnonce`). Move uses `topic-move-{id}`. |
+| Bulk nonce | `bulk-forum-topics` (`_ap_nonce`). Top toolbar `action`; bottom `action2`. |
+| Deleted view | Bulk **Restore** / **Delete permanently** only. **No** **Move to…** / **Merge into…**. |
+| Pending view | **Approve**, **Move to…**, **Merge into…**, **Soft-delete**. |
+| Other views | Lock / Unlock / Make sticky / Remove sticky, then Move / Merge when listed, then Approve / Unapprove / Soft-delete / Delete permanently. |
+
+### Row Move
+
+GET `action=move` + `topic` (alias `t`) without `dest_forum_id` runs
+`prepareRowMovePicker()` and stays on the list with a destination
+picker (`class="ap-topic-move-picker"`). POST of a **scalar** `topic`
+id (not an array) with `action=move` runs `processRowAction()`.
+
+| Rule | As built |
+|------|----------|
+| Row link | **Move** when `AP_Forum_Moderation::listMoveDestinations()` for that topic’s forum is non-empty. URL `forum-topics.php?action=move&topic={id}` plus nonce `topic-move-{id}`. |
+| Picker | Title **Move topic**. `<select name="dest_forum_id" id="ap-topic-move-dest" class="ap-move-dest" required>` (placeholder “Select forum”). Submit **Move**; **Cancel** returns to the list. Hidden `action=move`, `topic`, `_ap_nonce`. |
+| Destination list | `listMoveDestinations($actorId, $fromForumId)`. Forums the actor can **moderate**; omits categories, link boards, and the topic’s current forum. Hidden forums the actor can moderate stay listed. |
+| Source cap | `userCanMoveTopic()`: `move_topics` or `moderate_forum` on the source. |
+| Success | Stays on Topics. Notice `topic_moved`: “Topic moved.” Same `topic_id` and slug. `{prefix}topic_subscriptions` stay on that id. No shadow row. |
+| Counters | `moveTopic` recounts last-post on source and destination (`AP_Forum::refreshForumLastPost`). |
+| Refused | Deleted topic: “Deleted topics cannot be moved.” No dest forums: “No destination forums available.” Missing `dest_forum_id` on POST: “Please choose a destination forum.” Category, current forum, or dest the actor cannot moderate: the move fails (generic “Could not update the topic.”). |
+
+### Bulk Move to…
+
+`processBulkAction()`. Shown when `listMoveDestinations()` for the
+current `forum_id` filter (or `0` on All) is non-empty. A forum filter
+with no other moderateable forum hides **Move to…**.
+
+| Rule | As built |
+|------|----------|
+| Action | Bulk value `move`, label **Move to…**. |
+| Fields | Top: `dest_forum_id` (`class="ap-move-dest"`). Bottom: `dest_forum_id2`. Label **Destination**; placeholder “Select forum”. `action2=move` prefers `dest_forum_id2`. |
+| Missing dest | “Please choose a destination forum.” |
+| Per row | Same destination rule as row Move. A topic already in the dest, deleted, or lacking source/dest cap is skipped (`Could not apply “move” to topic #{id}.`). |
+| Success | Stays on Topics. Notice `bulk_topic_moved`: “Selected topics moved.” Same `topic_id` and slug; subscriptions stay; no shadow row. |
+
+### Bulk Merge into…
+
+`processBulkAction()`. Shown when `listMergeTargets($actorId, 0)`
+returns **at least two** topics. There is **no** row **Merge**.
+
+| Rule | As built |
+|------|----------|
+| Action | Bulk value `merge`, label **Merge into…**. |
+| Fields | Top: `target_topic_id` (`class="ap-merge-target"`). Bottom: `target_topic_id2`. Label **Merge into**; placeholder “Select topic”. Options `{title} — {forum_name}` (empty title `(no title)`). `action2=merge` prefers `target_topic_id2`. |
+| Target list | `listMergeTargets($actorId, 0)`: topics in forums the actor can moderate; omits deleted topics and shadow `moved` rows. Newest last-post first, capped at **100**. Passing `0` lists every mergeable topic (ACP bulk target list). |
+| Source / dest cap | `userCanMergeTopic()`: `moderate_forum` on the source forum and on the target’s forum. |
+| Target also checked | Skipped (it is the survivor). Need at least one other selected topic. |
+| Missing / dead target | “Please choose a topic to merge into.” (also when the target is deleted or `moved`). |
+| Dest cap | “You cannot merge into that topic.” |
+| Only the target | “Select at least one topic besides the merge target.” |
+| Success | `mergeTopics` moves every post onto the target and **deletes** the source row (not a soft-delete). `{prefix}topic_subscriptions` source → target; duplicate `(user_id, target_id)` pairs are dropped. No shadow row. Last-post recounted on source and destination forums. Redirects to the target topic URL with front notice `topics_merged` (“Topics merged.”). Does **not** stay on Topics for a successful merge. |
+| ACP notice map | `topics_merged` → “Topics merged.” (used if the front redirect URL cannot be built). `bulk_topic_merged` (“Selected topics merged.”) is registered on `AP_Admin` and is **not** the bulk-merge `message_key`. |
+
+Not this screen: topic-view **Split** (`ap_forum_split_topic`),
+topic-view **Report**, or an ACP “rebuild last post” button.
+
+Generic examples only (`example.com`). Do not name private hosts,
+persona mailboxes, or live fleet inventory here.
 
 ---
 
@@ -719,6 +808,9 @@ Do not tell operators these exist in `/ap-admin/`:
 - Comment-author user reassignment from that picker (`comment.php` Author is the display name)
 - A Settings field for `forum_notify_max_per_minute` (CLI only)
 - Guest topic watches, board-wide watches, or auto-watch on start / reply / visit
+- ACP Topics **Split** (Topics has row **Move** / bulk **Move to…** and bulk **Merge into…**; split is the topic-view form only)
+- ACP Topics row **Merge** (bulk **Merge into…** only)
+- Shadow / “moved from” stub topics from Topics move or merge (`topic_status` includes `moved`; the actions do **not** insert those rows)
 
 If a plugin registered an extra sidebar item via `ap_register_admin_page()`,
 that page is **that plugin**, not core.

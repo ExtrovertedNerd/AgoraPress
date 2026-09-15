@@ -537,6 +537,10 @@ final class DocsPresenceTest extends TestCase
                 'Allow topic email notifications',
                 'forum_topic_notify_enabled',
                 'canAssignAuthor',
+                'Move to…',
+                'Merge into…',
+                'AP_Forum_Topics_List_Table',
+                'topics_merged',
             ] as $needle
         ) {
             $this->assertStringContainsString(
@@ -740,6 +744,15 @@ final class DocsPresenceTest extends TestCase
                 'Three gates',
                 'ap_forum_unsub',
                 'processQueuedReply',
+                'refreshForumLastPost',
+                'last_post_id',
+                'last_topic_id',
+                'dest_forum_id',
+                'target_topic_id',
+                'report_reason',
+                'moveTopic',
+                'mergeTopics',
+                'splitTopic',
             ] as $needle
         ) {
             $this->assertStringContainsString(

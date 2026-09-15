@@ -2,11 +2,12 @@
 
 This is the **operator and integrator guide** for AgoraPress’s first-class
 forum module at **`0.3.10-beta`** (schema `AP_DB_VERSION` **13**). It describes
-the hierarchy, topic types, two-pane topic view, likes, moderation, groups and
-per-forum ACL (including the **This group only** preset), listing hygiene,
-attachments, private messages, search, flood guards, online/unread tracking,
-opt-in topic email notify, and board stats **as built**. Generic examples
-only (`example.com`).
+the hierarchy, Last Post recount, topic types, two-pane topic view, likes,
+moderation (Move / Merge / Split / Report), groups and per-forum ACL
+(including the **This group only** preset), listing hygiene, attachments,
+private messages, search, flood guards, online/unread tracking, opt-in
+topic email notify, and board stats **as built**. Generic examples only
+(`example.com`).
 
 The compact landing-page bullets are in
 [`../README.md`](../README.md). Admin screen map:
@@ -178,9 +179,11 @@ Empty-state copy (Agora / `ap_forum_empty_state_html`): `board_empty`,
 
 Tree fields: `parent_id`, `forum_order`, `forum_name` / `forum_slug` /
 `forum_desc`. Denormalized `topic_count` / `post_count` and last-post
-pointers. **Posts** on a forum row = approved opening posts **plus** replies
-(not replies-only). Same definition as the board footer — see
-[Board stats](#board-stats).
+pointers (`last_post_id`, `last_topic_id`, `last_poster_id`,
+`last_post_time`). **Posts** on a forum row = approved opening posts
+**plus** replies (not replies-only). Same definition as the board footer —
+see [Board stats](#board-stats). Recount and the index cell:
+[Last Post](#last-post).
 
 ACP: **Forums** (`forums.php`, cap `manage_forums`) is the tree + bulk
 delete. **Create / Edit** (`forum-edit.php`) sets type, status, parent,
@@ -195,6 +198,77 @@ destination-URL field for `forum_type=link`. ACP still lists every board
 Menus can link to forums (Appearance → Menus). That is a nav item, not a
 second forum tree. Public render still requires `view_forum`; empty parent
 categories are omitted.
+
+---
+
+## Last Post
+
+Board-index **Last Post** is denormalized on `{prefix}forums`:
+`last_post_id`, `last_topic_id`, `last_poster_id`, `last_post_time`. New
+topics and replies write those columns through `bumpForumStats`. Deletes,
+restores, moves, merges, and splits **recount**.
+
+### Recount (`AP_Forum::refreshForumLastPost`)
+
+One helper: `AP_Forum::refreshForumLastPost($forumId)`.
+`AP_Forum_Moderation` has a private wrapper that only calls that method.
+There is **no** second algorithm.
+
+Visible means the newest `forum_posts` row where:
+
+| Filter | As built |
+|--------|----------|
+| Post | `post_approved=1` |
+| Topic | `topic_approved=1` and `topic_status` ≠ `deleted` |
+| Board | Post and topic `forum_id` both equal the forum being recounted |
+
+Locked topics still qualify. Unapproved topics and posts do not. Soft-deleted
+topics keep their approved posts, so the join is required — selecting the
+latest approved post without joining topics would keep a deleted thread on
+the index.
+
+Empty board (or only deleted / unapproved content) writes:
+
+| Column | Cleared to |
+|--------|------------|
+| `last_post_id` | `0` |
+| `last_topic_id` | `0` |
+| `last_poster_id` | `0` |
+| `last_post_time` | `1970-01-01 00:00:00` (`AP_Forum::EMPTY_DATETIME`) |
+
+### When it runs
+
+| Path | Forums recounted |
+|------|------------------|
+| `AP_Forum::deleteTopic` (soft and force) | Source. Idempotent re-delete of an already-deleted topic still recounts (heals a stale pointer). |
+| `AP_Forum::deletePost` of an approved reply | Source. First-post force-delete goes through `deleteTopic`. |
+| `AP_Forum_Moderation::restoreTopic` | Source, when the restored topic is approved. |
+| `moveTopic` | Source and destination, when the topic was counted (approved, not deleted). |
+| `mergeTopics` | Source and destination. |
+| `splitTopic` | Source and destination. |
+| Post unapprove | Source (`onPostUnapproved`). |
+
+Deleting a topic that is **not** last leaves the real last post in place.
+
+### Index cell
+
+`AP_Forum::forumToDisplayRow()` / `buildForumLastPostPayload()`:
+
+- Stored `last_post_id` `< 1` → `last_post` is `null`.
+- Stored topic deleted, missing, or unapproved, or the post unapproved /
+  missing / on another forum → recount, then render the visible post or empty.
+- Never emits a title or permalink for a deleted topic.
+
+Payload when present: `title`, `author`, `time`, `date` (alias of `time`),
+`url` (topic permalink + `#post-{id}`), `excerpt` (spoiler-stripped),
+`post_id`, `topic_id`, `author_id`.
+
+Default Agora `forum.php` column **Last Post** (`.ap-forum-last-post__title`
+/ `__author` / `__time`): title as a permalink, `by {author}`, timestamp.
+Empty cell: `ap_forum_empty_last_post_html()` — **No posts** / **—** / **—**.
+
+Loading `/forums/` once heals a stale pointer (the renderer recounts, then
+writes the columns). There is **no** ACP “rebuild last post” button.
 
 ---
 
@@ -236,7 +310,7 @@ Default Agora `topic.php` renders each post as
 | Pane | Contents |
 |------|----------|
 | Author (`aside.ap-forum-post__author`) | Avatar, display name, role label, posts / likes given / likes received, joined date, location when set |
-| Main (`div.ap-forum-post__main`) | Subject, timestamp, permalink `#post-{id}`, Quote / Like / Edit / Delete when ACL allows, formatted body, optional signature |
+| Main (`div.ap-forum-post__main`) | Subject, timestamp, permalink `#post-{id}`, Quote / Like / Report / Edit / Delete when ACL allows, split checkbox when splitting, formatted body, optional signature |
 
 Author counters come from `AP_Forum_Stats::getUsersStats()` (usermeta,
 one query for all posters on the page). Signatures use usermeta
@@ -250,6 +324,8 @@ with BBCode citation (`AP_Forum::getQuoteMarkupForPost()`). Topic views
 increment on a successful topic view. When topic email notify is on,
 logged-in viewers with `view_forum` get **Subscribe** / **Unsubscribe**
 on the topic toolbar — [Topic email notifications](#topic-email-notifications).
+**Move** / **Merge** / **Split** sit on that toolbar when the viewer may
+moderate — [Moderation](#moderation). **Report** is per post.
 
 The visual editor on new-topic / reply is the same classic WYSIWYG as the
 rest of core (`AP_Editor::modeForContext('forum')`) — [editor.md](editor.md).
@@ -293,8 +369,11 @@ When `moderate_forum` (or the matching own-post ACL) allows:
 `moderate_forum` on the current forum **and** at least one other forum they
 can moderate exists. The destination select lists forums the actor can
 moderate; it omits categories, link boards, and the current forum. POST
-`ap_forum_move_topic` (nonce `ap_forum_move_topic_{id}`) calls
-`AP_Forum_Moderation::moveTopic` and redirects with `topic_moved`. Helpers:
+`ap_forum_move_topic` (nonce `ap_forum_move_topic_{id}`, field
+`dest_forum_id`) calls `AP_Forum_Moderation::moveTopic` and redirects with
+`topic_moved`. Same `topic_id` and slug; `{prefix}topic_subscriptions`
+stay on that id. No shadow “moved from” row. Source and destination last-post
+columns are recounted — [Last Post](#last-post). Helpers:
 `ap_forum_user_can_move_topic()`, `ap_forum_move_destinations()`,
 `ap_forum_move_topic_form_html()`.
 
@@ -302,34 +381,42 @@ moderate; it omits categories, link boards, and the current forum. POST
 current forum **and** at least one other topic they can moderate exists. The
 target select lists topics in forums the actor can moderate; it omits the
 current topic, deleted topics, and shadow `moved` rows. POST
-`ap_forum_merge_topic` (nonce `ap_forum_merge_topic_{id}`) calls
-`AP_Forum_Moderation::mergeTopics` and redirects to the target with
-`topics_merged`. Source `{prefix}topic_subscriptions` rows are retargeted;
-duplicate `(user_id, target_id)` pairs are dropped. Helpers:
-`ap_forum_user_can_merge_topic()`, `ap_forum_merge_targets()`,
-`ap_forum_merge_topic_form_html()`.
+`ap_forum_merge_topic` (nonce `ap_forum_merge_topic_{id}`, field
+`target_topic_id`) calls `AP_Forum_Moderation::mergeTopics` and redirects
+to the target with `topics_merged`. All posts move onto the target; the
+source topic row is deleted (not soft-deleted). Source
+`{prefix}topic_subscriptions` rows are retargeted; duplicate
+`(user_id, target_id)` pairs are dropped. Source and destination last-post
+columns are recounted. Helpers: `ap_forum_user_can_merge_topic()`,
+`ap_forum_merge_targets()`, `ap_forum_merge_topic_form_html()`.
 
 **Split** is on the topic toolbar when the viewer has `moderate_forum` on the
 current forum **and** the topic has at least two posts. Each post has a
-checkbox (`post_ids[]`, none pre-checked). The form asks for a new title
-and an optional destination forum (default current; omitted when current is
-the only destination). Destinations are forums the actor can moderate,
-including the current forum; not categories or link boards. POST
+checkbox (`post_ids[]`, none pre-checked; HTML `form` attribute points at
+the split form). The form asks for a new title (`topic_title`) and an
+optional destination forum (`dest_forum_id`, default current; omitted when
+current is the only destination). Destinations are forums the actor can
+moderate, including the current forum; not categories or link boards. POST
 `ap_forum_split_topic` (nonce `ap_forum_split_topic_{id}`) calls
-`AP_Forum_Moderation::splitTopic` with `moderator_id`. At least one post
-must remain in the original topic. Success redirects to the new topic with
-`topic_split`. Helpers: `ap_forum_user_can_split_topic()`,
-`ap_forum_split_destinations()`, `ap_forum_split_topic_form_html()`.
+`AP_Forum_Moderation::splitTopic` with `moderator_id`. The earliest selected
+post becomes the new topic’s first post. At least one post must remain in
+the original topic. Success redirects to the new topic with `topic_split`.
+Source and destination last-post columns are recounted. Helpers:
+`ap_forum_user_can_split_topic()`, `ap_forum_split_destinations()`,
+`ap_forum_split_topic_form_html()`.
 
 **Report** is on **each** post when the viewer is logged in and has
 `view_forum` on that forum (`can_report` from `getPostsDisplayData`).
-Guests see no form. Reason is required (`name="report_reason"`). POST
-`ap_forum_report_post` (nonce `ap_forum_report_post_{id}`) inserts
-`{prefix}reports` type `post`, status `open`. One open report per user per
-post. Flood uses the same interval as posting (`forum_flood_interval`)
-against last report time; moderators / `manage_forums` skip. Failed insert
-does not claim success. No report mail this pass. Helper:
-`ap_forum_report_post_form_html()`.
+Guests see no form. The form is omitted once that user already has an
+open report on that post. Reason is required (`name="report_reason"`,
+`maxlength` 255). POST `ap_forum_report_post` (nonce
+`ap_forum_report_post_{id}`, hidden `post_id`) inserts `{prefix}reports`
+type `post`, status `open`. One open report per user per post. Flood uses
+the same interval as posting (`forum_flood_interval`) against last report
+time (`AP_Forum_Moderation::isReportFlooding()`); moderators /
+`manage_forums` skip. Failed insert (`createReport` returns `0`) does not
+claim success. No report mail this pass. Success notice `post_reported`
+(anchor `#post-{id}`). Helper: `ap_forum_report_post_form_html()`.
 
 Nonces are per action (`ap_forum_lock_topic_{id}`, …). Locked topics reject
 replies (`ap_forum_notice=locked`).
@@ -338,7 +425,7 @@ replies (`ap_forum_notice=locked`).
 
 | Screen | Cap | What it does |
 |--------|-----|----------------|
-| Topics (`forum-topics.php`) | `moderate_forums` | Row/bulk allowlist: `lock`, `unlock`, `sticky`, `unsticky`, `approve`, `unapprove`, `trash`, `soft_delete`, `restore`, `delete`, `move`, `merge`. Filter by `topic_status` and `forum_id`. Row **Move** and bulk **Move to…** use the same destination rule as the topic toolbar (forums the actor can moderate; not categories, not the topic’s current forum). Bulk **Merge into…** merges selected topics into one target the actor can moderate (same `mergeTopics` rule; target is skipped if it is also checked). Success redirects to the target with `topics_merged`. **No** split controls on this screen. |
+| Topics (`forum-topics.php`) | `moderate_forums` | Row/bulk allowlist: `lock`, `unlock`, `sticky`, `unsticky`, `approve`, `unapprove`, `trash`, `soft_delete`, `restore`, `delete`, `move`, `merge`. Filter by `topic_status` and `forum_id`. Row **Move** without `dest_forum_id` shows a destination picker; row **Move** and bulk **Move to…** use the same destination rule as the topic toolbar (forums the actor can moderate; not categories, not the topic’s current forum). Same `topic_id` and slug; no shadow row. Bulk **Merge into…** merges selected topics into one target the actor can moderate (same `mergeTopics` rule; target is skipped if it is also checked). Success redirects to the target with `topics_merged`. **No** split controls on this screen. Move / merge / trash / restore / delete recount last-post — [Last Post](#last-post). |
 | Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and **reports**. Row actions: `approve_topic`, `trash_topic`, `reject_topic`, `approve_post`, `trash_post`, `reject_post`, `resolve_report`, `dismiss_report`, `reopen_report`. |
 
 Module-off on these ACP screens is HTTP **403**:
@@ -354,19 +441,21 @@ skips ACL — installers / CLI / tests only).
 - **Move topics** — `moveTopic`. Default Agora shows toolbar **Move**
   (`ap_forum_move_topic`) as above. ACP Topics exposes row **Move** and bulk
   **Move to…** with the same destination rule. Same `topic_id` and slug; no
-  shadow row.
+  shadow row. Recounts last-post on source and destination.
 - **Merge topics** — `mergeTopics`. Default Agora shows toolbar **Merge**
   (`ap_forum_merge_topic`) as above. ACP Topics bulk **Merge into…** calls
   the same API and redirects to the target with `topics_merged`. No shadow
-  row.
+  row. Recounts last-post on source and destination.
 - **Split topics** — `splitTopic`. Default Agora shows toolbar **Split**
   (`ap_forum_split_topic`) as above: checkbox per post, new title, optional
   destination forum (default current). At least one post stays on the
-  original topic. The Topics screen does **not** expose split.
+  original topic. The Topics screen does **not** expose split. Recounts
+  last-post on source and destination.
 - Reports (`reports` table): types `post` / `topic` / `user` / `message`;
   statuses `open` / `closed` / `dismissed`. Default Agora shows **Report**
   on each post (`ap_forum_report_post`) as above. ACP Moderation lists the
-  same `{prefix}reports` queue (resolve / dismiss / reopen).
+  same `{prefix}reports` queue (resolve / dismiss / reopen). Do not rebuild
+  that queue for front inserts.
 - Warnings (`warnings`): `active` / `expired` / `revoked`
 - Bans (`bans`): `user` / `ip` / `email`; statuses `active` / `expired` /
   `lifted`; banned accounts get `user_status` = 1
@@ -602,7 +691,9 @@ Agora shows a search form on the board index when search is enabled.
 | `forum_spam_blacklist` | empty | Comma/newline keywords → reject as spam |
 
 Exempt from flood **and** the approval queue: `manage_forums` or
-`moderate_forums`. Guests are not exempt.
+`moderate_forums`. Guests are not exempt. Front **Report** uses the same
+`forum_flood_interval` against last report time
+(`AP_Forum_Moderation::isReportFlooding()`). Same exemptions.
 
 Front notices: `flood` (“You are posting too quickly…”), `spam`
 (“Your post was rejected by the spam filter.”). Plugins register extra
@@ -1005,8 +1096,14 @@ Do not tell operators these exist in AgoraPress core:
 - A file picker on the default new-topic / reply composer
 - Guest reports or report-notification email (logged-in + `view_forum` only;
   ACP reports queue already lists front inserts)
-- ACP merge / split (those exist on `AP_Forum_Moderation` only; default Agora
-  has toolbar **Merge**, not split)
+- ACP **Split** (Topics has row/bulk **Move** and bulk **Merge into…**; split
+  is the topic-view form only)
+- Shadow / “moved from” stub topics (`topic_status` includes `moved`; move /
+  merge / split do **not** insert those rows)
+- An ACP “rebuild last post” button (the index renderer recounts stale
+  pointers; `AP_Forum::refreshForumLastPost($forumId)` is the helper)
+- Warning or ban issue screens (the `warnings` / `bans` tables exist; no
+  operator UI this pass)
 - A Settings → Forums guest checkbox that bypasses per-forum ACL (the
   two guest options are stored; `userCan()` does not read them)
 - Display options on Settings → Forums driving Agora’s 20-item paging

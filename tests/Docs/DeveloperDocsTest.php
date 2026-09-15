@@ -2108,6 +2108,10 @@ final class DeveloperDocsTest extends TestCase
                 'forum_topic_notify_enabled',
                 'Email me about topics I subscribe to',
                 'forum_notify_email',
+                'Move to…',
+                'Merge into…',
+                'AP_Forum_Topics_List_Table',
+                'topics_merged',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -2288,6 +2292,76 @@ final class DeveloperDocsTest extends TestCase
         $this->assertNoPrivateMarkers('admin.md', $text);
     }
 
+    public function testAdminDocCoversTopicsMoveMerge(): void
+    {
+        $text = $this->readDoc('admin.md');
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Topics \\(move and merge\\)\\s*$/',
+            $text
+        );
+        foreach (
+            [
+                'forum-topics.php',
+                'moderate_forums',
+                'AP_Forum_Topics_List_Table',
+                'prepareRowMovePicker',
+                'processRowAction',
+                'processBulkAction',
+                'Move to…',
+                'Merge into…',
+                'dest_forum_id',
+                'dest_forum_id2',
+                'target_topic_id',
+                'target_topic_id2',
+                'topic-move-',
+                'bulk-forum-topics',
+                'ap-topic-move-picker',
+                'AP_Forum_Moderation::moveTopic',
+                'AP_Forum_Moderation::mergeTopics',
+                'listMoveDestinations',
+                'listMergeTargets',
+                'userCanMoveTopic',
+                'userCanMergeTopic',
+                'move_topics',
+                'moderate_forum',
+                'topic_moved',
+                'bulk_topic_moved',
+                'topics_merged',
+                'Topic moved.',
+                'Selected topics moved.',
+                'Topics merged.',
+                'Same `topic_id` and slug',
+                '{prefix}topic_subscriptions',
+                'duplicate `(user_id, target_id)`',
+                'Deleted topics cannot be moved.',
+                'Please choose a destination forum.',
+                'Please choose a topic to merge into.',
+                'Select at least one topic besides the merge target.',
+                'You cannot merge into that topic.',
+                'No destination forums available.',
+                '**no** split control',
+                '**no** row',
+                'categories',
+                'link boards',
+                'AP_Forum::refreshForumLastPost',
+                'ap_forum_split_topic',
+                'rebuild last post',
+                'No shadow',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/admin.md must document ACP Topics move/merge: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('admin.md', $text);
+    }
+
     public function testForumsDocCoversModuleSurfaces(): void
     {
         $text = $this->readDoc('forums.md');
@@ -2360,6 +2434,13 @@ final class DeveloperDocsTest extends TestCase
                 'topic_slug',
                 'approve_topic',
                 'moveTopic',
+                'mergeTopics',
+                'splitTopic',
+                'refreshForumLastPost',
+                'last_post_id',
+                'dest_forum_id',
+                'ap_forum_move_topic',
+                'ap_forum_report_post',
                 'status=open',
                 'does **not** read',
                 'Mark all as read',
@@ -2475,6 +2556,75 @@ final class DeveloperDocsTest extends TestCase
                 $needle,
                 $text,
                 "docs/forums.md must document topic email notify: {$needle}"
+            );
+        }
+        $this->assertNoPrivateMarkers('forums.md', $text);
+    }
+
+    public function testForumsDocCoversMoveMergeSplitReportAndLastPost(): void
+    {
+        $text = $this->readDoc('forums.md');
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Last Post\\s*$/',
+            $text
+        );
+        foreach (
+            [
+                '/(?im)^###\\s+Recount/',
+                '/(?im)^###\\s+When it runs\\s*$/',
+                '/(?im)^###\\s+Index cell\\s*$/',
+            ] as $heading
+        ) {
+            $this->assertMatchesRegularExpression(
+                $heading,
+                $text,
+                "docs/forums.md must have heading matching {$heading}"
+            );
+        }
+        foreach (
+            [
+                'AP_Forum::refreshForumLastPost',
+                'last_post_id',
+                'last_topic_id',
+                'last_poster_id',
+                'last_post_time',
+                'AP_Forum::EMPTY_DATETIME',
+                '1970-01-01 00:00:00',
+                'post_approved=1',
+                'topic_approved=1',
+                'deleted topic',
+                'buildForumLastPostPayload',
+                'ap_forum_empty_last_post_html',
+                'No posts',
+                'moveTopic',
+                'mergeTopics',
+                'splitTopic',
+                'ap_forum_move_topic',
+                'ap_forum_merge_topic',
+                'ap_forum_split_topic',
+                'ap_forum_report_post',
+                'dest_forum_id',
+                'target_topic_id',
+                'post_ids[]',
+                'topic_title',
+                'report_reason',
+                'topic_moved',
+                'topics_merged',
+                'topic_split',
+                'post_reported',
+                'topic_subscriptions',
+                'createReport',
+                'isReportFlooding',
+                'One open report',
+                'shadow',
+                'view_forum',
+                'example.com',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "docs/forums.md must document move/merge/split/report/last-post: {$needle}"
             );
         }
         $this->assertNoPrivateMarkers('forums.md', $text);

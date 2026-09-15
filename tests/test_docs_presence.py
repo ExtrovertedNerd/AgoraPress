@@ -440,6 +440,10 @@ def test_admin_doc_matches_acp_as_built(docs_root: Path) -> None:
         "Allow topic email notifications",
         "forum_topic_notify_enabled",
         "canAssignAuthor",
+        "Move to…",
+        "Merge into…",
+        "AP_Forum_Topics_List_Table",
+        "topics_merged",
     ):
         assert needle in text, f"docs/admin.md should mention: {needle}"
 
