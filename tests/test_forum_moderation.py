@@ -87,6 +87,17 @@ def test_phpunit_move_invariants() -> None:
     ):
         assert needle in spec, f"Expected {needle} in ForumMoveTopicTest"
 
+    merge_spec = (ROOT / "tests" / "Forum" / "ForumMergeTopicTest.php").read_text(
+        encoding="utf-8"
+    )
+    for needle in (
+        "function testMergeTopicsMovesPostsOntoTarget",
+        "function testMergeTopicsRemovesSourceTopic",
+        "function testMergeTopicsRetargetsSubscriptions",
+        "function testMergeTopicsRefreshesLastPost",
+    ):
+        assert needle in merge_spec, f"Expected {needle} in ForumMergeTopicTest"
+
 
 def test_moderation_class_api() -> None:
     src = MOD_CLASS.read_text(encoding="utf-8")
