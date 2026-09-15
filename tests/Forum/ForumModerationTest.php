@@ -137,10 +137,11 @@ final class ForumModerationTest extends TestCase
             'topic_title' => 'Move me',
             'content' => 'First',
         ], $this->db);
-        AP_Forum::createReply([
+        $replyId = AP_Forum::createReply([
             'topic_id' => $topicId,
             'content' => 'Second',
         ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
         $before = AP_Forum::getTopic($topicId, $this->db);
         $this->assertNotNull($before);
         $slug = (string) ($before->topic_slug ?? '');
@@ -162,8 +163,15 @@ final class ForumModerationTest extends TestCase
         $forumB = AP_Forum::getForum($b, $this->db);
         $this->assertSame(0, (int) $forumA?->topic_count);
         $this->assertSame(0, (int) $forumA?->post_count);
+        $this->assertSame(0, (int) $forumA?->last_topic_id);
+        $this->assertSame(0, (int) $forumA?->last_post_id);
+        $this->assertSame(0, (int) $forumA?->last_poster_id);
+        $this->assertSame(AP_Forum::EMPTY_DATETIME, (string) ($forumA?->last_post_time ?? ''));
         $this->assertSame(1, (int) $forumB?->topic_count);
         $this->assertSame(2, (int) $forumB?->post_count);
+        $this->assertSame($topicId, (int) $forumB?->last_topic_id);
+        $this->assertSame($replyId, (int) $forumB?->last_post_id);
+        $this->assertNotSame(AP_Forum::EMPTY_DATETIME, (string) ($forumB?->last_post_time ?? ''));
 
         $posts = AP_Forum::getPosts($topicId, [], $this->db);
         $this->assertCount(2, $posts);

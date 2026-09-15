@@ -72,8 +72,20 @@ def test_phpunit_move_invariants() -> None:
         "isSubscribed",
         "PERM_MODERATE",
         "FORUM_TYPE_CATEGORY",
+        "last_topic_id",
+        "last_post_id",
+        "EMPTY_DATETIME",
     ):
         assert needle in phpunit, f"Expected {needle} in ForumModerationTest"
+
+    spec = (ROOT / "tests" / "Forum" / "ForumMoveTopicTest.php").read_text(encoding="utf-8")
+    for needle in (
+        "function testMoveTopicUpdatesDestCounters",
+        "function testMoveTopicRefusesCategory",
+        "function testMoveTopicRefusesMissingDestCap",
+        "function testMoveTopicKeepsSlugUnchanged",
+    ):
+        assert needle in spec, f"Expected {needle} in ForumMoveTopicTest"
 
 
 def test_moderation_class_api() -> None:
@@ -144,6 +156,24 @@ def test_wired_into_bootstrap_functions_tables() -> None:
     db = DB_CLASS.read_text(encoding="utf-8")
     assert "public string $warnings" in db
     assert "public string $bans" in db
+
+
+def test_phpunit_forum_moderation_suite_runs() -> None:
+    result = subprocess.run(
+        [
+            _php_bin(),
+            "vendor/bin/phpunit",
+            "-c",
+            "phpunit.xml.dist",
+            "tests/Forum/ForumModerationTest.php",
+        ],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, f"PHPUnit forum moderation failed:\n{combined}"
 
 
 def test_phpunit_moderation_passes() -> None:
