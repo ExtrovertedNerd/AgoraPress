@@ -1390,7 +1390,7 @@ class AP_Forum_Moderation
             ],
             $ids
         );
-        $rows = $db->getResults(
+        $raw = $db->getCol(
             'SELECT ' . $db->quoteIdentifier('report_object_id') . ' FROM ' . $table
             . ' WHERE ' . $db->quoteIdentifier('reporter_id') . ' = ?'
             . ' AND ' . $db->quoteIdentifier('report_type') . ' = ?'
@@ -1400,11 +1400,8 @@ class AP_Forum_Moderation
         );
 
         $out = [];
-        foreach ($rows as $row) {
-            $oid = (int) (is_object($row) ? ($row->report_object_id ?? 0) : ($row['report_object_id'] ?? 0));
-            if ($oid > 0) {
-                $out[$oid] = true;
-            }
+        foreach (self::uniquePositiveInts($raw) as $oid) {
+            $out[$oid] = true;
         }
 
         return $out;
@@ -1449,7 +1446,7 @@ class AP_Forum_Moderation
         }
 
         $last = self::getLastReportTime($reporterId, $db);
-        if ($last === null || $last === '') {
+        if ($last === null) {
             return false;
         }
         $lastTs = strtotime($last);
@@ -2406,7 +2403,7 @@ class AP_Forum_Moderation
             return [];
         }
 
-        return self::uniquePositiveInts(is_array($raw) ? $raw : []);
+        return self::uniquePositiveInts($raw);
     }
 
     /**
@@ -2460,7 +2457,7 @@ class AP_Forum_Moderation
         }
 
         $moved = 0;
-        foreach (self::uniquePositiveInts(is_array($rawIds) ? $rawIds : []) as $userId) {
+        foreach (self::uniquePositiveInts($rawIds) as $userId) {
             try {
                 $ok = $db->update(
                     'topic_subscriptions',

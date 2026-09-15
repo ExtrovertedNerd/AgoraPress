@@ -3626,15 +3626,16 @@ class AP_Forum
         $forumId = (int) ($forum->forum_id ?? 0);
         $topic = self::resolvePreloadedTopic($topicId, $db, $preload);
         $post = self::resolvePreloadedPost($postId, $db, $preload);
-        if (!self::isRenderableForumLastPost($topic, $post, $forumId)) {
+        if (
+            $topic === null
+            || $post === null
+            || !self::isRenderableForumLastPost($topic, $post, $forumId)
+        ) {
             if (!$allowRecount || $forumId < 1) {
                 return null;
             }
 
             return self::recountForumLastPostPayload($forumId, $db);
-        }
-        if ($topic === null) {
-            return null;
         }
 
         $authorId = (int) ($forum->last_poster_id ?? 0);
@@ -3652,16 +3653,17 @@ class AP_Forum
             try {
                 $user = AP_User::getById($authorId, $db);
                 if ($user !== null) {
-                    $author = (string) ($user->display_name ?? $user->user_login ?? '');
+                    $author = trim($user->display_name);
+                    if ($author === '') {
+                        $author = trim($user->user_login);
+                    }
                 }
             } catch (Throwable) {
                 // User layer optional in isolated tests.
             }
         }
 
-        if ($post !== null) {
-            $preload['posts'][$postId] = $post;
-        }
+        $preload['posts'][$postId] = $post;
 
         return [
             'title' => $title,

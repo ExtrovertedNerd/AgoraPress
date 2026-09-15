@@ -148,10 +148,17 @@ class AP_Forum_Topics_List_Table
                 ];
             }
             $target = AP_Forum::getTopic($this->targetTopicId, $db);
-            $targetStatus = is_object($target) ? (string) ($target->topic_status ?? '') : '';
+            if ($target === null) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'count' => 0,
+                    'errors' => ['Please choose a topic to merge into.'],
+                ];
+            }
+            $targetStatus = (string) ($target->topic_status ?? '');
             if (
-                $target === null
-                || $targetStatus === AP_Forum::TOPIC_STATUS_DELETED
+                $targetStatus === AP_Forum::TOPIC_STATUS_DELETED
                 || $targetStatus === AP_Forum::TOPIC_STATUS_MOVED
             ) {
                 return [
