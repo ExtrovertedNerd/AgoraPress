@@ -16,6 +16,7 @@ use AP_Forum;
 use AP_Forum_Front;
 use AP_Forum_Guard;
 use AP_Forum_Moderation;
+use AP_Forum_Moderation_Queue;
 use AP_Forum_Permissions;
 use AP_Group;
 use AP_Migrator;
@@ -61,6 +62,7 @@ final class ForumReportPostTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-forum-guard.php';
         require_once $this->root . '/ap-includes/class-ap-forum-read.php';
         require_once $this->root . '/ap-includes/class-ap-forum-front.php';
+        require_once $this->root . '/ap-admin/includes/class-ap-forum-moderation-queue.php';
         require_once $this->root . '/ap-includes/class-ap-content-format.php';
         require_once $this->root . '/ap-includes/hooks.php';
         require_once $this->root . '/ap-includes/class-ap-theme.php';
@@ -223,9 +225,23 @@ final class ForumReportPostTest extends TestCase
             $postId,
             $this->db
         ));
+        $this->assertSame(1, AP_Forum_Moderation::countReports([
+            'status' => AP_Forum_Moderation::REPORT_STATUS_OPEN,
+            'type' => AP_Forum_Moderation::REPORT_TYPE_POST,
+        ], $this->db));
 
         $row = AP_Forum::getPost($postId, $this->db);
         $this->assertSame(1, (int) ($row?->post_reported ?? 0));
+
+        $queue = $this->reportsQueue();
+        $this->assertSame('reports', $queue->view);
+        $this->assertSame(1, $queue->openReportCount);
+        $this->assertCount(1, $queue->reports);
+        $this->assertSame($postId, (int) ($queue->reports[0]->report_object_id ?? 0));
+        $this->assertSame($memberId, (int) ($queue->reports[0]->reporter_id ?? 0));
+        $this->assertSame('post', (string) ($queue->reports[0]->report_type ?? ''));
+        $this->assertSame('open', (string) ($queue->reports[0]->report_status ?? ''));
+        $this->assertSame('spam', (string) ($queue->reports[0]->report_reason ?? ''));
 
         $_GET['ap_forum_notice'] = 'post_reported';
         $notice = AP_Forum_Front::getNotice();
@@ -270,16 +286,33 @@ final class ForumReportPostTest extends TestCase
             'report_reason' => 'spam',
         ], $this->db));
         $this->assertSame(0, $this->openReportCount($postId));
+        $this->assertSame(0, AP_Forum_Moderation::countReports([
+            'status' => AP_Forum_Moderation::REPORT_STATUS_OPEN,
+        ], $this->db));
         $this->assertSame([], AP_Forum_Moderation::openReportObjectIdSet(
             0,
             AP_Forum_Moderation::REPORT_TYPE_POST,
             [$postId],
             $this->db
         ));
+
+        $first = AP_Forum::getPost($postId, $this->db);
+        $this->assertNotNull($first);
+        $topicId = (int) ($first->topic_id ?? 0);
+        $guestRows = AP_Forum::getPostsDisplayData($topicId, ['per_page' => 50], $this->db);
+        $this->assertNotEmpty($guestRows);
+        foreach ($guestRows as $row) {
+            $this->assertFalse((bool) ($row['can_report'] ?? true), 'guest has no Report form');
+        }
+
+        $queue = $this->reportsQueue();
+        $this->assertSame(0, $queue->openReportCount);
+        $this->assertSame([], $queue->reports);
     }
 
     /**
-     * SPEC: duplicate open report refused. After resolve, a new open report is allowed.
+     * SPEC: duplicate open report refused. After dismiss or resolve, a new
+     * open report is allowed (still one open row per user per post).
      */
     public function testDuplicateOpenReportRefused(): void
     {
@@ -318,13 +351,17 @@ final class ForumReportPostTest extends TestCase
         ], $this->db));
         $this->assertSame(1, $this->reportCount($postId, $memberId));
 
+        $queue = $this->reportsQueue();
+        $this->assertSame(1, $queue->openReportCount);
+        $this->assertCount(1, $queue->reports);
+
         $open = AP_Forum_Moderation::queryReports([
             'status' => 'open',
             'object_id' => $postId,
             'reporter_id' => $memberId,
         ], $this->db);
         $this->assertCount(1, $open);
-        $this->assertTrue(AP_Forum_Moderation::resolveReport(
+        $this->assertTrue(AP_Forum_Moderation::dismissReport(
             (int) $open[0]->report_id,
             $this->adminId,
             $this->db
@@ -337,15 +374,58 @@ final class ForumReportPostTest extends TestCase
         ));
 
         AP_Forum_Front::setNotice(null);
-        $third = AP_Forum_Front::handlePost([
+        $afterDismiss = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $postId,
+            'report_reason' => 'it came back after dismiss',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $postId, $memberId),
+        ], $this->db);
+        $this->assertIsString($afterDismiss);
+        $this->assertSame(1, $this->openReportCount($postId, $memberId));
+        $this->assertSame(2, $this->reportCount($postId, $memberId));
+
+        AP_Forum_Front::setNotice(null);
+        $dupAfterDismiss = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $postId,
+            'report_reason' => 'still open',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $postId, $memberId),
+        ], $this->db);
+        $this->assertNull($dupAfterDismiss);
+        $dupNotice = AP_Forum_Front::getNotice();
+        $this->assertSame('error', $dupNotice['type'] ?? null);
+        $this->assertSame('You have already reported this post.', $dupNotice['message'] ?? null);
+        $this->assertSame(1, $this->openReportCount($postId, $memberId));
+
+        $openAgain = AP_Forum_Moderation::queryReports([
+            'status' => 'open',
+            'object_id' => $postId,
+            'reporter_id' => $memberId,
+        ], $this->db);
+        $this->assertCount(1, $openAgain);
+        $this->assertTrue(AP_Forum_Moderation::resolveReport(
+            (int) $openAgain[0]->report_id,
+            $this->adminId,
+            $this->db
+        ));
+        $this->assertFalse(AP_Forum_Moderation::hasOpenReport(
+            $memberId,
+            AP_Forum_Moderation::REPORT_TYPE_POST,
+            $postId,
+            $this->db
+        ));
+
+        AP_Forum_Front::setNotice(null);
+        $afterResolve = AP_Forum_Front::handlePost([
             'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
             'post_id' => $postId,
             'report_reason' => 'it came back',
             '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $postId, $memberId),
         ], $this->db);
-        $this->assertIsString($third);
+        $this->assertIsString($afterResolve);
         $this->assertSame(1, $this->openReportCount($postId, $memberId));
-        $this->assertSame(2, $this->reportCount($postId, $memberId));
+        $this->assertSame(3, $this->reportCount($postId, $memberId));
+        $this->assertSame(1, $this->reportsQueue()->openReportCount);
     }
 
     /**
@@ -847,6 +927,14 @@ final class ForumReportPostTest extends TestCase
         }
 
         return count(AP_Forum_Moderation::queryReports($args, $this->db));
+    }
+
+    private function reportsQueue(): AP_Forum_Moderation_Queue
+    {
+        $queue = new AP_Forum_Moderation_Queue($this->db);
+        $queue->prepare(['view' => 'reports']);
+
+        return $queue;
     }
 
     private function reportsInsertFailsDb(): ForumReportInsertFailsDb

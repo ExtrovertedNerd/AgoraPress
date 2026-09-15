@@ -74,6 +74,7 @@ def test_suite_health_lists_critical_areas() -> None:
         "CommentsTemplateTest",
         "ForumNotifyEnqueueTest",
         "ForumNotifyWorkerTest",
+        "ForumReportPostTest",
         "TopicSubscriptionsMigrationTest",
         "FeedTest",
         "CharterSpecTest",

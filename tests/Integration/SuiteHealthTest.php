@@ -73,6 +73,7 @@ final class SuiteHealthTest extends TestCase
             ['tests/Comment/CommentsTemplateTest.php'],
             ['tests/Forum/ForumNotifyEnqueueTest.php'],
             ['tests/Forum/ForumNotifyWorkerTest.php'],
+            ['tests/Forum/ForumReportPostTest.php'],
             ['tests/Database/TopicSubscriptionsMigrationTest.php'],
             ['tests/Feed/FeedTest.php'],
             ['tests/Template/TemplateTagsTest.php'],
@@ -126,6 +127,7 @@ final class SuiteHealthTest extends TestCase
         $this->assertStringContainsString('CommentsTemplateTest', $body);
         $this->assertStringContainsString('ForumNotifyEnqueueTest', $body);
         $this->assertStringContainsString('ForumNotifyWorkerTest', $body);
+        $this->assertStringContainsString('ForumReportPostTest', $body);
         $this->assertStringContainsString('TopicSubscriptionsMigrationTest', $body);
         $this->assertStringContainsString('FeedTest', $body);
         $this->assertStringContainsString('CharterSpecTest', $body);

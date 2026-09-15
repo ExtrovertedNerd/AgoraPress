@@ -1,7 +1,8 @@
 <?php
 
 /**
- * Presence + discovery of the 0.3.10-beta charter’s SPEC-minimum PHPUnit cases.
+ * Presence + discovery of SPEC-minimum PHPUnit cases (0.3.10-beta charter
+ * plus 0.3.11-beta report: one open report; guest cannot; duplicate refused).
  *
  * @package AgoraPress
  */
@@ -123,6 +124,18 @@ final class CharterSpecTest extends TestCase
             'Agora single still one form' => [
                 'tests/Comment/CommentsTemplateTest.php',
                 'testAgoraSingleRendersExactlyOneCommentForm',
+            ],
+            'one open post report' => [
+                'tests/Forum/ForumReportPostTest.php',
+                'testLoggedInMemberCreatesOneOpenPostReport',
+            ],
+            'guest cannot report post' => [
+                'tests/Forum/ForumReportPostTest.php',
+                'testGuestCannotReportPost',
+            ],
+            'duplicate open report refused' => [
+                'tests/Forum/ForumReportPostTest.php',
+                'testDuplicateOpenReportRefused',
             ],
         ];
     }

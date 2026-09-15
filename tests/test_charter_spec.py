@@ -1,5 +1,6 @@
 """
-SPEC-minimum tests for the 0.3.10-beta charter must exist and pass.
+SPEC-minimum tests for the 0.3.10-beta charter plus 0.3.11-beta report
+cases (one open report; guest cannot; duplicate refused) must exist and pass.
 
 Runnable via:
   pytest tests/test_charter_spec.py -v
@@ -108,6 +109,18 @@ SPEC_PHPUNIT: list[tuple[str, str]] = [
     (
         "tests/Comment/CommentsTemplateTest.php",
         "testAgoraSingleRendersExactlyOneCommentForm",
+    ),
+    (
+        "tests/Forum/ForumReportPostTest.php",
+        "testLoggedInMemberCreatesOneOpenPostReport",
+    ),
+    (
+        "tests/Forum/ForumReportPostTest.php",
+        "testGuestCannotReportPost",
+    ),
+    (
+        "tests/Forum/ForumReportPostTest.php",
+        "testDuplicateOpenReportRefused",
     ),
 ]
 
