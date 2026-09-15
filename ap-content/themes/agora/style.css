@@ -2620,6 +2620,46 @@ body.agora-theme {
   margin: 0;
 }
 
+.ap-forum-form--split {
+  margin-top: 1.5rem;
+}
+
+.ap-forum-action-form--split-topic {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem 0.8rem;
+}
+
+.ap-field--split-title,
+.ap-field--split-dest {
+  margin: 0;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 10rem;
+}
+
+.ap-field--split-title input {
+  min-width: 12rem;
+}
+
+.ap-field--split-dest select {
+  max-width: 16rem;
+}
+
+.ap-forum-post__split {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  margin: 0 0.45rem 0 0;
+}
+
+.ap-forum-post__split input {
+  margin: 0;
+}
+
 /* Actions sit top-right of the right pane (SPEC B2: Quote → Edit → Like). */
 .ap-forum-post__actions {
   display: flex;

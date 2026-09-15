@@ -79,6 +79,8 @@ def test_permission_matrix_api_surface() -> None:
         "move_destinations",
         "can_merge_topic",
         "merge_targets",
+        "can_split_topic",
+        "split_destinations",
         "allowed_topic_types",
     ):
         assert needle in front, f"Expected {needle!r} in class-ap-forum-front.php"
@@ -104,6 +106,7 @@ def test_phpunit_defines_role_matrix_cases() -> None:
         "can_moderate",
         "can_move_topic",
         "can_merge_topic",
+        "can_split_topic",
         "sticky",
         "announcement",
         "ACCESS_MEMBERS",

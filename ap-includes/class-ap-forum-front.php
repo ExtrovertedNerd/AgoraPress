@@ -39,6 +39,9 @@ class AP_Forum_Front
     /** Merge this topic into another the actor can moderate. */
     public const ACTION_MERGE_TOPIC = 'ap_forum_merge_topic';
 
+    /** Split selected posts into a new topic the actor can moderate. */
+    public const ACTION_SPLIT_TOPIC = 'ap_forum_split_topic';
+
     /** Per-topic email Subscribe (site on, logged in, can view_forum). */
     public const ACTION_SUBSCRIBE_TOPIC = 'ap_forum_subscribe_topic';
 
@@ -314,6 +317,7 @@ class AP_Forum_Front
             $args['topic_title'] = (string) ($topic->topic_title ?? 'Topic');
             $args['topic_type'] = AP_Forum::normalizeTopicType((string) ($topic->topic_type ?? 'standard'));
             $args['topic_locked'] = AP_Forum::isTopicLocked($topic);
+            $args['topic_post_count'] = max(0, (int) ($topic->reply_count ?? 0)) + 1;
             $args['forum_id'] = $forumId;
 
             $forum = AP_Forum::getForum($forumId, $db);
@@ -353,6 +357,12 @@ class AP_Forum_Front
                 && AP_Forum_Moderation::userCanMergeTopic($userId, $forumId, $db);
             $args['merge_targets'] = !empty($args['can_merge_topic'])
                 ? self::mergeTargetsForQuery($userId, $topicId, $db)
+                : [];
+            $args['can_split_topic'] = $userId > 0
+                && class_exists('AP_Forum_Moderation', false)
+                && AP_Forum_Moderation::userCanSplitTopic($userId, $forumId, $db);
+            $args['split_destinations'] = !empty($args['can_split_topic'])
+                ? self::splitDestinationsForQuery($userId, $forumId, $db)
                 : [];
             $args['can_subscribe'] = $userId > 0
                 && class_exists('AP_Forum_Notify', false)
@@ -539,6 +549,9 @@ class AP_Forum_Front
         if ($action === self::ACTION_MERGE_TOPIC) {
             return self::handleMergeTopic($post, $db);
         }
+        if ($action === self::ACTION_SPLIT_TOPIC) {
+            return self::handleSplitTopic($post, $db);
+        }
         if ($action === self::ACTION_SUBSCRIBE_TOPIC) {
             return self::handleSubscribeTopic($post, $db, true);
         }
@@ -599,6 +612,7 @@ class AP_Forum_Front
                 'topic_type_updated' => ['type' => 'success', 'message' => 'Topic type updated.'],
                 'topic_moved' => ['type' => 'success', 'message' => 'Topic moved.'],
                 'topics_merged' => ['type' => 'success', 'message' => 'Topics merged.'],
+                'topic_split' => ['type' => 'success', 'message' => 'Topic split.'],
                 'topic_subscribed' => ['type' => 'success', 'message' => 'Subscribed to this topic.'],
                 'topic_subscribed_email_on' => [
                     'type' => 'success',
@@ -775,6 +789,7 @@ class AP_Forum_Front
         $args['topic_id'] = 0;
         $args['topic_slug'] = '';
         $args['topic_title'] = '';
+        $args['topic_post_count'] = 0;
         $args['can_post_topic'] = false;
         $args['can_reply'] = false;
         $args['can_moderate'] = false;
@@ -786,6 +801,8 @@ class AP_Forum_Front
         $args['move_destinations'] = [];
         $args['can_merge_topic'] = false;
         $args['merge_targets'] = [];
+        $args['can_split_topic'] = false;
+        $args['split_destinations'] = [];
         $args['can_subscribe'] = false;
         $args['topic_subscribed'] = false;
         $args['first_unread_post_id'] = 0;
@@ -948,6 +965,33 @@ class AP_Forum_Front
                 'topic_title' => $title,
                 'forum_id' => (int) ($topic->forum_id ?? 0),
                 'forum_name' => trim((string) ($topic->forum_name ?? '')),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Slim dest-forum rows for the topic-view Split select (includes current).
+     *
+     * @return list<array{forum_id: int, forum_name: string}>
+     */
+    private static function splitDestinationsForQuery(int $userId, int $currentForumId, ?AP_DB $db): array
+    {
+        if ($userId < 1 || !class_exists('AP_Forum_Moderation', false)) {
+            return [];
+        }
+
+        $out = [];
+        foreach (AP_Forum_Moderation::listSplitDestinations($userId, $currentForumId, $db) as $forum) {
+            $id = (int) ($forum->forum_id ?? 0);
+            $name = trim((string) ($forum->forum_name ?? ''));
+            if ($id < 1 || $name === '') {
+                continue;
+            }
+            $out[] = [
+                'forum_id' => $id,
+                'forum_name' => $name,
             ];
         }
 
@@ -1651,6 +1695,140 @@ class AP_Forum_Front
         $target = AP_Forum::getTopic($targetTopicId, $db);
 
         return AP_Forum::topicUrlWithNotice($target ?? $targetTopicId, 'topics_merged');
+    }
+
+    /**
+     * Split selected posts into a new topic the actor can moderate.
+     *
+     * Calls {@see AP_Forum_Moderation::splitTopic()} with `moderator_id`.
+     * At least one post must remain. Success redirects to the new topic
+     * with `topic_split`.
+     *
+     * @param array<string, mixed> $post
+     */
+    private static function handleSplitTopic(array $post, ?AP_DB $db): ?string
+    {
+        $topicId = (int) ($post['topic_id'] ?? 0);
+        $nonce = (string) ($post['_ap_nonce'] ?? $post['_wpnonce'] ?? '');
+        $action = self::ACTION_SPLIT_TOPIC . '_' . $topicId;
+        if (!self::verifyNonce($nonce, $action)) {
+            self::$notice = ['type' => 'error', 'message' => 'Security check failed. Please try again.'];
+
+            return null;
+        }
+
+        $userId = self::currentUserId($db);
+        if (
+            $userId < 1
+            || !class_exists('AP_Forum', false)
+            || !class_exists('AP_Forum_Moderation', false)
+        ) {
+            self::$notice = ['type' => 'error', 'message' => 'Permission denied.'];
+
+            return null;
+        }
+
+        $topic = AP_Forum::getTopic($topicId, $db);
+        if ($topic === null) {
+            self::$notice = ['type' => 'error', 'message' => 'Topic not found.'];
+
+            return null;
+        }
+
+        $sourceForumId = (int) $topic->forum_id;
+        if (!AP_Forum_Moderation::userCanSplitTopic($userId, $sourceForumId, $db)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You do not have permission to split this topic.',
+            ];
+
+            return null;
+        }
+
+        $postIds = self::postIdsFromRequest($post);
+        if ($postIds === []) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'Select at least one post to split.',
+            ];
+
+            return null;
+        }
+
+        $totalPosts = AP_Forum::countPosts($topicId, ['approved_only' => false], $db);
+        if ($totalPosts <= count($postIds)) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'Leave at least one post in the original topic.',
+            ];
+
+            return null;
+        }
+
+        $destForumId = (int) ($post['dest_forum_id'] ?? 0);
+        if ($destForumId < 1) {
+            $destForumId = $sourceForumId;
+        }
+
+        $destAllowed = false;
+        foreach (AP_Forum_Moderation::listSplitDestinations($userId, $sourceForumId, $db) as $forum) {
+            if ((int) ($forum->forum_id ?? 0) === $destForumId) {
+                $destAllowed = true;
+                break;
+            }
+        }
+        if (!$destAllowed) {
+            self::$notice = [
+                'type' => 'error',
+                'message' => 'You cannot split this topic into that forum.',
+            ];
+
+            return null;
+        }
+
+        $title = trim((string) ($post['topic_title'] ?? $post['title'] ?? ''));
+        $newTopicId = AP_Forum_Moderation::splitTopic($topicId, $postIds, [
+            'title' => $title,
+            'forum_id' => $destForumId,
+            'moderator_id' => $userId,
+        ], $db);
+        if ($newTopicId < 1) {
+            self::$notice = ['type' => 'error', 'message' => 'Could not split this topic.'];
+
+            return null;
+        }
+
+        $created = AP_Forum::getTopic($newTopicId, $db);
+
+        return AP_Forum::topicUrlWithNotice($created ?? $newTopicId, 'topic_split');
+    }
+
+    /**
+     * Selected post ids from a split form (`post_ids[]`).
+     *
+     * @param array<string, mixed> $post
+     *
+     * @return list<int>
+     */
+    private static function postIdsFromRequest(array $post): array
+    {
+        $raw = $post['post_ids'] ?? [];
+        if (!is_array($raw)) {
+            $raw = [$raw];
+        }
+
+        $ids = [];
+        foreach ($raw as $id) {
+            if (is_array($id)) {
+                continue;
+            }
+            $n = (int) $id;
+            if ($n > 0) {
+                $ids[$n] = $n;
+            }
+        }
+
+        return array_values($ids);
     }
 
     /**

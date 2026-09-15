@@ -59,14 +59,17 @@ def test_forum_front_class_api() -> None:
         "ACTION_SET_TOPIC_TYPE",
         "ACTION_MOVE_TOPIC",
         "ACTION_MERGE_TOPIC",
+        "ACTION_SPLIT_TOPIC",
         "ACTION_SUBSCRIBE_TOPIC",
         "ACTION_UNSUBSCRIBE_TOPIC",
         "handleSetTopicType",
         "handleMoveTopic",
         "handleMergeTopic",
+        "handleSplitTopic",
         "handleSubscribeTopic",
         "topic_moved",
         "topics_merged",
+        "topic_split",
         "topicUrlWithNotice",
         "topic_subscribed_email_on",
         "topic_created_email_on",
@@ -79,6 +82,9 @@ def test_forum_front_class_api() -> None:
         "move_destinations",
         "can_merge_topic",
         "merge_targets",
+        "can_split_topic",
+        "split_destinations",
+        "topic_post_count",
         "can_subscribe",
         "topic_subscribed",
         "viewerMaySubscribe",
@@ -94,6 +100,8 @@ def test_forum_front_class_api() -> None:
         "function testMoveTopicViaFrontHandlerRefusesCategoryMissingCapAndMember",
         "function testTopicToolbarMergeTargetSelect",
         "function testMergeTopicFormHtmlOmitsEmptyOrInvalidTargets",
+        "function testTopicViewSplitCheckboxesTitleAndOptionalDest",
+        "function testSplitTopicFormHtmlTitleAndOptionalDest",
         "function testMergeTopicViaFrontHandler",
         "function testMergeTopicViaFrontHandlerRefusesUnmoderateableTargetAndMember",
         "function testTopicSubscribeChromeWhenSiteOnLoggedInCanView",
@@ -151,6 +159,14 @@ def test_agora_templates_have_live_forms() -> None:
     assert "merge_targets" in topic
     assert "ap_forum_merge_topic" in topic
     assert "ap_forum_merge_topic_form_html" in topic
+    assert "can_split_topic" in topic
+    assert "split_destinations" in topic
+    assert "ap_forum_split_topic" in topic
+    assert "ap_forum_split_topic_form_html" in topic
+    assert 'name="post_ids[]"' in topic
+    assert "Leave at least one" in topic or "at least one post must remain" in topic.lower()
+    assert 'href="#split"' in topic
+    assert 'id="split-hint"' in topic
     assert "can_subscribe" in topic
     assert "topic_subscribed" in topic
     assert "ap_forum_topic_subscribe_form_html" in topic
@@ -172,6 +188,9 @@ def test_agora_templates_have_live_forms() -> None:
     assert ".ap-forum-action-form--move-topic" in style
     assert ".ap-field--merge-target" in style
     assert ".ap-forum-action-form--merge-topic" in style
+    assert ".ap-forum-form--split" in style
+    assert ".ap-forum-action-form--split-topic" in style
+    assert ".ap-forum-post__split" in style
     assert ".ap-forum-post__actions" in style
     assert ".ap-forum-subscribe" in style
     assert ".ap-forum-toolbar--topic" in style

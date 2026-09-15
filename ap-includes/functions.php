@@ -6550,6 +6550,118 @@ function ap_forum_merge_topic_form_html(int $topicId, array $targets, array $arg
 }
 
 /**
+ * Topic-view Split form: new title + optional dest forum (default current).
+ *
+ * Empty when $topicId is invalid. Destinations may be empty (stays in the
+ * current forum). The dest select is omitted when the only option is the
+ * current forum. Checkboxes live on each post and point at this form via
+ * the HTML `form` attribute.
+ *
+ * @param list<object|array<string, mixed>> $destinations forum_id + forum_name
+ * @param array<string, mixed>              $args         form_id, id, name, title_id,
+ *                                                        title_name, label, title_label,
+ *                                                        current_forum_id, class, button_label,
+ *                                                        describedby
+ */
+function ap_forum_split_topic_form_html(int $topicId, array $destinations = [], array $args = []): string
+{
+    if ($topicId < 1) {
+        return '';
+    }
+
+    $options = [];
+    foreach ($destinations as $dest) {
+        $id = 0;
+        $name = '';
+        if (is_object($dest)) {
+            $id = (int) ($dest->forum_id ?? 0);
+            $name = trim((string) ($dest->forum_name ?? ''));
+        } elseif (is_array($dest)) {
+            $id = (int) ($dest['forum_id'] ?? $dest['id'] ?? 0);
+            $name = trim((string) ($dest['forum_name'] ?? $dest['name'] ?? ''));
+        }
+        if ($id < 1 || $name === '') {
+            continue;
+        }
+        $options[$id] = $name;
+    }
+
+    $formId = (string) ($args['form_id'] ?? 'ap-split-topic-form');
+    $selectId = (string) ($args['id'] ?? 'ap-split-dest-forum');
+    $selectName = (string) ($args['name'] ?? 'dest_forum_id');
+    $titleId = (string) ($args['title_id'] ?? 'ap-split-topic-title');
+    $titleName = (string) ($args['title_name'] ?? 'topic_title');
+    $titleLabel = (string) ($args['title_label'] ?? 'New title');
+    $label = (string) ($args['label'] ?? 'Forum');
+    $buttonLabel = (string) ($args['button_label'] ?? 'Split');
+    $class = trim((string) ($args['class'] ?? 'ap-forum-action-form--split-topic'));
+    $titleClass = trim(
+        (string) ($args['title_field_class'] ?? 'ap-field ap-field--split-title')
+    );
+    $fieldClass = trim((string) ($args['field_class'] ?? 'ap-field ap-field--split-dest'));
+    $currentId = (int) ($args['current_forum_id'] ?? 0);
+    $describedby = trim((string) ($args['describedby'] ?? ''));
+    $action = class_exists('AP_Forum_Front', false)
+        ? AP_Forum_Front::ACTION_SPLIT_TOPIC
+        : 'ap_forum_split_topic';
+
+    $esc = static function (string $s): string {
+        if (function_exists('agora_esc')) {
+            return agora_esc($s);
+        }
+        if (function_exists('ap_esc_html')) {
+            return ap_esc_html($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+    $escAttr = static function (string $s): string {
+        if (function_exists('agora_esc_attr')) {
+            return agora_esc_attr($s);
+        }
+        if (function_exists('ap_esc_attr')) {
+            return ap_esc_attr($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+
+    $html = '<form method="post" action="" class="' . $escAttr($class) . '"'
+        . ' id="' . $escAttr($formId) . '"';
+    if ($describedby !== '') {
+        $html .= ' aria-describedby="' . $escAttr($describedby) . '"';
+    }
+    $html .= '>';
+    $html .= '<input type="hidden" name="ap_forum_action" value="' . $escAttr($action) . '">';
+    $html .= '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">';
+    if (function_exists('ap_nonce_field')) {
+        $html .= ap_nonce_field($action . '_' . $topicId);
+    }
+    $html .= '<div class="' . $escAttr($titleClass) . '">';
+    $html .= '<label for="' . $escAttr($titleId) . '">' . $esc($titleLabel) . '</label>';
+    $html .= '<input type="text" id="' . $escAttr($titleId) . '" name="' . $escAttr($titleName) . '"'
+        . ' required maxlength="255" placeholder="' . $escAttr('New topic title') . '">';
+    $html .= '</div>';
+    $onlyCurrent = $currentId > 0 && count($options) === 1 && isset($options[$currentId]);
+    if ($options !== [] && !$onlyCurrent) {
+        $html .= '<div class="' . $escAttr($fieldClass) . '">';
+        $html .= '<label for="' . $escAttr($selectId) . '">' . $esc($label) . '</label>';
+        $html .= '<select id="' . $escAttr($selectId) . '" name="' . $escAttr($selectName) . '">';
+        foreach ($options as $id => $name) {
+            $selected = $currentId > 0 && (int) $id === $currentId ? ' selected' : '';
+            $html .= '<option value="' . (int) $id . '"' . $selected . '>' . $esc($name) . '</option>';
+        }
+        $html .= '</select></div>';
+    }
+    $html .= '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm"'
+        . ' aria-label="' . $escAttr('Split selected posts into a new topic') . '">';
+    $html .= $esc($buttonLabel);
+    $html .= '</button></form>';
+
+    return $html;
+}
+
+/**
  * Read/unread visual state for a board or topic row (SPEC A1).
  *
  * Returns one of:
@@ -7835,6 +7947,36 @@ function ap_forum_merge_targets(int $userId, int $sourceTopicId = 0, ?AP_DB $db 
     }
 
     return AP_Forum_Moderation::listMergeTargets($userId, $sourceTopicId, $db);
+}
+
+/**
+ * Whether a user may start a topic split from a forum (`moderate_forum`).
+ *
+ * @see AP_Forum_Moderation::userCanSplitTopic()
+ */
+function ap_forum_user_can_split_topic(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Moderation', false)) {
+        return false;
+    }
+
+    return AP_Forum_Moderation::userCanSplitTopic($userId, $forumId, $db);
+}
+
+/**
+ * Forums a user may split posts into (includes $currentForumId; not categories).
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum_Moderation::listSplitDestinations()
+ */
+function ap_forum_split_destinations(int $userId, int $currentForumId = 0, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Forum_Moderation', false)) {
+        return [];
+    }
+
+    return AP_Forum_Moderation::listSplitDestinations($userId, $currentForumId, $db);
 }
 
 /**

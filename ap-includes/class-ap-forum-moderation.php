@@ -633,6 +633,45 @@ class AP_Forum_Moderation
     }
 
     /**
+     * Whether the viewer may start a topic split from this forum.
+     *
+     * True when they have `moderate_forum` on $forumId.
+     */
+    public static function userCanSplitTopic(int $userId, int $forumId, ?AP_DB $db = null): bool
+    {
+        return self::userCanMergeTopic($userId, $forumId, $db);
+    }
+
+    /**
+     * Forums a user may split posts into.
+     *
+     * Includes $currentForumId when the actor can moderate it. Omits
+     * categories and link boards. Remaining rows are forums (including
+     * hidden) the actor can moderate. Current forum is listed first.
+     *
+     * @return list<object>
+     */
+    public static function listSplitDestinations(int $userId, int $currentForumId = 0, ?AP_DB $db = null): array
+    {
+        $dests = self::listMoveDestinations($userId, 0, $db);
+        if ($currentForumId < 1) {
+            return $dests;
+        }
+
+        $current = [];
+        $rest = [];
+        foreach ($dests as $forum) {
+            if ((int) ($forum->forum_id ?? 0) === $currentForumId) {
+                $current[] = $forum;
+            } else {
+                $rest[] = $forum;
+            }
+        }
+
+        return array_merge($current, $rest);
+    }
+
+    /**
      * Split selected posts into a new topic.
      *
      * The earliest selected post becomes the new topic's first post. At least

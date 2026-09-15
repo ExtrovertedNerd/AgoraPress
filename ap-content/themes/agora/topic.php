@@ -40,6 +40,10 @@ $canMergeTopic = $q instanceof AP_Query && !empty($q->get('can_merge_topic', fal
 $mergeTargets = $q instanceof AP_Query && is_array($q->get('merge_targets', null))
     ? $q->get('merge_targets', [])
     : [];
+$canSplitTopic = $q instanceof AP_Query && !empty($q->get('can_split_topic', false));
+$splitDestinations = $q instanceof AP_Query && is_array($q->get('split_destinations', null))
+    ? $q->get('split_destinations', [])
+    : [];
 $canSubscribe = $q instanceof AP_Query && !empty($q->get('can_subscribe', false));
 $topicSubscribed = $q instanceof AP_Query && !empty($q->get('topic_subscribed', false));
 $topicType = $q instanceof AP_Query
@@ -124,6 +128,21 @@ if (
     $allowedTopicTypes = ap_forum_allowed_topic_types_for_edit($forumIdForType, $topicType);
     $canSetTopicType = $allowedTopicTypes !== [];
 }
+$splitPostCount = 0;
+if (is_array($posts)) {
+    foreach ($posts as $splitCandidate) {
+        if (is_array($splitCandidate) && (int) ($splitCandidate['id'] ?? 0) > 0) {
+            $splitPostCount++;
+        }
+    }
+}
+$topicPostCount = $q instanceof AP_Query ? (int) $q->get('topic_post_count', 0) : 0;
+if ($topicPostCount < 1) {
+    $topicPostCount = $splitPostCount;
+}
+// Topic must have ≥2 posts so one can remain; current page still needs a checkbox.
+$showSplit = $canSplitTopic && $topicId > 0 && $topicPostCount >= 2 && $splitPostCount >= 1;
+$splitFormId = 'agora-split-topic-form';
 ?>
 <?php if ($cannotView) : ?>
 <div class="ap-forum ap-forum--cannot-view">
@@ -169,7 +188,7 @@ endif; ?>
         <?php
         $showMove = $canMoveTopic && $moveDestinations !== [];
         $showMerge = $canMergeTopic && $mergeTargets !== [];
-        if (($canModerate || $canSetTopicType || $canSubscribe || $showMove || $showMerge) && $topicId > 0) :
+        if (($canModerate || $canSetTopicType || $canSubscribe || $showMove || $showMerge || $showSplit) && $topicId > 0) :
             ?>
             <div class="ap-forum-toolbar ap-forum-toolbar--topic" role="toolbar" aria-label="Topic actions">
                 <?php
@@ -288,6 +307,10 @@ endif; ?>
                             . ' aria-label="Merge this topic into another topic">Merge</button>';
                         echo '</form>';
                     }
+                }
+                if ($showSplit) {
+                    echo '<a class="ap-btn ap-btn--ghost ap-btn--sm" href="#split"'
+                        . ' aria-label="Split selected posts into a new topic">Split</a>';
                 }
                 ?>
                 <?php if ($canSetTopicType && $allowedTopicTypes !== []) : ?>
@@ -492,6 +515,15 @@ endif; ?>
                 <div class="ap-forum-post__main">
                     <div class="ap-forum-post__head">
                         <div class="ap-forum-post__head-start">
+                            <?php if ($showSplit && (int) ($post['id'] ?? 0) > 0) : ?>
+                                <label class="ap-forum-post__split" for="agora-split-post-<?php echo (int) $postId; ?>">
+                                    <input type="checkbox" name="post_ids[]" value="<?php echo (int) $postId; ?>"
+                                        id="agora-split-post-<?php echo (int) $postId; ?>"
+                                        form="<?php echo agora_esc_attr($splitFormId); ?>"
+                                        aria-label="<?php echo agora_esc_attr('Include post #' . $postNum . ' in the new topic'); ?>">
+                                    <span>Split</span>
+                                </label>
+                            <?php endif; ?>
                             <?php if ($subject !== '') : ?>
                                 <span class="ap-forum-post__subject"><?php echo agora_esc($subject); ?></span>
                             <?php elseif ($date !== '') : ?>
@@ -642,6 +674,70 @@ endif; ?>
             </section>
         <?php endforeach; ?>
     </div>
+<?php endif; ?>
+
+<?php if (!$disabled && !$notFound && $showSplit) : ?>
+    <section class="ap-forum-form ap-forum-form--split" id="split" aria-labelledby="split-heading">
+        <h2 id="split-heading" class="ap-comments__title">Split topic</h2>
+        <p class="ap-forum__lead" id="split-hint">Select posts above to move into a new topic. At least one post must remain here.</p>
+        <?php
+        if (function_exists('ap_forum_split_topic_form_html')) {
+            echo ap_forum_split_topic_form_html($topicId, $splitDestinations, [
+                'form_id' => $splitFormId,
+                'id' => 'agora-split-dest-forum',
+                'title_id' => 'agora-split-topic-title',
+                'current_forum_id' => $forumIdForType,
+                'describedby' => 'split-hint',
+            ]);
+        } else {
+            echo '<form method="post" action="" class="ap-forum-action-form--split-topic" id="'
+                . agora_esc_attr($splitFormId) . '" aria-describedby="split-hint">';
+            echo '<input type="hidden" name="ap_forum_action" value="ap_forum_split_topic">';
+            echo '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">';
+            if (function_exists('ap_nonce_field')) {
+                echo ap_nonce_field('ap_forum_split_topic_' . $topicId);
+            }
+            echo '<div class="ap-field ap-field--split-title">';
+            echo '<label for="agora-split-topic-title">New title</label>';
+            echo '<input type="text" id="agora-split-topic-title" name="topic_title"'
+                . ' required maxlength="255" placeholder="New topic title">';
+            echo '</div>';
+            $splitDestOptions = [];
+            foreach ($splitDestinations as $dest) {
+                $destId = 0;
+                $destName = '';
+                if (is_object($dest)) {
+                    $destId = (int) ($dest->forum_id ?? 0);
+                    $destName = (string) ($dest->forum_name ?? '');
+                } elseif (is_array($dest)) {
+                    $destId = (int) ($dest['forum_id'] ?? 0);
+                    $destName = (string) ($dest['forum_name'] ?? '');
+                }
+                if ($destId < 1 || $destName === '') {
+                    continue;
+                }
+                $splitDestOptions[$destId] = $destName;
+            }
+            $splitOnlyCurrent = $forumIdForType > 0
+                && count($splitDestOptions) === 1
+                && isset($splitDestOptions[$forumIdForType]);
+            if ($splitDestOptions !== [] && !$splitOnlyCurrent) {
+                echo '<div class="ap-field ap-field--split-dest">';
+                echo '<label for="agora-split-dest-forum">Forum</label>';
+                echo '<select id="agora-split-dest-forum" name="dest_forum_id">';
+                foreach ($splitDestOptions as $destId => $destName) {
+                    $selected = $forumIdForType > 0 && $destId === $forumIdForType ? ' selected' : '';
+                    echo '<option value="' . $destId . '"' . $selected . '>'
+                        . agora_esc($destName) . '</option>';
+                }
+                echo '</select></div>';
+            }
+            echo '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm"'
+                . ' aria-label="Split selected posts into a new topic">Split</button>';
+            echo '</form>';
+        }
+        ?>
+    </section>
 <?php endif; ?>
 
 <?php if (!$disabled && !$notFound) : ?>

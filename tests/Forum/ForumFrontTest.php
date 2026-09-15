@@ -823,6 +823,12 @@ final class ForumFrontTest extends TestCase
         $this->assertSame([], $query->get('move_destinations', null));
         $this->assertTrue((bool) $query->get('can_merge_topic', false));
         $this->assertSame([], $query->get('merge_targets', null));
+        $this->assertTrue((bool) $query->get('can_split_topic', false));
+        $this->assertNotSame([], $query->get('split_destinations', null));
+        $this->assertSame(1, (int) $query->get('topic_post_count', 0));
+        $this->assertStringNotContainsString('ap_forum_split_topic', $html);
+        $this->assertStringNotContainsString('name="post_ids[]"', $html);
+        $this->assertStringNotContainsString('href="#split"', $html);
     }
 
     public function testTopicToolbarMoveDestinationSelect(): void
@@ -1255,6 +1261,219 @@ final class ForumFrontTest extends TestCase
         $this->assertStringNotContainsString('Self', $html);
         $this->assertStringContainsString('>Merge</button>', $html);
         $this->assertStringContainsString('Select topic', $html);
+    }
+
+    public function testTopicViewSplitCheckboxesTitleAndOptionalDest(): void
+    {
+        $categoryId = AP_Forum::insertForum([
+            'forum_name' => 'Split Toolbar Cat',
+            'forum_type' => AP_Forum::FORUM_TYPE_CATEGORY,
+        ], $this->db);
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Split Toolbar Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Split Toolbar Dest'], $this->db);
+        $linkId = AP_Forum::insertForum([
+            'forum_name' => 'Split Toolbar Link',
+            'forum_type' => AP_Forum::FORUM_TYPE_LINK,
+        ], $this->db);
+        $this->assertGreaterThan(0, $categoryId);
+        $this->assertGreaterThan(0, $linkId);
+
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Split chrome',
+            'content' => 'Opening',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $replyId = AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => 'A reply to split',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $replyId);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+        $opId = (int) ($topic->first_post_id ?? 0);
+        $this->assertGreaterThan(0, $opId);
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        $this->assertTrue((bool) $query->get('can_split_topic', false));
+        $this->assertSame(2, (int) $query->get('topic_post_count', 0));
+        $dests = $query->get('split_destinations', []);
+        $this->assertIsArray($dests);
+        $destIds = [];
+        foreach ($dests as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $destIds[] = (int) ($row['forum_id'] ?? 0);
+        }
+        $this->assertContains($sourceId, $destIds);
+        $this->assertContains($destId, $destIds);
+        $this->assertNotContains($categoryId, $destIds);
+        $this->assertNotContains($linkId, $destIds);
+        $this->assertSame($sourceId, $destIds[0] ?? 0);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_split_topic', $html);
+        $this->assertStringContainsString('name="topic_title"', $html);
+        $this->assertStringContainsString('name="dest_forum_id"', $html);
+        $this->assertStringContainsString('name="post_ids[]"', $html);
+        $this->assertStringContainsString('id="agora-split-post-' . $opId . '"', $html);
+        $this->assertStringContainsString('id="agora-split-post-' . $replyId . '"', $html);
+        $this->assertStringContainsString('form="agora-split-topic-form"', $html);
+        $this->assertStringContainsString('id="agora-split-topic-form"', $html);
+        $this->assertStringContainsString('>Split Toolbar Source</option>', $html);
+        $this->assertStringContainsString('>Split Toolbar Dest</option>', $html);
+        $this->assertStringNotContainsString('>Split Toolbar Cat</option>', $html);
+        $this->assertStringNotContainsString('>Split Toolbar Link</option>', $html);
+        $this->assertStringContainsString('>Split</button>', $html);
+        $this->assertStringContainsString('href="#split"', $html);
+        $this->assertStringContainsString('At least one post must remain', $html);
+        $this->assertStringContainsString('aria-describedby="split-hint"', $html);
+        $this->assertDoesNotMatchRegularExpression(
+            '/id="agora-split-post-' . $opId . '"[^>]*\bchecked\b/',
+            $html
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/id="agora-split-dest-forum"[^>]*\brequired\b/',
+            $html
+        );
+        $this->assertMatchesRegularExpression('/name="topic_title"[^>]*\brequired\b/', $html);
+        $this->assertMatchesRegularExpression(
+            '/<option value="' . $sourceId . '" selected>/',
+            $html
+        );
+
+        $local = AP_User::create([
+            'user_login' => 'split_local_mod',
+            'user_email' => 'split_local_mod@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Local split mod',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($local['ok'] ?? false);
+        $localId = (int) $local['id'];
+        $groupId = AP_Group::create(['group_name' => 'Source-only split mods'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+
+        $this->assertTrue(AP_Session::setAuthCookie($localId, false, $this->db));
+        $localQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($localQuery, $this->db);
+        ap_set_query($localQuery);
+        $this->assertTrue((bool) $localQuery->get('can_split_topic', false));
+        $localIds = [];
+        foreach ($localQuery->get('split_destinations', []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $localIds[] = (int) ($row['forum_id'] ?? 0);
+        }
+        $this->assertSame([$sourceId], $localIds);
+
+        ob_start();
+        AP_Theme::render($localQuery, $this->db);
+        $localHtml = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_split_topic', $localHtml);
+        $this->assertStringContainsString('name="topic_title"', $localHtml);
+        $this->assertStringContainsString('name="post_ids[]"', $localHtml);
+        $this->assertStringContainsString('href="#split"', $localHtml);
+        $this->assertStringNotContainsString('name="dest_forum_id"', $localHtml);
+        $this->assertStringNotContainsString('>Split Toolbar Dest</option>', $localHtml);
+
+        $member = AP_User::create([
+            'user_login' => 'split_guest_member',
+            'user_email' => 'split_guest_member@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Member',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+
+        $memberQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($memberQuery, $this->db);
+        ap_set_query($memberQuery);
+        $this->assertFalse((bool) $memberQuery->get('can_split_topic', false));
+        $this->assertSame([], $memberQuery->get('split_destinations', null));
+
+        ob_start();
+        AP_Theme::render($memberQuery, $this->db);
+        $memberHtml = (string) ob_get_clean();
+        $this->assertStringNotContainsString('ap_forum_split_topic', $memberHtml);
+        $this->assertStringNotContainsString('name="post_ids[]"', $memberHtml);
+        $this->assertStringNotContainsString('name="dest_forum_id"', $memberHtml);
+        $this->assertStringNotContainsString('>Split</button>', $memberHtml);
+        $this->assertStringNotContainsString('href="#split"', $memberHtml);
+    }
+
+    public function testSplitTopicFormHtmlTitleAndOptionalDest(): void
+    {
+        $this->assertSame('', ap_forum_split_topic_form_html(0, [
+            ['forum_id' => 2, 'forum_name' => 'Dest'],
+        ]));
+
+        $emptyDests = ap_forum_split_topic_form_html(12, []);
+        $this->assertStringContainsString('ap_forum_split_topic', $emptyDests);
+        $this->assertStringContainsString('name="topic_title"', $emptyDests);
+        $this->assertStringContainsString('>Split</button>', $emptyDests);
+        $this->assertStringNotContainsString('name="dest_forum_id"', $emptyDests);
+
+        $onlyCurrent = ap_forum_split_topic_form_html(12, [
+            ['forum_id' => 4, 'forum_name' => 'Here'],
+        ], ['current_forum_id' => 4]);
+        $this->assertStringContainsString('name="topic_title"', $onlyCurrent);
+        $this->assertStringNotContainsString('name="dest_forum_id"', $onlyCurrent);
+
+        $html = ap_forum_split_topic_form_html(12, [
+            ['forum_id' => 4, 'forum_name' => 'Here'],
+            (object) ['forum_id' => 5, 'forum_name' => 'There'],
+            ['forum_id' => 0, 'forum_name' => 'Nope'],
+            ['forum_id' => 6, 'forum_name' => ''],
+        ], [
+            'current_forum_id' => 4,
+            'form_id' => 'agora-split-topic-form',
+            'id' => 'agora-split-dest-forum',
+            'title_id' => 'agora-split-topic-title',
+        ]);
+        $this->assertStringContainsString('ap_forum_split_topic', $html);
+        $this->assertStringContainsString('id="agora-split-topic-form"', $html);
+        $this->assertStringContainsString('name="topic_title"', $html);
+        $this->assertStringContainsString('name="dest_forum_id"', $html);
+        $this->assertStringContainsString('id="agora-split-dest-forum"', $html);
+        $this->assertStringContainsString('id="agora-split-topic-title"', $html);
+        $this->assertStringContainsString('value="4"', $html);
+        $this->assertStringContainsString('Here', $html);
+        $this->assertStringContainsString('There', $html);
+        $this->assertStringNotContainsString('Nope', $html);
+        $this->assertStringContainsString('>Split</button>', $html);
+        $this->assertDoesNotMatchRegularExpression('/name="dest_forum_id"[^>]*\brequired\b/', $html);
+        $this->assertMatchesRegularExpression('/name="topic_title"[^>]*\brequired\b/', $html);
+        $this->assertMatchesRegularExpression('/<option value="4" selected>/', $html);
+
+        $described = ap_forum_split_topic_form_html(12, [
+            ['forum_id' => 4, 'forum_name' => 'Here'],
+            ['forum_id' => 5, 'forum_name' => 'There'],
+        ], [
+            'current_forum_id' => 4,
+            'describedby' => 'split-hint',
+        ]);
+        $this->assertStringContainsString('aria-describedby="split-hint"', $described);
     }
 
     public function testTopicUrlWithNoticeAppendsSanitizedForumNotice(): void

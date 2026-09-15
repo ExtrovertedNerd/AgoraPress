@@ -529,7 +529,77 @@ final class ForumModerationTest extends TestCase
         $this->assertTrue(AP_Forum_Moderation::userCanMoveTopic($userId, $forumId, $this->db));
         $this->assertFalse(AP_Forum_Permissions::userCanModerate($userId, $forumId, $this->db));
         $this->assertFalse(AP_Forum_Moderation::userCanMergeTopic($userId, $forumId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanSplitTopic($userId, $forumId, $this->db));
         $this->assertSame([], $this->mergeTargetIds($userId, 1));
+        $this->assertSame([], $this->splitDestinationIds($userId, $forumId));
+    }
+
+    public function testListSplitDestinationsIncludesCurrentOmitsCategories(): void
+    {
+        $categoryId = AP_Forum::insertForum([
+            'forum_name' => 'Split Cat',
+            'forum_type' => AP_Forum::FORUM_TYPE_CATEGORY,
+        ], $this->db);
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Split Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Split Dest'], $this->db);
+        $linkId = AP_Forum::insertForum([
+            'forum_name' => 'Split Link',
+            'forum_type' => AP_Forum::FORUM_TYPE_LINK,
+        ], $this->db);
+        $hiddenId = AP_Forum::insertForum([
+            'forum_name' => 'Split Hidden',
+            'forum_status' => AP_Forum::FORUM_STATUS_HIDDEN,
+        ], $this->db);
+        $this->assertGreaterThan(0, $categoryId);
+        $this->assertGreaterThan(0, $linkId);
+        $this->assertGreaterThan(0, $hiddenId);
+
+        $adminId = $this->createUser('split_admin', 'split_admin@example.test', 'administrator');
+        $memberId = $this->createUser('split_member', 'split_member@example.test', 'subscriber');
+        $localId = $this->createUser('split_local', 'split_local@example.test', 'subscriber');
+
+        $groupId = AP_Group::create(['group_name' => 'Local splitters'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $destId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+
+        $this->assertTrue(AP_Forum_Moderation::userCanSplitTopic($adminId, $sourceId, $this->db));
+        $this->assertTrue(ap_forum_user_can_split_topic($adminId, $sourceId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanSplitTopic($memberId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Moderation::userCanSplitTopic($localId, $sourceId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanSplitTopic(0, $sourceId, $this->db));
+
+        $adminIds = $this->splitDestinationIds($adminId, $sourceId);
+        $this->assertSame($sourceId, $adminIds[0] ?? 0);
+        $this->assertContains($sourceId, $adminIds);
+        $this->assertContains($destId, $adminIds);
+        $this->assertContains($hiddenId, $adminIds);
+        $this->assertNotContains($categoryId, $adminIds);
+        $this->assertNotContains($linkId, $adminIds);
+        $this->assertSame($adminIds, $this->splitDestinationIdsFromHelper($adminId, $sourceId));
+
+        $this->assertSame([], $this->splitDestinationIds($memberId, $sourceId));
+        $this->assertSame([], AP_Forum_Moderation::listSplitDestinations(0, $sourceId, $this->db));
+
+        $localIds = $this->splitDestinationIds($localId, $sourceId);
+        $this->assertSame($sourceId, $localIds[0] ?? 0);
+        $this->assertContains($sourceId, $localIds);
+        $this->assertContains($destId, $localIds);
+        $this->assertNotContains($hiddenId, $localIds);
+        $this->assertSame($localIds, $this->splitDestinationIdsFromHelper($localId, $sourceId));
     }
 
     public function testRetargetTopicSubscriptionsMovesAndDropsDuplicatePairs(): void
@@ -1097,6 +1167,32 @@ final class ForumModerationTest extends TestCase
         $ids = [];
         foreach (ap_forum_merge_targets($userId, $sourceTopicId, $this->db) as $topic) {
             $ids[] = (int) ($topic->topic_id ?? 0);
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function splitDestinationIds(int $userId, int $currentForumId): array
+    {
+        $ids = [];
+        foreach (AP_Forum_Moderation::listSplitDestinations($userId, $currentForumId, $this->db) as $forum) {
+            $ids[] = (int) ($forum->forum_id ?? 0);
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function splitDestinationIdsFromHelper(int $userId, int $currentForumId): array
+    {
+        $ids = [];
+        foreach (ap_forum_split_destinations($userId, $currentForumId, $this->db) as $forum) {
+            $ids[] = (int) ($forum->forum_id ?? 0);
         }
 
         return $ids;
