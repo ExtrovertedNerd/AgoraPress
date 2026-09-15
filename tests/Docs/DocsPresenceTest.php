@@ -138,6 +138,9 @@ final class DocsPresenceTest extends TestCase
         'edit_others_posts',
         'ap-spoiler',
         'topic_subscriptions',
+        'AP_Forum::refreshForumLastPost',
+        'ap_forum_move_topic',
+        'ap_forum_report_post',
     ];
 
     protected function setUp(): void

@@ -320,6 +320,74 @@
 | Profile list | Title + **Unsubscribe**. Empty: “No topic subscriptions.” Forum module on (even if site switch off). No Agora front-end forum-account page | [admin.md](admin.md#topic-email-notifications) |
 | Not this | Guest watches; board-wide watches; blog-comment subscriptions; HTML newsletters; push; auto-watch on visit; reusing `topic_track`; consuming `rate_limit_mail`; a Settings → Forums field for `forum_notify_max_per_minute` | [forums.md](forums.md#topic-email-notifications) |
 
+## Forum moderation
+
+| Piece | As built | Guide |
+|-------|----------|-------|
+| API | `AP_Forum_Moderation::moveTopic` / `mergeTopics` / `splitTopic` / `createReport`. UI layers **call** these; they do **not** rewrite them | [forums.md](forums.md#moderation) |
+| Schema | **13** (no bump). `{prefix}reports` (migration 5). `{prefix}topic_subscriptions` stay on move; merge retargets | [schema.md](schema.md) · [forums.md](forums.md#moderation) |
+| Front POST | `ap_forum_move_topic`, `ap_forum_merge_topic`, `ap_forum_split_topic`, `ap_forum_report_post` (`AP_Forum_Front::handlePost`) | [forums.md](forums.md#front-urls-and-templates) |
+| Notices | `topic_moved`, `topics_merged`, `topic_split`, `post_reported` | [forums.md](forums.md#front-notices) |
+| ACP Topics | `forum-topics.php`, cap `moderate_forums`. Row **Move** + bulk **Move to…**. Bulk **Merge into…**. **No** split. **No** row **Merge** | [admin.md](admin.md#topics-move-and-merge) |
+| ACP reports | `forum-moderation.php` already lists `{prefix}reports` (resolve / dismiss / reopen). Front insert does **not** rebuild the queue | [forums.md](forums.md#moderation) · [admin.md](admin.md#forums) |
+
+| Last Post | As built | Guide |
+|-----------|----------|-------|
+| Helper | One: `AP_Forum::refreshForumLastPost($forumId)`. `AP_Forum_Moderation` private wrapper only calls that. **No** second algorithm | [forums.md](forums.md#last-post) |
+| Visible | Newest `forum_posts` with `post_approved=1` whose topic is `topic_approved=1` and `topic_status` ≠ `deleted`. Locked topics still qualify | [forums.md](forums.md#last-post) |
+| Empty board | `last_post_id` / `last_topic_id` / `last_poster_id` → `0`; `last_post_time` → `1970-01-01 00:00:00` (`AP_Forum::EMPTY_DATETIME`) | [forums.md](forums.md#last-post) |
+| Runs on | `deleteTopic` (soft and force), `deletePost` of an approved reply, `restoreTopic` (when approved), `moveTopic`, `mergeTopics`, `splitTopic`, post unapprove | [forums.md](forums.md#last-post) |
+| Index cell | `forumToDisplayRow()` / `buildForumLastPostPayload()`. Stale deleted / missing / unapproved pointer → recount, then render or empty. Never a title or permalink for a deleted topic | [forums.md](forums.md#last-post) |
+| Empty cell | `ap_forum_empty_last_post_html()` — **No posts** / **—** / **—** | [forums.md](forums.md#last-post) |
+| Heal | Loading `/forums/` once recounts a stale pointer. **No** ACP “rebuild last post” button | [forums.md](forums.md#last-post) |
+| Not last | Deleting a topic that is **not** last leaves the real last post in place | [forums.md](forums.md#last-post) |
+
+| Move | As built | Guide |
+|------|----------|-------|
+| Front | Topic toolbar **Move** when `move_topics` or `moderate_forum` on current **and** at least one other moderateable forum | [forums.md](forums.md#moderation) |
+| POST | `ap_forum_move_topic` (nonce `ap_forum_move_topic_{id}`, field `dest_forum_id`) | [forums.md](forums.md#moderation) |
+| Dest | Forums the actor can moderate; **not** categories, **not** link boards, **not** current | [forums.md](forums.md#moderation) |
+| Identity | Same `topic_id` and slug. `{prefix}topic_subscriptions` stay. **No** shadow “moved from” row | [forums.md](forums.md#moderation) |
+| Helpers | `ap_forum_user_can_move_topic()`, `ap_forum_move_destinations()`, `ap_forum_move_topic_form_html()` · `userCanMoveTopic()` / `listMoveDestinations()` | [forums.md](forums.md#moderation) |
+| ACP | Row **Move** (`topic-move-{id}`) + destination picker (`ap-topic-move-picker`). Bulk **Move to…** (`dest_forum_id` / `dest_forum_id2`) | [admin.md](admin.md#topics-move-and-merge) |
+| Success | Front notice `topic_moved`. ACP stays on Topics. Bulk notice `bulk_topic_moved` | [admin.md](admin.md#topics-move-and-merge) |
+
+| Merge | As built | Guide |
+|-------|----------|-------|
+| Front | Toolbar **Merge** when `moderate_forum` on current **and** at least one other moderateable topic | [forums.md](forums.md#moderation) |
+| POST | `ap_forum_merge_topic` (nonce `ap_forum_merge_topic_{id}`, field `target_topic_id`) | [forums.md](forums.md#moderation) |
+| Target | Topics in forums the actor can moderate; omits current, deleted, and shadow `moved` rows | [forums.md](forums.md#moderation) |
+| Result | Posts move onto the target; source **deleted** (not soft-deleted). Subs source → target; duplicate `(user_id, target_id)` dropped. Redirect to target, notice `topics_merged` | [forums.md](forums.md#moderation) |
+| Helpers | `ap_forum_user_can_merge_topic()`, `ap_forum_merge_targets()`, `ap_forum_merge_topic_form_html()` · `userCanMergeTopic()` / `listMergeTargets()` | [forums.md](forums.md#moderation) |
+| ACP | Bulk **Merge into…** only (`target_topic_id` / `target_topic_id2`). **No** row **Merge**. Redirects to the target | [admin.md](admin.md#topics-move-and-merge) |
+
+| Split | As built | Guide |
+|-------|----------|-------|
+| Front | Toolbar **Split** when `moderate_forum` on current **and** the topic has at least two posts | [forums.md](forums.md#moderation) |
+| Form | Checkbox per post (`post_ids[]`, none pre-checked); new title (`topic_title`); optional dest (`dest_forum_id`, default current) | [forums.md](forums.md#moderation) |
+| Dest | Forums the actor can moderate, **including** current; not categories or link boards | [forums.md](forums.md#moderation) |
+| POST | `ap_forum_split_topic` (nonce `ap_forum_split_topic_{id}`). Calls `splitTopic` with `moderator_id` | [forums.md](forums.md#moderation) |
+| Rule | Earliest selected post becomes the new first post. Original keeps ≥1 post. Redirect to the new topic, notice `topic_split` | [forums.md](forums.md#moderation) |
+| Helpers | `ap_forum_user_can_split_topic()`, `ap_forum_split_destinations()`, `ap_forum_split_topic_form_html()` · `userCanSplitTopic()` / `listSplitDestinations()` | [forums.md](forums.md#moderation) |
+| ACP | **No** split on Topics | [admin.md](admin.md#topics-move-and-merge) |
+
+| Report | As built | Guide |
+|--------|----------|-------|
+| Who | Logged-in + `view_forum` on that forum (`can_report` from `getPostsDisplayData`). Guests: **no** form | [forums.md](forums.md#moderation) |
+| POST | `ap_forum_report_post` (nonce `ap_forum_report_post_{id}`, hidden `post_id`). Reason required (`report_reason`, maxlength 255) | [forums.md](forums.md#moderation) |
+| Insert | `{prefix}reports` type `post`, status `open`. One open report per user per post | [forums.md](forums.md#moderation) |
+| Flood | `forum_flood_interval` via `isReportFlooding()`. Moderators / `manage_forums` skip | [forums.md](forums.md#moderation) |
+| Fail | `createReport` returns `0` → does **not** claim success. No report mail this pass | [forums.md](forums.md#moderation) |
+| Success | Notice `post_reported` (anchor `#post-{id}`). Helper `ap_forum_report_post_form_html()` | [forums.md](forums.md#moderation) |
+
+| Not this | Guide |
+|----------|-------|
+| Shadow / “moved from” stub topics (`topic_status` includes `moved`; move / merge / split do **not** insert those rows) | [forums.md](forums.md#not-in-core) |
+| Guest reports; report-notification email | [forums.md](forums.md#not-in-core) |
+| ACP Topics **Split**; ACP row **Merge**; ACP “rebuild last post” button | [admin.md](admin.md#topics-move-and-merge) · [forums.md](forums.md#not-in-core) |
+| Warning / ban issue screens | [forums.md](forums.md#not-in-core) |
+| `php ap-cli forum` moderate verb | [cli.md](cli.md) |
+
 ## `ap-cli` verbs
 
 | Group | Usage as registered | Needs install | Subcommands | Guide |
@@ -430,7 +498,7 @@
 | `user-edit.php` | Edit selected account (pending **Resend verification** / **Activate account**) | `edit_users` | [admin.md](admin.md#users) · Forum notify fieldset: [admin.md](admin.md#topic-email-notifications) |
 | `forums.php` `forum-edit.php` | Forum tree / edit (**This group only** / `group_only`) | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md#this-group-only-group_only) |
 | `forum-groups.php` | Groups + ACL | `manage_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
-| `forum-topics.php` `forum-moderation.php` | Topics / mod queue | `moderate_forums` | [admin.md](admin.md#forums) · [forums.md](forums.md) |
+| `forum-topics.php` `forum-moderation.php` | Topics / mod queue (row **Move** / bulk **Move to…** / bulk **Merge into…**; **no** split on Topics) | `moderate_forums` | [admin.md](admin.md#forums) · [admin.md](admin.md#topics-move-and-merge) · Front Move / Merge / Split / Report: [forums.md](forums.md#moderation) |
 | `options-general.php` | General + **Site Icon** + membership (`registration_captcha`, `reserved_usernames`) | `manage_options` | [admin.md](admin.md#settings) · [admin.md](admin.md#public-registration) · [site-icon.md](site-icon.md) |
 | `options-mail.php` | Mail (from identity, php/smtp, test to `admin_email`) | `manage_options` | [admin.md](admin.md#mail) |
 | `options-writing.php` | Writing (Default Post Category, living ids only) | `manage_options` | [admin.md](admin.md#settings) · [admin.md](admin.md#default-post-category) |
@@ -639,6 +707,9 @@
 | Auto-inject comment form / auto-append after `ap_the_content` | [themes.md](themes.md#comments-template) |
 | Guest watches, board-wide watches, auto-watch on visit / start / reply | [forums.md](forums.md#topic-email-notifications) |
 | Topic notify consuming `rate_limit_mail`; Settings field for `forum_notify_max_per_minute` | [forums.md](forums.md#topic-email-notifications) |
+| Shadow / “moved from” stub topics; ACP Topics **Split**; ACP row **Merge**; ACP “rebuild last post” button | [forums.md](forums.md#not-in-core) · [admin.md](admin.md#topics-move-and-merge) |
+| Guest reports; report-notification email | [forums.md](forums.md#not-in-core) |
+| Warning / ban issue screens | [forums.md](forums.md#not-in-core) |
 | Forum topic-starter or comment-author reassignment from the Posts / Pages Author picker | [admin.md](admin.md#author-posts-and-pages) |
 | Google / hCaptcha / Turnstile widgets | [security.md](security.md#public-registration-gate) |
 | A second docs index (`docs/index.md`) or a Bot-only tree | [README.md](README.md) |

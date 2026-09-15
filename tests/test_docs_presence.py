@@ -115,6 +115,9 @@ CATALOG_TOKENS = (
     "edit_others_posts",
     "ap-spoiler",
     "topic_subscriptions",
+    "AP_Forum::refreshForumLastPost",
+    "ap_forum_move_topic",
+    "ap_forum_report_post",
 )
 
 ADD_COMMAND = re.compile(
