@@ -18,7 +18,7 @@ FUNCTIONS = ROOT / "ap-includes" / "functions.php"
 BOOTSTRAP = ROOT / "ap-includes" / "bootstrap.php"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
 PHPUNIT = ROOT / "tests" / "Import" / "PhpbbImporterTest.php"
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 README = ROOT / "README.md"
 
 
@@ -105,8 +105,8 @@ def test_structure_lists_importer() -> None:
 
 
 def test_changelog_and_readme_mention_phpbb() -> None:
-    changelog = CHANGELOG.read_text(encoding="utf-8")
-    assert "phpBB" in changelog
+    archive = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
+    assert "phpBB" in archive
 
     readme = README.read_text(encoding="utf-8")
     assert "phpBB" in readme

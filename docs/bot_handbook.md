@@ -87,7 +87,7 @@ payload:
   need a front controller
 
 If a fact is only true of one private install, document the **mechanism**,
-not the install. Historical `CHANGELOG.md` notes are not a license to leak
+not the install. Historical `CHANGELOG.md` / `CHANGELOG-archive.md` notes are not a license to leak
 private hosts, mailboxes, or add-on internals.
 
 ---

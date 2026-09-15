@@ -22,7 +22,7 @@ INDEX = ROOT / "index.php"
 INSTALLER = ROOT / "ap-includes" / "class-ap-installer.php"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
 PHPUNIT_TEST = ROOT / "tests" / "Seo" / "SitemapSeoTest.php"
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 
 
 def _php_bin() -> str:
@@ -114,7 +114,7 @@ def test_structure_lists_seo_files() -> None:
 
 
 def test_changelog_mentions_sitemaps() -> None:
-    text = CHANGELOG.read_text(encoding="utf-8")
+    text = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
     assert "sitemap" in text.lower()
     assert "open graph" in text.lower() or "Open Graph" in text
 

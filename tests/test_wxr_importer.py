@@ -20,7 +20,7 @@ ADMIN_CLASS = ROOT / "ap-admin" / "includes" / "class-ap-admin.php"
 ROLES = ROOT / "ap-includes" / "class-ap-roles.php"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
 PHPUNIT = ROOT / "tests" / "Import" / "WxrImporterTest.php"
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 README = ROOT / "README.md"
 
 
@@ -105,8 +105,8 @@ def test_structure_lists_importer() -> None:
 
 
 def test_changelog_and_readme_mention_wxr() -> None:
-    changelog = CHANGELOG.read_text(encoding="utf-8")
-    assert "WXR" in changelog or "wxr" in changelog.lower()
+    archive = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
+    assert "WXR" in archive or "wxr" in archive.lower()
 
     readme = README.read_text(encoding="utf-8")
     assert "WXR" in readme or "WordPress" in readme

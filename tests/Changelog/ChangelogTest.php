@@ -3,6 +3,9 @@
 /**
  * Assert CHANGELOG.md follows Keep a Changelog + SemVer and stays readable.
  *
+ * Historical notes (0.3.8-beta through 0.2.0-beta) live in CHANGELOG-archive.md.
+ * The size cap applies only to the living CHANGELOG.md.
+ *
  * @package AgoraPress
  */
 
@@ -19,6 +22,8 @@ final class ChangelogTest extends TestCase
 {
     private string $changelog;
 
+    private string $archive;
+
     private string $root;
 
     protected function setUp(): void
@@ -29,6 +34,12 @@ final class ChangelogTest extends TestCase
         $contents = file_get_contents($path);
         $this->assertNotFalse($contents);
         $this->changelog = $contents;
+
+        $archivePath = $this->root . '/CHANGELOG-archive.md';
+        $this->assertFileIsReadable($archivePath, 'CHANGELOG-archive.md must exist');
+        $archive = file_get_contents($archivePath);
+        $this->assertNotFalse($archive);
+        $this->archive = $archive;
     }
 
     public function testChangelogIsNotAStub(): void
@@ -44,10 +55,41 @@ final class ChangelogTest extends TestCase
         );
         $this->assertGreaterThanOrEqual(800, strlen($this->changelog));
         // Stay useful: reject the old multi-thousand-line implementation diary.
+        // Size cap applies only to the living CHANGELOG.md, not the archive.
         $this->assertLessThan(
             14000,
             strlen($this->changelog),
             'CHANGELOG should stay concise (under ~14 KiB of prose)'
+        );
+    }
+
+    public function testArchiveExistsWithoutLivingSizeCap(): void
+    {
+        $this->assertGreaterThan(
+            800,
+            strlen($this->archive),
+            'CHANGELOG-archive.md should keep historical release notes'
+        );
+        $this->assertMatchesRegularExpression(
+            '/(?im)^#\s+Changelog archive\s*$/',
+            $this->archive
+        );
+    }
+
+    public function testLivingChangelogPointsAtArchive(): void
+    {
+        $this->assertStringContainsString('CHANGELOG-archive.md', $this->changelog);
+        $this->assertStringContainsString('0.3.8-beta', $this->changelog);
+        $this->assertStringContainsString('0.2.0-beta', $this->changelog);
+        $this->assertDoesNotMatchRegularExpression(
+            '/(?im)^##\s+\[0\.3\.8-beta\]/',
+            $this->changelog,
+            '0.3.8-beta belongs in CHANGELOG-archive.md'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/(?im)^##\s+\[0\.2\.0-beta\]/',
+            $this->changelog,
+            '0.2.0-beta belongs in CHANGELOG-archive.md'
         );
     }
 
@@ -77,23 +119,18 @@ final class ChangelogTest extends TestCase
     }
 
     /**
-     * High-level product surface only — not every class name.
+     * High-level product surface on the living file.
      *
      * @return array<string, array{0: string}>
      */
     public static function requiredPhraseProvider(): array
     {
         return [
-            'config sample' => ['ap-config-sample.php'],
-            'docker compose' => ['docker-compose.yml'],
-            'phpunit' => ['phpunit.xml.dist'],
             'includes' => ['ap-includes'],
-            'license' => ['GPLv2'],
             'version const' => ['AP_VERSION'],
-            'installer' => ['installer'],
             'forums' => ['forum'],
-            'admin' => ['admin'],
             'no telemetry' => ['no telemetry'],
+            'archive pointer' => ['CHANGELOG-archive.md'],
         ];
     }
 
@@ -107,12 +144,44 @@ final class ChangelogTest extends TestCase
         );
     }
 
+    /**
+     * MVP / early-beta surface that now lives in the archive.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function archivePhraseProvider(): array
+    {
+        return [
+            'config sample' => ['ap-config-sample.php'],
+            'docker compose' => ['docker-compose.yml'],
+            'phpunit' => ['phpunit.xml.dist'],
+            'license' => ['GPLv2'],
+            'installer' => ['installer'],
+            'admin' => ['admin'],
+        ];
+    }
+
+    #[DataProvider('archivePhraseProvider')]
+    public function testArchiveRequiredPhrase(string $phrase): void
+    {
+        $this->assertStringContainsStringIgnoringCase(
+            $phrase,
+            $this->archive,
+            "Expected phrase in CHANGELOG-archive.md: {$phrase}"
+        );
+    }
+
     public function testNoPlaceholderReleaseDate(): void
     {
         $this->assertDoesNotMatchRegularExpression(
             '/(?im)^##\s+\[[^\]]+\]\s+-\s+YYYY-MM-DD\s*$/',
             $this->changelog,
             'Remove placeholder release dates (YYYY-MM-DD) until a real release is cut'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/(?im)^##\s+\[[^\]]+\]\s+-\s+YYYY-MM-DD\s*$/',
+            $this->archive,
+            'Archive must not keep placeholder release dates (YYYY-MM-DD)'
         );
     }
 
@@ -189,9 +258,9 @@ final class ChangelogTest extends TestCase
     {
         $this->assertMatchesRegularExpression(
             '/(?im)^##\s+\[0\.2\.0-beta\]/',
-            $this->changelog
+            $this->archive
         );
-        $lower = strtolower($this->changelog);
+        $lower = strtolower($this->archive);
         $this->assertStringContainsString('analytics', $lower);
         $this->assertStringContainsString('analytics_enabled', $lower);
         $this->assertTrue(
@@ -204,9 +273,9 @@ final class ChangelogTest extends TestCase
     {
         $this->assertMatchesRegularExpression(
             '/(?im)^##\s+\[0\.2\.1-beta\]/',
-            $this->changelog
+            $this->archive
         );
-        $lower = strtolower($this->changelog);
+        $lower = strtolower($this->archive);
         $this->assertStringContainsString('forum_post_likes', $lower);
         $this->assertStringContainsString('like_count', $lower);
         $this->assertTrue(
@@ -232,7 +301,7 @@ final class ChangelogTest extends TestCase
     {
         $matched = preg_match(
             '/(?ims)^##\s+\[0\.3\.7-beta\][^\n]*\n(.*?)(?=^##\s+\[|\z)/',
-            $this->changelog,
+            $this->archive,
             $m
         );
         $this->assertSame(1, $matched, 'Missing ## [0.3.7-beta] body');
@@ -271,24 +340,26 @@ final class ChangelogTest extends TestCase
 
     public function testChangelogContainsNoPrivateMarkers(): void
     {
-        foreach (
-            [
-                'Roland',
-                'stallboy',
-                'mail.0shits.com',
-                'KeePass',
-                'Stalwart',
-                'Jarvis',
-                'BlindVault',
-                'MensBS',
-                'AgoraPress_Addons',
-            ] as $banned
-        ) {
-            $this->assertStringNotContainsStringIgnoringCase(
-                $banned,
-                $this->changelog,
-                "CHANGELOG.md must not contain private marker: {$banned}"
-            );
+        foreach ([$this->changelog, $this->archive] as $text) {
+            foreach (
+                [
+                    'Roland',
+                    'stallboy',
+                    'mail.0shits.com',
+                    'KeePass',
+                    'Stalwart',
+                    'Jarvis',
+                    'BlindVault',
+                    'MensBS',
+                    'AgoraPress_Addons',
+                ] as $banned
+            ) {
+                $this->assertStringNotContainsStringIgnoringCase(
+                    $banned,
+                    $text,
+                    'Changelog files must not contain private marker: ' . $banned
+                );
+            }
         }
     }
 
@@ -296,7 +367,7 @@ final class ChangelogTest extends TestCase
     {
         $matched = preg_match(
             '/(?ims)^##\s+\[0\.3\.8-beta\][^\n]*\n(.*?)(?=^##\s+\[|\z)/',
-            $this->changelog,
+            $this->archive,
             $m
         );
         $this->assertSame(1, $matched, 'Missing ## [0.3.8-beta] body');

@@ -30,6 +30,7 @@ REQUIRED_PATHS: list[str] = [
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
+    "CHANGELOG-archive.md",
     # Release packaging (Phase 7)
     "bin/package-release.php",
     # Nginx example (SPEC: ".htaccess / nginx examples")

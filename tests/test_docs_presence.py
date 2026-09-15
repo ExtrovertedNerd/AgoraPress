@@ -633,7 +633,7 @@ def test_docs_file_contains_no_private_markers(docs_root: Path, name: str) -> No
 
 @pytest.mark.parametrize(
     "relative",
-    ("README.md", "CHANGELOG.md", "ap-config-sample.php"),
+    ("README.md", "CHANGELOG.md", "CHANGELOG-archive.md", "ap-config-sample.php"),
 )
 def test_public_product_file_contains_no_private_markers(relative: str) -> None:
     path = ROOT / relative
@@ -651,6 +651,7 @@ def _public_safe_landing_files() -> list[str]:
         [
             "README.md",
             "CHANGELOG.md",
+            "CHANGELOG-archive.md",
             "ap-config-sample.php",
             "composer.json",
             "ap-content/themes/agora/style.css",

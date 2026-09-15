@@ -96,6 +96,7 @@ $requiredRelative = [
     'ap-config-sample.php',
     'LICENSE',
     'CHANGELOG.md',
+    'CHANGELOG-archive.md',
     'install/index.php',
     'ap-cli',
     'ap-content/themes/agora/style.css',

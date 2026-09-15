@@ -305,6 +305,7 @@ Excludes tests, vendor, secrets, and runtime uploads. `dist/` is gitignored. Fre
 ├── docs/                     # Operator, integrator, and agent guides
 ├── tests/
 ├── CHANGELOG.md
+├── CHANGELOG-archive.md      # 0.3.8-beta through 0.2.0-beta
 ├── LICENSE                   # GPLv2-or-later
 └── README.md
 ```

@@ -20,7 +20,7 @@ ADMIN_CLASS = ROOT / "ap-admin" / "includes" / "class-ap-admin.php"
 ROLES = ROOT / "ap-includes" / "class-ap-roles.php"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
 PHPUNIT = ROOT / "tests" / "Admin" / "SiteHealthTest.php"
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 ADMIN_CSS = ROOT / "ap-admin" / "css" / "admin.css"
 
 
@@ -127,7 +127,7 @@ def test_structure_lists_site_health() -> None:
 
 
 def test_changelog_mentions_site_health() -> None:
-    text = CHANGELOG.read_text(encoding="utf-8")
+    text = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
     assert "Site Health" in text or "site health" in text.lower()
 
 

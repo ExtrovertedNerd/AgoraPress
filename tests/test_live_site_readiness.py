@@ -17,7 +17,7 @@ NGINX = ROOT / "docker" / "nginx.conf.example"
 GITIGNORE = ROOT / ".gitignore"
 PACKAGE = ROOT / "bin" / "package-release.php"
 README = ROOT / "README.md"
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 INSTALL_UI = ROOT / "install" / "index.php"
 
 
@@ -70,8 +70,8 @@ def test_readme_production_install_section() -> None:
 
 
 def test_changelog_mentions_live_site_readiness() -> None:
-    changelog = CHANGELOG.read_text(encoding="utf-8")
-    assert "Live-site install readiness" in changelog
+    archive = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
+    assert "Live-site install readiness" in archive
 
 
 def test_installer_mentions_sqlite_download_protection() -> None:

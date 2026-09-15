@@ -27,7 +27,7 @@ POSTS_TABLE = ROOT / "ap-admin" / "includes" / "class-ap-posts-list-table.php"
 CONFIG_SAMPLE = ROOT / "ap-config-sample.php"
 AUTOLOAD_TEST = ROOT / "tests" / "Options" / "AutoloadOptionsTest.php"
 PERF_PHPUNIT = ROOT / "tests" / "Performance" / "PerformanceA11yTest.php"
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 
 
 def _php_bin() -> str:
@@ -166,7 +166,7 @@ def test_config_sample_documents_savequeries() -> None:
 
 
 def test_changelog_mentions_audit() -> None:
-    text = CHANGELOG.read_text(encoding="utf-8")
+    text = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
     assert "Performance" in text or "performance" in text
     assert "accessibility" in text.lower() or "Accessibility" in text
 

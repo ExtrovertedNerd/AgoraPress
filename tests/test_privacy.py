@@ -22,7 +22,7 @@ ADMIN_CLASS = ROOT / "ap-admin" / "includes" / "class-ap-admin.php"
 ROLES = ROOT / "ap-includes" / "class-ap-roles.php"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
 PHPUNIT = ROOT / "tests" / "Security" / "PrivacyTest.php"
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 
 
 def _php_bin() -> str:
@@ -120,7 +120,7 @@ def test_structure_lists_privacy() -> None:
 
 
 def test_changelog_mentions_privacy() -> None:
-    text = CHANGELOG.read_text(encoding="utf-8")
+    text = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
     assert "Privacy" in text or "privacy" in text
     assert "AP_Privacy" in text or "personal data" in text.lower()
 

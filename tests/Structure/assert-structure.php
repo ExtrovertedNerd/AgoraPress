@@ -38,6 +38,7 @@ $requiredPaths = [
     // Release packaging (Phase 7)
     'bin/package-release.php',
     'CHANGELOG.md',
+    'CHANGELOG-archive.md',
     // Nginx example (SPEC: ".htaccess / nginx examples")
     'docker/nginx.conf.example',
     // Docker Compose stack (SPEC §2 / Phase 0)

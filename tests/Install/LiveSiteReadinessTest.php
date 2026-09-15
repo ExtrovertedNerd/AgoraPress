@@ -89,8 +89,8 @@ final class LiveSiteReadinessTest extends TestCase
 
     public function testChangelogMentionsLiveSiteReadiness(): void
     {
-        $changelog = (string) file_get_contents($this->root . '/CHANGELOG.md');
-        $this->assertStringContainsString('Live-site install readiness', $changelog);
+        $archive = (string) file_get_contents($this->root . '/CHANGELOG-archive.md');
+        $this->assertStringContainsString('Live-site install readiness', $archive);
     }
 
     public function testPackageZipExcludesSqliteWhenPresent(): void

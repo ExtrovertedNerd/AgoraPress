@@ -21,7 +21,7 @@ ADMIN_SCREEN = ROOT / "ap-admin" / "update-core.php"
 ADMIN_CLASS = ROOT / "ap-admin" / "includes" / "class-ap-admin.php"
 PHPUNIT = ROOT / "tests" / "Admin" / "CoreUpdaterTest.php"
 README = ROOT / "README.md"
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
 
 
@@ -110,8 +110,8 @@ def test_docs_mention_auto_update() -> None:
     readme = README.read_text(encoding="utf-8").lower()
     assert "one-click" in readme or "auto-update" in readme or "update core" in readme
 
-    changelog = CHANGELOG.read_text(encoding="utf-8")
-    assert "AP_Core_Updater" in changelog or "one-click" in changelog.lower()
+    archive = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
+    assert "AP_Core_Updater" in archive or "one-click" in archive.lower()
 
 
 def test_phpunit_core_updater() -> None:

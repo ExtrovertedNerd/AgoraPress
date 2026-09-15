@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "bin" / "package-release.php"
 VERSION_PHP = ROOT / "ap-includes" / "version.php"
 CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG_ARCHIVE = ROOT / "CHANGELOG-archive.md"
 README = ROOT / "README.md"
 GITIGNORE = ROOT / ".gitignore"
 
@@ -112,6 +113,7 @@ def test_builds_zip_and_excludes_dev_paths() -> None:
             assert "AgoraPress/ap-includes/version.php" in names
             assert "AgoraPress/ap-admin/index.php" in names
             assert "AgoraPress/CHANGELOG.md" in names
+            assert "AgoraPress/CHANGELOG-archive.md" in names
             assert "AgoraPress/ap-content/themes/agora/style.css" in names
 
             assert not any(n.startswith("AgoraPress/tests/") for n in names)
@@ -125,9 +127,12 @@ def test_builds_zip_and_excludes_dev_paths() -> None:
 
 def test_changelog_and_readme_document_packaging() -> None:
     changelog = CHANGELOG.read_text(encoding="utf-8")
+    archive = CHANGELOG_ARCHIVE.read_text(encoding="utf-8")
     readme = README.read_text(encoding="utf-8")
+    assert "CHANGELOG-archive.md" in changelog
     assert "package-release.php" in changelog
-    assert "Release packaging" in changelog
+    assert "Release packaging" in archive
+    assert "package-release.php" in archive
     assert re.search(r"(?im)^##\s+Release packaging\s*$", readme)
     assert "bin/package-release.php" in readme
     assert "composer package" in readme

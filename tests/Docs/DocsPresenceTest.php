@@ -854,6 +854,7 @@ final class DocsPresenceTest extends TestCase
         return [
             'README.md' => ['README.md'],
             'CHANGELOG.md' => ['CHANGELOG.md'],
+            'CHANGELOG-archive.md' => ['CHANGELOG-archive.md'],
             'ap-config-sample.php' => ['ap-config-sample.php'],
         ];
     }
@@ -924,6 +925,7 @@ final class DocsPresenceTest extends TestCase
             [
                 'README.md',
                 'CHANGELOG.md',
+                'CHANGELOG-archive.md',
                 'ap-config-sample.php',
                 'composer.json',
                 'ap-content/themes/agora/style.css',

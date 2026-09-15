@@ -249,9 +249,9 @@ release zip.
 
 Also applied when present in the package: `index.php`, `ap-cli`,
 `ap-admin/`, `ap-includes/`, root `.htaccess`, `LICENSE`, `CHANGELOG.md`,
-`composer.json` (lockfile is **not** shipped), docs, Docker examples,
-`ap-content/themes/index.php`, and language placeholders. User SQLite
-files and `.env` are not in the zip.
+`CHANGELOG-archive.md`, `composer.json` (lockfile is **not** shipped), docs,
+Docker examples, `ap-content/themes/index.php`, and language placeholders.
+User SQLite files and `.env` are not in the zip.
 
 ---
 
@@ -405,7 +405,7 @@ packages — `vendor/` is never in the zip.
 
 Required paths inside the zip include `index.php`,
 `ap-includes/version.php`, `ap-admin/index.php`, `ap-config-sample.php`,
-`LICENSE`, `CHANGELOG.md`, `install/index.php`, `ap-cli`, and
+`LICENSE`, `CHANGELOG.md`, `CHANGELOG-archive.md`, `install/index.php`, `ap-cli`, and
 `ap-content/themes/agora/style.css`.
 
 To publish: serve `version.json` at the endpoint sites check, and serve

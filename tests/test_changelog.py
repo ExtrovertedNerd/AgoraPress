@@ -1,6 +1,9 @@
 """
 Smoke tests for CHANGELOG.md (Keep a Changelog + SemVer, concise).
 
+Historical notes (0.3.8-beta through 0.2.0-beta) live in CHANGELOG-archive.md.
+The size cap applies only to the living CHANGELOG.md.
+
 Runnable via:
   pytest tests/test_changelog.py -v
 """
@@ -14,6 +17,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 CHANGELOG = ROOT / "CHANGELOG.md"
+ARCHIVE = ROOT / "CHANGELOG-archive.md"
 VERSION_PHP = ROOT / "ap-includes" / "version.php"
 
 REQUIRED_PATTERNS = (
@@ -25,18 +29,34 @@ REQUIRED_PATTERNS = (
     r"Semantic Versioning",
 )
 
-# High-level product surface only — not every implementation class.
+# Living-file product surface — MVP phrases moved with 0.2.0-beta to the archive.
 REQUIRED_PHRASES = (
+    "ap-includes",
+    "AP_VERSION",
+    "forum",
+    "no telemetry",
+    "CHANGELOG-archive.md",
+)
+
+ARCHIVE_PHRASES = (
     "ap-config-sample.php",
     "docker-compose.yml",
     "phpunit.xml.dist",
-    "ap-includes",
     "GPLv2",
-    "AP_VERSION",
     "installer",
-    "forum",
     "admin",
-    "no telemetry",
+)
+
+PRIVATE_MARKERS = (
+    "roland",
+    "stallboy",
+    "mail.0shits.com",
+    "keepass",
+    "stalwart",
+    "jarvis",
+    "blindvault",
+    "mensbs",
+    "agorapress_addons",
 )
 
 
@@ -46,15 +66,39 @@ def changelog_text() -> str:
     return CHANGELOG.read_text(encoding="utf-8")
 
 
+@pytest.fixture(scope="module")
+def archive_text() -> str:
+    assert ARCHIVE.is_file(), "Missing CHANGELOG-archive.md"
+    return ARCHIVE.read_text(encoding="utf-8")
+
+
 def test_changelog_exists() -> None:
     assert CHANGELOG.is_file()
+
+
+def test_archive_exists() -> None:
+    assert ARCHIVE.is_file()
 
 
 def test_changelog_is_not_a_stub(changelog_text: str) -> None:
     lines = [ln for ln in changelog_text.splitlines() if ln.strip()]
     assert len(lines) >= 15, f"CHANGELOG too short ({len(lines)} non-empty lines)"
     assert len(changelog_text) >= 800, "CHANGELOG should list major product surface"
+    # Size cap applies only to the living CHANGELOG.md, not the archive.
     assert len(changelog_text) < 16000, "CHANGELOG should stay concise"
+
+
+def test_archive_is_not_size_capped(archive_text: str) -> None:
+    assert len(archive_text) >= 800, "CHANGELOG-archive.md should keep historical notes"
+    assert re.search(r"(?im)^#\s+Changelog archive\s*$", archive_text)
+
+
+def test_living_changelog_points_at_archive(changelog_text: str) -> None:
+    assert "CHANGELOG-archive.md" in changelog_text
+    assert "0.3.8-beta" in changelog_text
+    assert "0.2.0-beta" in changelog_text
+    assert not re.search(r"(?im)^##\s+\[0\.3\.8-beta\]", changelog_text)
+    assert not re.search(r"(?im)^##\s+\[0\.2\.0-beta\]", changelog_text)
 
 
 @pytest.mark.parametrize("pattern", REQUIRED_PATTERNS)
@@ -67,11 +111,19 @@ def test_required_phrase(changelog_text: str, phrase: str) -> None:
     assert phrase.lower() in changelog_text.lower(), f"Expected phrase in CHANGELOG: {phrase}"
 
 
-def test_no_placeholder_release_date(changelog_text: str) -> None:
-    assert not re.search(
-        r"(?im)^##\s+\[[^\]]+\]\s+-\s+YYYY-MM-DD\s*$",
-        changelog_text,
-    ), "Remove placeholder release dates (YYYY-MM-DD) until a real release is cut"
+@pytest.mark.parametrize("phrase", ARCHIVE_PHRASES)
+def test_archive_required_phrase(archive_text: str, phrase: str) -> None:
+    assert phrase.lower() in archive_text.lower(), (
+        f"Expected phrase in CHANGELOG-archive.md: {phrase}"
+    )
+
+
+def test_no_placeholder_release_date(changelog_text: str, archive_text: str) -> None:
+    for label, text in (("CHANGELOG.md", changelog_text), ("CHANGELOG-archive.md", archive_text)):
+        assert not re.search(
+            r"(?im)^##\s+\[[^\]]+\]\s+-\s+YYYY-MM-DD\s*$",
+            text,
+        ), f"Remove placeholder release dates (YYYY-MM-DD) in {label}"
 
 
 def test_unreleased_comes_before_any_versioned_section(changelog_text: str) -> None:
@@ -109,9 +161,9 @@ def test_mentions_core_version_constant(changelog_text: str) -> None:
             )
 
 
-def test_020_beta_documents_local_analytics(changelog_text: str) -> None:
-    assert re.search(r"(?im)^##\s+\[0\.2\.0-beta\]", changelog_text)
-    lower = changelog_text.lower()
+def test_020_beta_documents_local_analytics(archive_text: str) -> None:
+    assert re.search(r"(?im)^##\s+\[0\.2\.0-beta\]", archive_text)
+    lower = archive_text.lower()
     assert "local" in lower and "analytics" in lower
     assert "analytics_enabled" in lower
     assert "analytics_hits" in lower or "analytics_daily" in lower
@@ -148,17 +200,17 @@ def test_unreleased_section_remains(changelog_text: str) -> None:
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
 
 
-def _037_beta_body(changelog_text: str) -> str:
+def _section_body(text: str, version: str) -> str:
     match = re.search(
-        r"(?ims)^##\s+\[0\.3\.7-beta\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
-        changelog_text,
+        rf"(?ims)^##\s+\[{re.escape(version)}\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
+        text,
     )
-    assert match, "Missing ## [0.3.7-beta] body"
+    assert match, f"Missing ## [{version}] body"
     return match.group(1)
 
 
-def test_037_beta_documents_charter_and_docs_pass(changelog_text: str) -> None:
-    body = _037_beta_body(changelog_text)
+def test_037_beta_documents_charter_and_docs_pass(archive_text: str) -> None:
+    body = _section_body(archive_text, "0.3.7-beta")
     assert re.search(r"(?im)^###\s+Added\s*$", body)
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
     lower = body.lower()
@@ -171,35 +223,17 @@ def test_037_beta_documents_charter_and_docs_pass(changelog_text: str) -> None:
         assert path.lower() in lower, f"[0.3.7-beta] should mention {path}"
 
 
-def test_changelog_contains_no_private_markers(changelog_text: str) -> None:
-    lower = changelog_text.lower()
-    for banned in (
-        "roland",
-        "stallboy",
-        "mail.0shits.com",
-        "keepass",
-        "stalwart",
-        "jarvis",
-        "blindvault",
-        "mensbs",
-        "agorapress_addons",
-    ):
-        assert banned not in lower, (
-            f"CHANGELOG.md must not contain private marker: {banned}"
-        )
+def test_changelog_contains_no_private_markers(
+    changelog_text: str, archive_text: str
+) -> None:
+    for label, text in (("CHANGELOG.md", changelog_text), ("CHANGELOG-archive.md", archive_text)):
+        lower = text.lower()
+        for banned in PRIVATE_MARKERS:
+            assert banned not in lower, f"{label} must not contain private marker: {banned}"
 
 
-def _038_beta_body(changelog_text: str) -> str:
-    match = re.search(
-        r"(?ims)^##\s+\[0\.3\.8-beta\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
-        changelog_text,
-    )
-    assert match, "Missing ## [0.3.8-beta] body"
-    return match.group(1)
-
-
-def test_038_beta_documents_absolute_mail_links(changelog_text: str) -> None:
-    body = _038_beta_body(changelog_text)
+def test_038_beta_documents_absolute_mail_links(archive_text: str) -> None:
+    body = _section_body(archive_text, "0.3.8-beta")
     lower = body.lower()
     assert "loginactionurl" in lower
     assert "ap_admin::url" in lower
@@ -222,22 +256,13 @@ def test_current_ap_version_is_0310_beta() -> None:
     )
 
 
-def _0310_beta_body(changelog_text: str) -> str:
-    match = re.search(
-        r"(?ims)^##\s+\[0\.3\.10-beta\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
-        changelog_text,
-    )
-    assert match, "Missing ## [0.3.10-beta] body"
-    return match.group(1)
-
-
 def test_0310_beta_documents_charter_surfaces(changelog_text: str) -> None:
     heading = re.search(
         r"(?im)^##\s+\[0\.3\.10-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",
         changelog_text,
     )
     assert heading, "Missing dated ## [0.3.10-beta] heading"
-    body = _0310_beta_body(changelog_text)
+    body = _section_body(changelog_text, "0.3.10-beta")
     assert re.search(r"(?im)^###\s+Added\s*$", body)
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
     assert re.search(r"(?im)^###\s+Fixed\s*$", body)
@@ -259,22 +284,13 @@ def test_0310_beta_documents_charter_surfaces(changelog_text: str) -> None:
     assert "0.3.10-beta" in body
 
 
-def _039_beta_body(changelog_text: str) -> str:
-    match = re.search(
-        r"(?ims)^##\s+\[0\.3\.9-beta\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
-        changelog_text,
-    )
-    assert match, "Missing ## [0.3.9-beta] body"
-    return match.group(1)
-
-
 def test_039_beta_documents_charter_surfaces(changelog_text: str) -> None:
     heading = re.search(
         r"(?im)^##\s+\[0\.3\.9-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",
         changelog_text,
     )
     assert heading, "Missing dated ## [0.3.9-beta] heading"
-    body = _039_beta_body(changelog_text)
+    body = _section_body(changelog_text, "0.3.9-beta")
     assert re.search(r"(?im)^###\s+Added\s*$", body)
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
     assert re.search(r"(?im)^###\s+Fixed\s*$", body)

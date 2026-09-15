@@ -288,7 +288,8 @@ core**. Do not invent it in answers or in new docs.
 
 - [README.md](../README.md) — install, Docker, CLI, REST, production checklist
 - [CODING_STANDARDS.md](../CODING_STANDARDS.md) — PSR-12 adapted style
-- [CHANGELOG.md](../CHANGELOG.md) — notable changes
+- [CHANGELOG.md](../CHANGELOG.md) — notable changes (Unreleased and recent releases)
+- [CHANGELOG-archive.md](../CHANGELOG-archive.md) — 0.3.8-beta through 0.2.0-beta
 
 ---
 

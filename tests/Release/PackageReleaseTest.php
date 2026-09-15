@@ -129,6 +129,7 @@ final class PackageReleaseTest extends TestCase
         $this->assertNotFalse($zip->locateName('AgoraPress/ap-admin/index.php'));
         $this->assertNotFalse($zip->locateName('AgoraPress/ap-config-sample.php'));
         $this->assertNotFalse($zip->locateName('AgoraPress/CHANGELOG.md'));
+        $this->assertNotFalse($zip->locateName('AgoraPress/CHANGELOG-archive.md'));
         $this->assertNotFalse($zip->locateName('AgoraPress/LICENSE'));
         $this->assertNotFalse($zip->locateName('AgoraPress/install/index.php'));
         $this->assertNotFalse($zip->locateName('AgoraPress/ap-cli'));
@@ -209,9 +210,12 @@ final class PackageReleaseTest extends TestCase
     public function testChangelogMentionsReleasePackaging(): void
     {
         $changelog = (string) file_get_contents($this->root . '/CHANGELOG.md');
+        $archive = (string) file_get_contents($this->root . '/CHANGELOG-archive.md');
+        $this->assertStringContainsString('CHANGELOG-archive.md', $changelog);
         $this->assertStringContainsString('package-release.php', $changelog);
         $this->assertStringContainsString('version.json', $changelog);
-        $this->assertStringContainsString('Release packaging', $changelog);
+        $this->assertStringContainsString('Release packaging', $archive);
+        $this->assertStringContainsString('package-release.php', $archive);
     }
 
     public function testReadmeDocumentsReleasePackaging(): void
