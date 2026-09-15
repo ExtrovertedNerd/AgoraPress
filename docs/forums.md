@@ -107,7 +107,7 @@ Custom themes override the same filenames in the child/parent stack
 `ap_forum_new_topic`, `ap_forum_reply`, `ap_forum_edit_post`,
 `ap_forum_delete_post`, `ap_forum_like_post`, `ap_forum_lock_topic`,
 `ap_forum_unlock_topic`, `ap_forum_set_topic_type`,
-`ap_forum_move_topic`,
+`ap_forum_move_topic`, `ap_forum_merge_topic`,
 `ap_forum_subscribe_topic`, `ap_forum_unsubscribe_topic`.
 
 Sitemaps include the board index, forums, and topics when the module is on
@@ -142,6 +142,7 @@ Query var `ap_forum_notice` (and same-request flash via
 | `topic_locked` / `topic_unlocked` | Topic locked. / Topic unlocked. |
 | `topic_type_updated` | Topic type updated. |
 | `topic_moved` | Topic moved. |
+| `topics_merged` | Topics merged. |
 | `topic_subscribed` / `topic_unsubscribed` | Subscribed to this topic. / Unsubscribed from this topic. |
 | `topic_subscribed_email_on` | Subscribed to this topic. Email notifications for topics you subscribe to are now on. |
 | `topic_created_email_on` / `reply_posted_email_on` | Topic created. / Reply posted. Plus the same email-on sentence when compose **Notify me of replies** flipped the user master. Pending start/reply keep `topic_pending` / `reply_pending`. |
@@ -294,6 +295,17 @@ moderate; it omits categories, link boards, and the current forum. POST
 `ap_forum_user_can_move_topic()`, `ap_forum_move_destinations()`,
 `ap_forum_move_topic_form_html()`.
 
+**Merge** is on the topic toolbar when the viewer has `moderate_forum` on the
+current forum **and** at least one other topic they can moderate exists. The
+target select lists topics in forums the actor can moderate; it omits the
+current topic, deleted topics, and shadow `moved` rows. POST
+`ap_forum_merge_topic` (nonce `ap_forum_merge_topic_{id}`) calls
+`AP_Forum_Moderation::mergeTopics` and redirects to the target with
+`topics_merged`. Source `{prefix}topic_subscriptions` rows are retargeted;
+duplicate `(user_id, target_id)` pairs are dropped. Helpers:
+`ap_forum_user_can_merge_topic()`, `ap_forum_merge_targets()`,
+`ap_forum_merge_topic_form_html()`.
+
 Nonces are per action (`ap_forum_lock_topic_{id}`, …). Locked topics reject
 replies (`ap_forum_notice=locked`).
 
@@ -318,8 +330,11 @@ skips ACL — installers / CLI / tests only).
   (`ap_forum_move_topic`) as above. ACP Topics exposes row **Move** and bulk
   **Move to…** with the same destination rule. Same `topic_id` and slug; no
   shadow row.
-- **Merge / split topics** — API only (`mergeTopics` / `splitTopic`). Default
-  Agora and the Topics screen do **not** expose these.
+- **Merge topics** — `mergeTopics`. Default Agora shows toolbar **Merge**
+  (`ap_forum_merge_topic`) as above. ACP Topics does **not** expose merge.
+  No shadow row.
+- **Split topics** — API only (`splitTopic`). Default Agora and the Topics
+  screen do **not** expose this.
 - Reports (`reports` table): types `post` / `topic` / `user` / `message`;
   statuses `open` / `closed` / `dismissed`
 - Warnings (`warnings`): `active` / `expired` / `revoked`
@@ -960,7 +975,8 @@ Do not tell operators these exist in AgoraPress core:
 - A “Mark all as read” / “Mark forum read” button on default Agora
 - A file picker on the default new-topic / reply composer
 - A front-end “Report post” button (ACP reports queue exists)
-- ACP move / merge / split (those exist on `AP_Forum_Moderation` only)
+- ACP merge / split (those exist on `AP_Forum_Moderation` only; default Agora
+  has toolbar **Merge**, not split)
 - A Settings → Forums guest checkbox that bypasses per-forum ACL (the
   two guest options are stored; `userCan()` does not read them)
 - Display options on Settings → Forums driving Agora’s 20-item paging
