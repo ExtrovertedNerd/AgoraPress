@@ -2,7 +2,7 @@
 
 /**
  * Presence + discovery of SPEC-minimum PHPUnit cases (0.3.10-beta charter
- * plus 0.3.11-beta report: one open report; guest cannot; duplicate refused).
+ * plus 0.3.11-beta last-post, move, merge, split, and report).
  *
  * @package AgoraPress
  */
@@ -124,6 +124,58 @@ final class CharterSpecTest extends TestCase
             'Agora single still one form' => [
                 'tests/Comment/CommentsTemplateTest.php',
                 'testAgoraSingleRendersExactlyOneCommentForm',
+            ],
+            'last-post delete newest then both' => [
+                'tests/Forum/ForumLastPostTest.php',
+                'testTwoTopicsDeleteNewestThenBothLeavesOlderThenEmptyWithoutDeadPermalink',
+            ],
+            'last-post force-delete newest then both' => [
+                'tests/Forum/ForumLastPostTest.php',
+                'testTwoTopicsForceDeleteNewestThenBothLeavesOlderThenEmptyWithoutDeadPermalink',
+            ],
+            'move dest counters' => [
+                'tests/Forum/ForumMoveTopicTest.php',
+                'testMoveTopicUpdatesDestCounters',
+            ],
+            'move category refused' => [
+                'tests/Forum/ForumMoveTopicTest.php',
+                'testMoveTopicRefusesCategory',
+            ],
+            'move missing dest cap refused' => [
+                'tests/Forum/ForumMoveTopicTest.php',
+                'testMoveTopicRefusesMissingDestCap',
+            ],
+            'move slug unchanged' => [
+                'tests/Forum/ForumMoveTopicTest.php',
+                'testMoveTopicKeepsSlugUnchanged',
+            ],
+            'merge posts on target' => [
+                'tests/Forum/ForumMergeTopicTest.php',
+                'testMergeTopicsMovesPostsOntoTarget',
+            ],
+            'merge source gone' => [
+                'tests/Forum/ForumMergeTopicTest.php',
+                'testMergeTopicsRemovesSourceTopic',
+            ],
+            'merge subs retargeted' => [
+                'tests/Forum/ForumMergeTopicTest.php',
+                'testMergeTopicsRetargetsSubscriptions',
+            ],
+            'merge last-post correct' => [
+                'tests/Forum/ForumMergeTopicTest.php',
+                'testMergeTopicsRefreshesLastPost',
+            ],
+            'split selected posts on new topic' => [
+                'tests/Forum/ForumSplitTopicTest.php',
+                'testSplitTopicMovesSelectedPostsOntoNewTopic',
+            ],
+            'split original keeps at least one' => [
+                'tests/Forum/ForumSplitTopicTest.php',
+                'testSplitTopicKeepsAtLeastOnePostOnOriginal',
+            ],
+            'split last-post correct' => [
+                'tests/Forum/ForumSplitTopicTest.php',
+                'testSplitTopicRefreshesLastPost',
             ],
             'one open post report' => [
                 'tests/Forum/ForumReportPostTest.php',

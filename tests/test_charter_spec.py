@@ -1,6 +1,6 @@
 """
-SPEC-minimum tests for the 0.3.10-beta charter plus 0.3.11-beta report
-cases (one open report; guest cannot; duplicate refused) must exist and pass.
+SPEC-minimum tests for the 0.3.10-beta charter plus 0.3.11-beta last-post,
+move, merge, split, and report cases must exist and pass.
 
 Runnable via:
   pytest tests/test_charter_spec.py -v
@@ -111,6 +111,58 @@ SPEC_PHPUNIT: list[tuple[str, str]] = [
         "testAgoraSingleRendersExactlyOneCommentForm",
     ),
     (
+        "tests/Forum/ForumLastPostTest.php",
+        "testTwoTopicsDeleteNewestThenBothLeavesOlderThenEmptyWithoutDeadPermalink",
+    ),
+    (
+        "tests/Forum/ForumLastPostTest.php",
+        "testTwoTopicsForceDeleteNewestThenBothLeavesOlderThenEmptyWithoutDeadPermalink",
+    ),
+    (
+        "tests/Forum/ForumMoveTopicTest.php",
+        "testMoveTopicUpdatesDestCounters",
+    ),
+    (
+        "tests/Forum/ForumMoveTopicTest.php",
+        "testMoveTopicRefusesCategory",
+    ),
+    (
+        "tests/Forum/ForumMoveTopicTest.php",
+        "testMoveTopicRefusesMissingDestCap",
+    ),
+    (
+        "tests/Forum/ForumMoveTopicTest.php",
+        "testMoveTopicKeepsSlugUnchanged",
+    ),
+    (
+        "tests/Forum/ForumMergeTopicTest.php",
+        "testMergeTopicsMovesPostsOntoTarget",
+    ),
+    (
+        "tests/Forum/ForumMergeTopicTest.php",
+        "testMergeTopicsRemovesSourceTopic",
+    ),
+    (
+        "tests/Forum/ForumMergeTopicTest.php",
+        "testMergeTopicsRetargetsSubscriptions",
+    ),
+    (
+        "tests/Forum/ForumMergeTopicTest.php",
+        "testMergeTopicsRefreshesLastPost",
+    ),
+    (
+        "tests/Forum/ForumSplitTopicTest.php",
+        "testSplitTopicMovesSelectedPostsOntoNewTopic",
+    ),
+    (
+        "tests/Forum/ForumSplitTopicTest.php",
+        "testSplitTopicKeepsAtLeastOnePostOnOriginal",
+    ),
+    (
+        "tests/Forum/ForumSplitTopicTest.php",
+        "testSplitTopicRefreshesLastPost",
+    ),
+    (
         "tests/Forum/ForumReportPostTest.php",
         "testLoggedInMemberCreatesOneOpenPostReport",
     ),
@@ -155,6 +207,14 @@ def test_charter_spec_phpunit_methods_exist() -> None:
     src = meta.read_text(encoding="utf-8")
     assert "function testSpecMinimumCaseExists" in src
     assert "function testPhpunitDiscoversSpecMinimumCases" in src
+    php_pairs = re.findall(
+        r"'((?:tests/)[^']+Test\.php)',\s*'(test[A-Za-z0-9]+)'",
+        src,
+    )
+    assert php_pairs == SPEC_PHPUNIT, (
+        "tests/test_charter_spec.py SPEC_PHPUNIT must match "
+        "CharterSpecTest::specMinimumCaseProvider"
+    )
 
 
 def test_charter_spec_phpunit_suites_pass() -> None:
@@ -185,7 +245,9 @@ def test_charter_spec_phpunit_suites_pass() -> None:
     summary = re.search(r"^OK \((\d+) tests?", proc.stdout, flags=re.M)
     assert summary, "Charter PHPUnit produced no OK summary:\n" + proc.stdout
     ran = int(summary.group(1))
-    # SPEC methods + CharterSpecTest existence rows + discovery check.
-    assert ran >= len(SPEC_PHPUNIT), (
-        f"Expected at least {len(SPEC_PHPUNIT)} charter tests, ran {ran}"
+    # SPEC methods + one existence row per method + discovery check.
+    expected = len(SPEC_PHPUNIT) * 2 + 1
+    assert ran >= expected, (
+        f"Expected at least {expected} charter tests "
+        f"(SPEC methods + existence rows + discovery), ran {ran}"
     )
