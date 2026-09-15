@@ -1253,6 +1253,28 @@ form.ap-list-table-form {
     margin: 0.65rem 0;
 }
 
+.ap-tablenav .ap-move-dest,
+.ap-topic-move-picker .ap-move-dest {
+    min-width: 12rem;
+}
+
+.ap-topic-move-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin: 0.75rem 0 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--ap-border);
+    border-radius: var(--ap-radius);
+    background: var(--ap-surface-2);
+}
+
+.ap-topic-move-picker-title {
+    flex: 1 1 100%;
+    margin: 0;
+}
+
 .ap-pagination {
     margin-left: auto;
     color: var(--ap-muted);

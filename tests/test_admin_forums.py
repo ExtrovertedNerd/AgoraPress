@@ -61,6 +61,10 @@ def test_admin_forum_screens_gate_caps_and_module() -> None:
         assert "isModuleEnabled" in src and "forum" in src, f"{file} should gate forum module"
         assert needle in src, f"{file} missing {needle!r}"
 
+    topics_page = (ADMIN / "forum-topics.php").read_text(encoding="utf-8")
+    for needle in ("prepareRowMovePicker", "'move'", "dest_forum_id"):
+        assert needle in topics_page, f"forum-topics.php missing {needle!r}"
+
 
 def test_admin_forum_classes_define_core_api() -> None:
     list_src = (ADMIN / "includes" / "class-ap-forums-list-table.php").read_text(
@@ -104,6 +108,10 @@ def test_admin_forum_classes_define_core_api() -> None:
         "lockTopic",
         "approveTopic",
         "softDeleteTopic",
+        "moveTopic",
+        "Move to…",
+        "dest_forum_id",
+        "function prepareRowMovePicker",
     ):
         assert needle in topics_src, f"Expected {needle!r} in topics list table"
 
@@ -162,6 +170,8 @@ def test_admin_menu_and_bootstrap_wire_forums() -> None:
         "'module' => 'forum'",
         "forum_created",
         "bulk_topic_locked",
+        "topic_moved",
+        "bulk_topic_moved",
         "report_resolved",
         "forums_saved",
     ):

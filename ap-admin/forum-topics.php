@@ -18,28 +18,60 @@ if (!AP_Options::isModuleEnabled('forum')) {
 
 $listTable = new AP_Forum_Topics_List_Table();
 
-// Single-row actions via GET.
+$method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+
+// Single-row actions via GET (Move without dest shows a destination picker).
 $rowAction = (string) ($_GET['action'] ?? '');
 if (
-    in_array($rowAction, [
+    $method !== 'POST'
+    && in_array($rowAction, [
         'lock', 'unlock', 'sticky', 'unsticky', 'approve', 'unapprove',
-        'trash', 'soft_delete', 'restore', 'delete',
+        'trash', 'soft_delete', 'restore', 'delete', 'move',
     ], true)
     && (isset($_GET['topic']) || isset($_GET['t']))
 ) {
-    $result = $listTable->processRowAction($_GET);
-    $redirect = AP_Admin::url('forum-topics.php', array_filter([
-        'topic_status' => (string) ($_GET['topic_status'] ?? '') ?: null,
-        'forum_id' => ((int) ($_GET['forum_id'] ?? 0)) > 0 ? (int) $_GET['forum_id'] : null,
-        'message' => $result['message_key'] !== ''
-            ? $result['message_key']
-            : ($result['ok'] ? 'updated' : 'error'),
-    ]));
-    AP_Admin::redirect($redirect);
+    $destId = (int) ($_GET['dest_forum_id'] ?? 0);
+    if ($rowAction === 'move' && $destId < 1) {
+        $prepared = $listTable->prepareRowMovePicker($_GET);
+        if (!$prepared['ok']) {
+            $redirect = AP_Admin::url('forum-topics.php', array_filter([
+                'topic_status' => (string) ($_GET['topic_status'] ?? '') ?: null,
+                'forum_id' => ((int) ($_GET['forum_id'] ?? 0)) > 0 ? (int) $_GET['forum_id'] : null,
+                'message' => $prepared['message_key'] !== '' ? $prepared['message_key'] : 'error',
+            ]));
+            AP_Admin::redirect($redirect);
+        }
+    } else {
+        $result = $listTable->processRowAction($_GET);
+        $redirect = AP_Admin::url('forum-topics.php', array_filter([
+            'topic_status' => (string) ($_GET['topic_status'] ?? '') ?: null,
+            'forum_id' => ((int) ($_GET['forum_id'] ?? 0)) > 0 ? (int) $_GET['forum_id'] : null,
+            'message' => $result['message_key'] !== ''
+                ? $result['message_key']
+                : ($result['ok'] ? 'updated' : 'error'),
+        ]));
+        AP_Admin::redirect($redirect);
+    }
 }
 
-// Bulk actions via POST.
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+// Bulk actions via POST. Row Move posts a scalar topic id.
+if ($method === 'POST') {
+    $postAction = (string) ($_POST['action'] ?? $_POST['action2'] ?? '-1');
+    $rawTopic = $_POST['topic'] ?? $_POST['topic_ids'] ?? null;
+    if ($postAction === 'move' && !is_array($rawTopic)) {
+        $result = $listTable->processRowAction($_POST);
+        $redirect = AP_Admin::url('forum-topics.php', array_filter([
+            'topic_status' => (string) ($_POST['topic_status'] ?? $_GET['topic_status'] ?? '') ?: null,
+            'forum_id' => ((int) ($_POST['forum_id'] ?? $_GET['forum_id'] ?? 0)) > 0
+                ? (int) ($_POST['forum_id'] ?? $_GET['forum_id'] ?? 0)
+                : null,
+            'message' => $result['message_key'] !== ''
+                ? $result['message_key']
+                : ($result['ok'] ? 'updated' : 'error'),
+        ]));
+        AP_Admin::redirect($redirect);
+    }
+
     $result = $listTable->processBulkAction($_POST);
     if ($result['message_key'] !== '' || $result['ok']) {
         $redirect = AP_Admin::url('forum-topics.php', array_filter([
@@ -70,7 +102,7 @@ require __DIR__ . '/admin-header.php';
     <h1>Topics</h1>
 </div>
 
-<p class="ap-help">Moderate topics across all forums: lock, sticky, soft-delete, approve.</p>
+<p class="ap-help">Moderate topics across all forums: lock, sticky, move, soft-delete, approve.</p>
 
 <div class="ap-list-toolbar">
     <?php echo $listTable->renderViews(); ?>

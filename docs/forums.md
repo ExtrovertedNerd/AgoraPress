@@ -301,7 +301,7 @@ replies (`ap_forum_notice=locked`).
 
 | Screen | Cap | What it does |
 |--------|-----|----------------|
-| Topics (`forum-topics.php`) | `moderate_forums` | Row/bulk allowlist: `lock`, `unlock`, `sticky`, `unsticky`, `approve`, `unapprove`, `trash`, `soft_delete`, `restore`, `delete`. Filter by `topic_status` and `forum_id`. **No** move / merge / split controls on this screen. |
+| Topics (`forum-topics.php`) | `moderate_forums` | Row/bulk allowlist: `lock`, `unlock`, `sticky`, `unsticky`, `approve`, `unapprove`, `trash`, `soft_delete`, `restore`, `delete`, `move`. Filter by `topic_status` and `forum_id`. Row **Move** and bulk **Move to…** use the same destination rule as the topic toolbar (forums the actor can moderate; not categories, not the topic’s current forum). **No** merge / split controls on this screen. |
 | Moderation (`forum-moderation.php`) | `moderate_forums` | Pending topics/posts and **reports**. Row actions: `approve_topic`, `trash_topic`, `reject_topic`, `approve_post`, `trash_post`, `reject_post`, `resolve_report`, `dismiss_report`, `reopen_report`. |
 
 Module-off on these ACP screens is HTTP **403**:
@@ -315,8 +315,9 @@ skips ACL — installers / CLI / tests only).
 - Lock / unlock, set topic type
 - Soft-delete / restore / force-delete topics and posts
 - **Move topics** — `moveTopic`. Default Agora shows toolbar **Move**
-  (`ap_forum_move_topic`) as above. Same `topic_id` and slug; no shadow row.
-  The Topics screen does **not** expose Move yet.
+  (`ap_forum_move_topic`) as above. ACP Topics exposes row **Move** and bulk
+  **Move to…** with the same destination rule. Same `topic_id` and slug; no
+  shadow row.
 - **Merge / split topics** — API only (`mergeTopics` / `splitTopic`). Default
   Agora and the Topics screen do **not** expose these.
 - Reports (`reports` table): types `post` / `topic` / `user` / `message`;

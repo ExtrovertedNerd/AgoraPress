@@ -17,6 +17,7 @@ use AP_DB;
 use AP_Forum;
 use AP_Forum_Moderation;
 use AP_Forum_Moderation_Queue;
+use AP_Forum_Notify;
 use AP_Forum_Permissions;
 use AP_Forum_Topics_List_Table;
 use AP_Forums_List_Table;
@@ -360,6 +361,306 @@ final class AdminForumsTest extends TestCase
         ], $this->actorId);
         $this->assertTrue($bulk['ok'], implode('; ', $bulk['errors']));
         $this->assertSame('bulk_topic_approved', $bulk['message_key']);
+    }
+
+    public function testTopicsListTableMoveChromeFollowsDestRule(): void
+    {
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'ACP Move Source'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'ACP relocate chrome',
+            'content' => 'Opening post',
+            'poster_id' => $this->actorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+
+        $loneTable = new AP_Forum_Topics_List_Table($this->db, $this->actorId);
+        $loneTable->prepareItems(['forum_id' => $sourceId]);
+        $loneHtml = $loneTable->render();
+        $this->assertStringNotContainsString('Move to…', $loneHtml);
+        $this->assertStringNotContainsString('class="move"', $loneHtml);
+
+        $categoryId = AP_Forum::insertForum([
+            'forum_name' => 'ACP Move Cat',
+            'forum_type' => AP_Forum::FORUM_TYPE_CATEGORY,
+        ], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'ACP Move Dest'], $this->db);
+        $linkId = AP_Forum::insertForum([
+            'forum_name' => 'ACP Move Link',
+            'forum_type' => AP_Forum::FORUM_TYPE_LINK,
+        ], $this->db);
+        $this->assertGreaterThan(0, $categoryId);
+        $this->assertGreaterThan(0, $destId);
+        $this->assertGreaterThan(0, $linkId);
+
+        $table = new AP_Forum_Topics_List_Table($this->db, $this->actorId);
+        $table->prepareItems(['forum_id' => $sourceId]);
+        $html = $table->render();
+
+        $this->assertStringContainsString('Move to…', $html);
+        $this->assertStringContainsString('name="dest_forum_id"', $html);
+        $this->assertStringContainsString('name="dest_forum_id2"', $html);
+        $this->assertStringContainsString('>ACP Move Dest</option>', $html);
+        $this->assertStringNotContainsString('>ACP Move Source</option>', $html);
+        $this->assertStringNotContainsString('>ACP Move Cat</option>', $html);
+        $this->assertStringNotContainsString('>ACP Move Link</option>', $html);
+        $this->assertStringContainsString('class="move"', $html);
+        $this->assertStringContainsString('>Move</a>', $html);
+        $this->assertStringContainsString('action=move', $html);
+        $this->assertStringContainsString('ACP relocate chrome', $html);
+
+        $deletedTable = new AP_Forum_Topics_List_Table($this->db, $this->actorId);
+        $deletedTable->prepareItems(['topic_status' => 'deleted']);
+        $this->assertSame(
+            ['restore' => 'Restore', 'delete' => 'Delete permanently'],
+            $deletedTable->getBulkActions()
+        );
+
+        $pickerNonce = ap_create_nonce('topic-move-' . $topicId, $this->actorId);
+        $prepared = $table->prepareRowMovePicker([
+            'action' => 'move',
+            'topic' => $topicId,
+            '_ap_nonce' => $pickerNonce,
+        ], $this->actorId);
+        $this->assertTrue($prepared['ok'], implode('; ', $prepared['errors']));
+        $pickerHtml = $table->render();
+        $this->assertStringContainsString('ap-topic-move-picker', $pickerHtml);
+        $this->assertStringContainsString('ACP relocate chrome', $pickerHtml);
+        $this->assertStringContainsString('name="dest_forum_id"', $pickerHtml);
+        $this->assertStringContainsString('>ACP Move Dest</option>', $pickerHtml);
+        $this->assertStringNotContainsString('>ACP Move Source</option>', $pickerHtml);
+    }
+
+    public function testTopicsListTableRowAndBulkMoveKeepsSlugAndCounters(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-forum-notify.php';
+
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'ACP Count Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'ACP Count Dest'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Keep my slug',
+            'content' => 'First',
+            'poster_id' => $this->actorId,
+        ], $this->db);
+        AP_Forum::createReply([
+            'topic_id' => $topicId,
+            'content' => 'Second',
+            'poster_id' => $this->actorId,
+        ], $this->db);
+        $secondId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Bulk companion',
+            'content' => 'Also moving',
+            'poster_id' => $this->actorId,
+        ], $this->db);
+        $this->assertGreaterThan(0, $topicId);
+        $this->assertGreaterThan(0, $secondId);
+
+        $before = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($before);
+        $slug = (string) ($before->topic_slug ?? '');
+        $this->assertNotSame('', $slug);
+
+        $this->assertTrue(AP_Forum_Notify::subscribe($this->actorId, $topicId, $this->db));
+
+        $table = new AP_Forum_Topics_List_Table($this->db, $this->actorId);
+        $rowNonce = ap_create_nonce('topic-move-' . $topicId, $this->actorId);
+        $moved = $table->processRowAction([
+            'action' => 'move',
+            'topic' => $topicId,
+            'dest_forum_id' => $destId,
+            '_ap_nonce' => $rowNonce,
+        ], $this->actorId);
+        $this->assertTrue($moved['ok'], implode('; ', $moved['errors']));
+        $this->assertSame('topic_moved', $moved['message_key']);
+
+        $after = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($after);
+        $this->assertSame($topicId, (int) $after->topic_id);
+        $this->assertSame($destId, (int) $after->forum_id);
+        $this->assertSame($slug, (string) ($after->topic_slug ?? ''));
+        $this->assertNotSame(AP_Forum::TOPIC_STATUS_MOVED, (string) ($after->topic_status ?? ''));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($this->actorId, $topicId, $this->db));
+
+        $source = AP_Forum::getForum($sourceId, $this->db);
+        $dest = AP_Forum::getForum($destId, $this->db);
+        $this->assertSame(1, (int) ($source->topic_count ?? -1));
+        $this->assertSame(1, (int) ($source->post_count ?? -1));
+        $this->assertSame($secondId, (int) ($source->last_topic_id ?? 0));
+        $this->assertSame(1, (int) ($dest->topic_count ?? 0));
+        $this->assertSame(2, (int) ($dest->post_count ?? 0));
+        $this->assertSame($topicId, (int) ($dest->last_topic_id ?? 0));
+
+        $bulkNonce = ap_create_nonce('bulk-forum-topics', $this->actorId);
+        $bulk = $table->processBulkAction([
+            '_ap_nonce' => $bulkNonce,
+            'action' => '-1',
+            'action2' => 'move',
+            'dest_forum_id2' => $destId,
+            'topic' => [$secondId],
+        ], $this->actorId);
+        $this->assertTrue($bulk['ok'], implode('; ', $bulk['errors']));
+        $this->assertSame('bulk_topic_moved', $bulk['message_key']);
+        $this->assertSame(1, $bulk['count']);
+
+        $second = AP_Forum::getTopic($secondId, $this->db);
+        $this->assertSame($destId, (int) ($second->forum_id ?? 0));
+        $sourceAfter = AP_Forum::getForum($sourceId, $this->db);
+        $destAfter = AP_Forum::getForum($destId, $this->db);
+        $this->assertSame(0, (int) ($sourceAfter->topic_count ?? -1));
+        $this->assertSame(0, (int) ($sourceAfter->post_count ?? -1));
+        $this->assertSame(0, (int) ($sourceAfter->last_topic_id ?? -1));
+        $this->assertSame(2, (int) ($destAfter->topic_count ?? 0));
+        $this->assertSame(3, (int) ($destAfter->post_count ?? 0));
+    }
+
+    public function testTopicsListTableMoveRefusesCategoryCurrentAndDestCap(): void
+    {
+        AP_Group::ensureSystemGroups($this->db);
+        AP_Forum_Permissions::ensureDefaults($this->db);
+
+        $categoryId = AP_Forum::insertForum([
+            'forum_name' => 'ACP Refuse Cat',
+            'forum_type' => AP_Forum::FORUM_TYPE_CATEGORY,
+        ], $this->db);
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'ACP Refuse Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'ACP Refuse Dest'], $this->db);
+        $restrictedId = AP_Forum::insertForum(['forum_name' => 'ACP Refuse Restricted'], $this->db);
+        $this->assertGreaterThan(0, $categoryId);
+        $this->assertGreaterThan(0, $restrictedId);
+
+        $vipId = AP_Group::create(['group_name' => 'ACP Move VIP'], $this->db);
+        $this->assertGreaterThan(0, $vipId);
+        $this->assertTrue(AP_Forum_Permissions::saveAccessFromForm($restrictedId, [
+            'forum_access_level' => AP_Forum_Permissions::ACCESS_GROUP_ONLY,
+            'forum_access_groups' => [$vipId],
+        ], $this->db));
+        AP_Forum_Permissions::flushCache();
+
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Stay unless allowed',
+            'content' => 'Body',
+            'poster_id' => $this->actorId,
+        ], $this->db);
+        $slug = (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? '');
+        $this->assertNotSame('', $slug);
+
+        $table = new AP_Forum_Topics_List_Table($this->db, $this->actorId);
+
+        $noDest = $table->processRowAction([
+            'action' => 'move',
+            'topic' => $topicId,
+            '_ap_nonce' => ap_create_nonce('topic-move-' . $topicId, $this->actorId),
+        ], $this->actorId);
+        $this->assertFalse($noDest['ok']);
+        $this->assertSame('error', $noDest['message_key']);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+
+        $cat = $table->processRowAction([
+            'action' => 'move',
+            'topic' => $topicId,
+            'dest_forum_id' => $categoryId,
+            '_ap_nonce' => ap_create_nonce('topic-move-' . $topicId, $this->actorId),
+        ], $this->actorId);
+        $this->assertFalse($cat['ok']);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+        $this->assertSame($slug, (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? ''));
+
+        $same = $table->processRowAction([
+            'action' => 'move',
+            'topic' => $topicId,
+            'dest_forum_id' => $sourceId,
+            '_ap_nonce' => ap_create_nonce('topic-move-' . $topicId, $this->actorId),
+        ], $this->actorId);
+        $this->assertFalse($same['ok']);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+
+        $bulkNoDest = $table->processBulkAction([
+            '_ap_nonce' => ap_create_nonce('bulk-forum-topics', $this->actorId),
+            'action' => 'move',
+            'topic' => [$topicId],
+        ], $this->actorId);
+        $this->assertFalse($bulkNoDest['ok']);
+        $this->assertSame('error', $bulkNoDest['message_key']);
+
+        $bulkCat = $table->processBulkAction([
+            '_ap_nonce' => ap_create_nonce('bulk-forum-topics', $this->actorId),
+            'action' => 'move',
+            'dest_forum_id' => $categoryId,
+            'topic' => [$topicId],
+        ], $this->actorId);
+        $this->assertFalse($bulkCat['ok']);
+        $this->assertNotSame([], $bulkCat['errors']);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+
+        $subDenied = $table->processRowAction([
+            'action' => 'move',
+            'topic' => $topicId,
+            'dest_forum_id' => $destId,
+            '_ap_nonce' => ap_create_nonce('topic-move-' . $topicId, $this->subscriberId),
+        ], $this->subscriberId);
+        $this->assertFalse($subDenied['ok']);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+
+        $editor = AP_User::create([
+            'user_login' => 'acpmoveeditor',
+            'user_email' => 'acpmoveeditor@example.test',
+            'password' => 'password123',
+            'role' => 'editor',
+        ], $this->db);
+        $editorId = (int) ($editor['id'] ?? 0);
+        $this->assertGreaterThan(0, $editorId);
+        $this->assertTrue(AP_Admin::userCan($editorId, 'moderate_forums', null, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanModerate($editorId, $restrictedId, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::userCanModerate($editorId, $destId, $this->db));
+
+        $editorTable = new AP_Forum_Topics_List_Table($this->db, $editorId);
+        $editorTable->prepareItems(['forum_id' => $sourceId]);
+        $editorHtml = $editorTable->render();
+        $this->assertStringContainsString('>ACP Refuse Dest</option>', $editorHtml);
+        $this->assertStringNotContainsString('>ACP Refuse Restricted</option>', $editorHtml);
+        $this->assertStringNotContainsString('>ACP Refuse Source</option>', $editorHtml);
+        $this->assertStringNotContainsString('>ACP Refuse Cat</option>', $editorHtml);
+
+        $missingCap = $editorTable->processRowAction([
+            'action' => 'move',
+            'topic' => $topicId,
+            'dest_forum_id' => $restrictedId,
+            '_ap_nonce' => ap_create_nonce('topic-move-' . $topicId, $editorId),
+        ], $editorId);
+        $this->assertFalse($missingCap['ok']);
+        $this->assertSame($sourceId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+        $this->assertSame($slug, (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? ''));
+
+        $ok = $editorTable->processRowAction([
+            'action' => 'move',
+            'topic' => $topicId,
+            'dest_forum_id' => $destId,
+            '_ap_nonce' => ap_create_nonce('topic-move-' . $topicId, $editorId),
+        ], $editorId);
+        $this->assertTrue($ok['ok'], implode('; ', $ok['errors']));
+        $this->assertSame($destId, (int) (AP_Forum::getTopic($topicId, $this->db)->forum_id ?? 0));
+        $this->assertSame($slug, (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? ''));
+
+        $gone = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Deleted cannot move',
+            'content' => 'Bye',
+            'poster_id' => $this->actorId,
+        ], $this->db);
+        $this->assertTrue(AP_Forum_Moderation::softDeleteTopic($gone, $this->actorId, $this->db));
+        $deletedMove = $table->processRowAction([
+            'action' => 'move',
+            'topic' => $gone,
+            'dest_forum_id' => $destId,
+            '_ap_nonce' => ap_create_nonce('topic-move-' . $gone, $this->actorId),
+        ], $this->actorId);
+        $this->assertFalse($deletedMove['ok']);
+        $deleted = AP_Forum::getTopic($gone, $this->db);
+        $this->assertSame($sourceId, (int) ($deleted->forum_id ?? 0));
+        $this->assertSame(AP_Forum::TOPIC_STATUS_DELETED, (string) ($deleted->topic_status ?? ''));
     }
 
     public function testModerationQueueApproveTopicAndResolveReport(): void
@@ -719,6 +1020,18 @@ final class AdminForumsTest extends TestCase
         AP_Admin::consumeQueryNotice();
         $notices = AP_Admin::getNotices();
         $this->assertStringContainsString('locked', strtolower($notices[0]['message']));
+
+        AP_Admin::clearNotices();
+        $_GET['message'] = 'topic_moved';
+        AP_Admin::consumeQueryNotice();
+        $notices = AP_Admin::getNotices();
+        $this->assertStringContainsString('moved', strtolower($notices[0]['message']));
+
+        AP_Admin::clearNotices();
+        $_GET['message'] = 'bulk_topic_moved';
+        AP_Admin::consumeQueryNotice();
+        $notices = AP_Admin::getNotices();
+        $this->assertStringContainsString('moved', strtolower($notices[0]['message']));
         unset($_GET['message']);
         AP_Admin::clearNotices();
     }

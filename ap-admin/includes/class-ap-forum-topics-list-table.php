@@ -36,9 +36,19 @@ class AP_Forum_Topics_List_Table
 
     private ?AP_DB $db;
 
-    public function __construct(?AP_DB $db = null)
+    private int $actorId = 0;
+
+    private int $destForumId = 0;
+
+    private ?object $movePickerTopic = null;
+
+    /** @var array<string, list<object>> */
+    private array $moveDestCache = [];
+
+    public function __construct(?AP_DB $db = null, int $actorId = 0)
     {
         $this->db = $db;
+        $this->actorId = max(0, $actorId);
     }
 
     /**
@@ -63,7 +73,12 @@ class AP_Forum_Topics_List_Table
      */
     public function processBulkAction(array $post, int $actorId = 0): array
     {
-        $action = (string) ($post['action'] ?? $post['action2'] ?? '-1');
+        $postActionRaw = (string) ($post['action'] ?? '-1');
+        $action2 = (string) ($post['action2'] ?? '-1');
+        $action = $postActionRaw;
+        if ($action === '' || $action === '-1') {
+            $action = $action2 !== '' ? $action2 : '-1';
+        }
         if ($action === '' || $action === '-1') {
             return ['ok' => false, 'message_key' => '', 'count' => 0, 'errors' => ['No bulk action selected.']];
         }
@@ -71,6 +86,9 @@ class AP_Forum_Topics_List_Table
         $db = $this->resolveDb();
         if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
             $actorId = ap_get_current_user_id($db);
+        }
+        if ($actorId > 0) {
+            $this->actorId = $actorId;
         }
 
         $nonce = (string) ($post['_ap_nonce'] ?? '');
@@ -100,6 +118,19 @@ class AP_Forum_Topics_List_Table
             return ['ok' => false, 'message_key' => '', 'count' => 0, 'errors' => ['No topics selected.']];
         }
 
+        if ($action === 'move') {
+            $usedAction2 = ($postActionRaw === '' || $postActionRaw === '-1');
+            $this->destForumId = $this->destForumIdFromRequest($post, $usedAction2);
+            if ($this->destForumId < 1) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'count' => 0,
+                    'errors' => ['Please choose a destination forum.'],
+                ];
+            }
+        }
+
         $count = 0;
         $errors = [];
         foreach ($ids as $id) {
@@ -121,6 +152,7 @@ class AP_Forum_Topics_List_Table
             'trash', 'soft_delete' => 'bulk_topic_trashed',
             'restore' => 'bulk_topic_restored',
             'delete' => 'bulk_topic_deleted',
+            'move' => 'bulk_topic_moved',
             default => $count > 0 ? 'updated' : 'error',
         };
 
@@ -149,6 +181,9 @@ class AP_Forum_Topics_List_Table
         if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
             $actorId = ap_get_current_user_id($db);
         }
+        if ($actorId > 0) {
+            $this->actorId = $actorId;
+        }
 
         $nonce = (string) ($request['_ap_nonce'] ?? $request['_wpnonce'] ?? '');
         if (!ap_check_nonce($nonce, 'topic-' . $action . '-' . $id, $actorId > 0 ? $actorId : null)) {
@@ -163,6 +198,17 @@ class AP_Forum_Topics_List_Table
             ];
         }
 
+        if ($action === 'move') {
+            $this->destForumId = $this->destForumIdFromRequest($request, false);
+            if ($this->destForumId < 1) {
+                return [
+                    'ok' => false,
+                    'message_key' => 'error',
+                    'errors' => ['Please choose a destination forum.'],
+                ];
+            }
+        }
+
         $ok = $this->applyAction($action, $id, $actorId, $db);
         $messageKey = match ($action) {
             'lock' => 'topic_locked',
@@ -174,6 +220,7 @@ class AP_Forum_Topics_List_Table
             'trash', 'soft_delete' => 'topic_trashed',
             'restore' => 'topic_restored',
             'delete' => 'topic_deleted',
+            'move' => 'topic_moved',
             default => 'error',
         };
 
@@ -184,8 +231,80 @@ class AP_Forum_Topics_List_Table
         ];
     }
 
+    /**
+     * Verify nonce and load the destination picker for a row Move.
+     *
+     * @param array<string, mixed> $request
+     *
+     * @return array{ok: bool, message_key: string, errors: list<string>}
+     */
+    public function prepareRowMovePicker(array $request, int $actorId = 0): array
+    {
+        $id = (int) ($request['topic'] ?? $request['t'] ?? 0);
+        if ($id < 1) {
+            return ['ok' => false, 'message_key' => 'error', 'errors' => ['Invalid request.']];
+        }
+
+        $db = $this->resolveDb();
+        if ($actorId < 1 && function_exists('ap_get_current_user_id')) {
+            $actorId = ap_get_current_user_id($db);
+        }
+        if ($actorId > 0) {
+            $this->actorId = $actorId;
+        }
+
+        $nonce = (string) ($request['_ap_nonce'] ?? $request['_wpnonce'] ?? '');
+        if (!ap_check_nonce($nonce, 'topic-move-' . $id, $actorId > 0 ? $actorId : null)) {
+            return ['ok' => false, 'message_key' => 'nonce', 'errors' => ['Security check failed.']];
+        }
+
+        if (!AP_Admin::userCan($actorId, 'moderate_forums', null, $db)) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to moderate forums.'],
+            ];
+        }
+
+        $topic = AP_Forum::getTopic($id, $db);
+        if ($topic === null) {
+            return ['ok' => false, 'message_key' => 'not_found', 'errors' => ['Topic not found.']];
+        }
+        if ((string) $topic->topic_status === AP_Forum::TOPIC_STATUS_DELETED) {
+            return ['ok' => false, 'message_key' => 'error', 'errors' => ['Deleted topics cannot be moved.']];
+        }
+
+        $sourceForumId = (int) $topic->forum_id;
+        if (
+            !class_exists('AP_Forum_Moderation', false)
+            || !AP_Forum_Moderation::userCanMoveTopic($actorId, $sourceForumId, $db)
+        ) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => ['You do not have permission to move this topic.'],
+            ];
+        }
+
+        if ($this->moveDestinations($sourceForumId) === []) {
+            return [
+                'ok' => false,
+                'message_key' => 'error',
+                'errors' => ['No destination forums available.'],
+            ];
+        }
+
+        $this->movePickerTopic = $topic;
+
+        return ['ok' => true, 'message_key' => '', 'errors' => []];
+    }
+
     private function applyAction(string $action, int $id, int $actorId, AP_DB $db): bool
     {
+        if ($action === 'move') {
+            return $this->moveSelectedTopic($id, $actorId, $db);
+        }
+
         return match ($action) {
             'lock' => AP_Forum_Moderation::lockTopic($id, $actorId, $db),
             'unlock' => AP_Forum_Moderation::unlockTopic($id, $actorId, $db),
@@ -198,6 +317,38 @@ class AP_Forum_Topics_List_Table
             'delete' => AP_Forum_Moderation::forceDeleteTopic($id, $actorId, $db),
             default => false,
         };
+    }
+
+    private function moveSelectedTopic(int $topicId, int $actorId, AP_DB $db): bool
+    {
+        $destForumId = $this->destForumId;
+        if ($topicId < 1 || $destForumId < 1) {
+            return false;
+        }
+
+        $topic = AP_Forum::getTopic($topicId, $db);
+        if ($topic === null) {
+            return false;
+        }
+        if ((string) $topic->topic_status === AP_Forum::TOPIC_STATUS_DELETED) {
+            return false;
+        }
+
+        $sourceForumId = (int) $topic->forum_id;
+        if ($sourceForumId === $destForumId) {
+            return false;
+        }
+        if (
+            !class_exists('AP_Forum_Moderation', false)
+            || !AP_Forum_Moderation::userCanMoveTopic($actorId, $sourceForumId, $db)
+        ) {
+            return false;
+        }
+        if (!$this->isAllowedMoveDestination($actorId, $sourceForumId, $destForumId, $db)) {
+            return false;
+        }
+
+        return AP_Forum_Moderation::moveTopic($topicId, $destForumId, $actorId, $db);
     }
 
     /**
@@ -227,9 +378,14 @@ class AP_Forum_Topics_List_Table
                 'delete' => 'Delete permanently',
             ];
         }
+        $move = $this->moveDestinations($this->forumId) !== []
+            ? ['move' => 'Move to…']
+            : [];
+
         if ($this->statusView === 'pending') {
             return [
                 'approve' => 'Approve',
+            ] + $move + [
                 'trash' => 'Soft-delete',
             ];
         }
@@ -239,6 +395,7 @@ class AP_Forum_Topics_List_Table
             'unlock' => 'Unlock',
             'sticky' => 'Make sticky',
             'unsticky' => 'Remove sticky',
+        ] + $move + [
             'approve' => 'Approve',
             'unapprove' => 'Unapprove',
             'trash' => 'Soft-delete',
@@ -318,7 +475,9 @@ class AP_Forum_Topics_List_Table
         $bulk = $this->getBulkActions();
         $nonce = ap_create_nonce('bulk-forum-topics');
 
-        $html = '<form method="post" action="" class="ap-list-table-form">'
+        $html = $this->renderMovePicker();
+
+        $html .= '<form method="post" action="" class="ap-list-table-form">'
             . '<input type="hidden" name="_ap_nonce" value="' . ap_esc_attr($nonce) . '">'
             . '<input type="hidden" name="topic_status" value="' . ap_esc_attr($this->statusView) . '">';
         if ($this->forumId > 0) {
@@ -590,6 +749,16 @@ class AP_Forum_Topics_List_Table
                     ),
                 ];
             }
+            $sourceForumId = (int) $topic->forum_id;
+            if ($this->moveDestinations($sourceForumId) !== []) {
+                $actions['move'] = [
+                    'label' => 'Move',
+                    'url' => ap_nonce_url(
+                        AP_Admin::url('forum-topics.php', $baseQuery + ['action' => 'move', 'topic' => $id]),
+                        'topic-move-' . $id
+                    ),
+                ];
+            }
             $actions['trash'] = [
                 'label' => 'Soft-delete',
                 'url' => ap_nonce_url(
@@ -624,6 +793,14 @@ class AP_Forum_Topics_List_Table
                 . ap_esc_html($label) . '</option>';
         }
         $html .= '</select>';
+        if (isset($actions['move'])) {
+            $destName = $name === 'action2' ? 'dest_forum_id2' : 'dest_forum_id';
+            $html .= $this->renderMoveDestSelect(
+                $destName,
+                $this->moveDestinations($this->forumId),
+                $destName
+            );
+        }
 
         return $html;
     }
@@ -659,6 +836,151 @@ class AP_Forum_Topics_List_Table
         $allowed = ['all', 'open', 'locked', 'deleted', 'pending', 'sticky'];
 
         return in_array($raw, $allowed, true) ? $raw : 'all';
+    }
+
+    /**
+     * @return list<object>
+     */
+    private function moveDestinations(int $fromForumId): array
+    {
+        $actorId = $this->resolveActorId();
+        $key = $actorId . ':' . $fromForumId;
+        if (isset($this->moveDestCache[$key])) {
+            return $this->moveDestCache[$key];
+        }
+        if ($actorId < 1 || !class_exists('AP_Forum_Moderation', false)) {
+            $this->moveDestCache[$key] = [];
+
+            return [];
+        }
+
+        $this->moveDestCache[$key] = AP_Forum_Moderation::listMoveDestinations(
+            $actorId,
+            $fromForumId,
+            $this->resolveDb()
+        );
+
+        return $this->moveDestCache[$key];
+    }
+
+    private function isAllowedMoveDestination(
+        int $actorId,
+        int $sourceForumId,
+        int $destForumId,
+        AP_DB $db
+    ): bool {
+        foreach (AP_Forum_Moderation::listMoveDestinations($actorId, $sourceForumId, $db) as $forum) {
+            if ((int) ($forum->forum_id ?? 0) === $destForumId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $request
+     */
+    private function destForumIdFromRequest(array $request, bool $preferSecond): int
+    {
+        $first = max(0, (int) ($request['dest_forum_id'] ?? 0));
+        $second = max(0, (int) ($request['dest_forum_id2'] ?? 0));
+        if ($preferSecond && $second > 0) {
+            return $second;
+        }
+        if ($first > 0) {
+            return $first;
+        }
+
+        return $second;
+    }
+
+    /**
+     * @param list<object> $destinations
+     */
+    private function renderMoveDestSelect(
+        string $id,
+        array $destinations,
+        string $name,
+        bool $required = false
+    ): string {
+        $html = ' <label for="' . ap_esc_attr($id) . '">Destination</label> '
+            . '<select name="' . ap_esc_attr($name) . '" id="' . ap_esc_attr($id)
+            . '" class="ap-move-dest"' . ($required ? ' required' : '') . '>'
+            . '<option value="">Select forum</option>';
+        foreach ($destinations as $forum) {
+            $fid = (int) ($forum->forum_id ?? 0);
+            $fname = trim((string) ($forum->forum_name ?? ''));
+            if ($fid < 1 || $fname === '') {
+                continue;
+            }
+            $html .= '<option value="' . $fid . '">' . ap_esc_html($fname) . '</option>';
+        }
+        $html .= '</select> ';
+
+        return $html;
+    }
+
+    private function renderMovePicker(): string
+    {
+        if ($this->movePickerTopic === null) {
+            return '';
+        }
+
+        $topic = $this->movePickerTopic;
+        $id = (int) $topic->topic_id;
+        $title = trim((string) ($topic->topic_title ?? ''));
+        if ($title === '') {
+            $title = '(no title)';
+        }
+        $sourceForumId = (int) $topic->forum_id;
+        $actorId = $this->resolveActorId();
+        $nonce = ap_create_nonce('topic-move-' . $id, $actorId > 0 ? $actorId : null);
+        $cancelQuery = array_filter([
+            'topic_status' => $this->statusView !== 'all' ? $this->statusView : null,
+            'forum_id' => $this->forumId > 0 ? $this->forumId : null,
+        ]);
+
+        $html = '<form method="post" action="" class="ap-topic-move-picker">'
+            . '<input type="hidden" name="_ap_nonce" value="' . ap_esc_attr($nonce) . '">'
+            . '<input type="hidden" name="action" value="move">'
+            . '<input type="hidden" name="topic" value="' . $id . '">'
+            . '<input type="hidden" name="topic_status" value="'
+            . ap_esc_attr($this->statusView) . '">';
+        if ($this->forumId > 0) {
+            $html .= '<input type="hidden" name="forum_id" value="' . $this->forumId . '">';
+        }
+        $html .= '<p class="ap-topic-move-picker-title"><strong>Move topic</strong> '
+            . ap_esc_html($title) . '</p>'
+            . $this->renderMoveDestSelect(
+                'ap-topic-move-dest',
+                $this->moveDestinations($sourceForumId),
+                'dest_forum_id',
+                true
+            )
+            . '<button type="submit" class="button button-primary">Move</button> '
+            . '<a class="button" href="' . ap_esc_url(AP_Admin::url('forum-topics.php', $cancelQuery))
+            . '">Cancel</a>'
+            . '</form>';
+
+        return $html;
+    }
+
+    private function resolveActorId(): int
+    {
+        if ($this->actorId > 0) {
+            return $this->actorId;
+        }
+        if (function_exists('ap_get_current_user_id')) {
+            $id = ap_get_current_user_id($this->resolveDb());
+            if ($id > 0) {
+                $this->actorId = $id;
+
+                return $id;
+            }
+        }
+
+        return 0;
     }
 
     private function resolveDb(): AP_DB
