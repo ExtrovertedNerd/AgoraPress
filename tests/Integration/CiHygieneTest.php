@@ -196,14 +196,14 @@ final class CiHygieneTest extends TestCase
             'Do not pad the last-release pytest lock with duplicate rows'
         );
         $this->assertGreaterThanOrEqual(
-            122,
+            127,
             count($phpunit),
-            'Do not shrink the v0.3.10-beta PHPUnit lock to look green'
+            'Do not shrink the PHPUnit lock (v0.3.10-beta + 0.3.11 charter) to look green'
         );
         $this->assertGreaterThanOrEqual(
-            97,
+            102,
             count($pytest),
-            'Do not shrink the v0.3.10-beta pytest lock to look green'
+            'Do not shrink the pytest lock (v0.3.10-beta + 0.3.11 charter) to look green'
         );
 
         foreach (
@@ -215,12 +215,17 @@ final class CiHygieneTest extends TestCase
                 'tests/Forum/ForumNotifyEnqueueTest.php',
                 'tests/Forum/ForumNotifySubscriptionsTest.php',
                 'tests/Forum/ForumNotifyWorkerTest.php',
+                'tests/Forum/ForumLastPostTest.php',
+                'tests/Forum/ForumMoveTopicTest.php',
+                'tests/Forum/ForumMergeTopicTest.php',
+                'tests/Forum/ForumSplitTopicTest.php',
+                'tests/Forum/ForumReportPostTest.php',
             ] as $required
         ) {
             $this->assertContains(
                 $required,
                 $phpunit,
-                'Do not drop v0.3.10-beta PHPUnit suite ' . $required . ' to look green'
+                'Do not drop PHPUnit suite ' . $required . ' to look green'
             );
         }
         foreach (
@@ -229,12 +234,17 @@ final class CiHygieneTest extends TestCase
                 'tests/test_forum_notify_enqueue.py',
                 'tests/test_forum_notify_worker.py',
                 'tests/test_topic_subscriptions.py',
+                'tests/test_forum_last_post.py',
+                'tests/test_forum_move_topic.py',
+                'tests/test_forum_merge_topic.py',
+                'tests/test_forum_split_topic.py',
+                'tests/test_forum_report_post.py',
             ] as $required
         ) {
             $this->assertContains(
                 $required,
                 $pytest,
-                'Do not drop v0.3.10-beta pytest file ' . $required . ' to look green'
+                'Do not drop pytest file ' . $required . ' to look green'
             );
         }
 

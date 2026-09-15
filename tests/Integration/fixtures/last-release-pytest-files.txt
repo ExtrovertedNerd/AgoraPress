@@ -1,6 +1,7 @@
-# Pytest files shipped in v0.3.10-beta (97 files).
+# Pytest files locked for CI hygiene (97 from v0.3.10-beta plus
+# 0.3.11-beta last-post / move / merge / split / report). 102 files.
 # Do not remove a row to hide a failure. Adding files is fine.
-# Do not shrink this list below 97.
+# Do not shrink this list below 102.
 tests/test_admin_analytics.py
 tests/test_admin_capabilities.py
 tests/test_admin_dashboard.py
@@ -41,13 +42,18 @@ tests/test_forum_attachments.py
 tests/test_forum_board_helpers.py
 tests/test_forum_front.py
 tests/test_forum_groups_permissions.py
+tests/test_forum_last_post.py
+tests/test_forum_merge_topic.py
 tests/test_forum_model.py
 tests/test_forum_moderation.py
+tests/test_forum_move_topic.py
 tests/test_forum_notify_config.py
 tests/test_forum_notify_enqueue.py
 tests/test_forum_notify_worker.py
 tests/test_forum_permission_matrix.py
+tests/test_forum_report_post.py
 tests/test_forum_search_guard.py
+tests/test_forum_split_topic.py
 tests/test_forum_tables.py
 tests/test_hall_of_fame.py
 tests/test_hall_of_fame_plugin.py

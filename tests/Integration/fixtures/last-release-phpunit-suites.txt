@@ -1,6 +1,7 @@
-# PHPUnit suites shipped in v0.3.10-beta (122 files).
+# PHPUnit suites locked for CI hygiene (122 from v0.3.10-beta plus
+# 0.3.11-beta last-post / move / merge / split / report). 127 files.
 # Do not remove a row to hide a failure. Adding files is fine.
-# Do not shrink this list below 122.
+# Do not shrink this list below 127.
 tests/Admin/AdminAnalyticsTest.php
 tests/Admin/AdminCapabilityTest.php
 tests/Admin/AdminCommentsTest.php
@@ -52,15 +53,20 @@ tests/Forum/ForumAttachmentTest.php
 tests/Forum/ForumBoardHelpersTest.php
 tests/Forum/ForumFrontTest.php
 tests/Forum/ForumGroupsPermissionsTest.php
+tests/Forum/ForumLastPostTest.php
 tests/Forum/ForumLikesStatsTest.php
+tests/Forum/ForumMergeTopicTest.php
 tests/Forum/ForumModelTest.php
 tests/Forum/ForumModerationTest.php
+tests/Forum/ForumMoveTopicTest.php
 tests/Forum/ForumNotifyConfigTest.php
 tests/Forum/ForumNotifyEnqueueTest.php
 tests/Forum/ForumNotifySubscriptionsTest.php
 tests/Forum/ForumNotifyWorkerTest.php
 tests/Forum/ForumPermissionMatrixTest.php
+tests/Forum/ForumReportPostTest.php
 tests/Forum/ForumSearchGuardTest.php
+tests/Forum/ForumSplitTopicTest.php
 tests/Forum/OnlineUnreadTest.php
 tests/Forum/PrivateMessageTest.php
 tests/Hooks/HooksTest.php
