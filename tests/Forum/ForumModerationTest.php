@@ -493,6 +493,14 @@ final class ForumModerationTest extends TestCase
         $this->assertNotContains($movedId, $adminIds);
         $this->assertSame($adminIds, $this->mergeTargetIdsFromHelper($adminId, $sourceId));
 
+        $allIds = $this->mergeTargetIds($adminId, 0);
+        $this->assertContains($sourceId, $allIds);
+        $this->assertContains($sameId, $allIds);
+        $this->assertContains($otherId, $allIds);
+        $this->assertNotContains($deletedId, $allIds);
+        $this->assertNotContains($movedId, $allIds);
+        $this->assertSame($allIds, $this->mergeTargetIdsFromHelper($adminId, 0));
+
         $this->assertSame([], $this->mergeTargetIds($memberId, $sourceId));
         $this->assertSame([], AP_Forum_Moderation::listMergeTargets(0, $sourceId, $this->db));
 
@@ -522,6 +530,96 @@ final class ForumModerationTest extends TestCase
         $this->assertFalse(AP_Forum_Permissions::userCanModerate($userId, $forumId, $this->db));
         $this->assertFalse(AP_Forum_Moderation::userCanMergeTopic($userId, $forumId, $this->db));
         $this->assertSame([], $this->mergeTargetIds($userId, 1));
+    }
+
+    public function testRetargetTopicSubscriptionsMovesAndDropsDuplicatePairs(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Retarget Subs'], $this->db);
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Source watches',
+            'content' => 'Source OP',
+        ], $this->db);
+        $targetId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Target watches',
+            'content' => 'Target OP',
+        ], $this->db);
+        $otherId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Unrelated watches',
+            'content' => 'Other OP',
+        ], $this->db);
+        $this->assertGreaterThan(0, $sourceId);
+        $this->assertGreaterThan(0, $targetId);
+        $this->assertGreaterThan(0, $otherId);
+
+        $dupId = $this->createUser('retarget_dup', 'retarget_dup@example.test');
+        $srcOnlyId = $this->createUser('retarget_src', 'retarget_src@example.test');
+        $srcOnlyTwoId = $this->createUser('retarget_src2', 'retarget_src2@example.test');
+        $tgtOnlyId = $this->createUser('retarget_tgt', 'retarget_tgt@example.test');
+        $otherUserId = $this->createUser('retarget_other', 'retarget_other@example.test');
+        $this->assertTrue(AP_Forum_Notify::subscribe($dupId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($dupId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($srcOnlyId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($srcOnlyTwoId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($tgtOnlyId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($otherUserId, $otherId, $this->db));
+
+        $srcOnlyCreated = $this->subscriptionCreatedAt($srcOnlyId, $sourceId);
+        $this->assertNotSame('', $srcOnlyCreated);
+
+        $this->assertSame(0, AP_Forum_Moderation::retargetTopicSubscriptions(0, $targetId, $this->db));
+        $this->assertSame(0, AP_Forum_Moderation::retargetTopicSubscriptions($sourceId, 0, $this->db));
+        $this->assertSame(0, AP_Forum_Moderation::retargetTopicSubscriptions($sourceId, $sourceId, $this->db));
+        $this->assertSame(3, $this->subscriptionCount($sourceId));
+        $this->assertSame(2, $this->subscriptionCount($targetId));
+
+        $moved = AP_Forum_Moderation::retargetTopicSubscriptions($sourceId, $targetId, $this->db);
+        $this->assertSame(2, $moved);
+
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($dupId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($dupId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($srcOnlyId, $targetId, $this->db));
+        $this->assertFalse(AP_Forum_Notify::isSubscribed($srcOnlyId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($srcOnlyTwoId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($tgtOnlyId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($otherUserId, $otherId, $this->db));
+        $this->assertSame(0, $this->subscriptionCount($sourceId));
+        $this->assertSame(4, $this->subscriptionCount($targetId));
+        $this->assertSame(1, $this->subscriptionCount($otherId));
+        $this->assertSame(0, $this->duplicateSubscriptionUserCount($targetId));
+        $this->assertSame(0, $this->usersWatchingBoth($sourceId, $targetId));
+        $this->assertSame($srcOnlyCreated, $this->subscriptionCreatedAt($srcOnlyId, $targetId));
+        $this->assertSame(0, AP_Forum_Moderation::retargetTopicSubscriptions($sourceId, $targetId, $this->db));
+    }
+
+    public function testRetargetTopicSubscriptionsDropsEveryDuplicatePair(): void
+    {
+        $forumId = AP_Forum::insertForum(['forum_name' => 'Retarget Dups Only'], $this->db);
+        $sourceId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'All dups source',
+            'content' => 'Source OP',
+        ], $this->db);
+        $targetId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'All dups target',
+            'content' => 'Target OP',
+        ], $this->db);
+        $aId = $this->createUser('retarget_all_dup_a', 'retarget_all_dup_a@example.test');
+        $bId = $this->createUser('retarget_all_dup_b', 'retarget_all_dup_b@example.test');
+        $this->assertTrue(AP_Forum_Notify::subscribe($aId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($aId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($bId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::subscribe($bId, $targetId, $this->db));
+
+        $this->assertSame(0, AP_Forum_Moderation::retargetTopicSubscriptions($sourceId, $targetId, $this->db));
+        $this->assertSame(0, $this->subscriptionCount($sourceId));
+        $this->assertSame(2, $this->subscriptionCount($targetId));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($aId, $targetId, $this->db));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($bId, $targetId, $this->db));
+        $this->assertSame(0, $this->duplicateSubscriptionUserCount($targetId));
     }
 
     public function testMergeTopicsRetargetsSubscriptionsAndLastPost(): void
@@ -597,6 +695,8 @@ final class ForumModerationTest extends TestCase
         $this->assertTrue(AP_Forum_Notify::isSubscribed($tgtOnlyId, $targetId, $this->db));
         $this->assertSame(0, $this->subscriptionCount($sourceId));
         $this->assertSame(3, $this->subscriptionCount($targetId));
+        $this->assertSame(0, $this->duplicateSubscriptionUserCount($targetId));
+        $this->assertSame(0, $this->usersWatchingBoth($sourceId, $targetId));
         $this->assertSame(0, AP_Forum_Moderation::retargetTopicSubscriptions($sourceId, $targetId, $this->db));
     }
 
@@ -903,6 +1003,51 @@ final class ForumModerationTest extends TestCase
             . ' WHERE ' . $this->db->quoteIdentifier('topic_id') . ' = ?',
             [$topicId]
         );
+    }
+
+    private function subscriptionCreatedAt(int $userId, int $topicId): string
+    {
+        $value = $this->db->getVar(
+            'SELECT ' . $this->db->quoteIdentifier('created_at') . ' FROM '
+            . $this->db->quoteIdentifier($this->db->table('topic_subscriptions'))
+            . ' WHERE ' . $this->db->quoteIdentifier('user_id') . ' = ?'
+            . ' AND ' . $this->db->quoteIdentifier('topic_id') . ' = ?',
+            [$userId, $topicId]
+        );
+
+        return is_string($value) ? $value : '';
+    }
+
+    private function duplicateSubscriptionUserCount(int $topicId): int
+    {
+        $table = $this->db->quoteIdentifier($this->db->table('topic_subscriptions'));
+        $userCol = $this->db->quoteIdentifier('user_id');
+        $topicCol = $this->db->quoteIdentifier('topic_id');
+        $n = $this->db->getVar(
+            'SELECT COUNT(*) FROM ('
+            . 'SELECT ' . $userCol . ' FROM ' . $table
+            . ' WHERE ' . $topicCol . ' = ?'
+            . ' GROUP BY ' . $userCol . ' HAVING COUNT(*) > 1'
+            . ') AS ap_dup_subs',
+            [$topicId]
+        );
+
+        return (int) $n;
+    }
+
+    private function usersWatchingBoth(int $sourceTopicId, int $targetTopicId): int
+    {
+        $table = $this->db->quoteIdentifier($this->db->table('topic_subscriptions'));
+        $userCol = $this->db->quoteIdentifier('user_id');
+        $topicCol = $this->db->quoteIdentifier('topic_id');
+        $n = $this->db->getVar(
+            'SELECT COUNT(*) FROM ' . $table . ' AS s'
+            . ' INNER JOIN ' . $table . ' AS t ON s.' . $userCol . ' = t.' . $userCol
+            . ' WHERE s.' . $topicCol . ' = ? AND t.' . $topicCol . ' = ?',
+            [$sourceTopicId, $targetTopicId]
+        );
+
+        return (int) $n;
     }
 
     /**

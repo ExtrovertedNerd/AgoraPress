@@ -385,13 +385,14 @@ class AP_Forum_Moderation
      * Topics a user may merge into (forums they can moderate, not $sourceTopicId).
      *
      * Omits deleted and shadow `moved` rows. Categories and link boards have
-     * no topics. Newest last-post first, capped at 100.
+     * no topics. Newest last-post first, capped at 100. Pass 0 for
+     * $sourceTopicId to list every mergeable topic (ACP bulk target list).
      *
      * @return list<object>
      */
-    public static function listMergeTargets(int $userId, int $sourceTopicId, ?AP_DB $db = null): array
+    public static function listMergeTargets(int $userId, int $sourceTopicId = 0, ?AP_DB $db = null): array
     {
-        if ($userId < 1 || $sourceTopicId < 1 || !class_exists('AP_Forum', false)) {
+        if ($userId < 1 || !class_exists('AP_Forum', false)) {
             return [];
         }
 
@@ -528,7 +529,9 @@ class AP_Forum_Moderation
      * Point `{prefix}topic_subscriptions` at $targetTopicId.
      *
      * Source rows whose user already watches the target are dropped so the
-     * unique `(user_id, topic_id)` pair is preserved.
+     * unique `(user_id, topic_id)` pair is preserved. Any leftover source
+     * rows are deleted so a later source-topic delete cannot leave a
+     * dangling watch.
      *
      * @return int Number of rows retargeted (dropped duplicates are not counted).
      */
@@ -547,7 +550,7 @@ class AP_Forum_Moderation
         $topicCol = $db->quoteIdentifier('topic_id');
 
         try {
-            $rows = $db->getResults(
+            $rawSourceIds = $db->getCol(
                 'SELECT ' . $userCol . ' FROM ' . $table . ' WHERE ' . $topicCol . ' = ?',
                 [$sourceTopicId]
             );
@@ -555,68 +558,78 @@ class AP_Forum_Moderation
             return 0;
         }
 
-        if (!is_array($rows) || $rows === []) {
+        $sourceUserIds = self::uniquePositiveInts($rawSourceIds);
+        if ($sourceUserIds === []) {
             return 0;
         }
 
-        $moved = 0;
-        foreach ($rows as $row) {
-            if (is_object($row)) {
-                $userId = (int) ($row->user_id ?? 0);
-            } elseif (is_array($row)) {
-                $userId = (int) ($row['user_id'] ?? 0);
-            } else {
-                $userId = 0;
-            }
-            if ($userId < 1) {
-                continue;
-            }
-            try {
-                $exists = (int) $db->getVar(
-                    'SELECT COUNT(*) FROM ' . $table
-                    . ' WHERE ' . $userCol . ' = ? AND ' . $topicCol . ' = ?',
-                    [$userId, $targetTopicId]
-                );
-            } catch (Throwable) {
-                continue;
-            }
-            if ($exists > 0) {
-                try {
-                    $db->delete('topic_subscriptions', [
-                        'user_id' => $userId,
-                        'topic_id' => $sourceTopicId,
-                    ]);
-                } catch (Throwable) {
-                    // Unique pair already on the target.
-                }
-                continue;
-            }
-            try {
-                $ok = $db->update(
-                    'topic_subscriptions',
-                    ['topic_id' => $targetTopicId],
-                    [
-                        'user_id' => $userId,
-                        'topic_id' => $sourceTopicId,
-                    ]
-                );
-            } catch (Throwable) {
-                try {
-                    $db->delete('topic_subscriptions', [
-                        'user_id' => $userId,
-                        'topic_id' => $sourceTopicId,
-                    ]);
-                } catch (Throwable) {
-                    // Unique pair already on the target.
-                }
-                continue;
-            }
-            if ($ok !== false) {
-                $moved++;
+        $dupIds = self::subscriptionUserIdsOnTopic(
+            $db,
+            $table,
+            $userCol,
+            $topicCol,
+            $targetTopicId,
+            $sourceUserIds
+        );
+        $dupSet = array_fill_keys($dupIds, true);
+        $toMoveIds = [];
+        foreach ($sourceUserIds as $userId) {
+            if (!isset($dupSet[$userId])) {
+                $toMoveIds[] = $userId;
             }
         }
 
-        return $moved;
+        if ($dupIds !== []) {
+            self::deleteTopicSubscriptionsForUsers(
+                $db,
+                $table,
+                $userCol,
+                $topicCol,
+                $sourceTopicId,
+                $dupIds
+            );
+        }
+
+        if ($toMoveIds !== []) {
+            try {
+                $updated = $db->update(
+                    'topic_subscriptions',
+                    ['topic_id' => $targetTopicId],
+                    ['topic_id' => $sourceTopicId]
+                );
+            } catch (Throwable) {
+                $updated = false;
+            }
+            if ($updated === false) {
+                self::moveRemainingTopicSubscriptions(
+                    $db,
+                    $table,
+                    $userCol,
+                    $topicCol,
+                    $sourceTopicId,
+                    $targetTopicId
+                );
+            }
+        }
+
+        $confirmed = $toMoveIds === []
+            ? []
+            : self::subscriptionUserIdsOnTopic(
+                $db,
+                $table,
+                $userCol,
+                $topicCol,
+                $targetTopicId,
+                $toMoveIds
+            );
+
+        try {
+            $db->delete('topic_subscriptions', ['topic_id' => $sourceTopicId]);
+        } catch (Throwable) {
+            // Source topic is removed after merge; leftover rows would dangle.
+        }
+
+        return count($confirmed);
     }
 
     /**
@@ -2141,6 +2154,132 @@ class AP_Forum_Moderation
         }
 
         return $ids;
+    }
+
+    /**
+     * @param list<mixed> $rawIds
+     *
+     * @return list<int>
+     */
+    private static function uniquePositiveInts(array $rawIds): array
+    {
+        $ids = [];
+        foreach ($rawIds as $raw) {
+            if (is_int($raw) || is_float($raw) || is_string($raw)) {
+                $id = (int) $raw;
+            } else {
+                $id = 0;
+            }
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+
+        return array_values($ids);
+    }
+
+    /**
+     * @param list<int> $userIds
+     *
+     * @return list<int>
+     */
+    private static function subscriptionUserIdsOnTopic(
+        AP_DB $db,
+        string $table,
+        string $userCol,
+        string $topicCol,
+        int $topicId,
+        array $userIds
+    ): array {
+        if ($topicId < 1 || $userIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($userIds), '?'));
+        try {
+            $raw = $db->getCol(
+                'SELECT ' . $userCol . ' FROM ' . $table
+                . ' WHERE ' . $userCol . ' IN (' . $placeholders . ')'
+                . ' AND ' . $topicCol . ' = ?',
+                array_merge($userIds, [$topicId])
+            );
+        } catch (Throwable) {
+            return [];
+        }
+
+        return self::uniquePositiveInts(is_array($raw) ? $raw : []);
+    }
+
+    /**
+     * @param list<int> $userIds
+     */
+    private static function deleteTopicSubscriptionsForUsers(
+        AP_DB $db,
+        string $table,
+        string $userCol,
+        string $topicCol,
+        int $topicId,
+        array $userIds
+    ): void {
+        if ($topicId < 1 || $userIds === []) {
+            return;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($userIds), '?'));
+        try {
+            $db->query(
+                'DELETE FROM ' . $table
+                . ' WHERE ' . $userCol . ' IN (' . $placeholders . ')'
+                . ' AND ' . $topicCol . ' = ?',
+                array_merge($userIds, [$topicId])
+            );
+        } catch (Throwable) {
+            // Unique pair already on the target.
+        }
+    }
+
+    /**
+     * Per-row fallback when a bulk UPDATE of remaining source watches fails.
+     *
+     * @return int Number of rows retargeted.
+     */
+    private static function moveRemainingTopicSubscriptions(
+        AP_DB $db,
+        string $table,
+        string $userCol,
+        string $topicCol,
+        int $sourceTopicId,
+        int $targetTopicId
+    ): int {
+        try {
+            $rawIds = $db->getCol(
+                'SELECT ' . $userCol . ' FROM ' . $table . ' WHERE ' . $topicCol . ' = ?',
+                [$sourceTopicId]
+            );
+        } catch (Throwable) {
+            return 0;
+        }
+
+        $moved = 0;
+        foreach (self::uniquePositiveInts(is_array($rawIds) ? $rawIds : []) as $userId) {
+            try {
+                $ok = $db->update(
+                    'topic_subscriptions',
+                    ['topic_id' => $targetTopicId],
+                    [
+                        'user_id' => $userId,
+                        'topic_id' => $sourceTopicId,
+                    ]
+                );
+            } catch (Throwable) {
+                continue;
+            }
+            if ($ok !== false) {
+                $moved++;
+            }
+        }
+
+        return $moved;
     }
 
     private static function adjustForumStats(int $forumId, int $topicDelta, int $postDelta, AP_DB $db): void
