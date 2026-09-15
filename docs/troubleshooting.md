@@ -17,6 +17,7 @@ the shipped code, say it is **not in core**.
 `ap-includes/class-ap-rate-limit.php`, `ap-includes/class-ap-mail.php`,
 `ap-includes/class-ap-smtp.php`, `ap-includes/class-ap-registration.php`,
 `ap-includes/class-ap-forum.php`, `ap-includes/class-ap-forum-front.php`,
+`ap-includes/class-ap-forum-moderation.php`,
 `ap-includes/class-ap-forum-permissions.php`, `ap-includes/class-ap-group.php`,
 `ap-includes/class-ap-taxonomy.php`, `ap-includes/class-ap-editor.php`,
 `ap-includes/css/ap-editor.css`,
@@ -31,7 +32,10 @@ the shipped code, say it is **not in core**.
 `ap-admin/options-writing.php`, `ap-admin/edit-tags.php`,
 `ap-admin/includes/class-ap-admin-terms.php`,
 `ap-admin/forum-edit.php`, `ap-admin/forum-groups.php`,
+`ap-admin/forum-topics.php`,
+`ap-admin/includes/class-ap-forum-topics-list-table.php`,
 `ap-admin/site-health.php`, `ap-includes/compatibility/`,
+default Agora `forum.php` / `topic.php`,
 [`.htaccess`](../.htaccess),
 [`docker/nginx.conf.example`](../docker/nginx.conf.example),
 [`docker/apache-vhost.conf`](../docker/apache-vhost.conf).
@@ -73,6 +77,8 @@ host configuration.
 | Forum / blog / pages “missing” from menus or ACP | **Settings → Modules** (`options-modules.php`). Options `ap_module_static_pages`, `ap_module_blog`, `ap_module_forum` | At least one module must stay on. Front `/forums/` is an empty state, not a web-server 404. If **one** board is missing while `/forums/` works, that is ACL — [Group board invisible](#group-board-invisible). |
 | Group board invisible (index / search / feed / sitemap / REST) or generic “You cannot view this.” | Per-forum ACL (`view_forum`), usually **This group only** (`group_only`) — not the Forum module toggle and not a rewrite 404 | [Group board invisible](#group-board-invisible), [forums.md](forums.md#this-group-only-group_only) |
 | “Members only” but every logged-in user can see the board | **Members only** is all registered accounts. A named group uses **This group only** | [Group board invisible](#group-board-invisible) |
+| Last Post still names a deleted topic (or a dead permalink) | Denormalized `{prefix}forums.last_*`. Soft-deleted topics keep approved posts. Index recounts stale pointers | [Last Post points at a deleted topic](#last-post-points-at-a-deleted-topic), [forums.md](forums.md#last-post) |
+| Cannot move a topic (no **Move**, or POST fails) | Need `move_topics` or `moderate_forum` on the source **and** another forum the actor can moderate (not a category, not current) | [Cannot move a topic](#cannot-move-a-topic), [forums.md](forums.md#moderation) |
 | Classic WP theme looks broken | Compat layer is for **classic PHP** themes. Block / FSE (`theme.json`, HTML under `templates/`) is out of scope | [compatibility.md](compatibility.md) |
 | REST 404 on `/ap-json/` or `?rest_route=` | Front controller (pretty `/ap-json/…`) **and** option `rest_api_enabled` | Distinguish a web-server HTML 404 from JSON `rest_disabled` / `rest_no_route` / `rest_module_disabled`. [rest.md](rest.md) |
 | Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.10-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
@@ -634,6 +640,151 @@ room), and REST. Depth: [forums.md](forums.md#this-group-only-group_only),
 
 ---
 
+## Last Post points at a deleted topic
+
+**Symptom:** the board-index **Last Post** column still shows a **deleted**
+topic’s title and permalink after you soft-deleted (or force-deleted) that
+thread. Or the cell is empty when you expected the previous topic.
+
+**Cause:** Last Post is **denormalized** on `{prefix}forums`
+(`last_post_id`, `last_topic_id`, `last_poster_id`, `last_post_time`).
+New topics and replies write those columns through `bumpForumStats`.
+Soft-deleted topics **keep** their approved posts (`post_approved=1`). A
+recount that picked the latest approved post **without** joining `topics`
+would keep the deleted thread on the index.
+
+This is **not** a pretty-permalink 404, **not** the Forum module being
+off, and **not** `forum_status=hidden`.
+
+**As built:** one helper, `AP_Forum::refreshForumLastPost($forumId)`.
+`AP_Forum_Moderation` has a private wrapper that only calls that method.
+There is **no** second algorithm.
+
+Visible means the newest `forum_posts` row where:
+
+| Filter | As built |
+|--------|----------|
+| Post | `post_approved=1` |
+| Topic | `topic_approved=1` and `topic_status` ≠ `deleted` |
+| Board | Post and topic `forum_id` both equal the forum being recounted |
+
+Locked topics still qualify. Unapproved topics and posts do not.
+
+Empty board (or only deleted / unapproved content) writes:
+
+| Column | Cleared to |
+|--------|------------|
+| `last_post_id` | `0` |
+| `last_topic_id` | `0` |
+| `last_poster_id` | `0` |
+| `last_post_time` | `1970-01-01 00:00:00` (`AP_Forum::EMPTY_DATETIME`) |
+
+The index cell (`AP_Forum::forumToDisplayRow()` /
+`buildForumLastPostPayload()`) **never** prints a title or permalink for a
+deleted topic. If the stored topic is deleted, missing, or unapproved (or
+the stored post is missing / unapproved / on another forum), the renderer
+**recounts**, then shows the visible post or empty. Loading `/forums/`
+once heals a stale pointer (the renderer recounts, then writes the
+columns). There is **no** ACP “rebuild last post” button and **no**
+`php ap-cli forum` verb.
+
+Default Agora `forum.php` column **Last Post**
+(`.ap-forum-last-post__title` / `__author` / `__time`) uses the
+`last_post` payload: title as a permalink, `by {author}`, timestamp.
+Empty cell: `ap_forum_empty_last_post_html()` — **No posts** / **—** /
+**—**.
+
+Split the “dead last post” **kind** before filing a bug:
+
+| What you see | Meaning | Check |
+|--------------|---------|--------|
+| Deleted the newest topic; older thread still in Last Post | Expected. Recount picks the newest **approved, not-deleted** post | Deleting a topic that is **not** last leaves the real last post in place |
+| Deleted both (or the only) visible topics; cell is **No posts** / **—** / **—**, no permalink | Empty board. Columns cleared to `0` / `AP_Forum::EMPTY_DATETIME` | Expected. Never a title or permalink for a deleted topic |
+| Stale deleted title until you open `/forums/` | Renderer recounts on display, then writes the columns | Load `/forums/` once. Do **not** look for an ACP rebuild button |
+| Custom theme still prints a deleted title after `/forums/` | Theme is not using `forumToDisplayRow()` / `last_post` | Agora `forum.php` uses the payload. Raw `last_topic_id` is the stale pointer |
+| Last Post empty while ACP still lists the topic as deleted | Soft-deleted topics are hidden from the public index Last Post | Expected. Restore (`restoreTopic`) puts an approved topic back in the recount |
+| After a move / merge / split, Last Post looks wrong | Those paths recount source and destination | [forums.md](forums.md#last-post) |
+
+Confirm:
+
+1. Forum module is on —
+   [Forum / blog / pages missing](#forum--blog--pages-missing).
+2. You are on current core (`php ap-cli version`, Tools → Site Health).
+   Schema is `AP_DB_VERSION` **13**.
+3. Open `/forums/` once (default Agora board index).
+4. Soft-delete and force-delete both recount. Idempotent re-delete of an
+   already-deleted topic still recounts (heals a stale pointer).
+
+Depth: [forums.md](forums.md#last-post). Generic examples only
+(`example.com`). Do not name private hosts, persona mailboxes, or live
+fleet inventory here.
+
+---
+
+## Cannot move a topic
+
+**Symptom:** the topic toolbar has no **Move**, ACP Topics has no row
+**Move** / bulk **Move to…**, or a move POST fails.
+
+**Cause:** Move needs `move_topics` or `moderate_forum` on the **source**
+forum **and** at least one **destination** forum the actor can also
+**moderate**. Destinations omit categories, link boards, and the topic’s
+current forum. This is **not** a rewrite 404 and **not** the Forum module
+being off until you have checked that toggle.
+
+The UI **calls** `AP_Forum_Moderation::moveTopic`. It does not reimplement
+it. Same `topic_id` and slug; `{prefix}topic_subscriptions` stay on that
+id. No shadow “moved from” row. Source and destination last-post columns
+are recounted — [Last Post points at a deleted topic](#last-post-points-at-a-deleted-topic).
+
+**Front (Agora):** toolbar **Move** when `can_move_topic` is true **and**
+`move_destinations` is non-empty (`ap_forum_user_can_move_topic()` /
+`ap_forum_move_destinations()`; `ap_forum_move_topic_form_html()` returns
+empty otherwise). POST `ap_forum_move_topic` (nonce
+`ap_forum_move_topic_{id}`, field `dest_forum_id`). Success redirects with
+`ap_forum_notice=topic_moved` (“Topic moved.”).
+
+**ACP Topics** (`forum-topics.php`, cap `moderate_forums`): row **Move**
+opens a destination picker (`prepareRowMovePicker()`, class
+`ap-topic-move-picker`); row POST and bulk **Move to…** use the same dest
+rule (`dest_forum_id` / `dest_forum_id2`). Deleted view has **no**
+**Move to…**. There is **no** `php ap-cli forum` verb.
+
+Split the “cannot move” **kind** before filing a bug:
+
+| What you see | Meaning | Check |
+|--------------|---------|--------|
+| No **Move** on the topic toolbar | Guest, no `move_topics` / `moderate_forum` on the current forum (`userCanMoveTopic()`), **or** `listMoveDestinations()` is empty (only one moderateable forum, or dests are all categories / link boards / current) | Forums → Edit ACL. You need another **forum** (not a category) you can moderate |
+| Agora empty state **“The forum module is currently disabled.”** | Option `ap_module_forum` is off | [Forum / blog / pages missing](#forum--blog--pages-missing) |
+| ACP Topics HTTP **403** | Forum module off, or missing `moderate_forums` | Settings → Modules; that screen needs Editor+ `moderate_forums` |
+| ACP **Deleted topics cannot be moved.** | `topic_status=deleted` | Restore first, or skip that row. Deleted view has no **Move to…** |
+| **No destination forums available.** | `listMoveDestinations()` empty for that source | Create or pick another forum the actor can moderate. Categories and link boards never qualify |
+| **Please choose a destination forum.** | Missing / zero `dest_forum_id` (or dest is the current forum on the front POST) | Use the select. Placeholder is “Select forum” |
+| **You do not have permission to move this topic.** | Failed `userCanMoveTopic()` on the source (`move_topics` or `moderate_forum`) | Per-forum ACL. Site-wide `moderate_forums` grants the moderation family including `move_topics` |
+| **You cannot move this topic to that forum.** | Dest not in `listMoveDestinations()` (category, link board, current, or dest the actor cannot moderate) | Destinations require `moderate_forum` on that dest. Hidden dests the actor can moderate stay listed |
+| Front **Could not move this topic.** / ACP **Could not update the topic.** | `moveTopic` returned false (category dest, missing dest cap, update failed) | Same dest rule. Bulk skip: `Could not apply “move” to topic #{id}.` |
+| Success but no “moved from” stub in the old forum | Expected. Move / merge / split do **not** insert shadow `moved` rows | Same `topic_id` and slug. `{prefix}topic_subscriptions` stay |
+
+Confirm:
+
+1. At least two forums (`forum_type=forum`), not a category plus one
+   forum.
+2. Actor can moderate the destination (`moderate_forum`). Source needs
+   `move_topics` **or** `moderate_forum`.
+3. Topic is not deleted.
+4. Front POST uses `ap_forum_move_topic` + `dest_forum_id`. ACP row nonce
+   `topic-move-{id}`; bulk nonce `bulk-forum-topics`.
+
+Merge and Split are different toolbar forms
+([forums.md](forums.md#moderation)). ACP Topics has bulk **Merge into…**
+and **no** split control. Depth:
+[forums.md](forums.md#moderation),
+[admin.md](admin.md#topics-move-and-merge), [roles.md](roles.md).
+Generic examples only (`example.com`). Do not name private hosts, persona
+mailboxes, or live fleet inventory here.
+
+---
+
 ## Cannot delete Uncategorized
 
 **Symptom:** Posts → Categories (`edit-tags.php?taxonomy=category`) will
@@ -764,6 +915,8 @@ Depth: [updates.md](updates.md).
 | REST cookie POST/PUT/DELETE 403 | `rest_cookie_invalid_nonce` — `X-AP-Nonce` for action `ap_rest`. |
 | No Leave-a-comment form on a custom theme | Call `ap_comments_template()` from `single.php`. Core does **not** auto-inject. [No comment form](#no-comment-form) |
 | Topic reply mail never arrives | Site option, user option, **Subscribe**, **Settings → Mail**, then **spam**. [Topic notify mail missing](#topic-notify-mail-missing) |
+| Last Post still names a deleted topic | Load `/forums/` once. One helper `AP_Forum::refreshForumLastPost`. [Last Post points at a deleted topic](#last-post-points-at-a-deleted-topic) |
+| Cannot move a topic | Dest forums the actor can moderate; not categories, not current. [Cannot move a topic](#cannot-move-a-topic) |
 
 ---
 
@@ -782,6 +935,9 @@ Do not invent these while diagnosing:
 - PHPMailer, HTML mail, newsletters, or blog comment-subscription mail (topic-reply notify is opt-in; three gates, default off)
 - Auto-inject of a comment form into themes that never call `ap_comments_template()`
 - Guest topic watches, board-wide watches, or auto-watch on visit / start / reply
+- An ACP “rebuild last post” button (the index renderer recounts stale pointers)
+- Shadow / “moved from” stub topics (move keeps the same `topic_id` and slug)
+- `php ap-cli forum` (no moderate / move verb)
 - A public group Join button on default Agora (Forums → Groups is the roster)
 - Forum ACL applied to blog posts or static pages
 - An immortal Uncategorized slug (once another category is the default, Uncategorized can be deleted)
@@ -804,9 +960,9 @@ is **not in core**.
 | [rewrites.md](rewrites.md) | Front controller, `try_files`, `?p=` vs pretty |
 | [updates.md](updates.md) | `version.json`, Update Core, `db migrate` |
 | [cli.md](cli.md) | Built-in `ap-cli` groups, flags, exit codes |
-| [admin.md](admin.md) | `/ap-admin/` screens including Site Health, Mail, and Settings → Forums notify |
+| [admin.md](admin.md) | `/ap-admin/` screens including Site Health, Mail, Settings → Forums notify, and Topics move/merge |
 | [editor.md](editor.md) | Visual editor contrast (`color-scheme`, `--ap-editor-*`) |
-| [forums.md](forums.md#topic-email-notifications) | Forum module, **This group only**, topic email notify |
+| [forums.md](forums.md#last-post) | Last Post recount, Move / Merge / Split / Report, **This group only**, topic email notify |
 | [roles.md](roles.md) | Caps, comment ownership |
 | [rest.md](rest.md) | `/ap-json/`, `ap/v1`, `rest_api_enabled` |
 | [security.md](security.md) | Sessions, nonces, deny rules |

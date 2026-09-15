@@ -339,12 +339,12 @@
 | Runs on | `deleteTopic` (soft and force), `deletePost` of an approved reply, `restoreTopic` (when approved), `moveTopic`, `mergeTopics`, `splitTopic`, post unapprove | [forums.md](forums.md#last-post) |
 | Index cell | `forumToDisplayRow()` / `buildForumLastPostPayload()`. Stale deleted / missing / unapproved pointer → recount, then render or empty. Never a title or permalink for a deleted topic | [forums.md](forums.md#last-post) |
 | Empty cell | `ap_forum_empty_last_post_html()` — **No posts** / **—** / **—** | [forums.md](forums.md#last-post) |
-| Heal | Loading `/forums/` once recounts a stale pointer. **No** ACP “rebuild last post” button | [forums.md](forums.md#last-post) |
+| Heal | Loading `/forums/` once recounts a stale pointer. **No** ACP “rebuild last post” button | [forums.md](forums.md#last-post) · [troubleshooting.md](troubleshooting.md#last-post-points-at-a-deleted-topic) |
 | Not last | Deleting a topic that is **not** last leaves the real last post in place | [forums.md](forums.md#last-post) |
 
 | Move | As built | Guide |
 |------|----------|-------|
-| Front | Topic toolbar **Move** when `move_topics` or `moderate_forum` on current **and** at least one other moderateable forum | [forums.md](forums.md#moderation) |
+| Front | Topic toolbar **Move** when `move_topics` or `moderate_forum` on current **and** at least one other moderateable forum | [forums.md](forums.md#moderation) · [troubleshooting.md](troubleshooting.md#cannot-move-a-topic) |
 | POST | `ap_forum_move_topic` (nonce `ap_forum_move_topic_{id}`, field `dest_forum_id`) | [forums.md](forums.md#moderation) |
 | Dest | Forums the actor can moderate; **not** categories, **not** link boards, **not** current | [forums.md](forums.md#moderation) |
 | Identity | Same `topic_id` and slug. `{prefix}topic_subscriptions` stay. **No** shadow “moved from” row | [forums.md](forums.md#moderation) |

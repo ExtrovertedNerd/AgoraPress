@@ -3099,6 +3099,11 @@ final class DeveloperDocsTest extends TestCase
                 'Email me about topics I subscribe to',
                 'forum_topic_notify_enabled',
                 'forum_notify_email',
+                'Last Post points at a deleted topic',
+                'Cannot move a topic',
+                'AP_Forum::refreshForumLastPost',
+                'ap_forum_move_topic',
+                'Deleted topics cannot be moved.',
             ] as $needle
         ) {
             $this->assertStringContainsStringIgnoringCase(
@@ -3260,6 +3265,86 @@ final class DeveloperDocsTest extends TestCase
         $this->assertStringContainsStringIgnoringCase('Settings → Forums', $text);
         $this->assertStringContainsStringIgnoringCase('Settings → Mail', $text);
         $this->assertStringContainsStringIgnoringCase('spam', $text);
+        $this->assertNoPrivateMarkers('troubleshooting.md', $text);
+    }
+
+    public function testTroubleshootingCoversLastPostAndMoveTopic(): void
+    {
+        $text = $this->readDoc('troubleshooting.md');
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Last Post points at a deleted topic\\s*$/',
+            $text
+        );
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\\s+Cannot move a topic\\s*$/',
+            $text
+        );
+        foreach (
+            [
+                'Last Post points at a deleted topic',
+                'AP_Forum::refreshForumLastPost',
+                'last_post_id',
+                'last_topic_id',
+                'last_poster_id',
+                'last_post_time',
+                'AP_Forum::EMPTY_DATETIME',
+                '1970-01-01 00:00:00',
+                'post_approved=1',
+                'topic_approved=1',
+                'topic_status',
+                'forumToDisplayRow',
+                'buildForumLastPostPayload',
+                'ap_forum_empty_last_post_html',
+                'No posts',
+                'rebuild last post',
+                '/forums/',
+                'never',
+                'permalink',
+                '**not** last',
+                'Cannot move a topic',
+                'ap_forum_move_topic',
+                'dest_forum_id',
+                'move_topics',
+                'moderate_forum',
+                'moderate_forums',
+                'userCanMoveTopic',
+                'listMoveDestinations',
+                'ap_forum_user_can_move_topic',
+                'ap_forum_move_destinations',
+                'ap_forum_move_topic_form_html',
+                'Deleted topics cannot be moved.',
+                'No destination forums available.',
+                'Please choose a destination forum.',
+                'You do not have permission to move this topic.',
+                'You cannot move this topic to that forum.',
+                'Could not move this topic.',
+                'Could not update the topic.',
+                'Topic moved.',
+                'topic_moved',
+                'Move to…',
+                'categories',
+                'link boards',
+                'Same `topic_id` and slug',
+                '{prefix}topic_subscriptions',
+                'shadow',
+                'forum-topics.php',
+                'php ap-cli forum',
+                'example.com',
+                'private hosts',
+                'persona mailboxes',
+                'live fleet inventory',
+                'forums.md',
+                'admin.md',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString(
+                $needle,
+                $text,
+                "troubleshooting.md must document last-post / move: {$needle}"
+            );
+        }
+        $this->assertStringContainsStringIgnoringCase('deleted topic', $text);
+        $this->assertStringContainsStringIgnoringCase('cannot move', $text);
         $this->assertNoPrivateMarkers('troubleshooting.md', $text);
     }
 
