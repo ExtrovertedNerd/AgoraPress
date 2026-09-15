@@ -196,15 +196,47 @@ final class CiHygieneTest extends TestCase
             'Do not pad the last-release pytest lock with duplicate rows'
         );
         $this->assertGreaterThanOrEqual(
-            115,
+            122,
             count($phpunit),
-            'Do not shrink the v0.3.9-beta PHPUnit lock to look green'
+            'Do not shrink the v0.3.10-beta PHPUnit lock to look green'
         );
         $this->assertGreaterThanOrEqual(
-            93,
+            97,
             count($pytest),
-            'Do not shrink the v0.3.9-beta pytest lock to look green'
+            'Do not shrink the v0.3.10-beta pytest lock to look green'
         );
+
+        foreach (
+            [
+                'tests/Comment/CommentsTemplateTest.php',
+                'tests/Content/SpoilerStyleTest.php',
+                'tests/Database/TopicSubscriptionsMigrationTest.php',
+                'tests/Forum/ForumNotifyConfigTest.php',
+                'tests/Forum/ForumNotifyEnqueueTest.php',
+                'tests/Forum/ForumNotifySubscriptionsTest.php',
+                'tests/Forum/ForumNotifyWorkerTest.php',
+            ] as $required
+        ) {
+            $this->assertContains(
+                $required,
+                $phpunit,
+                'Do not drop v0.3.10-beta PHPUnit suite ' . $required . ' to look green'
+            );
+        }
+        foreach (
+            [
+                'tests/test_forum_notify_config.py',
+                'tests/test_forum_notify_enqueue.py',
+                'tests/test_forum_notify_worker.py',
+                'tests/test_topic_subscriptions.py',
+            ] as $required
+        ) {
+            $this->assertContains(
+                $required,
+                $pytest,
+                'Do not drop v0.3.10-beta pytest file ' . $required . ' to look green'
+            );
+        }
 
         foreach ($phpunit as $relative) {
             $src = (string) file_get_contents($this->root . '/' . $relative);

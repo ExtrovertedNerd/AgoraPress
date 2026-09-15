@@ -128,12 +128,33 @@ def test_last_release_fixture_cannot_shrink_or_empty_suites() -> None:
     assert pytest_files == list(dict.fromkeys(pytest_files)), (
         "Do not pad the last-release pytest lock with duplicate rows"
     )
-    assert len(phpunit) >= 115, (
-        "Do not shrink the v0.3.9-beta PHPUnit lock to look green"
+    assert len(phpunit) >= 122, (
+        "Do not shrink the v0.3.10-beta PHPUnit lock to look green"
     )
-    assert len(pytest_files) >= 93, (
-        "Do not shrink the v0.3.9-beta pytest lock to look green"
+    assert len(pytest_files) >= 97, (
+        "Do not shrink the v0.3.10-beta pytest lock to look green"
     )
+    for required in (
+        "tests/Comment/CommentsTemplateTest.php",
+        "tests/Content/SpoilerStyleTest.php",
+        "tests/Database/TopicSubscriptionsMigrationTest.php",
+        "tests/Forum/ForumNotifyConfigTest.php",
+        "tests/Forum/ForumNotifyEnqueueTest.php",
+        "tests/Forum/ForumNotifySubscriptionsTest.php",
+        "tests/Forum/ForumNotifyWorkerTest.php",
+    ):
+        assert required in phpunit, (
+            f"Do not drop v0.3.10-beta PHPUnit suite {required} to look green"
+        )
+    for required in (
+        "tests/test_forum_notify_config.py",
+        "tests/test_forum_notify_enqueue.py",
+        "tests/test_forum_notify_worker.py",
+        "tests/test_topic_subscriptions.py",
+    ):
+        assert required in pytest_files, (
+            f"Do not drop v0.3.10-beta pytest file {required} to look green"
+        )
     for relative in phpunit:
         src = (ROOT / relative).read_text(encoding="utf-8")
         assert re.search(r"function\s+test", src, flags=re.I), (

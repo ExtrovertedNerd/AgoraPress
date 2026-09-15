@@ -1,6 +1,6 @@
-# PHPUnit suites shipped in v0.3.9-beta (115 files).
+# PHPUnit suites shipped in v0.3.10-beta (122 files).
 # Do not remove a row to hide a failure. Adding files is fine.
-# Do not shrink this list below 115.
+# Do not shrink this list below 122.
 tests/Admin/AdminAnalyticsTest.php
 tests/Admin/AdminCapabilityTest.php
 tests/Admin/AdminCommentsTest.php
@@ -22,10 +22,12 @@ tests/Changelog/ChangelogTest.php
 tests/Cli/CliToolTest.php
 tests/CodingStandards/CodingStandardsConfigTest.php
 tests/Comment/CommentModelTest.php
+tests/Comment/CommentsTemplateTest.php
 tests/Composer/ComposerJsonTest.php
 tests/Config/ConfigLoadTest.php
 tests/Config/ConfigSampleTest.php
 tests/Content/ContentFormatTest.php
+tests/Content/SpoilerStyleTest.php
 tests/Database/AnalyticsAggregationTest.php
 tests/Database/AnalyticsConfigTest.php
 tests/Database/AnalyticsPruneTest.php
@@ -39,6 +41,7 @@ tests/Database/MigratorTest.php
 tests/Database/PostsPostmetaMigrationTest.php
 tests/Database/TablePrefixTest.php
 tests/Database/TermsTaxonomyMigrationTest.php
+tests/Database/TopicSubscriptionsMigrationTest.php
 tests/Database/TopicTypeEnumMigrationTest.php
 tests/Docker/DockerComposeTest.php
 tests/Docs/DeveloperDocsTest.php
@@ -52,6 +55,10 @@ tests/Forum/ForumGroupsPermissionsTest.php
 tests/Forum/ForumLikesStatsTest.php
 tests/Forum/ForumModelTest.php
 tests/Forum/ForumModerationTest.php
+tests/Forum/ForumNotifyConfigTest.php
+tests/Forum/ForumNotifyEnqueueTest.php
+tests/Forum/ForumNotifySubscriptionsTest.php
+tests/Forum/ForumNotifyWorkerTest.php
 tests/Forum/ForumPermissionMatrixTest.php
 tests/Forum/ForumSearchGuardTest.php
 tests/Forum/OnlineUnreadTest.php
@@ -61,8 +68,8 @@ tests/I18n/L10nTest.php
 tests/Import/PhpbbImporterTest.php
 tests/Import/WxrImporterTest.php
 tests/Install/CliInstallTest.php
-tests/Install/InstallerTest.php
 tests/Install/InstallUiTest.php
+tests/Install/InstallerTest.php
 tests/Install/LiveSiteReadinessTest.php
 tests/Install/RequirementsTest.php
 tests/Install/SampleContentTest.php
