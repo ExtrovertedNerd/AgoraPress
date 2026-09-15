@@ -1705,9 +1705,11 @@ class AP_Forum
             $forumId = $newForum;
         }
 
+        // Title or explicit slug changes re-uniquify. A forum_id-only update
+        // (moveTopic) keeps the existing slug so permalinks and watches stay.
         if (
             array_key_exists('topic_slug', $data) || array_key_exists('slug', $data)
-            || isset($update['forum_id']) || isset($update['topic_title'])
+            || isset($update['topic_title'])
         ) {
             $slugSource = (string) ($data['topic_slug'] ?? $data['slug']
                 ?? $update['topic_title'] ?? $existing->topic_title);

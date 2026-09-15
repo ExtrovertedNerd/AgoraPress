@@ -20,6 +20,7 @@ DB_CLASS = ROOT / "ap-includes" / "class-ap-db.php"
 MIGRATOR = ROOT / "ap-includes" / "class-ap-migrator.php"
 MOD_CLASS = ROOT / "ap-includes" / "class-ap-forum-moderation.php"
 FORUM_CLASS = ROOT / "ap-includes" / "class-ap-forum.php"
+PHPUNIT = ROOT / "tests" / "Forum" / "ForumModerationTest.php"
 LOAD_CONFIG = ROOT / "ap-includes" / "load-config.php"
 FUNCTIONS = ROOT / "ap-includes" / "functions.php"
 BOOTSTRAP = ROOT / "ap-includes" / "bootstrap.php"
@@ -59,6 +60,20 @@ def test_migration_0008_surface() -> None:
         "AUTOINCREMENT",
     ):
         assert needle in src, f"Expected {needle} in 0008 migration"
+
+
+def test_phpunit_move_invariants() -> None:
+    phpunit = PHPUNIT.read_text(encoding="utf-8")
+    for needle in (
+        "function testMoveTopicAdjustsCounters",
+        "function testMoveTopicKeepsUniquifiedSlugAndSubscriptionsOnDestCollision",
+        "function testMoveTopicRefusesCategoryAndMissingDestCap",
+        "topic_slug",
+        "isSubscribed",
+        "PERM_MODERATE",
+        "FORUM_TYPE_CATEGORY",
+    ):
+        assert needle in phpunit, f"Expected {needle} in ForumModerationTest"
 
 
 def test_moderation_class_api() -> None:

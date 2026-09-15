@@ -13,6 +13,7 @@ namespace AgoraPress\Tests\Forum;
 use AP_DB;
 use AP_Forum;
 use AP_Forum_Moderation;
+use AP_Forum_Notify;
 use AP_Forum_Permissions;
 use AP_Group;
 use AP_Migrator;
@@ -42,6 +43,7 @@ final class ForumModerationTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-group.php';
         require_once $this->root . '/ap-includes/class-ap-forum-permissions.php';
         require_once $this->root . '/ap-includes/class-ap-forum-moderation.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-notify.php';
         require_once $this->root . '/ap-includes/functions.php';
 
         AP_Roles::flushCache();
@@ -139,10 +141,22 @@ final class ForumModerationTest extends TestCase
             'topic_id' => $topicId,
             'content' => 'Second',
         ], $this->db);
+        $before = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($before);
+        $slug = (string) ($before->topic_slug ?? '');
+        $this->assertNotSame('', $slug);
+
+        $watcherId = $this->createUser('move_watcher', 'move_watcher@example.test');
+        $this->assertTrue(AP_Forum_Notify::subscribe($watcherId, $topicId, $this->db));
 
         $this->assertTrue(AP_Forum_Moderation::moveTopic($topicId, $b, 0, $this->db));
         $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertSame($topicId, (int) $topic?->topic_id);
         $this->assertSame($b, (int) $topic?->forum_id);
+        $this->assertSame($slug, (string) ($topic?->topic_slug ?? ''));
+        $this->assertNotSame(AP_Forum::TOPIC_STATUS_MOVED, (string) ($topic?->topic_status ?? ''));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcherId, $topicId, $this->db));
+        $this->assertSame(1, $this->subscriptionCount($topicId));
 
         $forumA = AP_Forum::getForum($a, $this->db);
         $forumB = AP_Forum::getForum($b, $this->db);
@@ -156,6 +170,103 @@ final class ForumModerationTest extends TestCase
         foreach ($posts as $p) {
             $this->assertSame($b, (int) $p->forum_id);
         }
+    }
+
+    public function testMoveTopicKeepsUniquifiedSlugAndSubscriptionsOnDestCollision(): void
+    {
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Slug Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Slug Dest'], $this->db);
+        $firstId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Same title',
+            'content' => 'First in source',
+        ], $this->db);
+        $movedId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Same title',
+            'content' => 'Second in source',
+        ], $this->db);
+        $destTwinId = AP_Forum::createTopic([
+            'forum_id' => $destId,
+            'topic_title' => 'Same title',
+            'content' => 'Already in dest',
+        ], $this->db);
+        $this->assertGreaterThan(0, $firstId);
+        $this->assertGreaterThan(0, $destTwinId);
+
+        $movedBefore = AP_Forum::getTopic($movedId, $this->db);
+        $destTwin = AP_Forum::getTopic($destTwinId, $this->db);
+        $this->assertNotNull($movedBefore);
+        $this->assertNotNull($destTwin);
+        $slug = (string) ($movedBefore->topic_slug ?? '');
+        $this->assertSame('same-title-2', $slug);
+        $this->assertSame('same-title', (string) ($destTwin->topic_slug ?? ''));
+
+        $watcherId = $this->createUser('slug_watcher', 'slug_watcher@example.test');
+        $this->assertTrue(AP_Forum_Notify::subscribe($watcherId, $movedId, $this->db));
+
+        $this->assertTrue(AP_Forum_Moderation::moveTopic($movedId, $destId, 0, $this->db));
+        $after = AP_Forum::getTopic($movedId, $this->db);
+        $this->assertNotNull($after);
+        $this->assertSame($movedId, (int) $after->topic_id);
+        $this->assertSame($destId, (int) $after->forum_id);
+        $this->assertSame($slug, (string) ($after->topic_slug ?? ''));
+        $this->assertNotSame(AP_Forum::TOPIC_STATUS_MOVED, (string) ($after->topic_status ?? ''));
+        $this->assertTrue(AP_Forum_Notify::isSubscribed($watcherId, $movedId, $this->db));
+        $this->assertSame(1, $this->subscriptionCount($movedId));
+        $this->assertSame($destId, (int) (AP_Forum::getTopic($destTwinId, $this->db)?->forum_id ?? 0));
+        $this->assertSame('same-title', (string) (AP_Forum::getTopic($destTwinId, $this->db)?->topic_slug ?? ''));
+
+        $source = AP_Forum::getForum($sourceId, $this->db);
+        $dest = AP_Forum::getForum($destId, $this->db);
+        $this->assertSame(1, (int) ($source?->topic_count ?? -1));
+        $this->assertSame(1, (int) ($source?->post_count ?? -1));
+        $this->assertSame(2, (int) ($dest?->topic_count ?? 0));
+        $this->assertSame(2, (int) ($dest?->post_count ?? 0));
+    }
+
+    public function testMoveTopicRefusesCategoryAndMissingDestCap(): void
+    {
+        $categoryId = AP_Forum::insertForum([
+            'forum_name' => 'Move Cat',
+            'forum_type' => AP_Forum::FORUM_TYPE_CATEGORY,
+        ], $this->db);
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Move Cap Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Move Cap Dest'], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Stay put unless allowed',
+            'content' => 'Body',
+        ], $this->db);
+        $slug = (string) (AP_Forum::getTopic($topicId, $this->db)->topic_slug ?? '');
+        $this->assertNotSame('', $slug);
+
+        $this->assertFalse(AP_Forum_Moderation::moveTopic($topicId, $categoryId, 0, $this->db));
+        $afterCat = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertSame($topicId, (int) ($afterCat?->topic_id ?? 0));
+        $this->assertSame($sourceId, (int) ($afterCat?->forum_id ?? 0));
+        $this->assertSame($slug, (string) ($afterCat?->topic_slug ?? ''));
+
+        $localId = $this->createUser('move_src_only', 'move_src_only@example.test');
+        $groupId = AP_Group::create(['group_name' => 'Source-only mods'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+        $this->assertTrue(AP_Forum_Permissions::userCanModerate($localId, $sourceId, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanModerate($localId, $destId, $this->db));
+
+        $this->assertFalse(AP_Forum_Moderation::moveTopic($topicId, $destId, $localId, $this->db));
+        $afterCap = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertSame($topicId, (int) ($afterCap?->topic_id ?? 0));
+        $this->assertSame($sourceId, (int) ($afterCap?->forum_id ?? 0));
+        $this->assertSame($slug, (string) ($afterCap?->topic_slug ?? ''));
+        $this->assertSame(0, $this->subscriptionCount($topicId));
     }
 
     public function testListMoveDestinationsExcludesCategoryCurrentAndUnmoderated(): void
@@ -582,6 +693,16 @@ final class ForumModerationTest extends TestCase
         ));
         $topic = AP_Forum::getTopic($topicId, $this->db);
         $this->assertSame('sticky', $topic?->topic_type);
+    }
+
+    private function subscriptionCount(int $topicId): int
+    {
+        return (int) $this->db->getVar(
+            'SELECT COUNT(*) FROM '
+            . $this->db->quoteIdentifier($this->db->table('topic_subscriptions'))
+            . ' WHERE ' . $this->db->quoteIdentifier('topic_id') . ' = ?',
+            [$topicId]
+        );
     }
 
     /**

@@ -233,6 +233,10 @@ class AP_Forum_Moderation
 
     /**
      * Move a topic to another forum, adjusting counters on both sides.
+     *
+     * Same topic_id and slug. `{prefix}topic_subscriptions` rows stay on
+     * that topic_id. No shadow "moved" stub. Refuses categories. When
+     * $moderatorId is set, requires moderate on source and destination.
      */
     public static function moveTopic(
         int $topicId,

@@ -433,6 +433,38 @@ final class ForumModelTest extends TestCase
         $this->assertSame('renamed', $topic?->topic_slug);
     }
 
+    public function testUpdateTopicForumIdKeepsExistingSlug(): void
+    {
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Slug From'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Slug To'], $this->db);
+        AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Same title',
+            'content' => 'First',
+        ], $this->db);
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Same title',
+            'content' => 'Second',
+        ], $this->db);
+        AP_Forum::createTopic([
+            'forum_id' => $destId,
+            'topic_title' => 'Same title',
+            'content' => 'Dest twin',
+        ], $this->db);
+
+        $before = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($before);
+        $this->assertSame('same-title-2', (string) ($before->topic_slug ?? ''));
+
+        $this->assertTrue(AP_Forum::updateTopic($topicId, ['forum_id' => $destId], $this->db));
+        $after = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertSame($topicId, (int) ($after?->topic_id ?? 0));
+        $this->assertSame($destId, (int) ($after?->forum_id ?? 0));
+        $this->assertSame('same-title-2', (string) ($after?->topic_slug ?? ''));
+        $this->assertSame('Same title', (string) ($after?->topic_title ?? ''));
+    }
+
     public function testProceduralHelpers(): void
     {
         $catId = ap_insert_forum([
