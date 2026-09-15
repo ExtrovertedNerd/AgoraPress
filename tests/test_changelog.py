@@ -256,6 +256,41 @@ def test_current_ap_version_is_0311_beta() -> None:
     )
 
 
+def test_0311_beta_documents_charter_surfaces(changelog_text: str) -> None:
+    heading = re.search(
+        r"(?im)^##\s+\[0\.3\.11-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",
+        changelog_text,
+    )
+    assert heading, "Missing dated ## [0.3.11-beta] heading"
+    body = _section_body(changelog_text, "0.3.11-beta")
+    assert re.search(r"(?im)^###\s+Added\s*$", body)
+    assert re.search(r"(?im)^###\s+Changed\s*$", body)
+    assert re.search(r"(?im)^###\s+Fixed\s*$", body)
+    lower = body.lower()
+    assert "ap_db_version" in lower
+    assert "**13**" in body or " 13" in body
+    assert "no telemetry" in lower
+    assert "ap_forum_move_topic" in lower
+    assert "ap_forum_merge_topic" in lower
+    assert "ap_forum_split_topic" in lower
+    assert "ap_forum_report_post" in lower
+    assert "move_topics" in lower
+    assert "moderate_forum" in lower
+    assert "view_forum" in lower
+    assert "mergetopics" in lower
+    assert "topic_subscriptions" in lower
+    assert "refreshforumlastpost" in lower
+    assert "last_post_id" in lower
+    assert "last_topic_id" in lower
+    assert "last_poster_id" in lower
+    assert "last_post_time" in lower
+    assert "shadow" in lower
+    assert "reports" in lower
+    assert "guests" in lower
+    assert "0.3.11-beta" in body
+    assert "package-release.php" in lower
+
+
 def test_0310_beta_documents_charter_surfaces(changelog_text: str) -> None:
     heading = re.search(
         r"(?im)^##\s+\[0\.3\.10-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",

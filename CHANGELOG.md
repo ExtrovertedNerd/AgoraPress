@@ -13,6 +13,36 @@ Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive
 
 ### Changed
 
+## [0.3.11-beta] - 2026-09-15
+
+Forum Move / Merge / Split UI, front Report, last-post recount. Schema `AP_DB_VERSION` **13**; no telemetry by default.
+
+### Package
+
+- Beta package `0.3.11-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
+### Added
+
+- Topic toolbar **Move** (`ap_forum_move_topic`) when `move_topics` or `moderate_forum`; destination forums the actor can also moderate (not categories, not current)
+- ACP Topics row **Move** + bulk **Move to…** (same destination rule)
+- Topic toolbar **Merge** (`ap_forum_merge_topic`) into a topic the actor can moderate; ACP Topics bulk **Merge into…**
+- Topic toolbar **Split** (`ap_forum_split_topic`): checkbox per post, new title, optional dest forum; original keeps ≥1 post
+- **Report** on each post (`ap_forum_report_post`) when logged-in + `view_forum`; inserts `{prefix}reports` type `post`, status `open`
+
+### Changed
+
+- Schema stays `AP_DB_VERSION` **13** (no bump). No shadow / “moved from” stub topics
+- `mergeTopics` retargets `{prefix}topic_subscriptions` source → target; duplicate `(user_id, target_id)` pairs are dropped
+- One `AP_Forum::refreshForumLastPost($forumId)` on every delete / restore / move / merge / split / post-unapprove path
+- Move keeps the same `topic_id` and slug; `{prefix}topic_subscriptions` stay on that id
+
+### Fixed
+
+- Board-index Last Post never prints a deleted topic: stale / missing / unapproved pointer recounts, then renders or shows empty
+- Empty board (or only deleted / unapproved content) clears `last_post_id` / `last_topic_id` / `last_poster_id` / `last_post_time`
+- Deleting a topic that is not last leaves the real last post in place
+- Failed report insert does not claim success; guests cannot report; one open report per user per post
+
 ## [0.3.10-beta] - 2026-09-14
 
 Spoilers, ACP author picker, topic email notify, `ap_comments_template()`. Schema `AP_DB_VERSION` **13**; no telemetry by default.
