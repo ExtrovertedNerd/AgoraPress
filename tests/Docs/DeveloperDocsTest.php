@@ -251,7 +251,7 @@ final class DeveloperDocsTest extends TestCase
         $index = $this->readDoc('README.md');
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'one documentation tree',
                 'docs/index.md',
@@ -385,7 +385,7 @@ final class DeveloperDocsTest extends TestCase
 
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'README.md',
                 'docs/index.md',
@@ -1053,7 +1053,7 @@ final class DeveloperDocsTest extends TestCase
                 'manage_options',
                 'GD',
                 'Imagick',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'rewrites.md',
             ] as $needle
@@ -1081,7 +1081,7 @@ final class DeveloperDocsTest extends TestCase
                 'ap_editor',
                 'no jQuery',
                 'AP_Content_Format',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'admin.md',
                 'forums.md',
@@ -1193,7 +1193,7 @@ final class DeveloperDocsTest extends TestCase
                 'Intentional deviations',
                 'Three independent modules',
                 '0.2.1-beta',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'Local analytics',
                 'analytics_enabled',
@@ -1214,7 +1214,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('hooks.md');
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'ap_add_action',
                 'ap_do_action',
@@ -1441,7 +1441,7 @@ final class DeveloperDocsTest extends TestCase
     public function testDocsIndexReflects031BetaAndAnalytics(): void
     {
         $index = $this->readDoc('README.md');
-        $this->assertStringContainsString('0.3.10-beta', $index);
+        $this->assertStringContainsString('0.3.11-beta', $index);
         $this->assertStringContainsString('AP_Analytics', $index);
         $this->assertStringContainsString('class-ap-analytics.php', $index);
         $this->assertStringContainsString('AP_Forum_Like', $index);
@@ -1452,7 +1452,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('themes.md');
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'style.css',
                 'index.php',
@@ -1607,7 +1607,7 @@ final class DeveloperDocsTest extends TestCase
                 'manage_options',
                 'AP_Admin_Menu',
                 'AP_Admin::pageUrl',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'ap_register_admin_page',
                 'php ap-cli plugin install',
@@ -1631,7 +1631,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('compatibility.md');
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'Classic WordPress',
                 'functions-shim',
@@ -1662,7 +1662,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('schema.md');
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'schema_migrations',
                 'options',
@@ -1798,7 +1798,7 @@ final class DeveloperDocsTest extends TestCase
                 'AP_DB_VERSION',
                 'session.save_path',
                 '/ap-admin/',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'HTTP 403',
                 'HTTP 503',
                 '-----BEGIN AP-CONFIG-----',
@@ -1869,7 +1869,7 @@ final class DeveloperDocsTest extends TestCase
                 'mod_rewrite',
                 'AP_Rewrite',
                 'rewrite_rules',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'Apache vs Nginx',
                 '/ap-json/',
@@ -1933,7 +1933,7 @@ final class DeveloperDocsTest extends TestCase
                 'maybeQueueAdminNotice',
                 '--force',
                 'not in core',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'ZipArchive',
                 'set_time_limit',
@@ -2042,7 +2042,7 @@ final class DeveloperDocsTest extends TestCase
                 'AP_USER_PASSWORD',
                 'ap_cli_init',
                 'not in core',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'AP_CLI_SKIP_PLUGINS',
                 'AP_CLI_SKIP_THEMES',
@@ -2161,7 +2161,7 @@ final class DeveloperDocsTest extends TestCase
                 'not in core',
                 'Gutenberg',
                 'marketplace',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'user-edit.php?user_id=',
                 'The requested admin page was not found.',
@@ -2473,7 +2473,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('forums.md');
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'ap_module_forum',
                 'Settings → Modules',
@@ -2744,7 +2744,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('roles.md');
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'AP_Roles',
                 'ap_user_roles',
@@ -2824,7 +2824,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('rest.md');
         foreach (
             [
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 '/ap-json/',
                 '?rest_route=',
@@ -2933,7 +2933,7 @@ final class DeveloperDocsTest extends TestCase
                 'AP_NONCE_SALT',
                 'not in core',
                 '2FA',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'view_site_health',
                 'query(',
@@ -3070,7 +3070,7 @@ final class DeveloperDocsTest extends TestCase
                 'AllowOverride All',
                 'query-string vars only',
                 'not in core',
-                '0.3.10-beta',
+                '0.3.11-beta',
                 'AP_DB_VERSION',
                 'Activate account',
                 'Resend verification',

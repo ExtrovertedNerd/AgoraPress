@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Core | `AP_VERSION` **0.3.10-beta** |
+| Core | `AP_VERSION` **0.3.11-beta** |
 | Schema | `AP_DB_VERSION` **13** |
 | Table prefix | default `ap_` (`$table_prefix` in `ap-config.php`) |
 | Control Panel | `/ap-admin/` |

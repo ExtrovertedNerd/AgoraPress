@@ -1,7 +1,7 @@
 # Permalinks and rewrites
 
 This is the **front-controller and permalink guide** for AgoraPress
-**`0.3.10-beta`** (schema `AP_DB_VERSION` **13**). It describes URL rewriting
+**`0.3.11-beta`** (schema `AP_DB_VERSION` **13**). It describes URL rewriting
 **as built**: the shipped Apache [`.htaccess`](../.htaccess), the shipped
 Nginx example [`docker/nginx.conf.example`](../docker/nginx.conf.example),
 pretty permalinks vs query-string `?p=` / `?page_id=`, day-and-name posts vs
