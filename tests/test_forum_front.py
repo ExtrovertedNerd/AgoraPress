@@ -57,6 +57,7 @@ def test_forum_front_class_api() -> None:
         "ACTION_NEW_TOPIC",
         "ACTION_REPLY",
         "ACTION_SET_TOPIC_TYPE",
+        "ACTION_MOVE_TOPIC",
         "ACTION_SUBSCRIBE_TOPIC",
         "ACTION_UNSUBSCRIBE_TOPIC",
         "handleSetTopicType",
@@ -68,6 +69,8 @@ def test_forum_front_class_api() -> None:
         "enableUserNotifyOnSubscribe",
         "allowed_topic_types",
         "topic_type",
+        "can_move_topic",
+        "move_destinations",
         "can_subscribe",
         "topic_subscribed",
         "viewerMaySubscribe",
@@ -77,6 +80,8 @@ def test_forum_front_class_api() -> None:
 
     phpunit = PHPUNIT.read_text(encoding="utf-8")
     for needle in (
+        "function testTopicToolbarMoveDestinationSelect",
+        "function testMoveTopicFormHtmlOmitsEmptyOrInvalidDests",
         "function testTopicSubscribeChromeWhenSiteOnLoggedInCanView",
         "function testSubscribeWhenMembersReadonlyCanViewButNotReply",
         "function testSubscribeHonorsGroupOnlyViewForum",
@@ -124,6 +129,10 @@ def test_agora_templates_have_live_forms() -> None:
     assert "ap-forum-attachments" in topic
     assert "ap_forum_set_topic_type" in topic
     assert "can_set_topic_type" in topic
+    assert "can_move_topic" in topic
+    assert "move_destinations" in topic
+    assert "ap_forum_move_topic" in topic
+    assert "ap_forum_move_topic_form_html" in topic
     assert "can_subscribe" in topic
     assert "topic_subscribed" in topic
     assert "ap_forum_topic_subscribe_form_html" in topic
@@ -141,6 +150,8 @@ def test_agora_templates_have_live_forms() -> None:
     style = (AGORA / "style.css").read_text(encoding="utf-8")
     assert ".ap-forum-notice" in style
     assert ".ap-field--topic-type" in style
+    assert ".ap-field--move-dest" in style
+    assert ".ap-forum-action-form--move-topic" in style
     assert ".ap-forum-post__actions" in style
     assert ".ap-forum-subscribe" in style
     assert ".ap-forum-toolbar--topic" in style

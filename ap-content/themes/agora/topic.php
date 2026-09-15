@@ -32,6 +32,10 @@ $forumUrl = $q instanceof AP_Query ? (string) $q->get('forum_url', '') : '';
 $canReply = $q instanceof AP_Query && !empty($q->get('can_reply', false));
 $canModerate = $q instanceof AP_Query && !empty($q->get('can_moderate', false));
 $canSetTopicType = $q instanceof AP_Query && !empty($q->get('can_set_topic_type', false));
+$canMoveTopic = $q instanceof AP_Query && !empty($q->get('can_move_topic', false));
+$moveDestinations = $q instanceof AP_Query && is_array($q->get('move_destinations', null))
+    ? $q->get('move_destinations', [])
+    : [];
 $canSubscribe = $q instanceof AP_Query && !empty($q->get('can_subscribe', false));
 $topicSubscribed = $q instanceof AP_Query && !empty($q->get('topic_subscribed', false));
 $topicType = $q instanceof AP_Query
@@ -158,7 +162,10 @@ endif; ?>
                 <?php endif; ?>
             </p>
         </div>
-        <?php if (($canModerate || $canSetTopicType || $canSubscribe) && $topicId > 0) : ?>
+        <?php
+        $showMove = $canMoveTopic && $moveDestinations !== [];
+        if (($canModerate || $canSetTopicType || $canSubscribe || $showMove) && $topicId > 0) :
+            ?>
             <div class="ap-forum-toolbar ap-forum-toolbar--topic" role="toolbar" aria-label="Topic actions">
                 <?php
                 if ($canSubscribe) {
@@ -203,6 +210,41 @@ endif; ?>
                     </button>
                 </form>
                 <?php endif; ?>
+                <?php
+                if ($showMove) {
+                    if (function_exists('ap_forum_move_topic_form_html')) {
+                        echo ap_forum_move_topic_form_html($topicId, $moveDestinations, [
+                            'id' => 'agora-move-dest-forum',
+                        ]);
+                    } else {
+                        echo '<form method="post" action="" class="ap-forum-action-form ap-forum-action-form--move-topic">';
+                        echo '<input type="hidden" name="ap_forum_action" value="ap_forum_move_topic">';
+                        echo '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">';
+                        if (function_exists('ap_nonce_field')) {
+                            echo ap_nonce_field('ap_forum_move_topic_' . $topicId);
+                        }
+                        echo '<div class="ap-field ap-field--move-dest ap-field--inline">';
+                        echo '<label for="agora-move-dest-forum">Move to</label>';
+                        echo '<select id="agora-move-dest-forum" name="dest_forum_id" required>';
+                        echo '<option value="">Select forum</option>';
+                        foreach ($moveDestinations as $dest) {
+                            if (!is_array($dest)) {
+                                continue;
+                            }
+                            $destId = (int) ($dest['forum_id'] ?? 0);
+                            $destName = (string) ($dest['forum_name'] ?? '');
+                            if ($destId < 1 || $destName === '') {
+                                continue;
+                            }
+                            echo '<option value="' . $destId . '">' . agora_esc($destName) . '</option>';
+                        }
+                        echo '</select></div>';
+                        echo '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm"'
+                            . ' aria-label="Move this topic to another forum">Move</button>';
+                        echo '</form>';
+                    }
+                }
+                ?>
                 <?php if ($canSetTopicType && $allowedTopicTypes !== []) : ?>
                 <form method="post" action="" class="ap-forum-action-form ap-forum-action-form--topic-type">
                     <input type="hidden" name="ap_forum_action" value="ap_forum_set_topic_type">

@@ -33,6 +33,9 @@ class AP_Forum_Front
     /** Change topic type (standard | sticky | announcement | rules) within caps. */
     public const ACTION_SET_TOPIC_TYPE = 'ap_forum_set_topic_type';
 
+    /** Move a topic to another forum the actor can moderate. */
+    public const ACTION_MOVE_TOPIC = 'ap_forum_move_topic';
+
     /** Per-topic email Subscribe (site on, logged in, can view_forum). */
     public const ACTION_SUBSCRIBE_TOPIC = 'ap_forum_subscribe_topic';
 
@@ -336,6 +339,12 @@ class AP_Forum_Front
                 )
                 : [];
             $args['can_set_topic_type'] = $args['allowed_topic_types'] !== [];
+            $args['can_move_topic'] = $userId > 0
+                && class_exists('AP_Forum_Moderation', false)
+                && AP_Forum_Moderation::userCanMoveTopic($userId, $forumId, $db);
+            $args['move_destinations'] = !empty($args['can_move_topic'])
+                ? self::moveDestinationsForQuery($userId, $forumId, $db)
+                : [];
             $args['can_subscribe'] = $userId > 0
                 && class_exists('AP_Forum_Notify', false)
                 && AP_Forum_Notify::viewerMaySubscribe($userId, $forumId, $db);
@@ -756,6 +765,8 @@ class AP_Forum_Front
         $args['can_announce'] = false;
         $args['can_set_topic_type'] = false;
         $args['allowed_topic_types'] = [];
+        $args['can_move_topic'] = false;
+        $args['move_destinations'] = [];
         $args['can_subscribe'] = false;
         $args['topic_subscribed'] = false;
         $args['first_unread_post_id'] = 0;
@@ -866,6 +877,33 @@ class AP_Forum_Front
         }
 
         return false;
+    }
+
+    /**
+     * Slim dest-forum rows for the topic toolbar Move select.
+     *
+     * @return list<array{forum_id: int, forum_name: string}>
+     */
+    private static function moveDestinationsForQuery(int $userId, int $fromForumId, ?AP_DB $db): array
+    {
+        if ($userId < 1 || !class_exists('AP_Forum_Moderation', false)) {
+            return [];
+        }
+
+        $out = [];
+        foreach (AP_Forum_Moderation::listMoveDestinations($userId, $fromForumId, $db) as $forum) {
+            $id = (int) ($forum->forum_id ?? 0);
+            $name = trim((string) ($forum->forum_name ?? ''));
+            if ($id < 1 || $name === '') {
+                continue;
+            }
+            $out[] = [
+                'forum_id' => $id,
+                'forum_name' => $name,
+            ];
+        }
+
+        return $out;
     }
 
     /**

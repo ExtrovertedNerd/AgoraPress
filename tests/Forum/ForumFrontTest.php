@@ -817,6 +817,115 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('ap_forum_set_topic_type', $html);
         $this->assertStringContainsString('Update type', $html);
         $this->assertStringNotContainsString('ap_forum_subscribe_topic', $html);
+        $this->assertStringNotContainsString('ap_forum_move_topic', $html);
+        $this->assertTrue((bool) $query->get('can_move_topic', false));
+        $this->assertSame([], $query->get('move_destinations', null));
+    }
+
+    public function testTopicToolbarMoveDestinationSelect(): void
+    {
+        $categoryId = AP_Forum::insertForum([
+            'forum_name' => 'Toolbar Cat',
+            'forum_type' => AP_Forum::FORUM_TYPE_CATEGORY,
+        ], $this->db);
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Toolbar Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Toolbar Dest'], $this->db);
+        $linkId = AP_Forum::insertForum([
+            'forum_name' => 'Toolbar Link',
+            'forum_type' => AP_Forum::FORUM_TYPE_LINK,
+        ], $this->db);
+        $this->assertGreaterThan(0, $categoryId);
+        $this->assertGreaterThan(0, $linkId);
+
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $sourceId,
+            'topic_title' => 'Move chrome',
+            'content' => 'Body',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        $this->assertTrue(AP_Session::setAuthCookie($this->userId, false, $this->db));
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $query = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($query, $this->db);
+        ap_set_query($query);
+
+        $this->assertTrue((bool) $query->get('can_move_topic', false));
+        $dests = $query->get('move_destinations', []);
+        $this->assertIsArray($dests);
+        $destIds = [];
+        foreach ($dests as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $destIds[] = (int) ($row['forum_id'] ?? 0);
+        }
+        $this->assertContains($destId, $destIds);
+        $this->assertNotContains($sourceId, $destIds);
+        $this->assertNotContains($categoryId, $destIds);
+        $this->assertNotContains($linkId, $destIds);
+
+        ob_start();
+        AP_Theme::render($query, $this->db);
+        $html = (string) ob_get_clean();
+        $this->assertStringContainsString('ap_forum_move_topic', $html);
+        $this->assertStringContainsString('name="dest_forum_id"', $html);
+        $this->assertStringContainsString('>Toolbar Dest</option>', $html);
+        $this->assertStringNotContainsString('>Toolbar Cat</option>', $html);
+        $this->assertStringNotContainsString('>Toolbar Source</option>', $html);
+        $this->assertStringNotContainsString('>Toolbar Link</option>', $html);
+        $this->assertStringContainsString('>Move</button>', $html);
+        $this->assertStringContainsString('id="agora-move-dest-forum"', $html);
+
+        $member = AP_User::create([
+            'user_login' => 'move_guest_member',
+            'user_email' => 'move_guest_member@example.test',
+            'user_pass' => 'Password123!',
+            'display_name' => 'Member',
+            'role' => 'subscriber',
+        ], $this->db);
+        $this->assertTrue($member['ok'] ?? false);
+        $memberId = (int) $member['id'];
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+
+        $memberQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($memberQuery, $this->db);
+        ap_set_query($memberQuery);
+        $this->assertFalse((bool) $memberQuery->get('can_move_topic', false));
+        $this->assertSame([], $memberQuery->get('move_destinations', null));
+
+        ob_start();
+        AP_Theme::render($memberQuery, $this->db);
+        $memberHtml = (string) ob_get_clean();
+        $this->assertStringNotContainsString('ap_forum_move_topic', $memberHtml);
+        $this->assertStringNotContainsString('name="dest_forum_id"', $memberHtml);
+        $this->assertStringNotContainsString('>Move</button>', $memberHtml);
+    }
+
+    public function testMoveTopicFormHtmlOmitsEmptyOrInvalidDests(): void
+    {
+        $this->assertSame('', ap_forum_move_topic_form_html(0, [
+            ['forum_id' => 2, 'forum_name' => 'Dest'],
+        ]));
+        $this->assertSame('', ap_forum_move_topic_form_html(12, []));
+        $this->assertSame('', ap_forum_move_topic_form_html(12, [
+            ['forum_id' => 0, 'forum_name' => 'Nope'],
+            ['forum_id' => 4, 'forum_name' => ''],
+        ]));
+
+        $html = ap_forum_move_topic_form_html(12, [
+            ['forum_id' => 4, 'forum_name' => 'General'],
+            (object) ['forum_id' => 5, 'forum_name' => 'Off-topic'],
+        ]);
+        $this->assertStringContainsString('ap_forum_move_topic', $html);
+        $this->assertStringContainsString('name="dest_forum_id"', $html);
+        $this->assertStringContainsString('value="4"', $html);
+        $this->assertStringContainsString('General', $html);
+        $this->assertStringContainsString('Off-topic', $html);
+        $this->assertStringContainsString('>Move</button>', $html);
+        $this->assertStringContainsString('Select forum', $html);
     }
 
     public function testTopicSubscribeChromeWhenSiteOnLoggedInCanView(): void

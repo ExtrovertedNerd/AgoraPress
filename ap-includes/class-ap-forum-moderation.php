@@ -293,6 +293,70 @@ class AP_Forum_Moderation
     }
 
     /**
+     * Whether the viewer may start a topic move from this forum.
+     *
+     * True when they have `move_topics` or `moderate_forum` on $forumId.
+     */
+    public static function userCanMoveTopic(int $userId, int $forumId, ?AP_DB $db = null): bool
+    {
+        if ($userId < 1 || $forumId < 1) {
+            return false;
+        }
+        if (class_exists('AP_Forum_Permissions', false)) {
+            return AP_Forum_Permissions::userCan(
+                $userId,
+                $forumId,
+                AP_Forum_Permissions::PERM_MOVE,
+                $db
+            ) || AP_Forum_Permissions::userCanModerate($userId, $forumId, $db);
+        }
+        if (function_exists('ap_user_can')) {
+            return ap_user_can($userId, 'manage_forums', null, $db)
+                || ap_user_can($userId, 'moderate_forums', null, $db);
+        }
+
+        return false;
+    }
+
+    /**
+     * Forums a user may move a topic into.
+     *
+     * Omits categories, link boards, and $fromForumId. Remaining rows are
+     * forums (including hidden) the actor can moderate.
+     *
+     * @return list<object>
+     */
+    public static function listMoveDestinations(int $userId, int $fromForumId, ?AP_DB $db = null): array
+    {
+        if ($userId < 1 || !class_exists('AP_Forum', false)) {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+        $forums = AP_Forum::getForums(['include_hidden' => true], $db);
+        $out = [];
+        foreach ($forums as $forum) {
+            $id = (int) ($forum->forum_id ?? 0);
+            if ($id < 1 || ($fromForumId > 0 && $id === $fromForumId)) {
+                continue;
+            }
+            $type = (string) ($forum->forum_type ?? '');
+            if ($type !== AP_Forum::FORUM_TYPE_FORUM) {
+                continue;
+            }
+            if (
+                !class_exists('AP_Forum_Permissions', false)
+                || !AP_Forum_Permissions::userCanModerate($userId, $id, $db)
+            ) {
+                continue;
+            }
+            $out[] = $forum;
+        }
+
+        return $out;
+    }
+
+    /**
      * Merge source topic into target topic (all posts move; source is force-removed).
      *
      * @return bool True when merge completed.

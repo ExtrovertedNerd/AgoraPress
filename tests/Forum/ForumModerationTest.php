@@ -13,7 +13,10 @@ namespace AgoraPress\Tests\Forum;
 use AP_DB;
 use AP_Forum;
 use AP_Forum_Moderation;
+use AP_Forum_Permissions;
+use AP_Group;
 use AP_Migrator;
+use AP_Roles;
 use AP_User;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -36,8 +39,14 @@ final class ForumModerationTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-roles.php';
         require_once $this->root . '/ap-includes/class-ap-forum.php';
+        require_once $this->root . '/ap-includes/class-ap-group.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-permissions.php';
         require_once $this->root . '/ap-includes/class-ap-forum-moderation.php';
         require_once $this->root . '/ap-includes/functions.php';
+
+        AP_Roles::flushCache();
+        AP_Group::flushCache();
+        AP_Forum_Permissions::flushCache();
 
         $pdo = new PDO('sqlite::memory:', null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -48,6 +57,19 @@ final class ForumModerationTest extends TestCase
 
         $migrator = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $migrator->migrate();
+
+        $GLOBALS['apdb'] = $this->db;
+        AP_Roles::ensureDefaults($this->db);
+        AP_Group::ensureSystemGroups($this->db);
+        AP_Forum_Permissions::ensureDefaults($this->db);
+    }
+
+    protected function tearDown(): void
+    {
+        AP_Roles::flushCache();
+        AP_Group::flushCache();
+        AP_Forum_Permissions::flushCache();
+        unset($GLOBALS['apdb']);
     }
 
     public function testSchemaVersionAndTables(): void
@@ -134,6 +156,103 @@ final class ForumModerationTest extends TestCase
         foreach ($posts as $p) {
             $this->assertSame($b, (int) $p->forum_id);
         }
+    }
+
+    public function testListMoveDestinationsExcludesCategoryCurrentAndUnmoderated(): void
+    {
+        $categoryId = AP_Forum::insertForum([
+            'forum_name' => 'Move Cat',
+            'forum_type' => AP_Forum::FORUM_TYPE_CATEGORY,
+        ], $this->db);
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Move Source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Move Dest'], $this->db);
+        $hiddenId = AP_Forum::insertForum([
+            'forum_name' => 'Move Hidden',
+            'forum_status' => AP_Forum::FORUM_STATUS_HIDDEN,
+        ], $this->db);
+        $linkId = AP_Forum::insertForum([
+            'forum_name' => 'Move Link',
+            'forum_type' => AP_Forum::FORUM_TYPE_LINK,
+        ], $this->db);
+        $otherId = AP_Forum::insertForum(['forum_name' => 'Move Other'], $this->db);
+        $this->assertGreaterThan(0, $categoryId);
+        $this->assertGreaterThan(0, $linkId);
+
+        $adminId = $this->createUser('move_admin', 'move_admin@example.test', 'administrator');
+        $memberId = $this->createUser('move_member', 'move_member@example.test', 'subscriber');
+        $localId = $this->createUser('move_local', 'move_local@example.test', 'subscriber');
+
+        $groupId = AP_Group::create(['group_name' => 'Local movers'], $this->db);
+        $this->assertGreaterThan(0, $groupId);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $localId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MOVE,
+            true,
+            $this->db
+        ));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $destId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MODERATE,
+            true,
+            $this->db
+        ));
+
+        $this->assertTrue(AP_Forum_Moderation::userCanMoveTopic($adminId, $sourceId, $this->db));
+        $this->assertTrue(ap_forum_user_can_move_topic($adminId, $sourceId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanMoveTopic($memberId, $sourceId, $this->db));
+        $this->assertTrue(AP_Forum_Moderation::userCanMoveTopic($localId, $sourceId, $this->db));
+        $this->assertFalse(AP_Forum_Moderation::userCanMoveTopic(0, $sourceId, $this->db));
+
+        $adminIds = $this->moveDestinationIds($adminId, $sourceId);
+        $this->assertContains($destId, $adminIds);
+        $this->assertContains($hiddenId, $adminIds);
+        $this->assertContains($otherId, $adminIds);
+        $this->assertNotContains($sourceId, $adminIds);
+        $this->assertNotContains($categoryId, $adminIds);
+        $this->assertNotContains($linkId, $adminIds);
+
+        $this->assertSame([], $this->moveDestinationIds($memberId, $sourceId));
+        $this->assertSame([], AP_Forum_Moderation::listMoveDestinations(0, $sourceId, $this->db));
+
+        $localIds = $this->moveDestinationIds($localId, $sourceId);
+        $this->assertSame([$destId], $localIds);
+        $this->assertSame($localIds, $this->moveDestinationIdsFromHelper($localId, $sourceId));
+
+        $fromDest = $this->moveDestinationIds($localId, $destId);
+        $this->assertContains($sourceId, $fromDest);
+        $this->assertNotContains($destId, $fromDest);
+        $this->assertNotContains($otherId, $fromDest);
+    }
+
+    public function testUserCanMoveTopicWithMoveCapWithoutModerate(): void
+    {
+        $sourceId = AP_Forum::insertForum(['forum_name' => 'Move only source'], $this->db);
+        $destId = AP_Forum::insertForum(['forum_name' => 'Move only dest'], $this->db);
+        $userId = $this->createUser('move_only', 'move_only@example.test', 'subscriber');
+        $groupId = AP_Group::create(['group_name' => 'Movers without moderate'], $this->db);
+        $this->assertGreaterThan(0, AP_Group::addMember($groupId, $userId, AP_Group::ROLE_MEMBER, $this->db));
+        $this->assertTrue(AP_Forum_Permissions::setPermission(
+            $sourceId,
+            $groupId,
+            AP_Forum_Permissions::PERM_MOVE,
+            true,
+            $this->db
+        ));
+
+        $this->assertTrue(AP_Forum_Moderation::userCanMoveTopic($userId, $sourceId, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanModerate($userId, $sourceId, $this->db));
+        $this->assertFalse(AP_Forum_Permissions::userCanModerate($userId, $destId, $this->db));
+        $this->assertSame([], $this->moveDestinationIds($userId, $sourceId));
     }
 
     public function testMergeTopicsSameForum(): void
@@ -463,5 +582,47 @@ final class ForumModerationTest extends TestCase
         ));
         $topic = AP_Forum::getTopic($topicId, $this->db);
         $this->assertSame('sticky', $topic?->topic_type);
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function moveDestinationIds(int $userId, int $fromForumId): array
+    {
+        $ids = [];
+        foreach (AP_Forum_Moderation::listMoveDestinations($userId, $fromForumId, $this->db) as $forum) {
+            $ids[] = (int) ($forum->forum_id ?? 0);
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function moveDestinationIdsFromHelper(int $userId, int $fromForumId): array
+    {
+        $ids = [];
+        foreach (ap_forum_move_destinations($userId, $fromForumId, $this->db) as $forum) {
+            $ids[] = (int) ($forum->forum_id ?? 0);
+        }
+
+        return $ids;
+    }
+
+    private function createUser(string $login, string $email, string $role = 'subscriber'): int
+    {
+        $created = AP_User::create([
+            'user_login' => $login,
+            'user_email' => $email,
+            'user_pass' => 'Password123!',
+            'display_name' => $login,
+            'role' => $role,
+        ], $this->db);
+        $this->assertTrue($created['ok'] ?? false, implode('; ', $created['errors'] ?? ['create failed']));
+        $id = (int) ($created['id'] ?? 0);
+        $this->assertGreaterThan(0, $id);
+
+        return $id;
     }
 }

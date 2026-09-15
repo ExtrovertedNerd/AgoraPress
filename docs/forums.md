@@ -107,6 +107,7 @@ Custom themes override the same filenames in the child/parent stack
 `ap_forum_new_topic`, `ap_forum_reply`, `ap_forum_edit_post`,
 `ap_forum_delete_post`, `ap_forum_like_post`, `ap_forum_lock_topic`,
 `ap_forum_unlock_topic`, `ap_forum_set_topic_type`,
+`ap_forum_move_topic`,
 `ap_forum_subscribe_topic`, `ap_forum_unsubscribe_topic`.
 
 Sitemaps include the board index, forums, and topics when the module is on
@@ -283,6 +284,14 @@ When `moderate_forum` (or the matching own-post ACL) allows:
 - Lock / unlock topic (`lock_topics`)
 - Change topic type (`sticky_topics` / `announce_topics`)
 
+**Move** is on the topic toolbar when the viewer has `move_topics` or
+`moderate_forum` on the current forum **and** at least one other forum they
+can moderate exists. The destination select lists forums the actor can
+moderate; it omits categories, link boards, and the current forum. POST
+`ap_forum_move_topic` (nonce `ap_forum_move_topic_{id}`). Helpers:
+`ap_forum_user_can_move_topic()`, `ap_forum_move_destinations()`,
+`ap_forum_move_topic_form_html()`.
+
 Nonces are per action (`ap_forum_lock_topic_{id}`, …). Locked topics reject
 replies (`ap_forum_notice=locked`).
 
@@ -303,8 +312,11 @@ skips ACL — installers / CLI / tests only).
 
 - Lock / unlock, set topic type
 - Soft-delete / restore / force-delete topics and posts
-- **Move, merge, split topics** — API only (`moveTopic` / `mergeTopics` /
-  `splitTopic`). Default Agora and the Topics screen do **not** expose these.
+- **Move topics** — `moveTopic`. Default Agora shows toolbar **Move**
+  (`ap_forum_move_topic`) as above. Same `topic_id` and slug; no shadow row.
+  The Topics screen does **not** expose Move yet.
+- **Merge / split topics** — API only (`mergeTopics` / `splitTopic`). Default
+  Agora and the Topics screen do **not** expose these.
 - Reports (`reports` table): types `post` / `topic` / `user` / `message`;
   statuses `open` / `closed` / `dismissed`
 - Warnings (`warnings`): `active` / `expired` / `revoked`

@@ -70,6 +70,8 @@ def test_moderation_class_api() -> None:
         "function softDeleteTopic",
         "function restoreTopic",
         "function moveTopic",
+        "function userCanMoveTopic",
+        "function listMoveDestinations",
         "function mergeTopics",
         "function splitTopic",
         "function softDeletePost",
@@ -101,6 +103,9 @@ def test_wired_into_bootstrap_functions_tables() -> None:
     for needle in (
         "function ap_lock_topic",
         "function ap_move_topic",
+        "function ap_forum_user_can_move_topic",
+        "function ap_forum_move_destinations",
+        "function ap_forum_move_topic_form_html",
         "function ap_merge_topics",
         "function ap_split_topic",
         "function ap_soft_delete_topic",

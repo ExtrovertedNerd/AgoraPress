@@ -6369,6 +6369,93 @@ function ap_forum_topic_type_select_html(array $types, array $args = []): string
 }
 
 /**
+ * Topic toolbar Move form: destination select (forums the actor can moderate).
+ *
+ * Empty when $topicId is invalid or $destinations has no usable forums.
+ *
+ * @param list<object|array<string, mixed>> $destinations forum_id + forum_name
+ * @param array<string, mixed>              $args         id, name, label, class, button_label
+ */
+function ap_forum_move_topic_form_html(int $topicId, array $destinations, array $args = []): string
+{
+    if ($topicId < 1) {
+        return '';
+    }
+
+    $options = [];
+    foreach ($destinations as $dest) {
+        $id = 0;
+        $name = '';
+        if (is_object($dest)) {
+            $id = (int) ($dest->forum_id ?? 0);
+            $name = trim((string) ($dest->forum_name ?? ''));
+        } elseif (is_array($dest)) {
+            $id = (int) ($dest['forum_id'] ?? $dest['id'] ?? 0);
+            $name = trim((string) ($dest['forum_name'] ?? $dest['name'] ?? ''));
+        }
+        if ($id < 1 || $name === '') {
+            continue;
+        }
+        $options[$id] = $name;
+    }
+    if ($options === []) {
+        return '';
+    }
+
+    $selectId = (string) ($args['id'] ?? 'ap-move-dest-forum');
+    $selectName = (string) ($args['name'] ?? 'dest_forum_id');
+    $label = (string) ($args['label'] ?? 'Move to');
+    $buttonLabel = (string) ($args['button_label'] ?? 'Move');
+    $class = trim((string) ($args['class'] ?? 'ap-forum-action-form ap-forum-action-form--move-topic'));
+    $fieldClass = trim((string) ($args['field_class'] ?? 'ap-field ap-field--move-dest ap-field--inline'));
+    $action = class_exists('AP_Forum_Front', false)
+        ? AP_Forum_Front::ACTION_MOVE_TOPIC
+        : 'ap_forum_move_topic';
+
+    $esc = static function (string $s): string {
+        if (function_exists('agora_esc')) {
+            return agora_esc($s);
+        }
+        if (function_exists('ap_esc_html')) {
+            return ap_esc_html($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+    $escAttr = static function (string $s): string {
+        if (function_exists('agora_esc_attr')) {
+            return agora_esc_attr($s);
+        }
+        if (function_exists('ap_esc_attr')) {
+            return ap_esc_attr($s);
+        }
+
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    };
+
+    $html = '<form method="post" action="" class="' . $escAttr($class) . '">';
+    $html .= '<input type="hidden" name="ap_forum_action" value="' . $escAttr($action) . '">';
+    $html .= '<input type="hidden" name="topic_id" value="' . (int) $topicId . '">';
+    if (function_exists('ap_nonce_field')) {
+        $html .= ap_nonce_field($action . '_' . $topicId);
+    }
+    $html .= '<div class="' . $escAttr($fieldClass) . '">';
+    $html .= '<label for="' . $escAttr($selectId) . '">' . $esc($label) . '</label>';
+    $html .= '<select id="' . $escAttr($selectId) . '" name="' . $escAttr($selectName) . '" required>';
+    $html .= '<option value="">' . $esc('Select forum') . '</option>';
+    foreach ($options as $id => $name) {
+        $html .= '<option value="' . (int) $id . '">' . $esc($name) . '</option>';
+    }
+    $html .= '</select></div>';
+    $html .= '<button type="submit" class="ap-btn ap-btn--ghost ap-btn--sm"'
+        . ' aria-label="' . $escAttr('Move this topic to another forum') . '">';
+    $html .= $esc($buttonLabel);
+    $html .= '</button></form>';
+
+    return $html;
+}
+
+/**
  * Read/unread visual state for a board or topic row (SPEC A1).
  *
  * Returns one of:
@@ -7592,6 +7679,36 @@ function ap_restore_topic(int $topicId, int $moderatorId = 0, ?AP_DB $db = null)
 function ap_move_topic(int $topicId, int $newForumId, int $moderatorId = 0, ?AP_DB $db = null): bool
 {
     return AP_Forum_Moderation::moveTopic($topicId, $newForumId, $moderatorId, $db);
+}
+
+/**
+ * Whether a user may start a topic move from a forum (`move_topics` or `moderate_forum`).
+ *
+ * @see AP_Forum_Moderation::userCanMoveTopic()
+ */
+function ap_forum_user_can_move_topic(int $userId, int $forumId, ?AP_DB $db = null): bool
+{
+    if (!class_exists('AP_Forum_Moderation', false)) {
+        return false;
+    }
+
+    return AP_Forum_Moderation::userCanMoveTopic($userId, $forumId, $db);
+}
+
+/**
+ * Forums a user may move a topic into (not categories, not $fromForumId).
+ *
+ * @return list<object>
+ *
+ * @see AP_Forum_Moderation::listMoveDestinations()
+ */
+function ap_forum_move_destinations(int $userId, int $fromForumId, ?AP_DB $db = null): array
+{
+    if (!class_exists('AP_Forum_Moderation', false)) {
+        return [];
+    }
+
+    return AP_Forum_Moderation::listMoveDestinations($userId, $fromForumId, $db);
 }
 
 /**

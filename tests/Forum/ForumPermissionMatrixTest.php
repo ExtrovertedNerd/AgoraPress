@@ -432,14 +432,16 @@ final class ForumPermissionMatrixTest extends TestCase
             $this->assertSame($spec['allowed_create'], $allowed, "{$role} allowed create types");
         }
 
-        // Topic view: can_reply / can_moderate / can_set_topic_type (edit toolbar).
+        // Topic view: can_reply / can_moderate / can_set_topic_type / can_move_topic.
         // Members without sticky/announce caps get empty edit types → can_set false.
+        // Single public forum: move dest list is empty (no other moderateable forum).
         $topicCases = [
             'guest' => [
                 'user_id' => 0,
                 'can_reply' => false,
                 'can_moderate' => false,
                 'can_set_topic_type' => false,
+                'can_move_topic' => false,
                 'can_subscribe' => false,
             ],
             'member' => [
@@ -447,6 +449,7 @@ final class ForumPermissionMatrixTest extends TestCase
                 'can_reply' => true,
                 'can_moderate' => false,
                 'can_set_topic_type' => false,
+                'can_move_topic' => false,
                 'can_subscribe' => false,
             ],
             'mod' => [
@@ -454,6 +457,7 @@ final class ForumPermissionMatrixTest extends TestCase
                 'can_reply' => true,
                 'can_moderate' => true,
                 'can_set_topic_type' => true,
+                'can_move_topic' => true,
                 'can_subscribe' => false,
             ],
             'admin' => [
@@ -461,6 +465,7 @@ final class ForumPermissionMatrixTest extends TestCase
                 'can_reply' => true,
                 'can_moderate' => true,
                 'can_set_topic_type' => true,
+                'can_move_topic' => true,
                 'can_subscribe' => false,
             ],
         ];
@@ -491,6 +496,12 @@ final class ForumPermissionMatrixTest extends TestCase
                 (bool) $query->get('can_set_topic_type', false),
                 "{$role} can_set_topic_type"
             );
+            $this->assertSame(
+                $spec['can_move_topic'],
+                (bool) $query->get('can_move_topic', false),
+                "{$role} can_move_topic"
+            );
+            $this->assertSame([], $query->get('move_destinations', null), "{$role} move dests on lone forum");
             $this->assertSame(
                 $spec['can_subscribe'],
                 (bool) $query->get('can_subscribe', false),

@@ -2572,6 +2572,30 @@ body.agora-theme {
   margin: 0;
 }
 
+.ap-forum-action-form--move-topic {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.4rem 0.55rem;
+}
+
+.ap-field--move-dest select {
+  max-width: 16rem;
+}
+
+.ap-field--move-dest.ap-field--inline {
+  margin: 0;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 8rem;
+}
+
+.ap-field--move-dest.ap-field--inline label {
+  font-size: 0.8rem;
+  margin: 0;
+}
+
 /* Actions sit top-right of the right pane (SPEC B2: Quote → Edit → Like). */
 .ap-forum-post__actions {
   display: flex;
