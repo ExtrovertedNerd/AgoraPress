@@ -2559,7 +2559,9 @@ class AP_Forum
     /**
      * Theme-friendly post list for a topic.
      *
-     * Action flags (SPEC B2): can_quote, can_edit, can_delete, can_like, can_moderate, can_report.
+     * Action flags (SPEC B2): can_quote, can_edit, can_delete, can_like, can_moderate, can_report
+     * (logged-in + view_forum; guests never get Report; omitted when the viewer
+     * already has an open report on that post).
      *
      * @return list<array<string, mixed>>
      */
@@ -2594,6 +2596,16 @@ class AP_Forum
         $likedMap = [];
         if ($viewerId > 0 && class_exists('AP_Forum_Like', false) && $postIds !== []) {
             $likedMap = AP_Forum_Like::likedMapForUser($viewerId, $postIds, $db);
+        }
+        // One open report per user per post: omit Report once they have an open row.
+        $openReportSet = [];
+        if ($viewerId > 0 && $postIds !== [] && class_exists('AP_Forum_Moderation', false)) {
+            $openReportSet = AP_Forum_Moderation::openReportObjectIdSet(
+                $viewerId,
+                AP_Forum_Moderation::REPORT_TYPE_POST,
+                $postIds,
+                $db
+            );
         }
         // One batch usermeta query for all distinct authors (posts + likes given/received).
         $authorStatsMap = [];
@@ -2671,9 +2683,11 @@ class AP_Forum
                 }
             }
             $row = self::postToDisplayRow($post, $n, $db, $preloaded);
-            $row['liked_by_me'] = !empty($likedMap[(int) $post->post_id]);
+            $pid = (int) $post->post_id;
+            $row['liked_by_me'] = !empty($likedMap[$pid]);
             $row['can_like'] = $viewerId > 0 && $canViewForum;
-            $row['can_report'] = $viewerId > 0 && $canViewForum;
+            // Guests: no form. Logged-in + view_forum, and no open report yet.
+            $row['can_report'] = $viewerId > 0 && $canViewForum && !isset($openReportSet[$pid]);
             $row['can_quote'] = $canQuote;
             $row['can_edit'] = self::userCanEditPost($viewerId, $post, $db);
             $row['can_delete'] = self::userCanDeletePost($viewerId, $post, $db);

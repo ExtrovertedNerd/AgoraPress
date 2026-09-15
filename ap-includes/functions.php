@@ -8154,6 +8154,20 @@ function ap_forum_has_open_report(
 }
 
 /**
+ * Whether the reporter is currently flood-limited on front reports.
+ *
+ * Same interval as posting (`forum_flood_interval`), keyed off last report
+ * time. Moderators / `manage_forums` skip. Interval 0 disables.
+ *
+ * @see AP_Forum_Moderation::isReportFlooding()
+ */
+function ap_forum_is_report_flooding(int $reporterId, ?AP_DB $db = null): bool
+{
+    return class_exists('AP_Forum_Moderation', false)
+        && AP_Forum_Moderation::isReportFlooding($reporterId, $db);
+}
+
+/**
  * Get a report by id.
  *
  * @see AP_Forum_Moderation::getReport()

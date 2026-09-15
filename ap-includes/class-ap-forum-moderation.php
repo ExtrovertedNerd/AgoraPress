@@ -1339,6 +1339,66 @@ class AP_Forum_Moderation
     }
 
     /**
+     * Object ids among $objectIds this reporter already has an open report on.
+     *
+     * Used to omit the front Report form once a user has an open report on
+     * that post (one open report per user per post). Guests (reporter 0)
+     * always get an empty set.
+     *
+     * @param list<int> $objectIds
+     *
+     * @return array<int, true> keyed by object id
+     */
+    public static function openReportObjectIdSet(
+        int $reporterId,
+        string $type,
+        array $objectIds,
+        ?AP_DB $db = null
+    ): array {
+        if ($reporterId < 1 || $objectIds === []) {
+            return [];
+        }
+
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $objectIds),
+            static fn (int $i): bool => $i > 0
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        $db = self::resolveDb($db);
+        $table = $db->quoteIdentifier($db->table('reports'));
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $params = array_merge(
+            [
+                $reporterId,
+                self::normalizeReportType($type),
+                self::REPORT_STATUS_OPEN,
+            ],
+            $ids
+        );
+        $rows = $db->getResults(
+            'SELECT ' . $db->quoteIdentifier('report_object_id') . ' FROM ' . $table
+            . ' WHERE ' . $db->quoteIdentifier('reporter_id') . ' = ?'
+            . ' AND ' . $db->quoteIdentifier('report_type') . ' = ?'
+            . ' AND ' . $db->quoteIdentifier('report_status') . ' = ?'
+            . ' AND ' . $db->quoteIdentifier('report_object_id') . ' IN (' . $placeholders . ')',
+            $params
+        );
+
+        $out = [];
+        foreach ($rows as $row) {
+            $oid = (int) (is_object($row) ? ($row->report_object_id ?? 0) : ($row['report_object_id'] ?? 0));
+            if ($oid > 0) {
+                $out[$oid] = true;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Timestamp of the reporter's most recent report (any status), or null.
      */
     public static function getLastReportTime(int $reporterId, ?AP_DB $db = null): ?string

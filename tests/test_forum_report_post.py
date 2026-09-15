@@ -30,11 +30,14 @@ def test_phpunit_covers_report_spec_cases() -> None:
         "function testLoggedInMemberCreatesOneOpenPostReport",
         "function testGuestCannotReportPost",
         "function testDuplicateOpenReportRefused",
+        "function testTwoUsersMayEachHaveOneOpenReportOnSamePost",
         "function testReportPostInsertIgnoresCraftedTypeAndStatus",
         "function testReasonRequiredAndFailedInsertDoesNotClaimSuccess",
         "function testReportFloodGuard",
+        "function testFloodOffAllowsRapidReportsOnDifferentPosts",
         "function testMissingViewForumRefused",
         "function testTopicViewShowsReportForLoggedInNotGuest",
+        "function testOpenReportHidesFormForReporterNotOtherPostsOrUsers",
         "function testReportPostFormHtmlRequiresPostIdAndReason",
         "function rawReportRow",
         "ap_reports",
@@ -61,6 +64,7 @@ def test_report_post_inserts_open_post_row_and_guards() -> None:
     assert "$reason === ''" in body
     assert "report_type" in body
     assert "function hasOpenReport" in mod
+    assert "function openReportObjectIdSet" in mod
     assert "function isReportFlooding" in mod
     assert "function getLastReportTime" in mod
 
@@ -74,6 +78,7 @@ def test_report_post_inserts_open_post_row_and_guards() -> None:
     assert "post_reported" in front
     assert "isReportFlooding" in front
     assert "hasOpenReport" in front
+    assert "You are reporting too quickly." in front
     assert "userCanViewForum" in front
     assert "Could not submit the report." in front
     assert "You must be logged in to report posts." in front
@@ -89,6 +94,8 @@ def test_topic_view_report_form_logged_in_reason_required() -> None:
     assert "ap_forum_report_post" in topic
     assert ">Report</button>" in topic or ">$esc($buttonLabel)" in functions
     assert "function ap_forum_report_post_form_html" in functions
+    assert "function ap_forum_is_report_flooding" in functions
+    assert "function ap_forum_has_open_report" in functions
     helper = functions.split("function ap_forum_report_post_form_html", 1)[1].split(
         "function ap_forum_row_read_state", 1
     )[0]

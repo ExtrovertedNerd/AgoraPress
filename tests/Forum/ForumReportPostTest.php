@@ -254,6 +254,15 @@ final class ForumReportPostTest extends TestCase
         $this->assertSame('You must be logged in to report posts.', $notice['message'] ?? null);
         $this->assertSame(0, $this->openReportCount($postId));
 
+        AP_Forum_Front::setNotice(null);
+        $noNonce = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $postId,
+            'report_reason' => 'spam',
+        ], $this->db);
+        $this->assertNull($noNonce);
+        $this->assertSame(0, $this->openReportCount($postId));
+
         $this->assertSame(0, AP_Forum_Moderation::createReport([
             'reporter_id' => 0,
             'report_type' => 'post',
@@ -261,6 +270,12 @@ final class ForumReportPostTest extends TestCase
             'report_reason' => 'spam',
         ], $this->db));
         $this->assertSame(0, $this->openReportCount($postId));
+        $this->assertSame([], AP_Forum_Moderation::openReportObjectIdSet(
+            0,
+            AP_Forum_Moderation::REPORT_TYPE_POST,
+            [$postId],
+            $this->db
+        ));
     }
 
     /**
@@ -331,6 +346,51 @@ final class ForumReportPostTest extends TestCase
         $this->assertIsString($third);
         $this->assertSame(1, $this->openReportCount($postId, $memberId));
         $this->assertSame(2, $this->reportCount($postId, $memberId));
+    }
+
+    /**
+     * SPEC: one open report *per user* per post — a second member may still file.
+     */
+    public function testTwoUsersMayEachHaveOneOpenReportOnSamePost(): void
+    {
+        $firstUser = $this->createSubscriber('report_a');
+        $secondUser = $this->createSubscriber('report_b');
+        [$postId] = $this->seedTopicWithReply();
+
+        $this->assertTrue(AP_Session::setAuthCookie($firstUser, false, $this->db));
+        $first = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $postId,
+            'report_reason' => 'spam',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $postId, $firstUser),
+        ], $this->db);
+        $this->assertIsString($first);
+        $this->assertSame(1, $this->openReportCount($postId, $firstUser));
+
+        $this->assertTrue(AP_Session::setAuthCookie($secondUser, false, $this->db));
+        $second = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $postId,
+            'report_reason' => 'also spam',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $postId, $secondUser),
+        ], $this->db);
+        $this->assertIsString($second);
+        $this->assertSame(1, $this->openReportCount($postId, $secondUser));
+        $this->assertSame(2, $this->openReportCount($postId));
+
+        $set = AP_Forum_Moderation::openReportObjectIdSet(
+            $firstUser,
+            AP_Forum_Moderation::REPORT_TYPE_POST,
+            [$postId],
+            $this->db
+        );
+        $this->assertTrue($set[$postId] ?? false);
+        $this->assertTrue(ap_forum_has_open_report(
+            $firstUser,
+            AP_Forum_Moderation::REPORT_TYPE_POST,
+            $postId,
+            $this->db
+        ));
     }
 
     /**
@@ -440,6 +500,39 @@ final class ForumReportPostTest extends TestCase
         ], $this->db);
         $this->assertIsString($staff);
         $this->assertSame(1, $this->openReportCount($secondId, $this->adminId));
+        $this->assertFalse(ap_forum_is_report_flooding($this->adminId, $this->db));
+    }
+
+    /**
+     * Flood interval 0 (tests / Settings) does not block a second report.
+     */
+    public function testFloodOffAllowsRapidReportsOnDifferentPosts(): void
+    {
+        $this->assertSame(0, AP_Forum_Guard::getFloodInterval($this->db));
+        $memberId = $this->createSubscriber('report_rapid');
+        [$firstId, $secondId] = $this->seedTopicWithReply();
+
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+        $first = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $firstId,
+            'report_reason' => 'first',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $firstId, $memberId),
+        ], $this->db);
+        $this->assertIsString($first);
+        $this->assertFalse(AP_Forum_Moderation::isReportFlooding($memberId, $this->db));
+        $this->assertFalse(ap_forum_is_report_flooding($memberId, $this->db));
+
+        AP_Forum_Front::setNotice(null);
+        $second = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $secondId,
+            'report_reason' => 'second',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $secondId, $memberId),
+        ], $this->db);
+        $this->assertIsString($second);
+        $this->assertSame(1, $this->openReportCount($firstId, $memberId));
+        $this->assertSame(1, $this->openReportCount($secondId, $memberId));
     }
 
     public function testMissingViewForumRefused(): void
@@ -524,6 +617,69 @@ final class ForumReportPostTest extends TestCase
         foreach ($rows as $row) {
             $this->assertTrue((bool) ($row['can_report'] ?? false), 'logged-in viewer can report');
         }
+    }
+
+    /**
+     * One open report per user per post: form is omitted for that post, not others.
+     */
+    public function testOpenReportHidesFormForReporterNotOtherPostsOrUsers(): void
+    {
+        $memberId = $this->createSubscriber('report_hide');
+        $otherId = $this->createSubscriber('report_peer');
+        [$firstId, $secondId] = $this->seedTopicWithReply();
+        $first = AP_Forum::getPost($firstId, $this->db);
+        $this->assertNotNull($first);
+        $topicId = (int) ($first->topic_id ?? 0);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+
+        $this->assertTrue(AP_Session::setAuthCookie($memberId, false, $this->db));
+        $redirect = AP_Forum_Front::handlePost([
+            'ap_forum_action' => AP_Forum_Front::ACTION_REPORT_POST,
+            'post_id' => $firstId,
+            'report_reason' => 'spam',
+            '_ap_nonce' => AP_Nonce::create('ap_forum_report_post_' . $firstId, $memberId),
+        ], $this->db);
+        $this->assertIsString($redirect);
+
+        $memberRows = AP_Forum::getPostsDisplayData($topicId, ['per_page' => 50], $this->db);
+        $byId = [];
+        foreach ($memberRows as $row) {
+            $byId[(int) ($row['id'] ?? 0)] = $row;
+        }
+        $this->assertFalse((bool) ($byId[$firstId]['can_report'] ?? true), 'already reported');
+        $this->assertTrue((bool) ($byId[$secondId]['can_report'] ?? false), 'other post still reportable');
+
+        $vars = AP_Rewrite::parseRequest('topic/' . $topic->topic_slug, [], $this->db);
+        $memberQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($memberQuery, $this->db);
+        ap_set_query($memberQuery);
+        ob_start();
+        AP_Theme::render($memberQuery, $this->db);
+        $memberHtml = (string) ob_get_clean();
+        $this->assertStringNotContainsString('id="agora-report-reason-' . $firstId . '"', $memberHtml);
+        $this->assertStringContainsString('id="agora-report-reason-' . $secondId . '"', $memberHtml);
+
+        $this->assertTrue(AP_Session::setAuthCookie($otherId, false, $this->db));
+        $peerRows = AP_Forum::getPostsDisplayData($topicId, ['per_page' => 50], $this->db);
+        foreach ($peerRows as $row) {
+            $this->assertTrue((bool) ($row['can_report'] ?? false), 'peer still sees Report');
+        }
+
+        AP_Session::clearAuthCookie();
+        AP_Session::resetCurrentUser();
+        $guestRows = AP_Forum::getPostsDisplayData($topicId, ['per_page' => 50], $this->db);
+        foreach ($guestRows as $row) {
+            $this->assertFalse((bool) ($row['can_report'] ?? true), 'guest still has no form');
+        }
+        $guestQuery = AP_Rewrite::queryFromVars($vars, $this->db);
+        AP_Forum_Front::applyToQuery($guestQuery, $this->db);
+        ap_set_query($guestQuery);
+        ob_start();
+        AP_Theme::render($guestQuery, $this->db);
+        $guestHtml = (string) ob_get_clean();
+        $this->assertStringNotContainsString('ap_forum_report_post', $guestHtml);
+        $this->assertStringNotContainsString('name="report_reason"', $guestHtml);
     }
 
     public function testReportPostFormHtmlRequiresPostIdAndReason(): void
