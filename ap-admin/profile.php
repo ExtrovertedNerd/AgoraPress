@@ -22,7 +22,12 @@ if ($actorId < 1 || $user === null) {
 $extra = [];
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    $result = AP_Admin_User_Edit::save($_POST, $actorId, 'profile', null, $_FILES);
+    try {
+        $result = AP_Admin_User_Edit::save($_POST, $actorId, 'profile', null, $_FILES);
+    } finally {
+        // Verified inside save(). Do not redisplay or leave it on the request.
+        unset($_POST['current_password'], $_REQUEST['current_password']);
+    }
     if ($result['ok']) {
         // Password change may have invalidated the session; re-auth is required later
         // Password change already revokes sessions via AP_User::updatePassword.
@@ -36,11 +41,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             'message' => $result['message_key'],
         ]));
     }
-    foreach ($result['errors'] as $err) {
-        AP_Admin::addNotice($err, 'error');
-    }
+    AP_Admin_User_Edit::queueSaveErrors($result['errors']);
+    $storedUser = ($result['user'] instanceof AP_User) ? $result['user'] : $user;
+    $submittedEmail = (string) ($_POST['user_email'] ?? $storedUser->user_email);
     $extra = [
-        'user_email' => (string) ($_POST['user_email'] ?? $user->user_email),
+        'user_email' => AP_Admin_User_Edit::profileEmailAfterSave(
+            $result['errors'],
+            $submittedEmail,
+            (string) $storedUser->user_email
+        ),
         'user_url' => (string) ($_POST['user_url'] ?? $user->user_url),
         'display_name' => (string) ($_POST['display_name'] ?? $user->display_name),
         'first_name' => (string) ($_POST['first_name'] ?? ''),

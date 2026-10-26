@@ -14,12 +14,27 @@ declare(strict_types=1);
 class AP_Admin_User_Edit
 {
     /**
+     * Shown when the own-profile form submits a current password that does not match.
+     */
+    public const NOTICE_CURRENT_PASSWORD_INCORRECT = 'Your current password is incorrect.';
+
+    /**
+     * Shown when a password or email change omits the current password.
+     */
+    public const NOTICE_CURRENT_PASSWORD_REQUIRED =
+        'Enter your current password to change your password or email.';
+
+    /**
      * Save a user from a form submission bag.
      *
      * Modes:
      * - create (user_ID empty)
      * - update (user_ID set, typically requires edit_users)
-     * - profile (user_ID = current user; role not changed)
+     * - profile (user_ID = current user; role not changed). Changing the
+     *   password or email requires the current password. A missing or wrong
+     *   current password is an error notice; that password and email are not
+     *   saved, and other submitted fields still save. Other fields do not
+     *   require the current password.
      *
      * @param array<string, mixed> $input Typically $_POST.
      * @param string               $mode  create|update|profile
@@ -131,6 +146,28 @@ class AP_Admin_User_Edit
 
         $data = self::collectFields($input, $isNew, $mode, $actorId, $db);
 
+        // Own profile: password and email changes need the current password.
+        // This runs before new-password checks so a missing or wrong current
+        // password drops only those fields. A mismatched or short new password
+        // must not replace that notice or block the rest of the save.
+        // Nonce and capability checks above are unchanged.
+        $reauthError = null;
+        if ($mode === 'profile') {
+            $existing = AP_User::getById($id, $db);
+            if ($existing === null) {
+                return [
+                    'ok' => false,
+                    'id' => $id,
+                    'message_key' => 'error',
+                    'errors' => ['User not found.'],
+                    'user' => null,
+                ];
+            }
+            [$data, $reauthError] = self::applyProfileCurrentPassword($existing, $input, $data);
+            // Drop the submitted secret before later steps see $input.
+            unset($input['current_password']);
+        }
+
         $passErrors = self::passwordErrors($data, $isNew);
         unset($data['_password_mismatch']);
         if ($passErrors !== []) {
@@ -181,17 +218,26 @@ class AP_Admin_User_Edit
 
         $result = AP_User::update($id, $data, $db);
         if (!$result['ok']) {
+            $errors = $result['errors'];
+            if ($reauthError !== null) {
+                array_unshift($errors, $reauthError);
+            }
+
             return [
                 'ok' => false,
                 'id' => $id,
                 'message_key' => 'error',
-                'errors' => $result['errors'],
+                'errors' => $errors,
                 'user' => $result['user'],
             ];
         }
 
         $avatarErrors = self::processAvatar($id, $input, $files, $db);
         if ($avatarErrors !== []) {
+            if ($reauthError !== null) {
+                array_unshift($avatarErrors, $reauthError);
+            }
+
             return [
                 'ok' => false,
                 'id' => $id,
@@ -211,6 +257,16 @@ class AP_Admin_User_Edit
                 ? $input['forum_notify_email']
                 : '0';
             AP_Forum_Notify::setUserNotifyEnabled($id, $posted, $db);
+        }
+
+        if ($reauthError !== null) {
+            return [
+                'ok' => false,
+                'id' => $id,
+                'message_key' => 'error',
+                'errors' => [$reauthError],
+                'user' => AP_User::getById($id, $db),
+            ];
         }
 
         return [
@@ -327,6 +383,10 @@ class AP_Admin_User_Edit
         $html .= '<label for="user_email">Email <span class="required">*</span></label>';
         $html .= '<input type="email" name="user_email" id="user_email" class="regular-text" required '
             . 'maxlength="100" value="' . ap_esc_attr($email) . '" autocomplete="email" />';
+        if ($mode === 'profile') {
+            $html .= '<p class="description">Changing your email requires your current password '
+                . 'in Account Management.</p>';
+        }
         $html .= '</div>';
 
         // Website.
@@ -337,6 +397,11 @@ class AP_Admin_User_Edit
         $html .= '</div>';
 
         $html .= '</fieldset>';
+
+        // Own profile: current password sits with the email field and the new-password fields.
+        if ($mode === 'profile') {
+            $html .= self::renderPasswordFieldset(false, true);
+        }
 
         $html .= '<fieldset class="ap-fieldset">';
         $html .= '<legend>Name</legend>';
@@ -408,27 +473,10 @@ class AP_Admin_User_Edit
             $html .= self::renderColorModeFieldset($id, $extra, $db);
         }
 
-        // Password.
-        $html .= '<fieldset class="ap-fieldset">';
-        $html .= '<legend>' . ($isNew ? 'Password' : 'Account Management') . '</legend>';
-        $html .= '<div class="ap-field">';
-        $html .= '<label for="pass1">' . ($isNew ? 'Password <span class="required">*</span>' : 'New Password')
-            . '</label>';
-        $html .= '<input type="password" name="pass1" id="pass1" class="regular-text" '
-            . 'autocomplete="new-password"' . ($isNew ? ' required' : '') . ' />';
-        if (!$isNew) {
-            $html .= '<p class="description">Leave blank to keep the current password.</p>';
-        } else {
-            $html .= '<p class="description">Minimum 8 characters. Use a strong unique password.</p>';
+        // Create and editing another user: password fields stay at the end, with no current password.
+        if ($mode !== 'profile') {
+            $html .= self::renderPasswordFieldset($isNew, false);
         }
-        $html .= '</div>';
-        $html .= '<div class="ap-field">';
-        $html .= '<label for="pass2">Confirm Password' . ($isNew ? ' <span class="required">*</span>' : '')
-            . '</label>';
-        $html .= '<input type="password" name="pass2" id="pass2" class="regular-text" '
-            . 'autocomplete="new-password"' . ($isNew ? ' required' : '') . ' />';
-        $html .= '</div>';
-        $html .= '</fieldset>';
 
         // Role.
         if ($canPromote && class_exists('AP_Roles', false) && $db !== null) {
@@ -482,6 +530,47 @@ class AP_Admin_User_Edit
         ) {
             $html .= self::renderResendVerificationForm($user, $actorId);
         }
+
+        return $html;
+    }
+
+    /**
+     * New-password fields. The own-profile form also asks for the current password.
+     *
+     * The submitted current password is never written back into the markup.
+     */
+    private static function renderPasswordFieldset(bool $isNew, bool $showCurrentPassword): string
+    {
+        $html = '<fieldset class="ap-fieldset">';
+        $html .= '<legend>' . ($isNew ? 'Password' : 'Account Management') . '</legend>';
+
+        if ($showCurrentPassword) {
+            $html .= '<div class="ap-field">';
+            $html .= '<label for="current_password">Current password</label>';
+            $html .= '<input type="password" name="current_password" id="current_password" class="regular-text" '
+                . 'autocomplete="current-password" />';
+            $html .= '<p class="description">Enter your current password to change your password or email.</p>';
+            $html .= '</div>';
+        }
+
+        $html .= '<div class="ap-field">';
+        $html .= '<label for="pass1">' . ($isNew ? 'Password <span class="required">*</span>' : 'New Password')
+            . '</label>';
+        $html .= '<input type="password" name="pass1" id="pass1" class="regular-text" '
+            . 'autocomplete="new-password"' . ($isNew ? ' required' : '') . ' />';
+        if (!$isNew) {
+            $html .= '<p class="description">Leave blank to keep the current password.</p>';
+        } else {
+            $html .= '<p class="description">Minimum 8 characters. Use a strong unique password.</p>';
+        }
+        $html .= '</div>';
+        $html .= '<div class="ap-field">';
+        $html .= '<label for="pass2">Confirm Password' . ($isNew ? ' <span class="required">*</span>' : '')
+            . '</label>';
+        $html .= '<input type="password" name="pass2" id="pass2" class="regular-text" '
+            . 'autocomplete="new-password"' . ($isNew ? ' required' : '') . ' />';
+        $html .= '</div>';
+        $html .= '</fieldset>';
 
         return $html;
     }
@@ -925,6 +1014,105 @@ class AP_Admin_User_Edit
         }
 
         return $data;
+    }
+
+    /**
+     * Require the current password only when this profile save changes email or password.
+     *
+     * Other submitted fields are left in `$data` either way. On failure the new email
+     * and password are removed (including a mismatch flag) so they are not stored and
+     * do not fail the rest of the save. The submitted value is checked only with
+     * {@see AP_User::checkPassword()} (`password_verify`) and is not copied onto the
+     * saved field bag, included in the error text, or logged.
+     *
+     * @param array<string, mixed> $input
+     * @param array<string, mixed> $data
+     *
+     * @return array{0: array<string, mixed>, 1: ?string}
+     */
+    private static function applyProfileCurrentPassword(AP_User $existing, array $input, array $data): array
+    {
+        unset($data['current_password']);
+
+        $submittedEmail = AP_User::sanitizeEmail((string) ($data['user_email'] ?? $data['email'] ?? ''));
+        $storedEmail = AP_User::sanitizeEmail((string) $existing->user_email);
+        $emailChanged = $submittedEmail !== $storedEmail;
+        $passwordChanged = (string) ($data['password'] ?? '') !== '';
+        if (!$emailChanged && !$passwordChanged) {
+            return [$data, null];
+        }
+
+        $current = (string) ($input['current_password'] ?? '');
+        $provided = $current !== '';
+        $verified = AP_User::checkPassword($current, (string) $existing->user_pass);
+
+        if ($verified) {
+            return [$data, null];
+        }
+
+        $data['user_email'] = $existing->user_email;
+        unset($data['password'], $data['user_pass'], $data['_password_mismatch']);
+
+        $notice = $provided
+            ? self::NOTICE_CURRENT_PASSWORD_INCORRECT
+            : self::NOTICE_CURRENT_PASSWORD_REQUIRED;
+
+        return [$data, $notice];
+    }
+
+    /**
+     * Queue save failures as error notices.
+     *
+     * Missing and incorrect current-password messages stay error notices.
+     * This does not add a success notice.
+     *
+     * @param list<mixed> $errors
+     */
+    public static function queueSaveErrors(array $errors): void
+    {
+        foreach ($errors as $err) {
+            if (!is_string($err) || $err === '') {
+                continue;
+            }
+            AP_Admin::addNotice($err, 'error');
+        }
+    }
+
+    /**
+     * Whether these errors rejected a password or email change.
+     *
+     * @param list<mixed> $errors
+     */
+    public static function profileSensitiveChangeRejected(array $errors): bool
+    {
+        foreach ($errors as $error) {
+            if (
+                $error === self::NOTICE_CURRENT_PASSWORD_INCORRECT
+                || $error === self::NOTICE_CURRENT_PASSWORD_REQUIRED
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Email to show again after a profile save.
+     *
+     * A missing or incorrect current password keeps the stored address on screen
+     * so the notice matches what was saved. Other validation failures keep the
+     * submitted address so it can be corrected.
+     *
+     * @param list<mixed> $errors
+     */
+    public static function profileEmailAfterSave(array $errors, string $submittedEmail, string $storedEmail): string
+    {
+        if (self::profileSensitiveChangeRejected($errors)) {
+            return $storedEmail;
+        }
+
+        return $submittedEmail;
     }
 
     /**
