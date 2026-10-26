@@ -662,7 +662,10 @@ function ap_auth_cookie_name(): string
 }
 
 /**
- * Revoke every session token for a user (e.g. after password change).
+ * Revoke every session token for a user (password reset, admin reset, deletion).
+ *
+ * A signed-in user changing their own password uses
+ * {@see AP_Session::rotateCurrentSession()} so that browser stays signed in.
  *
  * @see AP_Session::destroyAllSessionTokens()
  */

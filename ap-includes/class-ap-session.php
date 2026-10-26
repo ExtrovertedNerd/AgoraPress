@@ -7,7 +7,10 @@
  * (or {@see AP_Session::login()}) to establish a logged-in session. Cookies are
  * HMAC-SHA256 signed with AP_LOGGED_IN_KEY + AP_LOGGED_IN_SALT and bound to a
  * per-session token stored in usermeta (so logout / password change can revoke
- * sessions server-side).
+ * sessions server-side). A signed-in user who changes their own password keeps
+ * this browser: other sessions and remember-me tokens are removed, and the
+ * current session id is rotated. Remember-me is a longer lifetime on the same
+ * token, not a second store.
  *
  * Cookie value format: user_id|expiration|token|hmac
  *
@@ -268,7 +271,7 @@ class AP_Session
         }
 
         $expiration = self::cookieExpiration($remember);
-        $token = self::createSessionToken($user->ID, $expiration, $db);
+        $token = self::createSessionToken($user->ID, $expiration, $db, $remember);
         if ($token === '') {
             return false;
         }
@@ -403,9 +406,16 @@ class AP_Session
 
     /**
      * Create a random session token, store its hash in usermeta, return the raw token.
+     *
+     * `$remember` is stored with the token so a later rotation can keep the
+     * same lifetime. Remember-me is not a separate token table.
      */
-    public static function createSessionToken(int $userId, int $expiration, ?AP_DB $db = null): string
-    {
+    public static function createSessionToken(
+        int $userId,
+        int $expiration,
+        ?AP_DB $db = null,
+        bool $remember = false
+    ): string {
         if ($userId < 1) {
             return '';
         }
@@ -421,6 +431,7 @@ class AP_Session
         $sessions[self::hashToken($token)] = [
             'expiration' => $expiration,
             'login' => time(),
+            'remember' => $remember ? 1 : 0,
         ];
         self::saveSessionTokens($userId, $sessions, $db);
 
@@ -447,7 +458,7 @@ class AP_Session
     }
 
     /**
-     * Revoke every session for a user (e.g. after password change).
+     * Revoke every session for a user (password reset, admin reset, deletion).
      */
     public static function destroyAllSessionTokens(int $userId, ?AP_DB $db = null): void
     {
@@ -456,6 +467,85 @@ class AP_Session
         }
 
         self::saveSessionTokens($userId, [], $db);
+    }
+
+    /**
+     * Drop every session except one raw token.
+     *
+     * Remember-me sessions live in the same usermeta map, so they are removed
+     * with the other rows. An empty `$exceptToken`, or one that is not stored,
+     * removes every session.
+     */
+    public static function destroyOtherSessionTokens(int $userId, string $exceptToken, ?AP_DB $db = null): void
+    {
+        if ($userId < 1) {
+            return;
+        }
+
+        if ($exceptToken === '') {
+            self::destroyAllSessionTokens($userId, $db);
+
+            return;
+        }
+
+        $sessions = self::getSessionTokens($userId, $db);
+        $keepHash = self::hashToken($exceptToken);
+        if (!isset($sessions[$keepHash])) {
+            self::saveSessionTokens($userId, [], $db);
+
+            return;
+        }
+
+        self::saveSessionTokens($userId, [$keepHash => $sessions[$keepHash]], $db);
+    }
+
+    /**
+     * Token and remember-me flag for this request when it is signed in as `$userId`.
+     *
+     * Read this before the password hash is replaced. The cookie HMAC includes
+     * a fragment of that hash, so a lookup after the write can no longer see it.
+     *
+     * @return array{token: string, remember: bool}|null
+     */
+    public static function currentSessionSnapshot(int $userId, ?AP_DB $db = null): ?array
+    {
+        if ($userId < 1 || self::getCurrentUserId($db) !== $userId) {
+            return null;
+        }
+
+        $token = self::$currentToken;
+        if (!is_string($token) || $token === '' || !self::sessionTokenIsValid($userId, $token, $db)) {
+            return null;
+        }
+
+        return [
+            'token' => $token,
+            'remember' => self::sessionTokenIsRemembered($userId, $token, $db),
+        ];
+    }
+
+    /**
+     * Destroy every other session and replace `$currentToken` with a new id.
+     *
+     * The new cookie is signed with the user row as stored now (the new
+     * password hash, when the caller already saved it) and uses `$remember`
+     * for the lifetime. Returns false when the user cannot receive a cookie;
+     * stored sessions for `$currentToken` are already gone in that case.
+     */
+    public static function rotateCurrentSession(
+        int $userId,
+        string $currentToken,
+        bool $remember,
+        ?AP_DB $db = null
+    ): bool {
+        if ($userId < 1 || $currentToken === '') {
+            return false;
+        }
+
+        self::destroyOtherSessionTokens($userId, $currentToken, $db);
+        self::destroySessionToken($userId, $currentToken, $db);
+
+        return self::setAuthCookie($userId, $remember, $db);
     }
 
     /**
@@ -497,7 +587,7 @@ class AP_Session
     }
 
     /**
-     * @return array<string, array{expiration: int, login?: int}>
+     * @return array<string, array{expiration: int, login: int, remember?: int}>
      */
     public static function getSessionTokens(int $userId, ?AP_DB $db = null): array
     {
@@ -516,17 +606,21 @@ class AP_Session
             if (!is_string($hash) || $hash === '' || !is_array($data)) {
                 continue;
             }
-            $out[$hash] = [
+            $row = [
                 'expiration' => (int) ($data['expiration'] ?? 0),
                 'login' => (int) ($data['login'] ?? 0),
             ];
+            if (array_key_exists('remember', $data)) {
+                $row['remember'] = (int) $data['remember'] === 1 ? 1 : 0;
+            }
+            $out[$hash] = $row;
         }
 
         return $out;
     }
 
     /**
-     * @param array<string, array{expiration: int, login?: int}> $sessions
+     * @param array<string, array{expiration: int, login: int, remember?: int}> $sessions
      */
     public static function saveSessionTokens(int $userId, array $sessions, ?AP_DB $db = null): void
     {
@@ -541,9 +635,9 @@ class AP_Session
     }
 
     /**
-     * @param array<string, array{expiration: int, login?: int}> $sessions
+     * @param array<string, array{expiration: int, login: int, remember?: int}> $sessions
      *
-     * @return array<string, array{expiration: int, login?: int}>
+     * @return array<string, array{expiration: int, login: int, remember?: int}>
      */
     private static function pruneExpiredSessions(array $sessions): array
     {
@@ -569,6 +663,35 @@ class AP_Session
     private static function hashToken(string $token): string
     {
         return hash('sha256', $token);
+    }
+
+    /**
+     * Whether the stored session was issued with “remember me”.
+     *
+     * New rows store `remember`. Older rows are inferred from the original
+     * lifetime (14 days vs 2 days).
+     */
+    private static function sessionTokenIsRemembered(int $userId, string $token, ?AP_DB $db): bool
+    {
+        $sessions = self::getSessionTokens($userId, $db);
+        $row = $sessions[self::hashToken($token)] ?? null;
+        if (!is_array($row)) {
+            return false;
+        }
+
+        if (array_key_exists('remember', $row)) {
+            return (int) $row['remember'] === 1;
+        }
+
+        $login = (int) ($row['login'] ?? 0);
+        $expiration = (int) ($row['expiration'] ?? 0);
+        if ($login > 0 && $expiration > $login) {
+            $boundary = (int) ((self::LIFETIME_DEFAULT + self::LIFETIME_REMEMBER) / 2);
+
+            return ($expiration - $login) >= $boundary;
+        }
+
+        return ($expiration - time()) > self::LIFETIME_DEFAULT;
     }
 
     private static function hmacKey(): string

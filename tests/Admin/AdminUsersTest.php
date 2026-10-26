@@ -1532,6 +1532,276 @@ final class AdminUsersTest extends TestCase
         $this->assertFalse(AP_User::checkPassword('password123', $password['user']->user_pass));
     }
 
+    public function testProfilePasswordChangeKeepsCurrentSessionAndDropsOthers(): void
+    {
+        $plain = 'password123';
+        $user = AP_User::create([
+            'user_login' => 'sesself',
+            'user_email' => 'sesself@example.test',
+            'password' => $plain,
+            'role' => 'author',
+            'display_name' => 'Session Self',
+        ], $this->db);
+        $this->assertTrue($user['ok'], implode('; ', $user['errors']));
+        $id = (int) $user['id'];
+
+        AP_Session::enableTestMode();
+        $this->assertNotNull(AP_Session::login('sesself', $plain, true, $this->db));
+        $name = AP_Session::cookieName();
+        $before = AP_Session::getTestCookies()[$name] ?? '';
+        $beforeParts = explode('|', $before);
+        $beforeToken = $beforeParts[2] ?? '';
+        $this->assertNotSame('', $beforeToken);
+
+        $otherExp = time() + AP_Session::LIFETIME_REMEMBER;
+        $otherToken = AP_Session::createSessionToken($id, $otherExp, $this->db, true);
+        $loaded = AP_User::getById($id, $this->db);
+        $this->assertNotNull($loaded);
+        $otherCookie = AP_Session::generateAuthCookie($loaded, $otherExp, $otherToken);
+
+        $rejected = AP_Admin_User_Edit::save([
+            '_ap_nonce' => ap_create_nonce('update-profile-' . $id, $id),
+            'user_ID' => $id,
+            'user_email' => 'sesself@example.test',
+            'pass1' => 'new-password-99',
+            'pass2' => 'new-password-99',
+            'display_name' => 'Session Self',
+            'current_password' => 'not-the-password',
+        ], $id, 'profile', $this->db);
+        $this->assertFalse($rejected['ok']);
+        $this->assertSame($before, AP_Session::getTestCookies()[$name] ?? '');
+        $this->assertTrue(AP_Session::sessionTokenIsValid($id, $beforeToken, $this->db));
+        $this->assertTrue(AP_Session::sessionTokenIsValid($id, $otherToken, $this->db));
+        $this->assertTrue(AP_User::checkPassword($plain, (string) $rejected['user']?->user_pass));
+
+        $saved = AP_Admin_User_Edit::save([
+            '_ap_nonce' => ap_create_nonce('update-profile-' . $id, $id),
+            'user_ID' => $id,
+            'user_email' => 'sesself@example.test',
+            'pass1' => 'new-password-99',
+            'pass2' => 'new-password-99',
+            'display_name' => 'Session Self',
+            'current_password' => $plain,
+        ], $id, 'profile', $this->db);
+        $this->assertTrue($saved['ok'], implode('; ', $saved['errors']));
+        $this->assertSame('profile_updated', $saved['message_key']);
+        $this->assertTrue(AP_Session::isLoggedIn($this->db));
+        $this->assertSame($id, AP_Session::getCurrentUserId($this->db));
+
+        $after = AP_Session::getTestCookies()[$name] ?? '';
+        $afterParts = explode('|', $after);
+        $afterToken = $afterParts[2] ?? '';
+        $this->assertNotSame('', $afterToken);
+        $this->assertNotSame($beforeToken, $afterToken);
+        $this->assertFalse(AP_Session::sessionTokenIsValid($id, $beforeToken, $this->db));
+        $this->assertFalse(AP_Session::sessionTokenIsValid($id, $otherToken, $this->db));
+        $this->assertTrue(AP_Session::sessionTokenIsValid($id, $afterToken, $this->db));
+        $this->assertCount(1, AP_Session::getSessionTokens($id, $this->db));
+        $afterExp = (int) ($afterParts[1] ?? 0);
+        $this->assertGreaterThan(time() + AP_Session::LIFETIME_DEFAULT, $afterExp);
+
+        AP_Session::resetCurrentUser();
+        $this->assertSame($id, AP_Session::getCurrentUserId($this->db));
+        $this->assertNull(AP_Session::validateAuthCookie($before, $this->db));
+        $this->assertNull(AP_Session::validateAuthCookie($otherCookie, $this->db));
+        $this->assertTrue(AP_Session::isLoggedIn($this->db));
+
+        $secondOther = AP_Session::createSessionToken($id, time() + AP_Session::LIFETIME_REMEMBER, $this->db, true);
+        $mid = AP_Session::getTestCookies()[$name] ?? '';
+        $midToken = explode('|', $mid)[2] ?? '';
+        $again = AP_Admin_User_Edit::save([
+            '_ap_nonce' => ap_create_nonce('update-user-' . $id, $id),
+            'user_ID' => $id,
+            'user_email' => 'sesself@example.test',
+            'pass1' => 'newer-password-1',
+            'pass2' => 'newer-password-1',
+            'display_name' => 'Session Self',
+            'current_password' => 'new-password-99',
+        ], $id, 'update', $this->db);
+        $this->assertTrue($again['ok'], implode('; ', $again['errors']));
+        $this->assertSame('user_updated', $again['message_key']);
+        $this->assertTrue(AP_User::checkPassword('newer-password-1', (string) $again['user']?->user_pass));
+        $this->assertTrue(AP_Session::isLoggedIn($this->db));
+        $this->assertSame($id, AP_Session::getCurrentUserId($this->db));
+        $final = AP_Session::getTestCookies()[$name] ?? '';
+        $finalToken = explode('|', $final)[2] ?? '';
+        $this->assertNotSame($midToken, $finalToken);
+        $this->assertFalse(AP_Session::sessionTokenIsValid($id, $midToken, $this->db));
+        $this->assertFalse(AP_Session::sessionTokenIsValid($id, $secondOther, $this->db));
+        $this->assertTrue(AP_Session::sessionTokenIsValid($id, $finalToken, $this->db));
+        $this->assertCount(1, AP_Session::getSessionTokens($id, $this->db));
+    }
+
+    public function testAdminResetOfAnotherUserDestroysAllTargetSessions(): void
+    {
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.40';
+
+        $admin = AP_User::create([
+            'user_login' => 'sessadmin',
+            'user_email' => 'sessadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+            'display_name' => 'Session Admin',
+        ], $this->db);
+        $this->assertTrue($admin['ok'], implode('; ', $admin['errors']));
+        $adminId = (int) $admin['id'];
+
+        $target = AP_User::create([
+            'user_login' => 'sesstarget',
+            'user_email' => 'sesstarget@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+            'display_name' => 'Session Target',
+        ], $this->db);
+        $this->assertTrue($target['ok'], implode('; ', $target['errors']));
+        $targetId = (int) $target['id'];
+        $this->assertTrue(ap_user_can($adminId, 'edit_users', null, $this->db));
+
+        $editor = AP_User::create([
+            'user_login' => 'sesseditor',
+            'user_email' => 'sesseditor@example.test',
+            'password' => 'password123',
+            'role' => 'editor',
+        ], $this->db);
+        $this->assertTrue($editor['ok'], implode('; ', $editor['errors']));
+        $editorId = (int) $editor['id'];
+        $this->assertFalse(ap_user_can($editorId, 'edit_users', null, $this->db));
+
+        AP_Session::enableTestMode();
+        $this->assertNotNull(AP_Session::login('sessadmin', 'password123', true, $this->db));
+        $name = AP_Session::cookieName();
+        $adminCookie = AP_Session::getTestCookies()[$name] ?? '';
+        $adminToken = explode('|', $adminCookie)[2] ?? '';
+        $this->assertNotSame('', $adminToken);
+        $adminOther = AP_Session::createSessionToken(
+            $adminId,
+            time() + AP_Session::LIFETIME_REMEMBER,
+            $this->db,
+            true
+        );
+        $this->assertCount(2, AP_Session::getSessionTokens($adminId, $this->db));
+
+        $loaded = AP_User::getById($targetId, $this->db);
+        $this->assertNotNull($loaded);
+        $shortExp = time() + 3600;
+        $rememberExp = time() + AP_Session::LIFETIME_REMEMBER;
+        $shortToken = AP_Session::createSessionToken($targetId, $shortExp, $this->db, false);
+        $rememberToken = AP_Session::createSessionToken($targetId, $rememberExp, $this->db, true);
+        $shortCookie = AP_Session::generateAuthCookie($loaded, $shortExp, $shortToken);
+        $rememberCookie = AP_Session::generateAuthCookie($loaded, $rememberExp, $rememberToken);
+        $this->assertCount(2, AP_Session::getSessionTokens($targetId, $this->db));
+
+        $emailOnly = $this->saveOtherUser($adminId, $targetId, 'sesstarget-new@example.test', [
+            'display_name' => 'Renamed Target',
+        ]);
+        $this->assertTrue($emailOnly['ok'], implode('; ', $emailOnly['errors']));
+        $this->assertSame($adminCookie, AP_Session::getTestCookies()[$name] ?? '');
+        $this->assertTrue(AP_Session::sessionTokenIsValid($targetId, $shortToken, $this->db));
+        $this->assertTrue(AP_Session::sessionTokenIsValid($targetId, $rememberToken, $this->db));
+        $this->assertTrue(AP_User::checkPassword('password123', (string) $emailOnly['user']?->user_pass));
+
+        $mismatch = $this->saveOtherUser($adminId, $targetId, 'sesstarget-new@example.test', [
+            'pass1' => 'other-password-7',
+            'pass2' => 'other-password-6',
+            'display_name' => 'Renamed Target',
+        ]);
+        $this->assertFalse($mismatch['ok']);
+        $this->assertSame(['Passwords do not match.'], $mismatch['errors']);
+        $this->assertTrue(AP_Session::sessionTokenIsValid($targetId, $shortToken, $this->db));
+        $this->assertTrue(AP_Session::sessionTokenIsValid($targetId, $rememberToken, $this->db));
+        $this->assertSame($adminCookie, AP_Session::getTestCookies()[$name] ?? '');
+
+        $forbidden = $this->saveOtherUser($editorId, $targetId, 'sesstarget-take@example.test', [
+            'pass1' => 'other-password-8',
+            'pass2' => 'other-password-8',
+        ]);
+        $this->assertFalse($forbidden['ok']);
+        $this->assertTrue(AP_Session::sessionTokenIsValid($targetId, $shortToken, $this->db));
+        $this->assertTrue(AP_Session::sessionTokenIsValid($targetId, $rememberToken, $this->db));
+        $kept = AP_User::getById($targetId, $this->db);
+        $this->assertNotNull($kept);
+        $this->assertTrue(AP_User::checkPassword('password123', $kept->user_pass));
+
+        $secret = 'reset-password-1';
+        $saved = $this->saveOtherUser($adminId, $targetId, 'sesstarget-new@example.test', [
+            'pass1' => $secret,
+            'pass2' => $secret,
+            'display_name' => 'Renamed Target',
+            'current_password' => 'not-the-target-password',
+        ]);
+        $this->assertTrue($saved['ok'], implode('; ', $saved['errors']));
+        $this->assertSame('user_updated', $saved['message_key']);
+        $this->assertNotNull($saved['user']);
+        $this->assertTrue(AP_User::checkPassword($secret, $saved['user']->user_pass));
+        $this->assertFalse(AP_User::checkPassword('password123', $saved['user']->user_pass));
+        $this->assertStringNotContainsString($secret, $this->encodeResult($saved));
+
+        $this->assertSame([], AP_Session::getSessionTokens($targetId, $this->db));
+        $this->assertFalse(AP_Session::sessionTokenIsValid($targetId, $shortToken, $this->db));
+        $this->assertFalse(AP_Session::sessionTokenIsValid($targetId, $rememberToken, $this->db));
+        $this->assertNull(AP_Session::validateAuthCookie($shortCookie, $this->db));
+        $this->assertNull(AP_Session::validateAuthCookie($rememberCookie, $this->db));
+
+        $this->assertTrue(AP_Session::isLoggedIn($this->db));
+        $this->assertSame($adminId, AP_Session::getCurrentUserId($this->db));
+        $this->assertSame($adminCookie, AP_Session::getTestCookies()[$name] ?? '');
+        $this->assertTrue(AP_Session::sessionTokenIsValid($adminId, $adminToken, $this->db));
+        $this->assertTrue(AP_Session::sessionTokenIsValid($adminId, $adminOther, $this->db));
+        $this->assertCount(2, AP_Session::getSessionTokens($adminId, $this->db));
+
+        $rows = $this->activityRows($targetId);
+        $this->assertCount(2, $rows);
+        $this->assertActivityRow(
+            $rows[1],
+            $adminId,
+            $targetId,
+            AP_Activity_Log::FIELD_PASSWORD,
+            '203.0.113.40'
+        );
+        $this->assertLogOmits($rows, [$secret, 'not-the-target-password']);
+
+        $againToken = AP_Session::createSessionToken(
+            $targetId,
+            time() + AP_Session::LIFETIME_REMEMBER,
+            $this->db,
+            true
+        );
+        $againCookie = AP_Session::generateAuthCookie(
+            $saved['user'],
+            time() + AP_Session::LIFETIME_REMEMBER,
+            $againToken
+        );
+        $this->assertNotNull(AP_Session::validateAuthCookie($againCookie, $this->db));
+        $second = 'reset-password-2';
+        $again = $this->saveOtherUser($adminId, $targetId, 'sesstarget-new@example.test', [
+            'pass1' => $second,
+            'pass2' => $second,
+            'display_name' => 'Renamed Target',
+        ]);
+        $this->assertTrue($again['ok'], implode('; ', $again['errors']));
+        $this->assertTrue(AP_User::checkPassword($second, (string) $again['user']?->user_pass));
+        $this->assertSame([], AP_Session::getSessionTokens($targetId, $this->db));
+        $this->assertFalse(AP_Session::sessionTokenIsValid($targetId, $againToken, $this->db));
+        $this->assertNull(AP_Session::validateAuthCookie($againCookie, $this->db));
+        $this->assertNull(AP_Session::validateAuthCookie($shortCookie, $this->db));
+        $this->assertSame($adminId, AP_Session::getCurrentUserId($this->db));
+        $this->assertSame($adminCookie, AP_Session::getTestCookies()[$name] ?? '');
+        $this->assertTrue(AP_Session::sessionTokenIsValid($adminId, $adminToken, $this->db));
+        $this->assertCount(2, AP_Session::getSessionTokens($adminId, $this->db));
+        $this->assertStringNotContainsString($second, $this->encodeResult($again));
+
+        AP_Session::enableTestMode();
+        $this->assertNotNull(AP_Session::login('sesstarget', $second, false, $this->db));
+        $this->assertSame($targetId, AP_Session::getCurrentUserId($this->db));
+        $this->assertCount(1, AP_Session::getSessionTokens($targetId, $this->db));
+        $this->assertCount(2, AP_Session::getSessionTokens($adminId, $this->db));
+
+        AP_Session::enableTestMode([$name => $adminCookie]);
+        AP_Session::resetCurrentUser();
+        $this->assertSame($adminId, AP_Session::getCurrentUserId($this->db));
+        $this->assertTrue(AP_Session::sessionTokenIsValid($adminId, $adminToken, $this->db));
+    }
+
     public function testProfileCurrentPasswordUsesHashVerifyAndIsNotDisclosed(): void
     {
         $plain = 'yes secret!';

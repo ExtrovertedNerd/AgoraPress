@@ -29,8 +29,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         unset($_POST['current_password'], $_REQUEST['current_password']);
     }
     if ($result['ok']) {
-        // Password change may have invalidated the session; re-auth is required later
-        // Password change already revokes sessions via AP_User::updatePassword.
+        // A self password change rotates this session and keeps the browser
+        // signed in. If that session could not be kept, ask for a fresh login.
         if (!ap_is_user_logged_in()) {
             AP_Admin::redirect(AP_Admin::url('login.php', [
                 'redirect_to' => AP_Admin::url('profile.php'),

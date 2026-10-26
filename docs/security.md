@@ -138,7 +138,12 @@ On a successful login, a stored hash is **rehashed** when
 upgrade). Missing-account checks still run `password_verify()` against a dummy
 hash so failure cost is similar to a wrong password.
 
-Password changes revoke **all** stored session tokens (`AP_Session`). Inactive
+When a signed-in user changes their own password, other sessions and
+remember-me tokens are destroyed and the current session id is rotated so
+that browser stays signed in (`AP_User::update()` /
+`AP_Session::rotateCurrentSession()`). Password reset and
+`AP_User::updatePassword()` revoke every stored session token. Changing
+another account's password revokes all of that account's sessions. Inactive
 accounts (`user_status !== 0`, including pending email verification) cannot
 authenticate. An administrator with `edit_users` can activate a pending
 verification account from Users without the emailed key
@@ -166,7 +171,10 @@ Logged-in state is a signed cookie plus a server-side session token — not PHP
 | Server token | Random 32-byte hex, **hashed** in usermeta key `session_tokens` (cap 50 sessions / user) |
 
 Logout destroys the current token and expires the cookie. A password change
-invalidates cookies even before token cleanup (password fragment in the HMAC).
+invalidates outstanding cookies even before token cleanup (password fragment
+in the HMAC). The browser that changed its own password receives a new
+session id and cookie. Remember-me is a 14-day lifetime on that same token
+store, not a second credential.
 
 `AP_Session::login()` applies **rate limits** (IP + identity) before
 `AP_User::authenticate()`. Failed attempts increment both buckets; success

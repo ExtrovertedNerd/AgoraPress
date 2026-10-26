@@ -8,8 +8,11 @@
  * Credential checks use password_verify() and prefer a constant-time
  * failure path when the account does not exist.
  *
- * Session / cookie login lives in {@see AP_Session}. Password changes revoke
- * all stored session tokens when the session layer is loaded.
+ * Session / cookie login lives in {@see AP_Session}. When the signed-in user
+ * changes their own password, other sessions and remember-me tokens are
+ * destroyed and the current session id is rotated so this browser stays
+ * signed in. {@see AP_User::updatePassword()} (reset and rehash) and a
+ * password change for a different account revoke every session for that user.
  *
  * @package AgoraPress
  */
@@ -466,7 +469,9 @@ class AP_User
 
         $this->user_pass = $hash;
 
-        // Password change invalidates outstanding auth cookies / session tokens.
+        // Reset and rehash revoke every session, including the browser that
+        // submitted the change. A signed-in user changing their own password
+        // goes through update(), which rotates that session and stays signed in.
         if (class_exists('AP_Session', false)) {
             AP_Session::destroyAllSessionTokens($this->ID, $db);
             AP_Session::resetCurrentUser();
@@ -688,6 +693,11 @@ class AP_User
      *
      * Username (user_login) is never changed after creation.
      * Pass user_pass / password only when changing the password.
+     * A password change for the signed-in user destroys their other sessions
+     * and remember-me tokens, rotates this request's session id, and leaves
+     * the browser signed in. A password change for any other account destroys
+     * all of that account's sessions. {@see self::updatePassword()} always
+     * destroys every session.
      *
      * @param array<string, mixed> $data
      *
@@ -766,6 +776,13 @@ class AP_User
             return ['ok' => false, 'id' => $id, 'errors' => $errors, 'user' => $existing];
         }
 
+        // Capture before the hash is stored. The auth cookie binds a fragment
+        // of the current hash, so this lookup has to run first.
+        $ownSession = null;
+        if ($newPassword !== null && class_exists('AP_Session', false)) {
+            $ownSession = AP_Session::currentSessionSnapshot($id, $db);
+        }
+
         if ($cols !== []) {
             $result = $db->update('users', $cols, ['ID' => $id]);
             if ($result === false) {
@@ -807,11 +824,23 @@ class AP_User
             }
         }
 
-        // Password change invalidates sessions (same as updatePassword).
+        // Own password change: drop other sessions (including remember-me)
+        // and rotate this browser's session id. Any other password change
+        // revokes every session for that account.
         if ($newPassword !== null && class_exists('AP_Session', false)) {
-            AP_Session::destroyAllSessionTokens($id, $db);
-            if (function_exists('ap_get_current_user_id') && ap_get_current_user_id($db) === $id) {
-                AP_Session::resetCurrentUser();
+            $rotated = false;
+            if (is_array($ownSession)) {
+                $keptToken = (string) ($ownSession['token'] ?? '');
+                $keptRemember = (bool) ($ownSession['remember'] ?? false);
+                if ($keptToken !== '') {
+                    $rotated = AP_Session::rotateCurrentSession($id, $keptToken, $keptRemember, $db);
+                }
+            }
+            if (!$rotated) {
+                AP_Session::destroyAllSessionTokens($id, $db);
+                if (is_array($ownSession)) {
+                    AP_Session::resetCurrentUser();
+                }
             }
         }
 

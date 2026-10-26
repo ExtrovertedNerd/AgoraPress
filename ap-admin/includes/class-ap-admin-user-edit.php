@@ -44,6 +44,7 @@ class AP_Admin_User_Edit
      *   to `{prefix}activity_log` (actor id, target id, field name, UTC time,
      *   IP). The password and the new address are not stored. A failed save
      *   writes nothing, and a log failure does not undo the user update.
+     *   Changing that other user's password revokes all of their sessions.
      *   Editing one's own row uses the same current-password rule as profile
      *   and is not written to the activity log.
      * - profile (user_ID = current user; role not changed). Changing the
@@ -52,7 +53,9 @@ class AP_Admin_User_Edit
      *   saved, and other submitted fields still save. Other fields do not
      *   require the current password. Failed checks are throttled per user
      *   and per IP when {@see AP_Rate_Limit} is loaded. The same rule applies
-     *   when user-edit saves the signed-in user's own account.
+     *   when user-edit saves the signed-in user's own account. After that
+     *   password is saved, other sessions and remember-me tokens are destroyed
+     *   and this request's session id is rotated so the browser stays signed in.
      *
      * @param array<string, mixed> $input Typically $_POST.
      * @param string               $mode  create|update|profile
