@@ -744,6 +744,12 @@ PHP;
             'rate_limit_login_max' => '5',
             'rate_limit_login_window' => '900',
             'rate_limit_login_lockout' => '900',
+            // Own-profile current-password failures (per user and per IP).
+            // Same transient store as login; separate action so the buckets
+            // do not consume each other. Filter ap_current_password_rate_limits.
+            'rate_limit_current_password_max' => '5',
+            'rate_limit_current_password_window' => '900',
+            'rate_limit_current_password_lockout' => '900',
             'rate_limit_register_max' => '5',
             'rate_limit_register_window' => '3600',
             'rate_limit_register_lockout' => '3600',

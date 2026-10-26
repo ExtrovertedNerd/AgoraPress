@@ -106,6 +106,9 @@ final class RateLimitTest extends TestCase
         AP_Options::flushCache();
         AP_Session::disableTestMode();
         AP_Session::clearLastLoginError();
+        if (function_exists('ap_reset_hooks')) {
+            ap_reset_hooks();
+        }
         AP_Media::setBasedirOverride(null);
         AP_Media::setBaseurlOverride(null);
         unset($GLOBALS['apdb'], $_SERVER['REMOTE_ADDR']);
@@ -468,6 +471,247 @@ final class RateLimitTest extends TestCase
         $this->assertStringContainsString('rate_limit_login_max', $src);
         $this->assertStringContainsString('rate_limit_upload_max', $src);
         $this->assertStringContainsString('rate_limit_mail_max', $src);
+        $this->assertStringContainsString('rate_limit_current_password_max', $src);
+        $this->assertStringContainsString('rate_limit_current_password_window', $src);
+        $this->assertStringContainsString('rate_limit_current_password_lockout', $src);
+    }
+
+    public function testCurrentPasswordDefaultsToFivePerFifteenMinutes(): void
+    {
+        $limits = AP_Rate_Limit::getLimits(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, $this->db);
+        $this->assertSame(5, $limits['max']);
+        $this->assertSame(900, $limits['window']);
+        $this->assertSame(900, $limits['lockout']);
+        $this->assertSame(
+            'ap_current_password_rate_limits',
+            AP_Rate_Limit::FILTER_CURRENT_PASSWORD_LIMITS
+        );
+        $this->assertSame(
+            'Too many attempts, try again in 15 minutes.',
+            AP_Rate_Limit::currentPasswordLockoutMessage(900)
+        );
+        $this->assertSame(
+            'Too many attempts, try again in 1 minute.',
+            AP_Rate_Limit::currentPasswordLockoutMessage(60)
+        );
+        $this->assertSame(
+            'Too many attempts, try again in 2 minutes.',
+            AP_Rate_Limit::currentPasswordLockoutMessage(61)
+        );
+
+        $loginName = $this->rateLimitTransientName('login', 'user:4');
+        $currentName = $this->rateLimitTransientName(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, 'user:4');
+        $this->assertStringStartsWith('ap_rl_', $loginName);
+        $this->assertStringStartsWith('ap_rl_', $currentName);
+        $this->assertNotSame($loginName, $currentName);
+    }
+
+    public function testCurrentPasswordLimitsAreFilterable(): void
+    {
+        require_once $this->root . '/ap-includes/hooks.php';
+        ap_reset_hooks();
+
+        AP_Options::update('rate_limit_current_password_max', '9', $this->db);
+        AP_Options::update('rate_limit_current_password_window', '1200', $this->db);
+        AP_Options::update('rate_limit_current_password_lockout', '600', $this->db);
+        AP_Options::flushCache();
+
+        $fromOption = AP_Rate_Limit::getLimits(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, $this->db);
+        $this->assertSame(9, $fromOption['max']);
+        $this->assertSame(1200, $fromOption['window']);
+        $this->assertSame(600, $fromOption['lockout']);
+
+        $seenUser = null;
+        ap_add_filter(
+            'ap_current_password_rate_limits',
+            static function (mixed $limits, mixed $userId) use (&$seenUser): array {
+                $seenUser = $userId;
+                if (!is_array($limits)) {
+                    return ['max' => 2, 'window' => 30, 'lockout' => 0];
+                }
+
+                return [
+                    'max' => 2,
+                    'window' => 10,
+                    'lockout' => -5,
+                ];
+            },
+            10,
+            2
+        );
+
+        $filtered = AP_Rate_Limit::checkCurrentPassword(42, '203.0.113.8', $this->db);
+        $this->assertTrue($filtered['allowed']);
+        $this->assertSame(42, $seenUser);
+        $limits = AP_Rate_Limit::getLimits(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, $this->db);
+        $this->assertSame(2, $limits['max']);
+        $this->assertSame(30, $limits['window']);
+        $this->assertSame(0, $limits['lockout']);
+
+        ap_reset_hooks();
+        ap_add_filter(
+            'ap_current_password_rate_limits',
+            static fn (): string => 'nope'
+        );
+        $unchanged = AP_Rate_Limit::getLimits(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, $this->db);
+        $this->assertSame(9, $unchanged['max']);
+        $this->assertSame(1200, $unchanged['window']);
+
+        ap_reset_hooks();
+        $loginLimits = AP_Rate_Limit::getLimits(AP_Rate_Limit::ACTION_LOGIN, $this->db);
+        $this->assertSame(5, $loginLimits['max']);
+    }
+
+    public function testCurrentPasswordLocksPerUserAndPerIp(): void
+    {
+        AP_Rate_Limit::setTestLimits('current_password', [
+            'max' => 2,
+            'window' => 900,
+            'lockout' => 900,
+        ]);
+        $ipA = '203.0.113.10';
+        $ipB = '203.0.113.11';
+
+        $first = AP_Rate_Limit::recordFailedCurrentPassword(7, $ipA, $this->db);
+        $this->assertTrue($first['allowed']);
+        $this->assertSame('', $first['message']);
+        $this->assertFalse(AP_Rate_Limit::recordFailedCurrentPassword(7, $ipA, $this->db)['allowed']);
+
+        $locked = AP_Rate_Limit::checkCurrentPassword(7, $ipA, $this->db);
+        $this->assertFalse($locked['allowed']);
+        $this->assertGreaterThan(0, $locked['retry_after']);
+        $this->assertSame(
+            'Too many attempts, try again in 15 minutes.',
+            $locked['message']
+        );
+
+        // Same user, other IP: the user bucket still blocks.
+        $this->assertFalse(AP_Rate_Limit::checkCurrentPassword(7, $ipB, $this->db)['allowed']);
+        // Other user, same IP: the IP bucket still blocks.
+        $this->assertFalse(AP_Rate_Limit::checkCurrentPassword(8, $ipA, $this->db)['allowed']);
+        // Other user, other IP: free.
+        $this->assertTrue(AP_Rate_Limit::checkCurrentPassword(8, $ipB, $this->db)['allowed']);
+
+        $stored = AP_Transient::get(
+            $this->rateLimitTransientName(
+                AP_Rate_Limit::ACTION_CURRENT_PASSWORD,
+                AP_Rate_Limit::userBucket(7)
+            ),
+            false,
+            $this->db
+        );
+        $this->assertIsArray($stored);
+        $encoded = json_encode($stored);
+        $this->assertIsString($encoded);
+        $this->assertStringNotContainsString('secret-password', $encoded);
+        $this->assertArrayNotHasKey('password', $stored);
+    }
+
+    public function testCurrentPasswordSuccessClearsAndWindowResets(): void
+    {
+        AP_Rate_Limit::setTestLimits('current_password', [
+            'max' => 3,
+            'window' => 900,
+            'lockout' => 900,
+        ]);
+        $ip = '203.0.113.20';
+        $userId = 11;
+
+        AP_Rate_Limit::recordFailedCurrentPassword($userId, $ip, $this->db);
+        AP_Rate_Limit::recordFailedCurrentPassword($userId, $ip, $this->db);
+        $this->assertSame(
+            2,
+            AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_CURRENT_PASSWORD,
+                AP_Rate_Limit::userBucket($userId),
+                $this->db
+            )['attempts']
+        );
+
+        AP_Rate_Limit::clearCurrentPassword($userId, $ip, $this->db);
+        $this->assertSame(
+            0,
+            AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_CURRENT_PASSWORD,
+                AP_Rate_Limit::userBucket($userId),
+                $this->db
+            )['attempts']
+        );
+        $this->assertSame(
+            0,
+            AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_CURRENT_PASSWORD,
+                AP_Rate_Limit::ipBucket($ip),
+                $this->db
+            )['attempts']
+        );
+        $this->assertTrue(AP_Rate_Limit::checkCurrentPassword($userId, $ip, $this->db)['allowed']);
+
+        AP_Rate_Limit::recordFailedCurrentPassword($userId, $ip, $this->db);
+        AP_Rate_Limit::recordFailedCurrentPassword($userId, $ip, $this->db);
+        $this->assertFalse(AP_Rate_Limit::recordFailedCurrentPassword($userId, $ip, $this->db)['allowed']);
+        $this->assertFalse(AP_Rate_Limit::checkCurrentPassword($userId, $ip, $this->db)['allowed']);
+
+        $this->ageRateLimitBucket(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, AP_Rate_Limit::userBucket($userId));
+        $this->ageRateLimitBucket(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, AP_Rate_Limit::ipBucket($ip));
+
+        $afterWindow = AP_Rate_Limit::checkCurrentPassword($userId, $ip, $this->db);
+        $this->assertTrue($afterWindow['allowed']);
+        $this->assertSame('', $afterWindow['message']);
+        $again = AP_Rate_Limit::recordFailedCurrentPassword($userId, $ip, $this->db);
+        $this->assertTrue($again['allowed']);
+        $this->assertSame(
+            1,
+            AP_Rate_Limit::check(
+                AP_Rate_Limit::ACTION_CURRENT_PASSWORD,
+                AP_Rate_Limit::userBucket($userId),
+                $this->db
+            )['attempts']
+        );
+    }
+
+    public function testCurrentPasswordDoesNotShareLoginCounters(): void
+    {
+        AP_Rate_Limit::setTestLimits('login', ['max' => 5, 'window' => 900, 'lockout' => 900]);
+        AP_Rate_Limit::setTestLimits('current_password', ['max' => 1, 'window' => 900, 'lockout' => 900]);
+        $ip = '203.0.113.30';
+
+        $this->assertFalse(AP_Rate_Limit::recordFailedCurrentPassword(3, $ip, $this->db)['allowed']);
+        $login = AP_Rate_Limit::check('login', AP_Rate_Limit::ipBucket($ip), $this->db);
+        $this->assertSame(0, $login['attempts']);
+        $this->assertTrue(AP_Rate_Limit::checkLogin('person', $ip, $this->db)['allowed']);
+
+        AP_Rate_Limit::clearCurrentPassword(3, $ip, $this->db);
+        AP_Rate_Limit::recordFailedLogin('person', $ip, $this->db);
+        $current = AP_Rate_Limit::check(
+            AP_Rate_Limit::ACTION_CURRENT_PASSWORD,
+            AP_Rate_Limit::ipBucket($ip),
+            $this->db
+        );
+        $this->assertSame(0, $current['attempts']);
+        $this->assertTrue(AP_Rate_Limit::checkCurrentPassword(3, $ip, $this->db)['allowed']);
+    }
+
+    private function rateLimitTransientName(string $action, string $bucket): string
+    {
+        $method = new \ReflectionMethod(AP_Rate_Limit::class, 'transientName');
+        $name = $method->invoke(null, $action, $bucket);
+        $this->assertIsString($name);
+
+        return $name;
+    }
+
+    /**
+     * Move a bucket's window and lockout into the past so the next check is fresh.
+     */
+    private function ageRateLimitBucket(string $action, string $bucket): void
+    {
+        $name = $this->rateLimitTransientName($action, $bucket);
+        $raw = AP_Transient::get($name, false, $this->db);
+        $this->assertIsArray($raw);
+        $raw['window_start'] = time() - 1000;
+        $raw['locked_until'] = time() - 1;
+        $this->assertTrue(AP_Transient::set($name, $raw, 3600, $this->db));
     }
 
     private function writeMinimalPng(): string

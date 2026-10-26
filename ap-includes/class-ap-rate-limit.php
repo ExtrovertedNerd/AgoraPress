@@ -15,7 +15,13 @@
  *
  * Actions: {@see self::ACTION_LOGIN}, {@see self::ACTION_REGISTER},
  * {@see self::ACTION_PASSWORD_RESET}, {@see self::ACTION_UPLOAD},
- * {@see self::ACTION_MAIL}.
+ * {@see self::ACTION_MAIL}, {@see self::ACTION_CURRENT_PASSWORD}.
+ *
+ * Failed current-password checks reuse this transient store (no separate
+ * table). They are counted per user id and per IP, with their own action so
+ * they do not consume login buckets. Defaults are 5 failures / 15 minutes.
+ * Override with `rate_limit_current_password_max` / `_window` / `_lockout`
+ * or the `ap_current_password_rate_limits` filter.
  *
  * @package AgoraPress
  */
@@ -37,6 +43,24 @@ class AP_Rate_Limit
 
     /** Outbound mail (IP + recipient). Applied in {@see AP_Mail::send()}. */
     public const ACTION_MAIL = 'mail';
+
+    /**
+     * Failed current-password checks on the signed-in user's own profile.
+     * Buckets are {@see userBucket()} and {@see ipBucket()}.
+     */
+    public const ACTION_CURRENT_PASSWORD = 'current_password';
+
+    /**
+     * Filter for {@see ACTION_CURRENT_PASSWORD} limits.
+     * Callbacks receive `array{max, window, lockout}` and the user id (0 when
+     * the limit is read outside a per-user check).
+     */
+    public const FILTER_CURRENT_PASSWORD_LIMITS = 'ap_current_password_rate_limits';
+
+    /**
+     * Start of the profile lockout sentence. The wait, in minutes, follows.
+     */
+    public const CURRENT_PASSWORD_NOTICE_PREFIX = 'Too many attempts, try again in ';
 
     /** Transient key prefix (kept short for Options name limits). */
     private const TRANSIENT_PREFIX = 'ap_rl_';
@@ -72,6 +96,11 @@ class AP_Rate_Limit
             'window' => 3600,
             'lockout' => 3600,
         ],
+        self::ACTION_CURRENT_PASSWORD => [
+            'max' => 5,
+            'window' => 900,
+            'lockout' => 900,
+        ],
     ];
 
     /**
@@ -101,6 +130,16 @@ class AP_Rate_Limit
      * When true, rate limiting is disabled (unit tests that need unlimited hits).
      */
     private static bool $disabled = false;
+
+    /**
+     * User id passed to {@see FILTER_CURRENT_PASSWORD_LIMITS} during a check.
+     */
+    private static int $currentPasswordUserId = 0;
+
+    /**
+     * Re-entry guard so a limits filter cannot recurse through {@see getLimits()}.
+     */
+    private static bool $applyingCurrentPasswordFilter = false;
 
     // -------------------------------------------------------------------------
     // Test helpers
@@ -154,6 +193,8 @@ class AP_Rate_Limit
         self::$testOverrides = [];
         self::$disabled = false;
         self::$lastResult = null;
+        self::$currentPasswordUserId = 0;
+        self::$applyingCurrentPasswordFilter = false;
     }
 
     // -------------------------------------------------------------------------
@@ -182,11 +223,17 @@ class AP_Rate_Limit
         $window = self::optionInt('rate_limit_' . $action . '_window', $base['window'], $db);
         $lockout = self::optionInt('rate_limit_' . $action . '_lockout', $base['lockout'], $db);
 
-        return [
+        $limits = [
             'max' => max(1, min(1000, $max)),
             'window' => max(30, min(86400, $window)),
             'lockout' => max(0, min(86400, $lockout)),
         ];
+
+        if ($action === self::ACTION_CURRENT_PASSWORD) {
+            return self::applyCurrentPasswordLimitFilter($limits);
+        }
+
+        return $limits;
     }
 
     /**
@@ -561,6 +608,59 @@ class AP_Rate_Limit
     }
 
     /**
+     * Whether current-password checks are blocked for this user and/or IP.
+     *
+     * Either bucket blocks. Storage is the same transient store as login.
+     *
+     * @return array{allowed: bool, retry_after: int, message: string}
+     */
+    public static function checkCurrentPassword(int $userId, string $ip = '', ?AP_DB $db = null): array
+    {
+        return self::withCurrentPasswordUser(
+            $userId,
+            static fn (): array => self::evaluateCurrentPassword($userId, $ip, $db, false)
+        );
+    }
+
+    /**
+     * Record one failed current-password check against the user and IP buckets.
+     *
+     * A correct password must call {@see clearCurrentPassword()} instead.
+     * The submitted password is not stored.
+     *
+     * @return array{allowed: bool, retry_after: int, message: string}
+     */
+    public static function recordFailedCurrentPassword(int $userId, string $ip = '', ?AP_DB $db = null): array
+    {
+        return self::withCurrentPasswordUser(
+            $userId,
+            static fn (): array => self::evaluateCurrentPassword($userId, $ip, $db, true)
+        );
+    }
+
+    /**
+     * Clear current-password failure counters after a successful check.
+     */
+    public static function clearCurrentPassword(int $userId, string $ip = '', ?AP_DB $db = null): void
+    {
+        self::clear(self::ACTION_CURRENT_PASSWORD, self::ipBucket($ip), $db);
+        if ($userId > 0) {
+            self::clear(self::ACTION_CURRENT_PASSWORD, self::userBucket($userId), $db);
+        }
+    }
+
+    /**
+     * Profile notice for a current-password lockout. Wait is always in minutes.
+     */
+    public static function currentPasswordLockoutMessage(int $retryAfter): string
+    {
+        $minutes = max(1, (int) ceil(max(1, $retryAfter) / 60));
+        $unit = $minutes === 1 ? 'minute' : 'minutes';
+
+        return self::CURRENT_PASSWORD_NOTICE_PREFIX . $minutes . ' ' . $unit . '.';
+    }
+
+    /**
      * Whether outbound mail is blocked for this IP and/or recipient.
      *
      * Either bucket can block (one client flooding SMTP, or one inbox being
@@ -636,6 +736,117 @@ class AP_Rate_Limit
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    /**
+     * Run a current-password limit lookup with the user id visible to filters.
+     *
+     * @template T
+     * @param callable(): T $callback
+     * @return T
+     */
+    private static function withCurrentPasswordUser(int $userId, callable $callback): mixed
+    {
+        $previous = self::$currentPasswordUserId;
+        self::$currentPasswordUserId = max(0, $userId);
+        try {
+            return $callback();
+        } finally {
+            self::$currentPasswordUserId = $previous;
+        }
+    }
+
+    /**
+     * Inspect or record current-password buckets (user id and IP).
+     *
+     * @return array{allowed: bool, retry_after: int, message: string}
+     */
+    private static function evaluateCurrentPassword(
+        int $userId,
+        string $ip,
+        ?AP_DB $db,
+        bool $record
+    ): array {
+        $action = self::ACTION_CURRENT_PASSWORD;
+        $ipKey = self::ipBucket($ip);
+        if ($record) {
+            $ipResult = self::hit($action, $ipKey, $db);
+            $userResult = $userId > 0
+                ? self::hit($action, self::userBucket($userId), $db)
+                : ['allowed' => true, 'retry_after' => 0];
+        } else {
+            $ipResult = self::check($action, $ipKey, $db);
+            $userResult = $userId > 0
+                ? self::check($action, self::userBucket($userId), $db)
+                : ['allowed' => true, 'retry_after' => 0];
+        }
+
+        if ($ipResult['allowed'] && $userResult['allowed']) {
+            return ['allowed' => true, 'retry_after' => 0, 'message' => ''];
+        }
+
+        $retry = max((int) $ipResult['retry_after'], (int) $userResult['retry_after']);
+
+        return [
+            'allowed' => false,
+            'retry_after' => $retry,
+            'message' => self::currentPasswordLockoutMessage($retry),
+        ];
+    }
+
+    /**
+     * Let plugins replace current-password max / window / lockout.
+     *
+     * The hook name is a literal so it stays discoverable. Invalid returns
+     * are ignored. Each numeric field is clamped; a non-numeric field keeps
+     * the resolved value.
+     *
+     * @param array{max: int, window: int, lockout: int} $limits
+     *
+     * @return array{max: int, window: int, lockout: int}
+     */
+    private static function applyCurrentPasswordLimitFilter(array $limits): array
+    {
+        if (self::$applyingCurrentPasswordFilter || !function_exists('ap_apply_filters')) {
+            return $limits;
+        }
+
+        self::$applyingCurrentPasswordFilter = true;
+        try {
+            // Literal hook name (kept equal to FILTER_CURRENT_PASSWORD_LIMITS).
+            if (self::FILTER_CURRENT_PASSWORD_LIMITS !== 'ap_current_password_rate_limits') {
+                return $limits;
+            }
+            $filtered = ap_apply_filters(
+                'ap_current_password_rate_limits',
+                $limits,
+                self::$currentPasswordUserId
+            );
+        } finally {
+            self::$applyingCurrentPasswordFilter = false;
+        }
+
+        if (!is_array($filtered)) {
+            return $limits;
+        }
+
+        return [
+            'max' => self::boundedLimit($filtered['max'] ?? null, $limits['max'], 1, 1000),
+            'window' => self::boundedLimit($filtered['window'] ?? null, $limits['window'], 30, 86400),
+            'lockout' => self::boundedLimit($filtered['lockout'] ?? null, $limits['lockout'], 0, 86400),
+        ];
+    }
+
+    /**
+     * Clamp one filtered limit field, or keep the fallback when it is not numeric.
+     */
+    private static function boundedLimit(mixed $value, int $fallback, int $min, int $max): int
+    {
+        if (!is_numeric($value)) {
+            return $fallback;
+        }
+
+        return max($min, min($max, (int) $value));
+    }
 
     /**
      * @return array{attempts: int, window_start: int, locked_until: int}

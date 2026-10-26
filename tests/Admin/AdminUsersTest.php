@@ -19,9 +19,11 @@ use AP_Mail;
 use AP_Migrator;
 use AP_Nonce;
 use AP_Options;
+use AP_Rate_Limit;
 use AP_Registration;
 use AP_Roles;
 use AP_Session;
+use AP_Transient;
 use AP_User;
 use AP_Users_List_Table;
 use PDO;
@@ -44,6 +46,8 @@ final class AdminUsersTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-db.php';
         require_once $this->root . '/ap-includes/class-ap-migrator.php';
         require_once $this->root . '/ap-includes/class-ap-options.php';
+        require_once $this->root . '/ap-includes/class-ap-transient.php';
+        require_once $this->root . '/ap-includes/class-ap-rate-limit.php';
         require_once $this->root . '/ap-includes/class-ap-user.php';
         require_once $this->root . '/ap-includes/class-ap-session.php';
         require_once $this->root . '/ap-includes/class-ap-roles.php';
@@ -103,6 +107,10 @@ final class AdminUsersTest extends TestCase
         AP_Options::flushCache();
         AP_Admin::clearNotices();
         AP_Mail::resetForTests();
+        if (class_exists('AP_Rate_Limit', false)) {
+            AP_Rate_Limit::resetTestState();
+        }
+        unset($_SERVER['REMOTE_ADDR']);
         if (class_exists('AP_Session', false)) {
             AP_Session::resetCurrentUser();
             AP_Session::disableTestMode();
@@ -1112,6 +1120,167 @@ final class AdminUsersTest extends TestCase
         $this->assertStringNotContainsString('autocomplete="current-password"', $update);
     }
 
+    public function testProfileCurrentPasswordFailuresAreThrottled(): void
+    {
+        $this->assertSame(
+            AP_Rate_Limit::CURRENT_PASSWORD_NOTICE_PREFIX,
+            AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_LIMITED_PREFIX
+        );
+        $defaults = AP_Rate_Limit::getLimits(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, $this->db);
+        $this->assertSame(5, $defaults['max']);
+        $this->assertSame(900, $defaults['window']);
+
+        AP_Rate_Limit::setTestLimits(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, [
+            'max' => 3,
+            'window' => 900,
+            'lockout' => 900,
+        ]);
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.40';
+
+        $owner = $this->makeProfileUser('throttleowner', 'throttle@example.test');
+        $other = $this->makeProfileUser('throttleother', 'throttle-other@example.test');
+        $id = $owner['id'];
+        $wrong = 'not-the-real-password';
+
+        $ignored = $this->saveProfile($id, 'throttle@example.test', [
+            'display_name' => 'Bio Only',
+            'current_password' => $wrong,
+        ]);
+        $this->assertTrue($ignored['ok'], implode('; ', $ignored['errors']));
+        $this->assertSame(0, $this->currentPasswordAttempts($id));
+
+        $first = $this->saveProfile($id, 'throttle@example.test', [
+            'pass1' => 'new-password-99',
+            'pass2' => 'new-password-99',
+            'display_name' => 'Still Saved',
+            'current_password' => $wrong,
+        ]);
+        $this->assertFalse($first['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_INCORRECT],
+            $first['errors']
+        );
+        $this->assertSame('Still Saved', $first['user']->display_name ?? '');
+        $this->assertTrue(AP_User::checkPassword('password123', (string) $first['user']?->user_pass));
+        $this->assertStringNotContainsString($wrong, $this->encodeResult($first));
+
+        $second = $this->saveProfile($id, 'taken@example.test', [
+            'display_name' => 'Email Held',
+            'current_password' => '',
+        ]);
+        $this->assertFalse($second['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_REQUIRED],
+            $second['errors']
+        );
+        $this->assertSame('throttle@example.test', $second['user']->user_email ?? '');
+        $this->assertSame('Email Held', $second['user']->display_name ?? '');
+        $this->assertSame(2, $this->currentPasswordAttempts($id));
+
+        $cleared = $this->saveProfile($id, 'throttle@example.test', [
+            'pass1' => 'new-password-99',
+            'pass2' => 'new-password-99',
+            'current_password' => 'password123',
+        ]);
+        $this->assertTrue($cleared['ok'], implode('; ', $cleared['errors']));
+        $this->assertTrue(AP_User::checkPassword('new-password-99', (string) $cleared['user']?->user_pass));
+        $this->assertSame(0, $this->currentPasswordAttempts($id));
+        $this->assertSame(0, $this->currentPasswordAttempts(0, AP_Rate_Limit::ipBucket('203.0.113.40')));
+
+        $this->failCurrentPassword($id, 'throttle@example.test', $wrong, 'After Clear');
+        $this->failCurrentPassword($id, 'throttle@example.test', $wrong, 'After Clear');
+        $locked = $this->saveProfile($id, 'stolen@example.test', [
+            'pass1' => 'other-password-1',
+            'pass2' => 'other-password-1',
+            'display_name' => 'Locked Name',
+            'current_password' => $wrong,
+        ]);
+        $this->assertFalse($locked['ok']);
+        $this->assertSame(['Too many attempts, try again in 15 minutes.'], $locked['errors']);
+        $this->assertSame('throttle@example.test', $locked['user']->user_email ?? '');
+        $this->assertSame('Locked Name', $locked['user']->display_name ?? '');
+        $this->assertTrue(AP_User::checkPassword('new-password-99', (string) $locked['user']?->user_pass));
+        $this->assertStringNotContainsString($wrong, implode("\n", $locked['errors']));
+        $this->assertStringNotContainsString('other-password-1', $this->encodeResult($locked));
+        $this->assertTrue(AP_Admin_User_Edit::profileSensitiveChangeRejected($locked['errors']));
+        $this->assertSame(
+            'throttle@example.test',
+            AP_Admin_User_Edit::profileEmailAfterSave(
+                $locked['errors'],
+                'stolen@example.test',
+                'throttle@example.test'
+            )
+        );
+        $attemptsWhileLocked = $this->currentPasswordAttempts($id);
+
+        $still = $this->saveProfile($id, 'stolen@example.test', [
+            'display_name' => 'Still Locked',
+            'current_password' => 'new-password-99',
+        ]);
+        $this->assertFalse($still['ok']);
+        $this->assertSame(['Too many attempts, try again in 15 minutes.'], $still['errors']);
+        $this->assertSame('throttle@example.test', $still['user']->user_email ?? '');
+        $this->assertTrue(AP_User::checkPassword('new-password-99', (string) $still['user']?->user_pass));
+        $this->assertSame($attemptsWhileLocked, $this->currentPasswordAttempts($id));
+
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.41';
+        $otherIp = $this->saveProfile($id, 'throttle@example.test', [
+            'pass1' => 'other-password-2',
+            'pass2' => 'other-password-2',
+            'current_password' => 'new-password-99',
+        ]);
+        $this->assertFalse($otherIp['ok']);
+        $this->assertSame(['Too many attempts, try again in 15 minutes.'], $otherIp['errors']);
+
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.40';
+        $sameIp = $this->saveProfile($other['id'], 'throttle-other@example.test', [
+            'pass1' => 'other-password-3',
+            'pass2' => 'other-password-3',
+            'display_name' => 'Other Saved',
+            'current_password' => 'password123',
+        ]);
+        $this->assertFalse($sameIp['ok']);
+        $this->assertSame(['Too many attempts, try again in 15 minutes.'], $sameIp['errors']);
+        $this->assertSame('Other Saved', $sameIp['user']->display_name ?? '');
+        $this->assertTrue(AP_User::checkPassword('password123', (string) $sameIp['user']?->user_pass));
+        $this->assertSame($attemptsWhileLocked, $this->currentPasswordAttempts($id));
+
+        $_SERVER['REMOTE_ADDR'] = '198.51.100.50';
+        $fresh = $this->saveProfile($other['id'], 'throttle-other@example.test', [
+            'pass1' => 'other-password-4',
+            'pass2' => 'other-password-4',
+            'current_password' => $wrong,
+        ]);
+        $this->assertFalse($fresh['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_INCORRECT],
+            $fresh['errors']
+        );
+
+        $this->ageCurrentPasswordBucket(AP_Rate_Limit::userBucket($id));
+        $this->ageCurrentPasswordBucket(AP_Rate_Limit::ipBucket('203.0.113.40'));
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.40';
+        $reset = $this->saveProfile($id, 'throttle@example.test', [
+            'pass1' => 'other-password-5',
+            'pass2' => 'other-password-5',
+            'current_password' => $wrong,
+        ]);
+        $this->assertFalse($reset['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_INCORRECT],
+            $reset['errors']
+        );
+        $this->assertSame(1, $this->currentPasswordAttempts($id));
+
+        AP_Admin::clearNotices();
+        AP_Admin_User_Edit::queueSaveErrors($locked['errors']);
+        $html = AP_Admin::renderNotices();
+        $this->assertStringContainsString('ap-notice--error', $html);
+        $this->assertStringContainsString('Too many attempts, try again in 15 minutes.', $html);
+        $this->assertStringNotContainsString($wrong, $html);
+        AP_Admin::clearNotices();
+    }
+
     public function testListTablePrepareAndRender(): void
     {
         AP_User::create([
@@ -1994,6 +2163,77 @@ final class AdminUsersTest extends TestCase
     /**
      * @param mixed $value
      */
+    /**
+     * @return array{id: int, email: string}
+     */
+    private function makeProfileUser(string $login, string $email): array
+    {
+        $user = AP_User::create([
+            'user_login' => $login,
+            'user_email' => $email,
+            'password' => 'password123',
+            'role' => 'author',
+            'display_name' => $login,
+        ], $this->db);
+        $this->assertTrue($user['ok'], implode('; ', $user['errors']));
+
+        return ['id' => (int) $user['id'], 'email' => $email];
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     *
+     * @return array{ok: bool, id: int, message_key: string, errors: list<string>, user: ?AP_User}
+     */
+    private function saveProfile(int $id, string $email, array $fields = []): array
+    {
+        return AP_Admin_User_Edit::save(array_merge([
+            '_ap_nonce' => ap_create_nonce('update-profile-' . $id, $id),
+            'user_ID' => $id,
+            'user_email' => $email,
+            'pass1' => '',
+            'pass2' => '',
+            'display_name' => 'Kept',
+        ], $fields), $id, 'profile', $this->db);
+    }
+
+    private function failCurrentPassword(int $id, string $email, string $wrong, string $displayName): void
+    {
+        $result = $this->saveProfile($id, $email, [
+            'display_name' => $displayName,
+            'pass1' => 'new-password-99',
+            'pass2' => 'new-password-99',
+            'current_password' => $wrong,
+        ]);
+        $this->assertFalse($result['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_INCORRECT],
+            $result['errors']
+        );
+    }
+
+    private function currentPasswordAttempts(int $userId, string $bucket = ''): int
+    {
+        if ($bucket === '') {
+            $bucket = AP_Rate_Limit::userBucket($userId);
+        }
+        $state = AP_Rate_Limit::check(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, $bucket, $this->db);
+
+        return (int) $state['attempts'];
+    }
+
+    private function ageCurrentPasswordBucket(string $bucket): void
+    {
+        $method = new \ReflectionMethod(AP_Rate_Limit::class, 'transientName');
+        $name = $method->invoke(null, AP_Rate_Limit::ACTION_CURRENT_PASSWORD, $bucket);
+        $this->assertIsString($name);
+        $raw = AP_Transient::get($name, false, $this->db);
+        $this->assertIsArray($raw);
+        $raw['window_start'] = time() - 1000;
+        $raw['locked_until'] = time() - 1;
+        $this->assertTrue(AP_Transient::set($name, $raw, 3600, $this->db));
+    }
+
     private function encodeResult(mixed $value): string
     {
         $encoded = json_encode($value);

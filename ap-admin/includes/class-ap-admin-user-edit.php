@@ -25,6 +25,12 @@ class AP_Admin_User_Edit
         'Enter your current password to change your password or email.';
 
     /**
+     * Prefix of the lockout notice. The wait, in minutes, follows.
+     * Matches {@see AP_Rate_Limit::CURRENT_PASSWORD_NOTICE_PREFIX}.
+     */
+    public const NOTICE_CURRENT_PASSWORD_LIMITED_PREFIX = 'Too many attempts, try again in ';
+
+    /**
      * Save a user from a form submission bag.
      *
      * Modes:
@@ -34,7 +40,8 @@ class AP_Admin_User_Edit
      *   password or email requires the current password. A missing or wrong
      *   current password is an error notice; that password and email are not
      *   saved, and other submitted fields still save. Other fields do not
-     *   require the current password.
+     *   require the current password. Failed checks are throttled per user
+     *   and per IP when {@see AP_Rate_Limit} is loaded.
      *
      * @param array<string, mixed> $input Typically $_POST.
      * @param string               $mode  create|update|profile
@@ -147,10 +154,10 @@ class AP_Admin_User_Edit
         $data = self::collectFields($input, $isNew, $mode, $actorId, $db);
 
         // Own profile: password and email changes need the current password.
-        // This runs before new-password checks so a missing or wrong current
-        // password drops only those fields. A mismatched or short new password
-        // must not replace that notice or block the rest of the save.
-        // Nonce and capability checks above are unchanged.
+        // This runs before new-password checks so a missing, wrong, or
+        // throttled current password drops only those fields. A mismatched
+        // or short new password must not replace that notice or block the
+        // rest of the save. Nonce and capability checks above are unchanged.
         $reauthError = null;
         if ($mode === 'profile') {
             $existing = AP_User::getById($id, $db);
@@ -163,7 +170,7 @@ class AP_Admin_User_Edit
                     'user' => null,
                 ];
             }
-            [$data, $reauthError] = self::applyProfileCurrentPassword($existing, $input, $data);
+            [$data, $reauthError] = self::applyProfileCurrentPassword($existing, $input, $data, $db);
             // Drop the submitted secret before later steps see $input.
             unset($input['current_password']);
         }
@@ -1025,13 +1032,24 @@ class AP_Admin_User_Edit
      * {@see AP_User::checkPassword()} (`password_verify`) and is not copied onto the
      * saved field bag, included in the error text, or logged.
      *
+     * Failed checks (missing or wrong) are counted per user and per IP in the
+     * login throttle store when that class is loaded. The default is 5
+     * failures in 15 minutes (`ap_current_password_rate_limits`, or
+     * `rate_limit_current_password_*`). While locked, the password is not
+     * verified and the counter is not cleared. A successful check clears it.
+     * Only attempt counts are stored — never the submitted password.
+     *
      * @param array<string, mixed> $input
      * @param array<string, mixed> $data
      *
      * @return array{0: array<string, mixed>, 1: ?string}
      */
-    private static function applyProfileCurrentPassword(AP_User $existing, array $input, array $data): array
-    {
+    private static function applyProfileCurrentPassword(
+        AP_User $existing,
+        array $input,
+        array $data,
+        ?AP_DB $db = null
+    ): array {
         unset($data['current_password']);
 
         $submittedEmail = AP_User::sanitizeEmail((string) ($data['user_email'] ?? $data['email'] ?? ''));
@@ -1042,22 +1060,80 @@ class AP_Admin_User_Edit
             return [$data, null];
         }
 
+        $userId = (int) $existing->ID;
+        if (class_exists('AP_Rate_Limit', false)) {
+            $gate = AP_Rate_Limit::checkCurrentPassword($userId, '', $db);
+            if (!$gate['allowed']) {
+                $data = self::withoutSensitiveProfileChanges($data, $existing);
+
+                return [$data, self::limitNotice($gate)];
+            }
+        }
+
         $current = (string) ($input['current_password'] ?? '');
         $provided = $current !== '';
+        // checkPassword() is password_verify(). Do not log or copy $current.
         $verified = AP_User::checkPassword($current, (string) $existing->user_pass);
 
         if ($verified) {
+            if (class_exists('AP_Rate_Limit', false)) {
+                AP_Rate_Limit::clearCurrentPassword($userId, '', $db);
+            }
+
             return [$data, null];
         }
 
-        $data['user_email'] = $existing->user_email;
-        unset($data['password'], $data['user_pass'], $data['_password_mismatch']);
-
+        $data = self::withoutSensitiveProfileChanges($data, $existing);
         $notice = $provided
             ? self::NOTICE_CURRENT_PASSWORD_INCORRECT
             : self::NOTICE_CURRENT_PASSWORD_REQUIRED;
 
+        if (class_exists('AP_Rate_Limit', false)) {
+            $after = AP_Rate_Limit::recordFailedCurrentPassword($userId, '', $db);
+            if (!$after['allowed']) {
+                $notice = self::limitNotice($after);
+            }
+        }
+
         return [$data, $notice];
+    }
+
+    /**
+     * Remove a rejected email or password change. Other profile fields stay.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
+    private static function withoutSensitiveProfileChanges(array $data, AP_User $existing): array
+    {
+        $data['user_email'] = $existing->user_email;
+        unset($data['password'], $data['user_pass'], $data['_password_mismatch'], $data['current_password']);
+
+        return $data;
+    }
+
+    /**
+     * Lockout sentence for a current-password throttle result.
+     *
+     * @param array{allowed?: bool, retry_after?: int, message?: string} $result
+     */
+    private static function limitNotice(array $result): string
+    {
+        $message = (string) ($result['message'] ?? '');
+        if ($message !== '') {
+            return $message;
+        }
+
+        $retryAfter = max(1, (int) ($result['retry_after'] ?? 1));
+        if (class_exists('AP_Rate_Limit', false)) {
+            return AP_Rate_Limit::currentPasswordLockoutMessage($retryAfter);
+        }
+
+        $minutes = max(1, (int) ceil($retryAfter / 60));
+        $unit = $minutes === 1 ? 'minute' : 'minutes';
+
+        return self::NOTICE_CURRENT_PASSWORD_LIMITED_PREFIX . $minutes . ' ' . $unit . '.';
     }
 
     /**
@@ -1086,9 +1162,13 @@ class AP_Admin_User_Edit
     public static function profileSensitiveChangeRejected(array $errors): bool
     {
         foreach ($errors as $error) {
+            if (!is_string($error)) {
+                continue;
+            }
             if (
                 $error === self::NOTICE_CURRENT_PASSWORD_INCORRECT
                 || $error === self::NOTICE_CURRENT_PASSWORD_REQUIRED
+                || str_starts_with($error, self::NOTICE_CURRENT_PASSWORD_LIMITED_PREFIX)
             ) {
                 return true;
             }
