@@ -1,15 +1,16 @@
 # Admin Control Panel (`/ap-admin/`)
 
-This is the **operator map of `/ap-admin/`** for AgoraPress **`0.3.11-beta`**
+This is the **operator map of `/ap-admin/`** for AgoraPress **`0.3.12-beta`**
 (schema `AP_DB_VERSION` **13**). It describes the Control Panel **as built**:
 screens grouped by task, the capability that gates each area, the voluntary
 Hall of Fame handshake, and the unobtrusive donation link. It does **not**
 invent screens, menus, or options.
 
 The compact landing-page bullets are in
-[`../README.md`](../README.md). This file is the operator depth guide. Plugin
-zip installer and ACP `ap_register_admin_page()` stay in
-[plugins.md](plugins.md) — this file only points at those sections. Roles and
+[`../README.md`](../README.md). This file is the operator depth guide. The
+plugin zip **how-to** is [Plugin zip installer](#plugin-zip-installer). The
+developer API (functions, options, error codes, hooks) and ACP
+`ap_register_admin_page()` stay in [plugins.md](plugins.md). Roles and
 meta-caps are in [roles.md](roles.md).
 
 **Source (as built):** `ap-admin/` entry scripts, `ap-admin/admin-bootstrap.php`,
@@ -27,6 +28,8 @@ meta-caps are in [roles.md](roles.md).
 `ap-includes/class-ap-settings.php` (`AP_Settings`),
 `ap-includes/class-ap-admin-menu.php` (`AP_Admin_Menu`),
 `ap-includes/class-ap-plugin-installer.php` (`AP_Plugin_Installer`),
+`ap-admin/includes/class-ap-admin-plugin-upload.php` (`AP_Admin_Plugin_Upload`),
+`ap-admin/includes/class-ap-admin-plugin-restore.php` (`AP_Admin_Plugin_Restore`),
 `ap-includes/class-ap-hall-of-fame.php` (`AP_Hall_Of_Fame`),
 `ap-includes/class-ap-mail.php` (`AP_Mail`),
 `ap-includes/class-ap-smtp.php` (`AP_SMTP`),
@@ -463,9 +466,10 @@ Activate / deactivate / delete use GET + nonce
 An active plugin that registered an ACP page with a `plugin` basename gets a
 **Settings** link → `admin.php?page={id}`.
 
-Zip upload, overwrite, and delete: [Plugin zip installer](#plugin-zip-installer)
-below, which points at [plugins.md](plugins.md#plugin-installer). Integrator
-API (`ap_register_admin_page`, headers, MU-plugins):
+Zip upload, replace confirmation, restore, and delete:
+[Plugin zip installer](#plugin-zip-installer). Developer API (functions,
+options, error codes, hooks): [plugins.md](plugins.md#plugin-installer).
+Integrator pages (`ap_register_admin_page`, headers, MU-plugins):
 [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp).
 
 There is **no** plugin directory, paid marketplace, or plugin file editor
@@ -641,29 +645,171 @@ resend on `login.php?action=resend` and on Users → Edit.
 
 ## Plugin zip installer
 
-Canonical contract (package shape, helpers, max size, nonce, overwrite, hooks)
-stays in [plugins.md](plugins.md#plugin-installer). This section is the
-**operator pointer** for the ACP screen.
-
-**Screen:** Plugins → Upload plugin (`plugins.php` POST `ap_plugin_action=upload`).
+Developer contract (functions, options, error codes, hooks) stays in
+[plugins.md](plugins.md#plugin-installer). This section is the **operator
+how-to** for the Plugins screen (`ap-admin/plugins.php`).
 
 | Piece | As built |
 |-------|----------|
 | Screen cap | `activate_plugins` (to see Plugins) |
-| Upload cap | `install_plugins` |
+| Upload / restore cap | `install_plugins` (administrators only). The form and the restore button are omitted without it. |
 | Delete cap | `delete_plugins`, or `install_plugins` as a fallback |
-| Class | `AP_Plugin_Installer` (`ap-includes/class-ap-plugin-installer.php`) |
+| Class | `AP_Plugin_Installer` (`ap-includes/class-ap-plugin-installer.php`), screen gate `AP_Admin_Plugin_Upload` |
 | PHP | `ZipArchive` is required |
-| Max size | `AP_Plugin_Installer::DEFAULT_MAX_BYTES` = **40 MiB** (also bounded by PHP `upload_max_filesize` / `post_max_size`; override `AP_MAX_PLUGIN_UPLOAD_BYTES` or `AP_MAX_UPLOAD_BYTES` in `ap-config.php`) |
-| Nonce | `plugin-upload` |
+| Screen max size | `AP_Plugin_Installer::maxValidateBytes()` — default `DEFAULT_VALIDATE_MAX_BYTES` = **20 MiB**, filter `ap_plugin_zip_max_bytes`. The form prints that size. |
+| Legacy helper cap | `DEFAULT_MAX_BYTES` = **40 MiB** for `installFromZip()` / `handleUpload()` only. Also bounded by PHP `upload_max_filesize` / `post_max_size`. Override with `AP_MAX_PLUGIN_UPLOAD_BYTES` or `AP_MAX_UPLOAD_BYTES` in `ap-config.php`. The Plugins screen does not use this cap. |
+| Upload nonce | `plugin-upload` |
 | File field | `pluginzip` |
-| Overwrite | checkbox `overwrite` |
+| Activate | checkbox `activate`, label **Activate after install** |
 
-The zip must contain a PHP file with a **Plugin Name** header. Installed
-plugins stay **inactive** until you activate them. Active plugins cannot be
-deleted. There is **no** CLI `plugin install` — [cli.md](cli.md). Theme zip
-upload is a **separate** flow on Appearance → Themes (`AP_Theme_Installer`,
-cap `install_themes`).
+The zip must contain one plugin folder, or a single PHP file at the zip root,
+with a **Plugin Name** and **Version** header. There is **no** CLI
+`plugin install` — [cli.md](cli.md). Theme zip upload is a **separate** flow
+on Appearance → Themes (`AP_Theme_Installer`, cap `install_themes`). Drop-in
+without a zip still works: copy a file or folder into `ap-content/plugins/`,
+then activate. Active plugins cannot be deleted.
+
+### Upload a new plugin
+
+1. Open **Plugins** (`/ap-admin/plugins.php`).
+2. Under **Upload plugin (.zip)**, choose a `.zip`. The file input’s
+   `accept` hint is not the check. The installer reads zip magic bytes and
+   ignores the extension.
+3. Leave **Activate after install** unchecked to install inactive. Check it
+   to activate after the files are in place. The screen treats boolean true,
+   integer `1`, or the string `1` as checked. The strings `on`, `yes`,
+   `true`, and a padded `1` do not activate.
+4. Click **Install plugin**.
+
+The form is POST, `enctype="multipart/form-data"`, nonce `plugin-upload`,
+hidden field `ap_plugin_action=upload`, file field `pluginzip`. GET does not
+install. There is **no** overwrite checkbox. A posted `overwrite` field does
+not replace an existing slug.
+
+A user without `install_plugins` who forges the POST sees “You do not have permission to install plugins.” A missing or bad nonce shows “Security check failed. Please try again.” A body that is not multipart shows “Plugin upload must be sent as multipart form data.” PHP upload failures use their own
+sentences: the file exceeds the maximum allowed size, the upload was partial,
+no file was uploaded, a temporary folder is missing, the disk write failed,
+a PHP extension stopped the upload, or “File upload failed.”
+
+A new slug redirects with `message=plugin_installed`. The plugin stays
+inactive unless the checkbox was checked.
+
+### Replace an installed plugin
+
+When the slug is already installed, the first POST does not replace it. The
+zip is held under `{content}/.ap-plugin-overwrite/{token}/` (not web-served)
+for 30 minutes (`AP_Admin_Plugin_Upload::PENDING_SECONDS` = `1800`). The
+screen shows **Replace installed plugin?**:
+
+| Row | What you see |
+|-----|----------------|
+| Uploaded plugin | Plugin Name from the zip |
+| Installed plugin | Shown only when that name differs from the uploaded name |
+| Current version | Installed version, or Unknown |
+| New version | Version header from the zip |
+
+The plugin basename is shown under the table. When the version numbers
+match, the screen says the uploaded package uses the same version number as
+the installed plugin. Nothing is replaced until you confirm.
+
+**Replace plugin** is a second POST: `ap_plugin_action=confirm_overwrite`,
+nonce `plugin-overwrite`, field `plugin_overwrite_token`. **Activate after
+install** is shown again, checked when this upload requested it. That
+checkbox decides activation, not a value stored with the held zip.
+**Cancel** (`ap_plugin_action=cancel_overwrite`, same nonce) discards the
+held zip. Notice: “Plugin overwrite cancelled. The installed plugin was left
+unchanged.”
+
+Confirming backs up the current folder or file, then swaps in the new files.
+A plugin that was already active stays active. If activation fails, the new
+files stay and the plugin is inactive. The previous version is not put back
+for an activation failure. Use **Restore previous version** to return to the
+backup.
+
+These refusals leave the installed plugin unchanged:
+
+| Notice | Why |
+|--------|-----|
+| Could not hold the plugin zip for confirmation. The installed plugin was left unchanged. | The pending directory could not be written. |
+| That overwrite confirmation is no longer valid. The installed plugin was left unchanged. Upload the plugin zip again. | Token expired, unknown, or the nonce does not match. |
+| The installed plugin changed after this confirmation was shown. It was left unchanged. Upload the zip again to compare versions. | The on-disk plugin no longer matches the comparison. |
+| The uploaded package no longer matches this confirmation. The installed plugin was left unchanged. | The held zip no longer matches the token record. |
+
+### Success notices
+
+After the redirect, `AP_Admin_Plugin_Upload::successNotice()` /
+`AP_Admin_Plugin_Restore::successNotice()` build the sentence. Name and
+version query values are shown only when they are short and contain no
+control characters.
+
+| `message` | Notice |
+|-----------|--------|
+| `plugin_installed` | `Plugin installed: {basename}. You can activate it below.` With `activated=1`: `Plugin installed and activated: {basename}.` |
+| `plugin_replaced` | `{name} updated from version {from} to version {to}.` With `activated=1` the sentence adds “and activated”. Without both versions: `Plugin replaced: {basename}.` or `Plugin replaced and activated: {basename}.` |
+| `plugin_restored` | `{name} restored from version {from} to version {to}.` With `activated=1` the sentence adds “and is still active”. |
+
+### Plugin zip error notices
+
+Each `AP_Plugin_Install_Error` code has a sentence in
+`AP_Admin_Plugin_Upload::ERROR_NOTICES`. That sentence is what the screen
+shows, except `activation_failed`: when the installer `message()` is
+non-empty, the screen shows that message (it names the plugin and says it
+remains inactive). An unknown code shows “The plugin could not be
+installed.” and does not echo the raw message.
+
+| Code | Notice |
+|------|--------|
+| `missing_file` | The plugin zip could not be read. |
+| `empty` | The plugin zip is empty. |
+| `not_zip` | That file is not a zip archive. |
+| `zip_open_failed` | The plugin zip could not be opened. |
+| `zip_extension_missing` | The server cannot open zip files. The PHP ZipArchive extension is required. |
+| `oversize` | The plugin zip is larger than the allowed size. |
+| `sha256_mismatch` | The plugin zip checksum does not match. |
+| `unsafe_path` | The plugin zip contains an unsafe path and was rejected. |
+| `symlink` | The plugin zip contains a symbolic link and was rejected. |
+| `special_file` | The plugin zip contains a file that is not a regular file or directory and was rejected. |
+| `too_many_entries` | The plugin zip contains too many files. |
+| `uncompressed_too_large` | The plugin zip expands to more than the allowed size. |
+| `bad_structure` | The plugin zip must contain exactly one plugin folder, or a single plugin file at the archive root. |
+| `invalid_slug` | The plugin folder name is not a valid slug. |
+| `missing_header` | The plugin zip is missing a Plugin Name and Version header. |
+| `theme_package` | That zip looks like a theme, not a plugin. |
+| `core_package` | That zip looks like an AgoraPress or WordPress core package, not a plugin. |
+| `already_installed` | That plugin is already installed. Confirm overwrite to replace it. |
+| `staging_failed` | The plugin could not be prepared for install. Nothing was changed. |
+| `install_failed` | The plugin could not be installed. Any previous version was left in place when a backup existed. |
+| `activation_failed` | The plugin was installed but could not be activated and remains inactive. (Screen prefers the installer message when it is non-empty.) |
+| `backup_failed` | The previous plugin could not be backed up, so it was left unchanged. |
+| `no_backup` | No previous version is available to restore. |
+| `restore_failed` | The previous version could not be restored. |
+
+Codes and when the API returns them: [plugins.md](plugins.md#error-codes).
+
+### Restore previous version
+
+On a plugin row, **Restore previous version** is shown only when the actor
+has `install_plugins` and `AP_Plugin_Installer::latestBackup()` finds a
+restorable backup for that slug (`AP_Admin_Plugin_Restore`). The button is
+POST to `plugins.php`, nonce `restore-plugin_{slug}` (a nonce for one slug
+cannot restore another), hidden fields `ap_plugin_action=restore` and
+`plugin_slug`. The browser confirm names the backup’s plugin name and
+version and says the current version is backed up first. The button title
+is “Restore version {version}” when a version was read.
+
+A plugin that was active stays active. An inactive plugin stays inactive.
+Restore does not run activation hooks. Success redirects with
+`message=plugin_restored`.
+
+`AP_Admin_Plugin_Restore::noticeForError()` uses the table above. For
+`restore_failed` and `backup_failed` it shows the installer message when
+that message is a short line without control characters. An unknown code
+shows “The previous plugin version could not be restored.” Missing
+permission: “You do not have permission to restore plugins.” Bad nonce:
+“Security check failed. Please try again.” Installer class missing:
+“Plugin installer is not available.”
+
+Capability is checked before the nonce on both upload and restore.
 
 ---
 

@@ -174,7 +174,7 @@ def test_docs_index_as_built_surfaces(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
     lower = index.lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "AP_DB_VERSION",
         "one documentation tree",
         "docs/index.md",
@@ -266,7 +266,7 @@ def test_bot_handbook_operating_model(docs_root: Path) -> None:
         assert re.search(heading, text), f"bot_handbook.md missing heading: {heading}"
     lower = text.lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "readme.md",
         "docs/index.md",
@@ -882,7 +882,7 @@ def test_catalog_covers_forum_moderation(docs_root: Path) -> None:
 
 def test_docs_index_reflects_031_beta(docs_root: Path) -> None:
     index = (docs_root / "README.md").read_text(encoding="utf-8")
-    assert "0.3.11-beta" in index
+    assert "0.3.12-beta" in index
     assert "AP_Analytics" in index or "analytics" in index.lower()
     assert "class-ap-analytics.php" in index
 
@@ -897,7 +897,7 @@ def test_vision_compliance_doc_content(docs_root: Path) -> None:
         "ap_telemetry",
         "three independent modules",
         "0.2.0-beta",
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "local analytics",
         "analytics_enabled",
@@ -918,7 +918,7 @@ def test_vision_compliance_doc_content(docs_root: Path) -> None:
 def test_editor_doc_content(docs_root: Path) -> None:
     text = (docs_root / "editor.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "ap_editor",
         "classic",
@@ -1038,7 +1038,7 @@ def test_editor_doc_covers_spoiler_button_and_stored_markup(docs_root: Path) -> 
 def test_site_icon_doc_content(docs_root: Path) -> None:
     text = (docs_root / "site-icon.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "site_icon",
         "settings → general",
@@ -1144,7 +1144,7 @@ def _compat_hook_map_values() -> set[str]:
 def test_hooks_doc_content(docs_root: Path) -> None:
     text = (docs_root / "hooks.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "ap_add_action",
         "ap_do_action",
@@ -1289,7 +1289,7 @@ def test_hooks_doc_covers_mail_register_and_captcha(docs_root: Path) -> None:
 def test_themes_doc_content(docs_root: Path) -> None:
     text = (docs_root / "themes.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "style.css",
         "index.php",
@@ -1436,7 +1436,7 @@ def test_themes_doc_covers_comments_template_and_spoiler_css(docs_root: Path) ->
 def test_plugins_doc_content(docs_root: Path) -> None:
     text = (docs_root / "plugins.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "plugin name",
         "active_plugins",
@@ -1503,10 +1503,127 @@ def test_plugin_zip_installer_and_admin_page_stay_in_plugins_doc(docs_root: Path
     assert "AP_Plugin_Installer" in admin
 
 
+def test_plugin_zip_docs_cover_admin_howto_and_api(docs_root: Path) -> None:
+    """Admin how-to and developer API name the live functions, options, codes, and hooks."""
+    plugins = (docs_root / "plugins.md").read_text(encoding="utf-8")
+    admin = (docs_root / "admin.md").read_text(encoding="utf-8")
+    readme = (docs_root.parent / "README.md").read_text(encoding="utf-8")
+    hooks = (docs_root / "hooks.md").read_text(encoding="utf-8")
+
+    assert re.search(r"(?im)^###\s+Functions\s*$", plugins)
+    assert re.search(r"(?im)^###\s+Options\s*$", plugins)
+    assert re.search(r"(?im)^###\s+Error codes\s*$", plugins)
+    assert re.search(r"(?im)^###\s+Hooks\s*$", plugins)
+    assert re.search(r"(?im)^###\s+Plugin zip error notices\s*$", admin)
+    assert "Upload plugin (.zip)" in readme
+    assert "docs/plugins.md#plugin-installer" in readme
+    assert "docs/admin.md#plugin-zip-installer" in readme
+
+    for needle in (
+        "ap_validate_plugin_zip",
+        "ap_install_plugin",
+        "ap_restore_previous_plugin",
+        "ap_list_installed_plugins",
+        "AP_Plugin_Installer::validate",
+        "AP_Plugin_Installer::install",
+        "AP_Plugin_Installer::restorePrevious",
+        "AP_Plugin_Installer::listInstalled",
+        "AP_Plugin_Installer::latestBackup",
+        "overwrite",
+        "activate",
+        "expected_sha256",
+        "plugins_root",
+        "content_dir",
+        "DEFAULT_VALIDATE_MAX_BYTES",
+        "20 MiB",
+        "boolean `true`",
+        "ap_plugin_before_install",
+        "ap_plugin_after_install",
+        "ap_plugin_before_upgrade",
+        "ap_plugin_after_upgrade",
+        "ap_plugin_before_restore",
+        "ap_plugin_after_restore",
+        "ap_plugin_before_activate",
+        "ap_plugin_after_activate",
+        "ap_plugin_before_deactivate",
+        "ap_plugin_after_deactivate",
+        "ap_plugin_zip_max_bytes",
+        "ap_plugin_zip_max_entries",
+        "ap_plugin_zip_max_uncompressed_bytes",
+        "ap_plugin_zip_max_backups",
+    ):
+        assert needle in plugins, f"plugins.md API reference missing: {needle}"
+
+    codes = (
+        "missing_file",
+        "empty",
+        "not_zip",
+        "zip_open_failed",
+        "zip_extension_missing",
+        "oversize",
+        "sha256_mismatch",
+        "unsafe_path",
+        "symlink",
+        "special_file",
+        "too_many_entries",
+        "uncompressed_too_large",
+        "bad_structure",
+        "invalid_slug",
+        "missing_header",
+        "theme_package",
+        "core_package",
+        "already_installed",
+        "staging_failed",
+        "install_failed",
+        "activation_failed",
+        "backup_failed",
+        "no_backup",
+        "restore_failed",
+    )
+    for code in codes:
+        token = f"`{code}`"
+        assert token in plugins, f"plugins.md must name installer error code {code}"
+        assert token in admin, f"admin.md must name installer error code {code}"
+
+    for needle in (
+        "Upload plugin (.zip)",
+        "Activate after install",
+        "Replace installed plugin?",
+        "Restore previous version",
+        "confirm_overwrite",
+        "plugin-overwrite",
+        "plugin_overwrite_token",
+        "Install plugin",
+        "Replace plugin",
+        "PENDING_SECONDS",
+        "1800",
+        "20 MiB",
+        "DEFAULT_VALIDATE_MAX_BYTES",
+        "You do not have permission to install plugins.",
+        "multipart/form-data",
+        "plugin_installed",
+        "plugin_replaced",
+        "plugin_restored",
+        "plugins.md#error-codes",
+    ):
+        assert needle in admin, f"admin.md how-to missing: {needle}"
+
+    for needle in (
+        "ap_plugin_before_install",
+        "ap_plugin_before_upgrade",
+        "ap_plugin_before_restore",
+        "ap_plugin_zip_max_bytes",
+        "ap_plugin_installed",
+        "ap_plugin_deleted",
+        "DEFAULT_VALIDATE_MAX_BYTES",
+    ):
+        assert needle in hooks, f"hooks.md missing: {needle}"
+
+
 def test_compatibility_doc_content(docs_root: Path) -> None:
     text = (docs_root / "compatibility.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "classic wordpress",
         "functions-shim",
@@ -1572,7 +1689,7 @@ def test_install_doc_content(docs_root: Path) -> None:
         "ap_db_version",
         "session.save_path",
         "/ap-admin/",
-        "0.3.11-beta",
+        "0.3.12-beta",
         "exit codes",
         "exit_ok",
         "exit_usage",
@@ -1625,7 +1742,7 @@ def test_rewrites_doc_content(docs_root: Path) -> None:
         "mod_rewrite",
         "ap_rewrite",
         "rewrite_rules",
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "apache vs nginx",
         "/ap-json/",
@@ -1697,7 +1814,7 @@ def test_updates_doc_content(docs_root: Path) -> None:
         "maybequeueadminnotice",
         "--force",
         "not in core",
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "ziparchive",
         "set_time_limit",
@@ -1789,7 +1906,7 @@ def test_cli_doc_content(docs_root: Path) -> None:
         "ap_user_password",
         "ap_cli_init",
         "not in core",
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "php ap-cli core update",
         "ap_cli_skip_plugins",
@@ -1898,7 +2015,7 @@ def test_admin_doc_content(docs_root: Path) -> None:
         "not in core",
         "gutenberg",
         "marketplace",
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "user-edit.php?user_id=",
         "the requested admin page was not found.",
@@ -2242,7 +2359,7 @@ def test_forums_doc_content(docs_root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     lower = text.lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "ap_module_forum",
         "settings → modules",
@@ -2500,7 +2617,7 @@ def test_roles_doc_content(docs_root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     lower = text.lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "ap_roles",
         "ap_user_roles",
@@ -2570,7 +2687,7 @@ def test_rest_doc_content(docs_root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     lower = text.lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "/ap-json/",
         "?rest_route=",
@@ -2669,7 +2786,7 @@ def test_security_doc_content(docs_root: Path) -> None:
         "ap_nonce_salt",
         "not in core",
         "2fa",
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "view_site_health",
         "query(",
@@ -2790,7 +2907,7 @@ def test_troubleshooting_doc_content(docs_root: Path) -> None:
         "allowoverride all",
         "query-string vars only",
         "not in core",
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "activate account",
         "resend verification",
@@ -2982,7 +3099,7 @@ def test_troubleshooting_covers_comments_template_and_topic_notify(
 def test_schema_doc_content(docs_root: Path) -> None:
     text = (docs_root / "schema.md").read_text(encoding="utf-8").lower()
     for phrase in (
-        "0.3.11-beta",
+        "0.3.12-beta",
         "ap_db_version",
         "schema_migrations",
         "options",

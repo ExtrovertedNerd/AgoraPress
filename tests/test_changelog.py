@@ -200,6 +200,64 @@ def test_unreleased_section_remains(changelog_text: str) -> None:
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
 
 
+def test_unreleased_documents_plugin_zip_installer(changelog_text: str) -> None:
+    body = _unreleased_body(changelog_text)
+    assert re.search(r"(?im)^###\s+Added\s*$", body)
+    assert re.search(r"(?im)^###\s+Changed\s*$", body)
+    lower = body.lower()
+    for phrase in (
+        "ap_plugin_installer",
+        "ap_plugin_install_result",
+        "ap_plugin_install_error",
+        "ap_validate_plugin_zip",
+        "ap_install_plugin",
+        "ap_restore_previous_plugin",
+        "ap_list_installed_plugins",
+        "install_plugins",
+        "expected_sha256",
+        "overwrite",
+        "activate after install",
+        "plugin-upload",
+        "pluginzip",
+        "plugin-overwrite",
+        "restore-plugin_",
+        ".ap-plugin-staging",
+        ".ap-plugin-backups",
+        "ap_plugin_zip_max_bytes",
+        "ap_plugin_zip_max_entries",
+        "ap_plugin_zip_max_uncompressed_bytes",
+        "ap_plugin_zip_max_backups",
+        "ap_plugin_before_install",
+        "ap_plugin_after_install",
+        "ap_plugin_before_upgrade",
+        "ap_plugin_after_upgrade",
+        "ap_plugin_before_restore",
+        "ap_plugin_after_restore",
+        "ap_plugin_before_activate",
+        "ap_plugin_after_activate",
+        "ap_plugin_before_deactivate",
+        "ap_plugin_after_deactivate",
+        "ap_plugin_installed",
+        "installfromzip",
+        "default_max_bytes",
+        "20 mib",
+        "40 mib",
+        "128 mib",
+        "5000",
+        "plugin name",
+        "version",
+        "symlink",
+        "magic bytes",
+        "docs/admin.md",
+        "docs/plugins.md",
+        "ap_db_version",
+        "no telemetry",
+        "php ap-cli plugin install",
+    ):
+        assert phrase in lower, f"[Unreleased] should mention {phrase}"
+    assert "**13**" in body or " 13" in body
+
+
 def _section_body(text: str, version: str) -> str:
     match = re.search(
         rf"(?ims)^##\s+\[{re.escape(version)}\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
@@ -243,15 +301,15 @@ def test_038_beta_documents_absolute_mail_links(archive_text: str) -> None:
     assert "verification" in lower and "reset" in lower
 
 
-def test_current_ap_version_is_0311_beta() -> None:
+def test_current_ap_version_is_0312_beta() -> None:
     version_php = VERSION_PHP.read_text(encoding="utf-8")
     match = re.search(
         r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
         version_php,
     )
     assert match, "ap-includes/version.php should define AP_VERSION"
-    assert match.group(1) == "0.3.11-beta", (
-        "AP_VERSION must be 0.3.11-beta for this release "
+    assert match.group(1) == "0.3.12-beta", (
+        "AP_VERSION must be 0.3.12-beta for this release "
         f"(found {match.group(1)})"
     )
 

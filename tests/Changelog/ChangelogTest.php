@@ -297,6 +297,81 @@ final class ChangelogTest extends TestCase
         $this->assertMatchesRegularExpression('/(?im)^###\s+Changed\s*$/', $body);
     }
 
+    public function testUnreleasedDocumentsPluginZipInstaller(): void
+    {
+        $matched = preg_match(
+            '/(?ims)^##\s+\[Unreleased\]\s*\n(.*?)(?=^##\s+\[|\z)/',
+            $this->changelog,
+            $m
+        );
+        $this->assertSame(1, $matched, 'Missing ## [Unreleased] body');
+        $body = $m[1];
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Added\s*$/', $body);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Changed\s*$/', $body);
+        $lower = strtolower($body);
+        foreach (
+            [
+                'ap_plugin_installer',
+                'ap_plugin_install_result',
+                'ap_plugin_install_error',
+                'ap_validate_plugin_zip',
+                'ap_install_plugin',
+                'ap_restore_previous_plugin',
+                'ap_list_installed_plugins',
+                'install_plugins',
+                'expected_sha256',
+                'overwrite',
+                'activate after install',
+                'plugin-upload',
+                'pluginzip',
+                'plugin-overwrite',
+                'restore-plugin_',
+                '.ap-plugin-staging',
+                '.ap-plugin-backups',
+                'ap_plugin_zip_max_bytes',
+                'ap_plugin_zip_max_entries',
+                'ap_plugin_zip_max_uncompressed_bytes',
+                'ap_plugin_zip_max_backups',
+                'ap_plugin_before_install',
+                'ap_plugin_after_install',
+                'ap_plugin_before_upgrade',
+                'ap_plugin_after_upgrade',
+                'ap_plugin_before_restore',
+                'ap_plugin_after_restore',
+                'ap_plugin_before_activate',
+                'ap_plugin_after_activate',
+                'ap_plugin_before_deactivate',
+                'ap_plugin_after_deactivate',
+                'ap_plugin_installed',
+                'installfromzip',
+                'default_max_bytes',
+                '20 mib',
+                '40 mib',
+                '128 mib',
+                '5000',
+                'plugin name',
+                'version',
+                'symlink',
+                'magic bytes',
+                'docs/admin.md',
+                'docs/plugins.md',
+                'ap_db_version',
+                'no telemetry',
+                'php ap-cli plugin install',
+            ] as $phrase
+        ) {
+            $this->assertStringContainsString(
+                $phrase,
+                $lower,
+                "[Unreleased] should mention {$phrase}"
+            );
+        }
+        $this->assertTrue(
+            str_contains($body, '**13**') || str_contains($body, ' 13'),
+            '[Unreleased] should keep schema 13'
+        );
+    }
+
     public function test037BetaDocumentsCharterAndDocsPass(): void
     {
         $matched = preg_match(
@@ -384,7 +459,7 @@ final class ChangelogTest extends TestCase
         );
     }
 
-    public function testCurrentApVersionIs0311Beta(): void
+    public function testCurrentApVersionIs0312Beta(): void
     {
         $versionPath = $this->root . '/ap-includes/version.php';
         $this->assertFileIsReadable($versionPath);
@@ -397,9 +472,9 @@ final class ChangelogTest extends TestCase
         );
         $this->assertSame(1, $matched, 'ap-includes/version.php should define AP_VERSION');
         $this->assertSame(
-            '0.3.11-beta',
+            '0.3.12-beta',
             $m[1],
-            'AP_VERSION must be 0.3.11-beta for this release'
+            'AP_VERSION must be 0.3.12-beta for this release'
         );
     }
 }

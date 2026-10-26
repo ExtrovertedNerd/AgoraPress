@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** **`0.3.11-beta`** — MVP feature-complete with Site Icon (favicon pack), plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
+> **Status:** **`0.3.12-beta`** — MVP feature-complete with Site Icon (favicon pack), plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 
@@ -36,7 +36,7 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 | **Default theme** | Agora — six pure-CSS schemes (3 light + 3 dark), guest Log in / Register, topic like/edit/delete/lock toolbar, dark-mode form contrast, long-string wrapping |
 | **Admin** | Responsive light/dark UI, roles/caps, users, Site Health, **Tools → Analytics** (opt-in local pageviews), **Appearance → Theme Options** (Additional CSS + theme Settings API / theme_mods), Import (WXR + phpBB), privacy export/erase |
 | **Ops** | Installers, one-click core update (no site identity), `ap-cli`, release packaging, Apache/Nginx hardening examples |
-| **Extensibility** | Hooks, plugins/mu-plugins, shortcodes, Settings/Options API, plugin ACP pages (`ap_register_admin_page` + WP shims), REST (`/ap-json/`), Classic WP theme shims |
+| **Extensibility** | Hooks, plugins/mu-plugins, Plugins screen zip install (`install_plugins`), shortcodes, Settings/Options API, plugin ACP pages (`ap_register_admin_page` + WP shims), REST (`/ap-json/`), Classic WP theme shims |
 
 ### Non-goals (v1)
 
@@ -262,6 +262,16 @@ Auth: session cookie + `X-AP-Nonce`, or HTTP Basic. Disable with option `rest_ap
 
 Not related to Hall of Fame or the public version check. Schema and options: [docs/schema.md](docs/schema.md).
 
+### Plugins (zip upload)
+
+Administrators (`install_plugins`) install a classic plugin from **Plugins → Upload plugin (.zip)** (`/ap-admin/plugins.php`). The form is POST and multipart, with nonce `plugin-upload` and file field `pluginzip`. Check **Activate after install** to activate a new plugin; leave it unchecked and the plugin stays inactive.
+
+If that slug is already installed, the first upload does not replace it. The screen shows **Replace installed plugin?** with the current version and the new version. **Replace plugin** (nonce `plugin-overwrite`) backs up the current copy and swaps in the zip. **Cancel** leaves the installed plugin unchanged. A plugin that was already active stays active. If activation fails, the new files stay and the plugin is inactive.
+
+**Restore previous version** appears on a row when a backup exists. It is POST, nonce `restore-plugin_{slug}`, and saves the current copy as a new backup first. There is **no** `php ap-cli plugin install`.
+
+Operator steps and the notice for each error code: [docs/admin.md](docs/admin.md#plugin-zip-installer). Developer API (`ap_validate_plugin_zip()`, `ap_install_plugin()`, options, error codes, hooks): [docs/plugins.md](docs/plugins.md#plugin-installer).
+
 ---
 
 ## Release packaging
@@ -345,7 +355,7 @@ guides:
 | [docs/rewrites.md](docs/rewrites.md) | Front controller, permalinks, Apache / nginx `try_files` |
 | [docs/updates.md](docs/updates.md) | `version.json`, one-click updater, what is not overwritten |
 | [docs/cli.md](docs/cli.md) | Built-in `ap-cli` commands, flags, exit codes |
-| [docs/admin.md](docs/admin.md) | `/ap-admin/` screens by task, zip installer, Hall of Fame |
+| [docs/admin.md](docs/admin.md) | `/ap-admin/` screens by task, plugin zip upload how-to, Hall of Fame |
 | [docs/forums.md](docs/forums.md) | Hierarchy, topic types, likes, moderation, ACL, PMs |
 | [docs/roles.md](docs/roles.md) | Roles, capabilities, comment ownership, forum ACL |
 | [docs/rest.md](docs/rest.md) | `/ap-json/`, `ap/v1`, auth, `rest_api_enabled` |
@@ -355,7 +365,7 @@ guides:
 | [docs/features_and_functions.md](docs/features_and_functions.md) | Lookup catalog of tables pointing at the guides |
 | [docs/hooks.md](docs/hooks.md) | Actions, filters, lifecycle |
 | [docs/themes.md](docs/themes.md) | Template hierarchy, Agora theme, assets |
-| [docs/plugins.md](docs/plugins.md) | Plugin headers, shortcodes, settings, ACP pages |
+| [docs/plugins.md](docs/plugins.md) | Plugin headers, shortcodes, settings, ACP pages, zip installer API |
 | [docs/editor.md](docs/editor.md) | Visual editor contract, dark `color-scheme` chrome (no blocks in core) |
 | [docs/site-icon.md](docs/site-icon.md) | Site icon / favicon pack (admin, sizes, head tags) |
 | [docs/compatibility.md](docs/compatibility.md) | Classic WordPress Theme Compatibility Layer |

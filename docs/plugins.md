@@ -1,6 +1,6 @@
 # Plugin API
 
-This is the **plugin integrator guide** for AgoraPress **`0.3.11-beta`** (schema `AP_DB_VERSION` **13**). It describes headers, must-use plugins, shortcodes, the Settings API, ACP pages (`ap_register_admin_page`), and the zip installer **as built**.
+This is the **plugin integrator guide** for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **13**). It describes headers, must-use plugins, shortcodes, the Settings API, ACP pages (`ap_register_admin_page`), and the zip installer API (functions, options, error codes, hooks) **as built**.
 
 Plugins extend AgoraPress via headers, activation hooks, and the [hook system](hooks.md). Layout and headers are deliberately familiar to classic WordPress plugin authors. Operator screens: [admin.md](admin.md). Shell verbs: [cli.md](cli.md). REST registration: [rest.md](rest.md).
 
@@ -83,8 +83,13 @@ ap_plugin_dir(string $plugin): string
 ap_plugin_url(string $plugin, string $path = '', ?AP_DB $db = null): string
 ap_register_activation_hook(string $file, callable $callback): void
 ap_register_deactivation_hook(string $file, callable $callback): void
-ap_install_plugin_from_zip(string $zipPath, array $args = []): array
-ap_upload_plugin(array $file, array $args = []): array
+ap_register_upgrade_hook(string $file, callable $callback): void
+ap_validate_plugin_zip(string $zipPath, array $opts = []): AP_Plugin_Install_Result|AP_Plugin_Install_Error
+ap_install_plugin(string $zipPath, array $opts = []): AP_Plugin_Install_Result|AP_Plugin_Install_Error
+ap_restore_previous_plugin(string $slug, array $opts = []): AP_Plugin_Install_Result|AP_Plugin_Install_Error
+ap_list_installed_plugins(array $opts = []): array
+ap_install_plugin_from_zip(string $zipPath, array $args = []): array  // legacy array result
+ap_upload_plugin(array $file, array $args = []): array                // legacy array result
 ap_delete_plugin(string $plugin, ?AP_DB $db = null): array
 ```
 
@@ -347,43 +352,166 @@ String function-name callbacks are accepted (wrapped for late binding), matching
 
 ## Plugin installer
 
-This is the **canonical** zip-installer contract (package shape, caps, helpers, hooks). The ACP screen map points here from [admin.md](admin.md#plugin-zip-installer). Theme zip upload is a **separate** class (`AP_Theme_Installer`) on Appearance → Themes.
+This is the **canonical** developer contract for installing a plugin from a zip: functions, options, result shape, error codes, and hooks. The operator how-to (form, confirmation, notices, restore button) is [admin.md](admin.md#plugin-zip-installer). Theme zip upload is a **separate** class (`AP_Theme_Installer`) on Appearance → Themes.
 
-**Source:** `ap-includes/class-ap-plugin-installer.php` (`AP_Plugin_Installer`)  
-**Helpers:** `ap_install_plugin_from_zip()`, `ap_upload_plugin()`, `ap_delete_plugin()`  
-**ACP screen:** Plugins → Upload plugin (`plugins.php` POST `ap_plugin_action=upload`)
+**Source:** `ap-includes/class-ap-plugin-installer.php` (`AP_Plugin_Installer`), `ap-includes/class-ap-plugin-install-result.php` (`AP_Plugin_Install_Result`, `AP_Plugin_Install_Error`)  
+**Procedural wrappers:** `ap-includes/functions.php`  
+**ACP screen:** Plugins → **Upload plugin (.zip)** (`plugins.php`). Seeing the list requires `activate_plugins`. The upload form and **Restore previous version** require `install_plugins` (administrators only). Delete requires `delete_plugins`, or `install_plugins` as a fallback. Nonce on the upload form: `plugin-upload`.
 
-| Piece | As built |
-|-------|----------|
-| Screen cap | `activate_plugins` (to see Plugins) |
-| Upload cap | `install_plugins` |
-| Delete cap | `delete_plugins`, or `install_plugins` as a fallback |
-| PHP | `ZipArchive` is required |
-| Max size | `AP_Plugin_Installer::DEFAULT_MAX_BYTES` = **40 MiB** (also bounded by PHP upload limits) |
-| Nonce | `plugin-upload` |
+The class methods do **not** check a capability. A plugin that exposes them to a user must check `install_plugins` itself. `ZipArchive` is required.
+
+There is **no** `php ap-cli plugin install`. After a zip install, activate with the Plugins screen or `php ap-cli plugin activate my-plugin/my-plugin.php` ([cli.md](cli.md)). Copying a PHP file or folder into `ap-content/plugins/` still works. Active plugins **cannot** be deleted — deactivate first.
+
+### Functions
+
+Tell success from failure with `instanceof`. A result is not an error array.
+
+| Call | Returns |
+|------|---------|
+| `AP_Plugin_Installer::validate(string $zipPath, array $opts = [])` | `AP_Plugin_Install_Result` or `AP_Plugin_Install_Error`. Same checks as install. Extracts only into a private staging directory, then removes it. Does not write the plugins directory. |
+| `ap_validate_plugin_zip($zipPath, $opts)` | Same. |
+| `AP_Plugin_Installer::install(string $zipPath, array $opts = [])` | Same types. Moves the staged payload into the plugins directory. |
+| `ap_install_plugin($zipPath, $opts)` | Same. |
+| `AP_Plugin_Installer::restorePrevious(string $slug, array $opts = [])` | Same types. Puts the newest restorable backup of that slug back. |
+| `ap_restore_previous_plugin($slug, $opts)` | Same. |
+| `AP_Plugin_Installer::latestBackup(string $slug, array $opts = [])` | `array{slug, name, version, plugin}` or `null`. Does not move files or fire restore actions. An invalid slug is `null`. |
+| `AP_Plugin_Installer::listInstalled(array $opts = [])` | `list<array{slug, name, version, active}>`. Ordered by slug, then by basename. The basename is not in the returned row. A folder and a flat file can share a slug; both are listed. Symlinks are skipped. |
+| `ap_list_installed_plugins($opts)` | Same. |
+| `AP_Plugin_Installer::slugFromBasename(string $plugin)` | Slug for `demo/demo.php` or `demo.php`. Empty string when the name is not a lowercase slug PHP file (extra slash, `..`, NUL, non-PHP). |
+
+`validate()` reports the action install **would** take (`installed` or `upgraded`) and the previous version when that slug is already on disk. `overwrite` and `activate` are not applied there. `backupPath()` is null and `activated()` is false.
+
+`install()` of a new slug is action `installed` (no previous version, no backup). An existing slug stays in place and the return is `already_installed` unless `overwrite` is boolean `true`. True moves the previous folder or `{slug}.php` into `{content}/.ap-plugin-backups/{slug}/{stamp}/`, then moves the staged payload into place. `rename` is used when it works; otherwise the tree is copied and the source is removed. A failed swap, or a failed check after the swap, moves that backup back. The result `backupPath()` is the stamp directory.
+
+A plugin that was already active stays active. Its upgrade routine runs when one was registered with `ap_register_upgrade_hook()` / `AP_Plugin::registerUpgradeHook()`. The callback receives the plugin basename, the previous version or null, and the new version. If this request already included the plugin, the routine runs on the next `AP_Plugin::loadActivePlugins()` so the replacement file is the one that registers it. A failed attempt to keep that plugin active restores the backup.
+
+`activate` must be boolean `true`. Any other value, including the string `"1"` or integer `1`, does not activate. The Plugins screen converts a posted checkbox of `1` into boolean `true` before it calls `install()`. True activates after the files are in place. If activation fails, the new files stay, the plugin is left inactive, and the return is `activation_failed`. The previous version is **not** restored for that failure. `message()` names the plugin and says it remains inactive. An already-active plugin is not activated again; `activated()` is still true when `activate` was true.
+
+`restorePrevious()` trims the slug. It must be a lowercase plugin slug. The newest stamp name (the one that sorts last) is the only candidate. A stamp that is not a single safe plugin payload is not restored and does not fall through to an older stamp. When the slug is installed, those files move into a new timestamped backup first and are put back if the restore fails. The consumed stamp is removed only after a restore that sticks. When the slug is not installed, the backup moves into place, `previousVersion()` is null, and `backupPath()` is null. Otherwise `previousVersion()` is the version that was displaced, when it could be read, and `backupPath()` is the new stamp that holds those files. A plugin that was active stays active, including when the restored main-file basename differs. An inactive plugin stays inactive. Activation and upgrade hooks are not run. `activated()` is true only when the restored plugin is on the live active list afterward. A `plugins_root` other than that live directory does not change the active list.
+
+Backups live under `{content}/.ap-plugin-backups/` (mode-restricted, `.htaccess` deny). Staging lives under `{content}/.ap-plugin-staging/` (mode `0700`). Nothing is extracted directly into the plugins directory. `ZipArchive::extractTo()` is not used.
+
+### Options
+
+`overwrite` and `activate` count only when the value is boolean `true`.
+
+| Key | Used by | Meaning |
+|-----|---------|---------|
+| `overwrite` | `install()` | Boolean `true` replaces an existing slug and writes a backup. Any other value returns `already_installed` and does not fire upgrade actions. Ignored by `validate()`. |
+| `activate` | `install()` | Boolean `true` activates after the files are in place. Any other value leaves a plugin that was not already active inactive. Ignored by `validate()`. |
+| `expected_sha256` | `validate()`, `install()` | When a non-empty string, compared to the file **before** the archive is opened. A blank value skips the check. 64 hex characters, case-insensitive, optional `sha256:` prefix. A mismatch or an unusable digest is `sha256_mismatch` and nothing is extracted. |
+| `plugins_root` | all of the calls above | Directory used to detect or list an existing slug. Default: the plugins directory. |
+| `content_dir` | `validate()`, `install()`, `restorePrevious()`, `latestBackup()` | Content directory that owns private staging and backups. Default: the parent of the plugins directory. Not an option of `listInstalled()`. |
+
+```php
+$result = ap_install_plugin('/tmp/example-plugin.zip', [
+    'overwrite' => true,
+    'activate' => true,
+    'expected_sha256' => 'sha256:<64 hex characters>',
+]);
+
+if ($result instanceof AP_Plugin_Install_Error) {
+    $code = $result->code();
+    $message = $result->message();
+} else {
+    $slug = $result->slug();
+    $action = $result->action(); // installed, upgraded, or restored
+}
+```
+
+### Result
+
+`AP_Plugin_Install_Result::toArray()`:
+
+| Key | Meaning |
+|-----|---------|
+| `ok` | `true` |
+| `slug` | Lowercase plugin slug |
+| `name` | Plugin Name header |
+| `version` | Version header |
+| `previous_version` | Previous version string, or `null` |
+| `action` | `installed`, `upgraded`, or `restored` (`ACTION_INSTALLED`, `ACTION_UPGRADED`, `ACTION_RESTORED`) |
+| `backup_path` | Stamp directory of the displaced copy, or `null` |
+| `activated` | Whether the plugin is active for this result |
+| `plugin` | Basename under the plugins directory (`folder/file.php` or `file.php`) |
+
+`AP_Plugin_Install_Error::toArray()` is `ok` `false`, plus `code` and `message`. `message()` is safe to show to an admin. `code()` is the stable machine value (`AP_Plugin_Install_Error::CODES`).
+
+`listInstalled()` rows are `slug`, `name`, `version`, `active` (bool). `active` is true only when that basename is on the live active list for this plugins directory. Any other directory reports `active` false and does not read the active list. A folder whose main file is not `{slug}/{slug}.php`, and that has several header files, is omitted. Dot entries are skipped.
+
+### Error codes
+
+| Code | When |
+|------|------|
+| `missing_file` | The zip path cannot be read. |
+| `empty` | The file is empty. |
+| `not_zip` | The file does not start with a zip signature. The extension is ignored. |
+| `zip_open_failed` | `ZipArchive` cannot open the archive. |
+| `zip_extension_missing` | The PHP `ZipArchive` extension is missing. |
+| `oversize` | The file is larger than the filterable byte cap. |
+| `sha256_mismatch` | `expected_sha256` was set and does not match, or the digest is unusable. |
+| `unsafe_path` | An entry is absolute, contains `..`, a backslash, a drive letter, or a NUL byte, or its realpath leaves the staging directory. |
+| `symlink` | A central-directory external attribute is a Unix symlink. Honored even when the host id is not Unix. |
+| `special_file` | A fifo, device, socket, or other type that is not a regular file or directory. |
+| `too_many_entries` | Central-directory count, including directories, exceeds the cap. Checked before inflate. |
+| `uncompressed_too_large` | The sum of declared uncompressed sizes exceeds the cap. Checked before inflate. |
+| `bad_structure` | Not one plugin: more than one top-level folder, or not a single folder / flat plugin. `__MACOSX/` and `.DS_Store` are ignored. |
+| `invalid_slug` | The folder name or flat main-file name is not a lowercase slug (`/^[a-z0-9]+(?:[_-][a-z0-9]+)*$/`). |
+| `missing_header` | The main PHP file lacks **Plugin Name** or **Version**. |
+| `theme_package` | A `style.css` at the archive root, or one directory down, has a **Theme Name** header. A deeper `style.css` is rejected only when the zip has no plugin header. |
+| `core_package` | AgoraPress (`ap-includes/version.php`, `index.php`, and `ap-admin/`) or WordPress (`wp-admin/` plus `wp-includes/`), even when a plugin header is nested inside. |
+| `already_installed` | The slug exists and `overwrite` is not boolean `true`. |
+| `staging_failed` | The private staging directory could not be created or removed. |
+| `install_failed` | The payload could not be placed, or a failed upgrade could not restore the previous plugin. |
+| `activation_failed` | The files are installed. The plugin is not left active. The previous version is not restored. |
+| `backup_failed` | The previous plugin could not be backed up, so it was left unchanged. |
+| `no_backup` | `restorePrevious()` found no restorable stamp for that slug. |
+| `restore_failed` | The newest backup could not be put back. An installed copy that was still in place is left unchanged. |
+
+The Plugins screen maps each code to a fixed sentence. See [admin.md](admin.md#plugin-zip-error-notices). `activation_failed` on that screen shows `message()` when it is non-empty. Restore and backup failures on **Restore previous version** do the same when the installer sentence is a short single line.
 
 ### Package shape
 
-The zip must contain a PHP file with a **Plugin Name** header:
+- **Folder:** one top-level directory whose name is a lowercase slug. The main file is `{slug}/{slug}.php` when that file has a plugin header. Otherwise it is the only PHP file directly in that folder with **Plugin Name** and **Version**. Several header files and no `{slug}/{slug}.php`, or a header only in a subdirectory, is `bad_structure`. Installed as `ap-content/plugins/{slug}/`.
+- **Flat:** one PHP file at the archive root. Its filename stem is the slug. Installed as `ap-content/plugins/{slug}.php`.
 
-- **Single-file:** `hello.php` at the zip root → `ap-content/plugins/hello.php`
-- **Folder:** `my-plugin/my-plugin.php` (header one level down) → `ap-content/plugins/my-plugin/`
+### Limits
 
-Path traversal, disallowed script types, empty archives, and oversized zips are rejected. The file must look like a zip (`PK` magic).
+| Constant | Default | Filter | Applies to |
+|----------|---------|--------|------------|
+| `DEFAULT_VALIDATE_MAX_BYTES` | **20 MiB** (`20971520`) | `ap_plugin_zip_max_bytes` (args: cap, zip path) | `validate()` / `install()` and the size shown on **Upload plugin (.zip)** |
+| `DEFAULT_MAX_ENTRIES` | `5000` | `ap_plugin_zip_max_entries` (args: cap, zip path) | Central-directory entries. Directories count. |
+| `DEFAULT_MAX_UNCOMPRESSED_BYTES` | **128 MiB** (`134217728`) | `ap_plugin_zip_max_uncompressed_bytes` (args: cap, zip path) | Sum of declared uncompressed sizes, not the zip file size. |
+| `DEFAULT_MAX_BACKUPS` | `5` | `ap_plugin_zip_max_backups` (args: cap, slug) | Timestamped backups kept per slug after a successful upgrade or restore. The backup just written counts. Zero is rejected; a non-positive filter return leaves the default. |
+| `DEFAULT_MAX_BYTES` | **40 MiB** (`41943040`) | none (see below) | Legacy `installFromZip()` / `handleUpload()` / `maxUploadBytes()` only |
 
-### After upload
+A limit filter may return a positive integer or a digit string. Any other return leaves the default. `maxValidateBytes()` is **not** tied to PHP `upload_max_filesize`. The legacy cap is: `AP_MAX_PLUGIN_UPLOAD_BYTES` when that constant is a positive int, otherwise `DEFAULT_MAX_BYTES`, raised when `AP_MAX_UPLOAD_BYTES` is a larger positive int, then lowered to PHP `upload_max_filesize` / `post_max_size` when those are smaller. Use `accepted_args` `2` to read the zip path or slug.
 
-Installed plugins stay **inactive** until you activate them (Plugins screen or `php ap-cli plugin activate …`). Check **Overwrite if a plugin with the same folder or file name already exists** to replace an existing slug. Active plugins **cannot** be deleted — deactivate first.
+### Hooks
 
-Drop-in without zip still works: copy a PHP file or folder into `ap-content/plugins/` yourself, then activate.
+Listener exceptions on these actions are ignored. A logger cannot cancel install, upgrade, restore, activate, or deactivate.
 
-Actions `ap_plugin_installed` / `ap_plugin_deleted` fire after a successful legacy zip install or delete ([hooks.md](hooks.md)).
+Context array for install, upgrade, and restore (one argument): `slug`, `name`, `version`, `previous_version`, `plugin`, `action` (`installed`, `upgraded`, or `restored`), `backup_path`, `activated`. On the before action, `activated` is false and `backup_path` is null until a backup exists. After runs only when that operation sticks. A failed upgrade or restore that puts the previous files back does not fire after. Optional activation runs **before** the install or upgrade after action, so `activated` matches the result. A failed activation still fires after with `activated` false. A rejected zip or a refused overwrite fires neither install nor upgrade actions.
 
-`AP_Plugin_Installer::install()` (`ap_install_plugin()`) and `restorePrevious()` (`ap_restore_previous_plugin()`) fire before and after actions for install, upgrade, and restore. The argument is a context array (`slug`, `name`, `version`, `previous_version`, `plugin`, `action`, `backup_path`, `activated`). Activate and deactivate also fire `ap_plugin_before_activate` / `ap_plugin_after_activate` and the deactivate pair, in addition to `ap_activate_plugin` / `ap_deactivate_plugin`. The argument there is the plugin basename. Listener exceptions on these actions do not cancel the operation.
+| Hook | Type | When |
+|------|------|------|
+| `ap_plugin_before_install` / `ap_plugin_after_install` | action | `install()` for a new slug. |
+| `ap_plugin_before_upgrade` / `ap_plugin_after_upgrade` | action | `install()` when `overwrite` replaces an existing slug. |
+| `ap_plugin_before_restore` / `ap_plugin_after_restore` | action | `restorePrevious()`. |
+| `ap_plugin_before_activate` / `ap_plugin_after_activate` | action | `AP_Plugin::activate()`, including optional activation from `install()`. Arg: plugin basename. Before: before the file is loaded. After: after the active list is saved. An already active plugin does not fire them. `ap_activate_plugin` and `ap_activate_{slug}` still fire during activation. |
+| `ap_plugin_before_deactivate` / `ap_plugin_after_deactivate` | action | `AP_Plugin::deactivate()`. Arg: plugin basename. An inactive plugin does not fire them. `ap_deactivate_plugin` and `ap_deactivate_{slug}` still fire during deactivation. |
+| `ap_plugin_zip_max_bytes` | filter | See [Limits](#limits). |
+| `ap_plugin_zip_max_entries` | filter | See [Limits](#limits). |
+| `ap_plugin_zip_max_uncompressed_bytes` | filter | See [Limits](#limits). |
+| `ap_plugin_zip_max_backups` | filter | See [Limits](#limits). |
+| `ap_plugin_installed` | action | After a successful **legacy** `installFromZip()` only. Args: plugin basename, result array (`ok`, `plugin`, `slug`, `path`, `headers`, `is_folder`, …). The Plugins screen calls `install()` and does **not** fire this. |
+| `ap_plugin_deleted` | action | After `deletePlugin()` removes an inactive plugin. Arg: plugin basename. The Plugins screen delete action still uses that method. |
 
-`validate()` / `install()` cap the zip with `ap_plugin_zip_max_bytes` (default 20 MiB), `ap_plugin_zip_max_entries`, and `ap_plugin_zip_max_uncompressed_bytes`. Upgrades and restores keep the last N backups per slug (`ap_plugin_zip_max_backups`, default 5). The legacy upload screen still uses `DEFAULT_MAX_BYTES` (40 MiB) above. See [hooks.md](hooks.md).
+Same inventory: [hooks.md](hooks.md#plugins).
 
-There is **no** `php ap-cli plugin install`. After upload, activate with `php ap-cli plugin activate my-plugin/my-plugin.php` ([cli.md](cli.md)).
+### Legacy helpers
+
+`ap_install_plugin_from_zip()` / `AP_Plugin_Installer::installFromZip()` and `ap_upload_plugin()` / `handleUpload()` return an array (`ok`, `plugin`, `slug`, `path`, `headers`, `is_folder`, `overwritten`, `errors`, `warnings`), not `AP_Plugin_Install_Result`. They use `DEFAULT_MAX_BYTES` (**40 MiB**) via `maxUploadBytes()`. Prefer `ap_validate_plugin_zip()` and `ap_install_plugin()` for new code. `ap_delete_plugin()` / `deletePlugin()` still deletes an inactive plugin and returns `array{ok, plugin, errors}`.
 
 ## Related docs
 

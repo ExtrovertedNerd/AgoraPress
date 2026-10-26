@@ -1,6 +1,6 @@
 # Theme hierarchy & theme API
 
-This is the **theme integrator guide** for AgoraPress **`0.3.11-beta`** (schema `AP_DB_VERSION` **13**). It describes the native template hierarchy, default **Agora** theme, assets, Theme Options, the ACP zip installer, `ap_comments_template()`, and core spoiler CSS **as built**.
+This is the **theme integrator guide** for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **13**). It describes the native template hierarchy, default **Agora** theme, assets, Theme Options, the ACP zip installer, `ap_comments_template()`, and core spoiler CSS **as built**.
 
 AgoraPress themes are **pure PHP templates** with a classic WordPress-inspired hierarchy. Block / Full Site Editing themes (`theme.json`, HTML block templates) are **out of scope** for the native loader (see [compatibility](compatibility.md)) — they are **not in core**. Operator screens: [admin.md](admin.md). Activate from the shell: [cli.md](cli.md). Forum templates: [forums.md](forums.md). Core does **not** auto-inject a comment form into themes that never call `ap_comments_template()`.
 

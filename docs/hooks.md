@@ -1,6 +1,6 @@
 # Hooks (Actions & Filters)
 
-This is the **integrator hook guide** for AgoraPress **`0.3.11-beta`** (schema `AP_DB_VERSION` **13**). It describes the public action/filter API, request lifecycle, and a **selected** set of core hook names that exist in shipped code.
+This is the **integrator hook guide** for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **13**). It describes the public action/filter API, request lifecycle, and a **selected** set of core hook names that exist in shipped code.
 
 AgoraPress uses a WordPress-inspired hook system so plugins and themes can extend core without forking it. This file is **not** an encyclopedia. Every name in the tables below was grepped from shipped `ap_do_action` / `ap_apply_filters` (or is labeled as a compat **map target** that native core does **not** fire). Grep for the rest. Do **not invent** hook names. If a name is not in this file and not in core, it is **not in core**.
 
@@ -200,20 +200,26 @@ PHP helpers `ap_registration_captcha_mode()` and `ap_registration_verify_captcha
 
 ### Plugins
 
+Functions, options, and error codes: [plugins.md](plugins.md#plugin-installer).
+Operator notices: [admin.md](admin.md#plugin-zip-installer). The Plugins screen
+upload calls `AP_Plugin_Installer::install()` and does **not** fire
+`ap_plugin_installed`.
+
 | Hook | Type | Notes |
 |------|------|-------|
 | `ap_activate_plugin` | action | During activation, after the plugin file is loaded and its activation callbacks have run, before the active list is saved. Also fires `ap_activate_{slug}` (`AP_Plugin::hookSlug()`). |
 | `ap_plugin_before_activate` / `ap_plugin_after_activate` | action | Before the plugin file is loaded, and after the active list is saved. Arg: plugin basename. An already active plugin does not fire them. Listener exceptions do not cancel activation. |
 | `ap_deactivate_plugin` | action | During deactivation, after the plugin's deactivation callbacks, before the active list is saved. Also fires `ap_deactivate_{slug}`. |
 | `ap_plugin_before_deactivate` / `ap_plugin_after_deactivate` | action | Before those callbacks, and after the active list is saved. Arg: plugin basename. An inactive plugin does not fire them. |
-| `ap_plugin_before_install` / `ap_plugin_after_install` | action | `AP_Plugin_Installer::install()` for a new slug. Arg: context array (`slug`, `name`, `version`, `previous_version`, `plugin`, `action`, `backup_path`, `activated`). Before runs once the zip is valid, before files move. After runs when install() finishes with the files in place. Optional activation runs before that after action, so `activated` matches the result; a failed activation still fires after with `activated` false. A rejected zip or a refused overwrite does not fire them. |
-| `ap_plugin_before_upgrade` / `ap_plugin_after_upgrade` | action | Same context when `overwrite` replaces an existing slug. After does not run when the previous plugin is restored. Optional activation runs before the after action. |
-| `ap_plugin_before_restore` / `ap_plugin_after_restore` | action | `AP_Plugin_Installer::restorePrevious()`. After does not run when the restore is rolled back. |
-| `ap_plugin_installed` / `ap_plugin_deleted` | action | After the legacy ACP zip install / delete (`installFromZip()` / `deletePlugin()`) — [plugins.md](plugins.md) |
-| `ap_plugin_zip_max_bytes` | filter | Max zip bytes for `validate()` / `install()` (default 20 MiB). Args: cap, zip path. Return a positive int or digit string. |
-| `ap_plugin_zip_max_entries` | filter | Max central-directory entries (directories count). Args: cap, zip path. |
-| `ap_plugin_zip_max_uncompressed_bytes` | filter | Max declared uncompressed size. Args: cap, zip path. |
-| `ap_plugin_zip_max_backups` | filter | How many timestamped backups to keep for one slug. Args: cap, slug. |
+| `ap_plugin_before_install` / `ap_plugin_after_install` | action | `AP_Plugin_Installer::install()` (`ap_install_plugin()`) for a new slug. Arg: context array (`slug`, `name`, `version`, `previous_version`, `plugin`, `action`, `backup_path`, `activated`). Before runs once the zip is valid, before files move; `activated` is false and `backup_path` is null. After runs when install() finishes with the files in place. Optional activation runs before that after action, so `activated` matches the result; a failed activation still fires after with `activated` false. A rejected zip or a refused overwrite does not fire them. Listener exceptions do not cancel the install. |
+| `ap_plugin_before_upgrade` / `ap_plugin_after_upgrade` | action | Same context when `overwrite` is boolean true and replaces an existing slug. After does not run when the previous plugin is restored. Optional activation runs before the after action. |
+| `ap_plugin_before_restore` / `ap_plugin_after_restore` | action | `AP_Plugin_Installer::restorePrevious()` (`ap_restore_previous_plugin()`). After does not run when the restore is rolled back. `latestBackup()` does not fire them. |
+| `ap_plugin_installed` | action | After a successful legacy `installFromZip()` only. Args: plugin basename, result array. The Plugins screen calls `install()` and does not fire this. |
+| `ap_plugin_deleted` | action | After `deletePlugin()` removes an inactive plugin. Arg: plugin basename. Plugins screen delete still uses that method. |
+| `ap_plugin_zip_max_bytes` | filter | Max zip bytes for `validate()` / `install()` (default 20 MiB, `DEFAULT_VALIDATE_MAX_BYTES`). Args: cap, zip path. Return a positive int or digit string. Use `accepted_args` 2 to read the path. Not the legacy `DEFAULT_MAX_BYTES` (40 MiB) cap. |
+| `ap_plugin_zip_max_entries` | filter | Max central-directory entries (directories count). Default `5000`. Args: cap, zip path. |
+| `ap_plugin_zip_max_uncompressed_bytes` | filter | Max declared uncompressed size. Default 128 MiB. Args: cap, zip path. |
+| `ap_plugin_zip_max_backups` | filter | How many timestamped backups to keep for one slug. Default `5`. Args: cap, slug. |
 | `ap_plugin_header_fields` | filter | Extend header field names |
 
 ### Mail

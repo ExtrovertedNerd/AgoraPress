@@ -20,6 +20,7 @@ use AP_Options;
 use AP_Plugin;
 use PDO;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(AP_Admin::class)]
@@ -823,8 +824,14 @@ final class AdminRouterTest extends TestCase
         $this->assertSame($core, AP_Admin::mergeRegisteredMenuItems($core));
     }
 
+    /**
+     * Runs in its own process so AP_Plugin is not already loaded by earlier tests.
+     * Linked pages stay visible only while the plugin subsystem class is absent.
+     */
+    #[RunInSeparateProcess]
     public function testIsRegisteredPagePluginActiveWithoutPluginKey(): void
     {
+        $this->assertFalse(class_exists(AP_Plugin::class, false));
         $this->assertTrue(AP_Admin::isRegisteredPagePluginActive([]));
         $this->assertTrue(AP_Admin::isRegisteredPagePluginActive(['plugin' => '']));
         $this->assertTrue(AP_Admin::isRegisteredPagePluginActive(['plugin' => '   ']));

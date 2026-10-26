@@ -3,15 +3,35 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.11-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.12-beta**).
 
 Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
 ## [Unreleased]
 
+Plugin zip install and upgrade (`AP_Plugin_Installer`). Schema stays `AP_DB_VERSION` **13**; no telemetry by default.
+
 ### Added
 
+- `AP_Plugin_Installer::validate()` / `install()` / `restorePrevious()` / `latestBackup()` / `listInstalled()`, and `ap_validate_plugin_zip()` / `ap_install_plugin()` / `ap_restore_previous_plugin()` / `ap_list_installed_plugins()`
+- `AP_Plugin_Install_Result` (`slug`, `name`, `version`, `previous_version`, `action` `installed`|`upgraded`|`restored`, `backup_path`, `activated`) or `AP_Plugin_Install_Error` (`code`, `message`)
+- Options: `overwrite` and `activate` apply only as boolean `true`; optional `expected_sha256` is checked before anything is extracted
+- Cap `install_plugins` (administrators only). Plugins → **Upload plugin (.zip)**: POST, multipart, nonce `plugin-upload`, file field `pluginzip`, checkbox **Activate after install**
+- An existing slug is not replaced on the first POST. The screen shows the installed version and the new version; **Replace plugin** is a second POST (nonce `plugin-overwrite`)
+- **Restore previous version** on a row when a backup exists (POST, nonce `restore-plugin_{slug}`). The current copy is backed up first
+- Staging under `{content}/.ap-plugin-staging/`; backups under `{content}/.ap-plugin-backups/` (keep last **5**, filter `ap_plugin_zip_max_backups`). Nothing is extracted straight into the plugins directory
+- Zip check is magic bytes, not the extension. Reject absolute paths, `..`, backslashes, drive letters, NUL bytes, symlinks, and special files. Entry-count and uncompressed-size caps reject bombs
+- One top-level slug folder (main file `{slug}/{slug}.php`, or the only header PHP directly in that folder) or one flat `{slug}.php`, with **Plugin Name** and **Version**. A theme (`Theme Name` in `style.css` at the archive root or one directory down) or a core package is rejected
+- Size cap default **20 MiB** (`ap_plugin_zip_max_bytes`); **5000** entries (`ap_plugin_zip_max_entries`); **128 MiB** uncompressed (`ap_plugin_zip_max_uncompressed_bytes`)
+- Actions `ap_plugin_before_install` / `ap_plugin_after_install`, `ap_plugin_before_upgrade` / `ap_plugin_after_upgrade`, `ap_plugin_before_restore` / `ap_plugin_after_restore`, `ap_plugin_before_activate` / `ap_plugin_after_activate`, `ap_plugin_before_deactivate` / `ap_plugin_after_deactivate`
+- Operator how-to: [docs/admin.md](docs/admin.md#plugin-zip-installer). Developer API: [docs/plugins.md](docs/plugins.md#plugin-installer)
+
 ### Changed
+
+- Schema stays `AP_DB_VERSION` **13** (no table change)
+- A plugin that was active stays active after upgrade or restore. If `activate` fails, the new files stay and the plugin is inactive; that failure does not restore the previous version
+- A failed swap puts the timestamped backup back. There is no `php ap-cli plugin install`
+- The Plugins screen calls `install()` and does not fire legacy `ap_plugin_installed`. `installFromZip()` / `handleUpload()` remain on the **40 MiB** `DEFAULT_MAX_BYTES` path
 
 ## [0.3.11-beta] - 2026-09-15
 

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This is the **symptom → check** guide for AgoraPress **`0.3.11-beta`** (schema
+This is the **symptom → check** guide for AgoraPress **`0.3.12-beta`** (schema
 `AP_DB_VERSION` **13**). It describes common failures **as built**. Start
 here when a site misbehaves; follow the linked topic guide for depth.
 
@@ -74,6 +74,7 @@ host configuration.
 | Pretty URL 404 (`/slug/`, `/YYYY/MM/DD/slug/`) while `?p=` still works | Front controller missing: Apache `mod_rewrite` + shipped [`.htaccess`](../.htaccess), or nginx `try_files $uri $uri/ /index.php?$args` | [rewrites.md](rewrites.md). Flush only after the web server reaches `index.php`. If `/about/` shows the **home page**, permalinks are still **Plain**. |
 | Web installer “Invalid security token”, or you bounce back to requirements after POST | PHP `session.save_path` not writable by the **php-fpm** (or Apache PHP) user | [security.md](security.md#php-sessionsave_path), [install.md](install.md#web-installer) |
 | Media upload or Site Icon fails | `ap-content/uploads/` (and year/month subdirs) must be writable by PHP; Site Icon also needs **GD or Imagick** and a raster image | [install.md](install.md#permissions), [site-icon.md](site-icon.md) |
+| Plugin zip refused, or the slug is already installed | **Plugins → Upload plugin (.zip)** (`install_plugins`). The notice names the installer code. An existing slug waits for **Replace plugin**; it is not overwritten on the first POST | [Plugin zip refused](#plugin-zip-refused) |
 | Forum / blog / pages “missing” from menus or ACP | **Settings → Modules** (`options-modules.php`). Options `ap_module_static_pages`, `ap_module_blog`, `ap_module_forum` | At least one module must stay on. Front `/forums/` is an empty state, not a web-server 404. If **one** board is missing while `/forums/` works, that is ACL — [Group board invisible](#group-board-invisible). |
 | Group board invisible (index / search / feed / sitemap / REST) or generic “You cannot view this.” | Per-forum ACL (`view_forum`), usually **This group only** (`group_only`) — not the Forum module toggle and not a rewrite 404 | [Group board invisible](#group-board-invisible), [forums.md](forums.md#this-group-only-group_only) |
 | “Members only” but every logged-in user can see the board | **Members only** is all registered accounts. A named group uses **This group only** | [Group board invisible](#group-board-invisible) |
@@ -81,7 +82,7 @@ host configuration.
 | Cannot move a topic (no **Move**, or POST fails) | Need `move_topics` or `moderate_forum` on the source **and** another forum the actor can moderate (not a category, not current) | [Cannot move a topic](#cannot-move-a-topic), [forums.md](forums.md#moderation) |
 | Classic WP theme looks broken | Compat layer is for **classic PHP** themes. Block / FSE (`theme.json`, HTML under `templates/`) is out of scope | [compatibility.md](compatibility.md) |
 | REST 404 on `/ap-json/` or `?rest_route=` | Front controller (pretty `/ap-json/…`) **and** option `rest_api_enabled` | Distinguish a web-server HTML 404 from JSON `rest_disabled` / `rest_no_route` / `rest_module_disabled`. [rest.md](rest.md) |
-| Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.11-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
+| Logged-in blog comments do not save, or ACP Edit User shows the admin instead of the selected account | Current core already has the 0.3.2 / 0.3.6 behaviour | Confirm you are on **0.3.12-beta**. See [Logged-in comments and Edit User](#logged-in-comments-and-edit-user). |
 | No Leave-a-comment form on a single post | Theme never called `ap_comments_template()`. Core does **not** auto-inject | [No comment form](#no-comment-form). Agora `single.php` already calls it once. |
 | Login rejected / “too many attempts” / “verify your email” | Rate limit (`rate_limited`) or `require_email_verification` — not a broken `session.save_path` | [Login fails](#login-fails), [security.md](security.md), [roles.md](roles.md) |
 | Verification mail never arrives (reset / test too) | SMTP (or PHP `mail()`) on **Settings → Mail**; check the **spam** folder (new sending server); Site Health `mail_last_error` | [Mail not arriving](#mail-not-arriving) |
@@ -334,7 +335,7 @@ Basic. Depth: [rest.md](rest.md), [rewrites.md](rewrites.md),
 
 ## Logged-in comments and Edit User
 
-These used to surprise operators. On **0.3.11-beta** the current behaviour
+These used to surprise operators. On **0.3.12-beta** the current behaviour
 is:
 
 ### Logged-in blog comments (since 0.3.2-beta)
@@ -361,7 +362,7 @@ Settings → Discussion. Ownership caps (since 0.3.3-beta):
 `delete_own_comments` (Subscriber+), `edit_own_comments` (Author+);
 moderators keep `moderate_comments`. See [roles.md](roles.md).
 
-If comments still do not save on 0.3.11-beta, check the blog module, the
+If comments still do not save on 0.3.12-beta, check the blog module, the
 post’s comment status, rate limits, and the `comment_error=` token — not a
 missing `AP_User::get()` method.
 
@@ -906,6 +907,25 @@ Depth: [updates.md](updates.md).
 
 ---
 
+## Plugin zip refused
+
+**Screen:** Plugins (`/ap-admin/plugins.php`). The upload form is visible only with `install_plugins` (administrators). The list itself still requires `activate_plugins`. There is **no** `php ap-cli plugin install`.
+
+| What you see | Check |
+|--------------|--------|
+| No **Upload plugin (.zip)** card | The account is not an administrator, or `install_plugins` was removed. A forged POST says “You do not have permission to install plugins.” |
+| “Security check failed. Please try again.” | Nonce `plugin-upload` (upload), `plugin-overwrite` (replace / cancel), or `restore-plugin_{slug}` (restore). POST only. |
+| “Plugin upload must be sent as multipart form data.” | The form must be `multipart/form-data`. |
+| “That file is not a zip archive.” / empty / could not be read | Magic bytes, not the `.zip` extension. `ZipArchive` must be installed (`zip_extension_missing` names that). |
+| “The plugin zip is larger than the allowed size.” | Screen cap is `maxValidateBytes()` (default **20 MiB**, filter `ap_plugin_zip_max_bytes`). PHP `upload_max_filesize` / `post_max_size` can reject the body first (“The uploaded file exceeds the maximum allowed size.”). |
+| “That plugin is already installed. Confirm overwrite to replace it.” | Expected. Compare **Current version** and **New version**, then **Replace plugin** or **Cancel**. The held zip lasts 30 minutes. |
+| Activation sentence that says the plugin remains inactive | The files are installed. The previous version was not put back. **Restore previous version** appears on the row when a backup exists. |
+| “No previous version is available to restore.” | No restorable stamp under the content directory for that slug. |
+
+Every installer code and the sentence the screen shows: [admin.md](admin.md#plugin-zip-error-notices). Calling the same checks from PHP: [plugins.md](plugins.md#plugin-installer).
+
+---
+
 ## Also useful
 
 | Symptom | Check |
@@ -929,6 +949,7 @@ Do not invent these while diagnosing:
 - IIS `web.config`, Caddy, Traefik, or a PHP built-in-server router
 - `php ap-cli core update` (apply) — check is `core check-update`; apply is
   Tools → Update Core or a manual file deploy
+- `php ap-cli plugin install` (upload is Plugins → **Upload plugin (.zip)**)
 - `php ap-cli module …`
 - Two-factor authentication, a bundled WAF, or Fail2ban
 - A user self-service privacy portal
@@ -960,7 +981,8 @@ is **not in core**.
 | [rewrites.md](rewrites.md) | Front controller, `try_files`, `?p=` vs pretty |
 | [updates.md](updates.md) | `version.json`, Update Core, `db migrate` |
 | [cli.md](cli.md) | Built-in `ap-cli` groups, flags, exit codes |
-| [admin.md](admin.md) | `/ap-admin/` screens including Site Health, Mail, Settings → Forums notify, and Topics move/merge |
+| [admin.md](admin.md) | `/ap-admin/` screens including Site Health, Mail, plugin zip upload, Settings → Forums notify, and Topics move/merge |
+| [plugins.md](plugins.md#plugin-installer) | Plugin zip functions, options, error codes, hooks |
 | [editor.md](editor.md) | Visual editor contrast (`color-scheme`, `--ap-editor-*`) |
 | [forums.md](forums.md#last-post) | Last Post recount, Move / Merge / Split / Report, **This group only**, topic email notify |
 | [roles.md](roles.md) | Caps, comment ownership |

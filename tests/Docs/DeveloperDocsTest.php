@@ -251,7 +251,7 @@ final class DeveloperDocsTest extends TestCase
         $index = $this->readDoc('README.md');
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'one documentation tree',
                 'docs/index.md',
@@ -385,7 +385,7 @@ final class DeveloperDocsTest extends TestCase
 
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'README.md',
                 'docs/index.md',
@@ -1053,7 +1053,7 @@ final class DeveloperDocsTest extends TestCase
                 'manage_options',
                 'GD',
                 'Imagick',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'rewrites.md',
             ] as $needle
@@ -1081,7 +1081,7 @@ final class DeveloperDocsTest extends TestCase
                 'ap_editor',
                 'no jQuery',
                 'AP_Content_Format',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'admin.md',
                 'forums.md',
@@ -1193,7 +1193,7 @@ final class DeveloperDocsTest extends TestCase
                 'Intentional deviations',
                 'Three independent modules',
                 '0.2.1-beta',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'Local analytics',
                 'analytics_enabled',
@@ -1214,7 +1214,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('hooks.md');
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'ap_add_action',
                 'ap_do_action',
@@ -1441,7 +1441,7 @@ final class DeveloperDocsTest extends TestCase
     public function testDocsIndexReflects031BetaAndAnalytics(): void
     {
         $index = $this->readDoc('README.md');
-        $this->assertStringContainsString('0.3.11-beta', $index);
+        $this->assertStringContainsString('0.3.12-beta', $index);
         $this->assertStringContainsString('AP_Analytics', $index);
         $this->assertStringContainsString('class-ap-analytics.php', $index);
         $this->assertStringContainsString('AP_Forum_Like', $index);
@@ -1452,7 +1452,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('themes.md');
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'style.css',
                 'index.php',
@@ -1607,7 +1607,7 @@ final class DeveloperDocsTest extends TestCase
                 'manage_options',
                 'AP_Admin_Menu',
                 'AP_Admin::pageUrl',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'ap_register_admin_page',
                 'php ap-cli plugin install',
@@ -1631,7 +1631,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('compatibility.md');
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'Classic WordPress',
                 'functions-shim',
@@ -1662,7 +1662,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('schema.md');
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'schema_migrations',
                 'options',
@@ -1771,6 +1771,116 @@ final class DeveloperDocsTest extends TestCase
         $this->assertStringContainsString('AP_Plugin_Installer', $admin);
     }
 
+    public function testPluginZipDocsCoverAdminHowtoAndApi(): void
+    {
+        require_once dirname(__DIR__, 2) . '/ap-includes/class-ap-plugin-install-result.php';
+
+        $plugins = $this->readDoc('plugins.md');
+        $admin = $this->readDoc('admin.md');
+        $readme = (string) file_get_contents(dirname(__DIR__, 2) . '/README.md');
+        $hooks = $this->readDoc('hooks.md');
+
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Functions\s*$/', $plugins);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Options\s*$/', $plugins);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Error codes\s*$/', $plugins);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Hooks\s*$/', $plugins);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Plugin zip error notices\s*$/', $admin);
+        $this->assertStringContainsString('Upload plugin (.zip)', $readme);
+        $this->assertStringContainsString('docs/plugins.md#plugin-installer', $readme);
+        $this->assertStringContainsString('docs/admin.md#plugin-zip-installer', $readme);
+
+        foreach (
+            [
+                'ap_validate_plugin_zip',
+                'ap_install_plugin',
+                'ap_restore_previous_plugin',
+                'ap_list_installed_plugins',
+                'AP_Plugin_Installer::validate',
+                'AP_Plugin_Installer::install',
+                'AP_Plugin_Installer::restorePrevious',
+                'AP_Plugin_Installer::listInstalled',
+                'AP_Plugin_Installer::latestBackup',
+                'overwrite',
+                'activate',
+                'expected_sha256',
+                'plugins_root',
+                'content_dir',
+                'DEFAULT_VALIDATE_MAX_BYTES',
+                '20 MiB',
+                'boolean `true`',
+                'ap_plugin_before_install',
+                'ap_plugin_after_install',
+                'ap_plugin_before_upgrade',
+                'ap_plugin_after_upgrade',
+                'ap_plugin_before_restore',
+                'ap_plugin_after_restore',
+                'ap_plugin_before_activate',
+                'ap_plugin_after_activate',
+                'ap_plugin_before_deactivate',
+                'ap_plugin_after_deactivate',
+                'ap_plugin_zip_max_bytes',
+                'ap_plugin_zip_max_entries',
+                'ap_plugin_zip_max_uncompressed_bytes',
+                'ap_plugin_zip_max_backups',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString($needle, $plugins, "plugins.md API reference missing: {$needle}");
+        }
+
+        foreach (\AP_Plugin_Install_Error::CODES as $code) {
+            $this->assertStringContainsString(
+                '`' . $code . '`',
+                $plugins,
+                "plugins.md must name installer error code {$code}"
+            );
+            $this->assertStringContainsString(
+                '`' . $code . '`',
+                $admin,
+                "admin.md must name installer error code {$code}"
+            );
+        }
+
+        foreach (
+            [
+                'Upload plugin (.zip)',
+                'Activate after install',
+                'Replace installed plugin?',
+                'Restore previous version',
+                'confirm_overwrite',
+                'plugin-overwrite',
+                'plugin_overwrite_token',
+                'Install plugin',
+                'Replace plugin',
+                'PENDING_SECONDS',
+                '1800',
+                '20 MiB',
+                'DEFAULT_VALIDATE_MAX_BYTES',
+                'You do not have permission to install plugins.',
+                'multipart/form-data',
+                'plugin_installed',
+                'plugin_replaced',
+                'plugin_restored',
+                'plugins.md#error-codes',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString($needle, $admin, "admin.md how-to missing: {$needle}");
+        }
+
+        foreach (
+            [
+                'ap_plugin_before_install',
+                'ap_plugin_before_upgrade',
+                'ap_plugin_before_restore',
+                'ap_plugin_zip_max_bytes',
+                'ap_plugin_installed',
+                'ap_plugin_deleted',
+                'DEFAULT_VALIDATE_MAX_BYTES',
+            ] as $needle
+        ) {
+            $this->assertStringContainsString($needle, $hooks, "hooks.md missing: {$needle}");
+        }
+    }
+
     public function testInstallDocCoversInstallerSurfaces(): void
     {
         $root = dirname(__DIR__, 2);
@@ -1798,7 +1908,7 @@ final class DeveloperDocsTest extends TestCase
                 'AP_DB_VERSION',
                 'session.save_path',
                 '/ap-admin/',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'HTTP 403',
                 'HTTP 503',
                 '-----BEGIN AP-CONFIG-----',
@@ -1869,7 +1979,7 @@ final class DeveloperDocsTest extends TestCase
                 'mod_rewrite',
                 'AP_Rewrite',
                 'rewrite_rules',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'Apache vs Nginx',
                 '/ap-json/',
@@ -1933,7 +2043,7 @@ final class DeveloperDocsTest extends TestCase
                 'maybeQueueAdminNotice',
                 '--force',
                 'not in core',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'ZipArchive',
                 'set_time_limit',
@@ -2042,7 +2152,7 @@ final class DeveloperDocsTest extends TestCase
                 'AP_USER_PASSWORD',
                 'ap_cli_init',
                 'not in core',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'AP_CLI_SKIP_PLUGINS',
                 'AP_CLI_SKIP_THEMES',
@@ -2161,7 +2271,7 @@ final class DeveloperDocsTest extends TestCase
                 'not in core',
                 'Gutenberg',
                 'marketplace',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'user-edit.php?user_id=',
                 'The requested admin page was not found.',
@@ -2473,7 +2583,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('forums.md');
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'ap_module_forum',
                 'Settings → Modules',
@@ -2744,7 +2854,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('roles.md');
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'AP_Roles',
                 'ap_user_roles',
@@ -2824,7 +2934,7 @@ final class DeveloperDocsTest extends TestCase
         $text = $this->readDoc('rest.md');
         foreach (
             [
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 '/ap-json/',
                 '?rest_route=',
@@ -2933,7 +3043,7 @@ final class DeveloperDocsTest extends TestCase
                 'AP_NONCE_SALT',
                 'not in core',
                 '2FA',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'view_site_health',
                 'query(',
@@ -3070,7 +3180,7 @@ final class DeveloperDocsTest extends TestCase
                 'AllowOverride All',
                 'query-string vars only',
                 'not in core',
-                '0.3.11-beta',
+                '0.3.12-beta',
                 'AP_DB_VERSION',
                 'Activate account',
                 'Resend verification',

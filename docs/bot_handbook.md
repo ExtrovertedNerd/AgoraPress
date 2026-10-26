@@ -2,7 +2,7 @@
 
 How a trusted scripted agent (Grok Bot) that can **only** read this **public**
 repository supports AgoraPress. This is the operating model for *this*
-product at `AP_VERSION` **0.3.11-beta** · schema `AP_DB_VERSION` **13**.
+product at `AP_VERSION` **0.3.12-beta** · schema `AP_DB_VERSION` **13**.
 
 It is **not** a copy of the Heph Agent API / Control Panel contract. Filing
 mechanics live in Heph’s own docs (short pointer below). Product facts live
@@ -37,7 +37,7 @@ Do this every time. Do not skip the index.
 4. Confirm behaviour against shipped PHP in **this** repository. Reading
    code is allowed and expected. Inventing hook names, routes, CLI verbs,
    options, capabilities, tables, or admin screens is not.
-5. Describe the system **as built** at 0.3.11-beta / schema 13. Do **not
+5. Describe the system **as built** at 0.3.12-beta / schema 13. Do **not
    invent** product surfaces so an answer looks complete.
 6. If a surface is not in these guides and not in the shipped code, say it
    is **not in core**.
@@ -143,7 +143,7 @@ remote log collector, or host-specific repair flow.
 
 Order of work:
 
-1. Confirm the site is **0.3.11-beta** / schema **13** when the question is
+1. Confirm the site is **0.3.12-beta** / schema **13** when the question is
    about current behaviour (`php ap-cli version`, Tools → Site Health).
 2. Run **Tools → Site Health** (`/ap-admin/site-health.php`, cap
    `view_site_health`; `manage_options` is accepted as a fallback) or
@@ -258,7 +258,7 @@ Heph job: <job id, or “none filed”>
 | [roles.md](roles.md) | Roles, caps, comment ownership |
 | [rest.md](rest.md) | `/ap-json/`, `ap/v1`, `rest_api_enabled` |
 | [security.md](security.md) | No telemetry, sessions, deny rules |
-| [plugins.md](plugins.md) | Headers, zip installer, `ap_register_admin_page` |
+| [plugins.md](plugins.md) | Headers, zip installer API, `ap_register_admin_page` |
 | [themes.md](themes.md) | Template hierarchy, Agora, Theme Options |
 | [editor.md](editor.md) | Visual editor; Gutenberg not in core |
 | [site-icon.md](site-icon.md) | Favicon pack |

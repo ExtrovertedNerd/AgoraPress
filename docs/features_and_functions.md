@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Core | `AP_VERSION` **0.3.11-beta** |
+| Core | `AP_VERSION` **0.3.12-beta** |
 | Schema | `AP_DB_VERSION` **13** |
 | Table prefix | default `ap_` (`$table_prefix` in `ap-config.php`) |
 | Control Panel | `/ap-admin/` |
@@ -666,6 +666,21 @@
 | Custom | combination of supported tags | [rewrites.md](rewrites.md) |
 | Pages | `/slug/` when pretty (`pagename`) | [rewrites.md](rewrites.md) |
 
+## Plugin zip installer
+
+| Call | As built | Guide |
+|------|----------|-------|
+| `ap_validate_plugin_zip()` / `AP_Plugin_Installer::validate()` | Inspect a zip. No plugins-directory write. | [plugins.md](plugins.md#functions) |
+| `ap_install_plugin()` / `AP_Plugin_Installer::install()` | Install, or upgrade when `overwrite` is boolean true. | [plugins.md](plugins.md#functions) |
+| `ap_restore_previous_plugin()` / `restorePrevious()` | Newest backup for one slug. | [plugins.md](plugins.md#functions) |
+| `AP_Plugin_Installer::latestBackup()` | Read the newest restorable backup. No hooks. | [plugins.md](plugins.md#functions) |
+| `ap_list_installed_plugins()` / `listInstalled()` | `slug`, `name`, `version`, `active`. | [plugins.md](plugins.md#functions) |
+| Options | `overwrite`, `activate`, `expected_sha256`, `plugins_root`, `content_dir` | [plugins.md](plugins.md#options) |
+| Errors | `AP_Plugin_Install_Error::CODES` (`missing_file` … `restore_failed`) | [plugins.md](plugins.md#error-codes) · screen sentences [admin.md](admin.md#plugin-zip-error-notices) |
+| Screen | **Upload plugin (.zip)**, **Activate after install**, **Replace installed plugin?**, **Restore previous version** | [admin.md](admin.md#plugin-zip-installer) |
+| Cap | `install_plugins` (administrators only). Screen list still needs `activate_plugins`. | [roles.md](roles.md) |
+| Not this API | `php ap-cli plugin install`. Legacy `ap_install_plugin_from_zip()` uses `DEFAULT_MAX_BYTES` (**40 MiB**). | [plugins.md](plugins.md#legacy-helpers) · [cli.md](cli.md) |
+
 ## Hooks
 
 | Hook | Type | Guide |
@@ -682,6 +697,10 @@
 | `agora_color_scheme` | filter | Resolved slug only (`agora_filter_color_scheme()`). Invalid returns keep the slug. **Never** writes the site option — [themes.md](themes.md#visitor-color-scheme-preview) |
 | `ap_forum_topic_notify` | cron | Queued topic-notify worker (`topic_id` + `reply_post_id`). Reply POST schedules only — [forums.md](forums.md#topic-email-notifications) |
 | Plugin ACP pages | — | [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp) (`ap_register_admin_page`) |
+| `ap_plugin_before_install` / `ap_plugin_after_install` | action | New slug via `ap_install_plugin()`. Context array. — [plugins.md](plugins.md#hooks) |
+| `ap_plugin_before_upgrade` / `ap_plugin_after_upgrade` | action | `overwrite` true. After does not run when the previous copy is restored. — [plugins.md](plugins.md#hooks) |
+| `ap_plugin_before_restore` / `ap_plugin_after_restore` | action | `ap_restore_previous_plugin()`. — [plugins.md](plugins.md#hooks) |
+| `ap_plugin_zip_max_bytes` | filter | `validate()` / `install()` cap. Default 20 MiB. Not the legacy 40 MiB helper cap. — [plugins.md](plugins.md#limits) |
 | REST registration | — | [rest.md](rest.md) (`ap_rest_api_init`) |
 | CLI registration | — | [cli.md](cli.md) (`ap_cli_init`) |
 

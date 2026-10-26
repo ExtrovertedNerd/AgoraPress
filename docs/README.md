@@ -1,7 +1,7 @@
 # AgoraPress documentation index
 
 This directory is the **operator, integrator, and trusted-agent documentation**
-for AgoraPress **`0.3.11-beta`** (schema `AP_DB_VERSION` **13**). Start here if
+for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **13**). Start here if
 you need exhaustive instructions, then follow the topic guides for depth.
 
 The human landing page (vision, requirements, four install paths) remains
@@ -98,7 +98,9 @@ Trusted agents: the same public-safe rule is restated in
 | Roles and capabilities | [roles.md](roles.md) |
 | REST (`/ap-json/`, `ap/v1`, `rest_api_enabled`) | [rest.md](rest.md) |
 | Toggle REST (`rest_api_enabled` — **no** ACP screen) | [cli.md](cli.md) · [rest.md](rest.md) |
-| Plugin / theme zip installers | [admin.md](admin.md) · [plugins.md](plugins.md) · [themes.md](themes.md) |
+| Plugin zip upload (admin how-to) | [admin.md](admin.md#plugin-zip-installer) |
+| Plugin zip API (functions, options, error codes, hooks) | [plugins.md](plugins.md#plugin-installer) · [hooks.md](hooks.md#plugins) |
+| Theme zip installer | [themes.md](themes.md) |
 | Hall of Fame (voluntary) | [admin.md](admin.md) |
 | Privacy export / erase | [admin.md](admin.md) · [security.md](security.md) |
 | Harden the host | [security.md](security.md) |
@@ -111,7 +113,7 @@ Trusted agents: the same public-safe rule is restated in
 | Task | Doc |
 |------|-----|
 | Template hierarchy, Agora theme, Theme Options, assets | [themes.md](themes.md) |
-| Plugin headers, MU-plugins, shortcodes, Settings API, zip installer | [plugins.md](plugins.md) |
+| Plugin headers, MU-plugins, shortcodes, Settings API, zip installer API | [plugins.md](plugins.md#plugin-installer) |
 | ACP pages (`ap_register_admin_page`) | [plugins.md](plugins.md) · [admin.md](admin.md) |
 | Actions, filters, lifecycle | [hooks.md](hooks.md) |
 | Visual editor contract (no blocks in core; dark `color-scheme` chrome) | [editor.md](editor.md) |
@@ -133,7 +135,7 @@ guides and the lookup catalog. Do **not** invent product surfaces.
 | Install / rewrites / CLI / admin / forums / REST / roles / security | The day-to-day table above |
 | File a Heph bug against registry name **AgoraPress** | [bot_handbook.md](bot_handbook.md) (short pointer to Heph Agent API — do not duplicate that contract here) |
 
-Describe the system **as built** at 0.3.11-beta / schema 13. Missing from these
+Describe the system **as built** at 0.3.12-beta / schema 13. Missing from these
 guides and from core means **not in core**. Stay inside the public-safe rule
 above.
 
