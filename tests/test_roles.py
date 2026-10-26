@@ -51,6 +51,8 @@ def test_roles_class_defines_api() -> None:
         "subscriber",
         "ap_capabilities",
         "ap_user_roles",
+        "CAP_INSTALL_PLUGINS",
+        "install_plugins",
     ):
         assert needle in src, f"Expected {needle!r} in class-ap-roles.php"
 
@@ -134,6 +136,12 @@ if (!AP_Roles::setUserRole($id, 'author', $db)) {{ fwrite(STDERR, "set role\\n")
 if (!AP_Roles::userCan($id, 'publish_posts', null, $db)) {{ fwrite(STDERR, "publish\\n"); exit(4); }}
 if (AP_Roles::userCan($id, 'manage_options', null, $db)) {{ fwrite(STDERR, "manage leak\\n"); exit(5); }}
 if (!ap_user_can($id, 'upload_files', null, $db)) {{ fwrite(STDERR, "upload\\n"); exit(6); }}
+if (AP_Roles::CAP_INSTALL_PLUGINS !== 'install_plugins') {{ fwrite(STDERR, "cap name\\n"); exit(7); }}
+if (AP_Roles::userCan($id, 'install_plugins', null, $db)) {{ fwrite(STDERR, "author install\\n"); exit(8); }}
+if (!AP_Roles::setUserRole($id, 'editor', $db)) {{ fwrite(STDERR, "set editor\\n"); exit(9); }}
+if (AP_Roles::userCan($id, AP_Roles::CAP_INSTALL_PLUGINS, null, $db)) {{ fwrite(STDERR, "editor install\\n"); exit(10); }}
+if (!AP_Roles::setUserRole($id, 'administrator', $db)) {{ fwrite(STDERR, "set admin\\n"); exit(11); }}
+if (!AP_Roles::userCan($id, 'install_plugins', null, $db)) {{ fwrite(STDERR, "admin install\\n"); exit(12); }}
 echo "OK\\n";
 """
     with tempfile.NamedTemporaryFile("w", suffix=".php", delete=False) as fh:

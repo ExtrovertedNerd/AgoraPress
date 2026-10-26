@@ -440,10 +440,21 @@ final class PluginInstallerTest extends TestCase
         $this->assertFileExists($path);
         $src = (string) file_get_contents($path);
         $this->assertStringContainsString("requireCapability('activate_plugins')", $src);
-        $this->assertStringContainsString('AP_Plugin_Installer', $src);
-        $this->assertStringContainsString('plugin-upload', $src);
+        $this->assertStringContainsString('AP_Admin_Plugin_Upload::handle', $src);
+        $this->assertStringContainsString('AP_Admin_Plugin_Upload::render', $src);
         $this->assertStringContainsString('install_plugins', $src);
-        $this->assertStringContainsString('pluginzip', $src);
+        $this->assertStringContainsString('plugin-upload', $src);
+        $this->assertStringNotContainsString('handleUpload', $src);
+
+        $form = (string) file_get_contents(
+            $this->root . '/ap-admin/includes/class-ap-admin-plugin-upload.php'
+        );
+        $this->assertStringContainsString('AP_Plugin_Installer::install', $form);
+        $this->assertStringContainsString('plugin-upload', $form);
+        $this->assertStringContainsString('pluginzip', $form);
+        $this->assertStringContainsString('Upload plugin (.zip)', $form);
+        $this->assertStringContainsString('method="post"', $form);
+        $this->assertStringContainsString('enctype="multipart/form-data"', $form);
     }
 
     /**

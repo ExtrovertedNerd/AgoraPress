@@ -580,6 +580,102 @@ final class PluginInstallRestoreListTest extends TestCase
         $this->assertTrue(AP_Plugin::isActive('other/other.php', $this->db));
     }
 
+    public function testLatestBackupReadsNewestSafePayloadAndDoesNotMoveFiles(): void
+    {
+        $files = $this->seedSampleHistory();
+        $fired = 0;
+        ap_add_action('ap_plugin_before_restore', static function () use (&$fired): void {
+            $fired++;
+        });
+        ap_add_action('ap_plugin_after_restore', static function () use (&$fired): void {
+            $fired++;
+        });
+
+        $info = AP_Plugin_Installer::latestBackup(' sample ', $this->opts());
+
+        $this->assertSame(
+            [
+                'slug' => 'sample',
+                'name' => 'Sample',
+                'version' => '1.0.0',
+                'plugin' => 'sample/sample.php',
+            ],
+            $info
+        );
+        $this->assertSame(0, $fired);
+        $this->assertNull(AP_Plugin_Installer::latestBackup('missing', $this->opts()));
+        $this->assertNull(AP_Plugin_Installer::latestBackup('../sample', $this->opts()));
+        $this->assertNull(AP_Plugin_Installer::latestBackup('', $this->opts()));
+        $this->assertSame($files['live'], (string) file_get_contents($this->pluginsRoot . '/sample/sample.php'));
+        $this->assertSame(
+            $files['backup'],
+            (string) file_get_contents($this->backupRoot() . '/sample/' . self::NEWER . '/sample/sample.php')
+        );
+        $this->assertSame([self::NEWER, self::OLDER], $this->stampNames('sample'));
+    }
+
+    public function testLatestBackupReadsAFlatFile(): void
+    {
+        $live = $this->pluginPhp('Hello Flat', '2.0.0');
+        $previous = $this->pluginPhp('Hello Flat', '1.0.0');
+        file_put_contents($this->pluginsRoot . '/hello.php', $live);
+        $this->seedFlatBackup('hello', self::NEWER, $previous);
+
+        $info = AP_Plugin_Installer::latestBackup('hello', $this->opts());
+
+        $this->assertSame(
+            [
+                'slug' => 'hello',
+                'name' => 'Hello Flat',
+                'version' => '1.0.0',
+                'plugin' => 'hello.php',
+            ],
+            $info
+        );
+        $this->assertSame($live, (string) file_get_contents($this->pluginsRoot . '/hello.php'));
+        $this->assertDirectoryExists($this->backupRoot() . '/hello/' . self::NEWER);
+    }
+
+    public function testLatestBackupHidesAnUnsafeNewestStamp(): void
+    {
+        $this->seedFolder('sample', [
+            'sample.php' => $this->pluginPhp('Sample', '2.0.0'),
+        ]);
+        $bad = $this->backupRoot() . '/sample/' . self::NEWER;
+        $this->assertTrue(mkdir($bad, 0700, true));
+        $this->assertNotFalse(file_put_contents($bad . '/a.php', "<?php\n"));
+        $this->assertNotFalse(file_put_contents($bad . '/b.php', "<?php\n"));
+        $this->seedFolderBackup('sample', self::OLDER, [
+            'sample.php' => $this->pluginPhp('Sample', '0.9.0'),
+        ]);
+
+        $this->assertNull(AP_Plugin_Installer::latestBackup('sample', $this->opts()));
+        $this->assertFileExists($bad . '/a.php');
+        $this->assertSame(
+            $this->pluginPhp('Sample', '0.9.0'),
+            (string) file_get_contents($this->backupRoot() . '/sample/' . self::OLDER . '/sample/sample.php')
+        );
+        $this->assertSame(
+            $this->pluginPhp('Sample', '2.0.0'),
+            (string) file_get_contents($this->pluginsRoot . '/sample/sample.php')
+        );
+    }
+
+    public function testSlugFromBasename(): void
+    {
+        $this->assertSame('demo-notes', AP_Plugin_Installer::slugFromBasename('demo-notes/demo-notes.php'));
+        $this->assertSame('demo-notes', AP_Plugin_Installer::slugFromBasename('demo-notes.php'));
+        $this->assertSame('demo-notes', AP_Plugin_Installer::slugFromBasename('demo-notes/other.php'));
+        $this->assertSame('my_plugin', AP_Plugin_Installer::slugFromBasename('\\my_plugin\\my_plugin.php'));
+        $this->assertSame('', AP_Plugin_Installer::slugFromBasename('Demo/Demo.php'));
+        $this->assertSame('', AP_Plugin_Installer::slugFromBasename('../demo.php'));
+        $this->assertSame('', AP_Plugin_Installer::slugFromBasename('demo/extra/demo.php'));
+        $this->assertSame('', AP_Plugin_Installer::slugFromBasename('demo/readme.txt'));
+        $this->assertSame('', AP_Plugin_Installer::slugFromBasename(''));
+        $this->assertSame('', AP_Plugin_Installer::slugFromBasename("demo\0.php"));
+        $this->assertSame('', AP_Plugin_Installer::slugFromBasename('-bad.php'));
+    }
+
     /**
      * @return array{live: string, backup: string, older: string}
      */

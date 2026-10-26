@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "ap-includes" / "class-ap-plugin-installer.php"
 PLUGINS_ADMIN = ROOT / "ap-admin" / "plugins.php"
+PLUGIN_UPLOAD = ROOT / "ap-admin" / "includes" / "class-ap-admin-plugin-upload.php"
 FUNCTIONS = ROOT / "ap-includes" / "functions.php"
 BOOTSTRAP = ROOT / "ap-includes" / "bootstrap.php"
 STRUCTURE = ROOT / "tests" / "Structure" / "assert-structure.php"
@@ -53,13 +54,25 @@ def test_admin_plugins_screen() -> None:
         "requireCapability('activate_plugins')",
         "install_plugins",
         "AP_Plugin_Installer",
+        "AP_Admin_Plugin_Upload::handle",
+        "AP_Admin_Plugin_Upload::render",
         "plugin-upload",
-        "pluginzip",
         "'action' => $act",
         "action' => 'delete'",
-        "overwrite",
     ):
         assert needle in src, f"Expected {needle!r} in plugins.php"
+
+    form = PLUGIN_UPLOAD.read_text(encoding="utf-8")
+    for needle in (
+        "method=\"post\"",
+        "enctype=\"multipart/form-data\"",
+        "plugin-upload",
+        "pluginzip",
+        "install_plugins",
+        "Upload plugin (.zip)",
+        "AP_Plugin_Installer::install",
+    ):
+        assert needle in form, f"Expected {needle!r} in class-ap-admin-plugin-upload.php"
 
 
 def test_functions_expose_helpers() -> None:

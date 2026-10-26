@@ -35,6 +35,10 @@
  * capped by `ap_plugin_zip_max_backups`. A plugin that was active stays
  * active. Restore does not activate an inactive plugin and does not run
  * activation hooks.
+ * {@see AP_Plugin_Installer::latestBackup()} reads that newest restorable
+ * backup and does not move files or fire restore actions.
+ * {@see AP_Plugin_Installer::slugFromBasename()} maps `slug/file.php` and
+ * `slug.php` to that slug.
  * {@see AP_Plugin_Installer::listInstalled()} lists installed plugins as
  * slug, name, version, and whether that plugin is active.
  *
@@ -94,6 +98,14 @@ require_once __DIR__ . '/class-ap-plugin-install-result.php';
  */
 class AP_Plugin_Installer
 {
+    /**
+     * Capability required to install, upgrade, or restore a plugin zip.
+     *
+     * Core grants this to the administrator role only. The value matches
+     * {@see AP_Roles::CAP_INSTALL_PLUGINS}.
+     */
+    public const CAPABILITY = 'install_plugins';
+
     /** Default max plugin zip size (40 MiB) when not overridden. */
     public const DEFAULT_MAX_BYTES = 41943040;
 
@@ -433,6 +445,120 @@ HTACCESS;
         } finally {
             self::$restoreFailurePoint = null;
         }
+    }
+
+    /**
+     * Newest restorable backup for one plugin slug, or null when none exists.
+     *
+     * This reads `{content}/.ap-plugin-backups/{slug}/` and does not move
+     * files or fire restore actions. The newest stamp name is the one that
+     * sorts last. A stamp that is not a single safe plugin payload hides
+     * older stamps, matching {@see self::restorePrevious()}. The slug is
+     * trimmed. An invalid slug returns null.
+     *
+     * `plugins_root` and `content_dir` match {@see self::restorePrevious()}.
+     *
+     * @param array{
+     *   plugins_root?: string,
+     *   content_dir?: string
+     * } $opts
+     *
+     * @return array{slug: string, name: string, version: string, plugin: string}|null
+     */
+    public static function latestBackup(string $slug, array $opts = []): ?array
+    {
+        $slug = trim($slug);
+        if (!self::isValidPluginSlug($slug)) {
+            return null;
+        }
+
+        $pluginsRoot = self::resolvePluginsRoot(
+            isset($opts['plugins_root']) && is_string($opts['plugins_root'])
+                ? $opts['plugins_root']
+                : null
+        );
+        if ($pluginsRoot === '' || is_link($pluginsRoot) || !is_dir($pluginsRoot)) {
+            return null;
+        }
+
+        $contentDir = self::resolveContentDir(
+            isset($opts['content_dir']) && is_string($opts['content_dir']) ? $opts['content_dir'] : null,
+            $pluginsRoot
+        );
+        $backupParent = rtrim($contentDir, '/\\') . '/' . self::BACKUP_PARENT_NAME;
+        if (
+            is_link($backupParent)
+            || !is_dir($backupParent)
+            || self::directoryIsInside($pluginsRoot, $backupParent)
+            || self::directoryIsInside($backupParent, $pluginsRoot)
+        ) {
+            return null;
+        }
+
+        $slugDir = $backupParent . '/' . $slug;
+        if (is_link($slugDir) || !is_dir($slugDir)) {
+            return null;
+        }
+
+        $rootReal = realpath($backupParent);
+        $slugReal = realpath($slugDir);
+        if ($rootReal === false || $slugReal === false) {
+            return null;
+        }
+        $rootNorm = self::normalizeFsPath($rootReal);
+        $slugNorm = self::normalizeFsPath($slugReal);
+        if (!self::pathIsInside($rootNorm, $slugNorm)) {
+            return null;
+        }
+
+        $stampDir = self::newestBackupStamp($slugReal);
+        if ($stampDir === null) {
+            return null;
+        }
+
+        $described = self::describeBackupPayload($stampDir, $slug);
+        if ($described === null || !self::backupPayloadIsSafe($rootReal, $pluginsRoot, $described['payload'])) {
+            return null;
+        }
+
+        $payloadReal = realpath($described['payload']);
+        if (
+            $payloadReal === false
+            || self::backupTreeWalk(self::normalizeFsPath($payloadReal), $payloadReal, 0) < 0
+        ) {
+            return null;
+        }
+
+        return [
+            'slug' => $slug,
+            'name' => $described['name'],
+            'version' => $described['version'],
+            'plugin' => $described['plugin'],
+        ];
+    }
+
+    /**
+     * Slug for an installed plugin basename, or an empty string.
+     *
+     * `demo/demo.php` and `demo.php` are both `demo`. The directory or file
+     * stem must already be a lowercase plugin slug. A path with `..`, a NUL,
+     * more than one slash, or a non-PHP name is empty.
+     */
+    public static function slugFromBasename(string $plugin): string
+    {
+        if ($plugin === '' || str_contains($plugin, "\0")) {
+            return '';
+        }
+
+        $plugin = self::normalizePlugin($plugin);
+        if ($plugin === '') {
+            return '';
+        }
+
+        $slash = strpos($plugin, '/');
+        $stem = $slash === false ? substr($plugin, 0, -4) : substr($plugin, 0, $slash);
+
+        return self::isValidPluginSlug($stem) ? $stem : '';
     }
 
     /**

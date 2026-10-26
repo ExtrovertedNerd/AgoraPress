@@ -4,8 +4,17 @@
  * Plugins — list, activate, deactivate, upload zip, delete.
  *
  * Discovery reads Plugin Name headers under ap-content/plugins/. Active
- * basenames are stored in the `active_plugins` option. Zip upload mirrors
- * Appearance → Themes (`AP_Plugin_Installer`).
+ * basenames are stored in the `active_plugins` option. Zip upload is
+ * {@see AP_Admin_Plugin_Upload}: POST, multipart, nonce `plugin-upload`,
+ * capability `install_plugins`, then {@see AP_Plugin_Installer::install()}.
+ * An existing slug is not replaced on that request. The screen shows the
+ * installed version beside the uploaded version and replaces the plugin
+ * only after a confirm POST. The upload form has an "Activate after install"
+ * checkbox; the confirm form repeats it. Success text and installer error
+ * codes are mapped by {@see AP_Admin_Plugin_Upload}.
+ * When a backup exists, {@see AP_Admin_Plugin_Restore} adds a POST
+ * "Restore previous version" action. That action requires `install_plugins`
+ * and a nonce bound to the plugin slug.
  *
  * @package AgoraPress
  */
@@ -13,6 +22,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/admin-bootstrap.php';
+require_once __DIR__ . '/includes/class-ap-admin-plugin-upload.php';
+require_once __DIR__ . '/includes/class-ap-admin-plugin-restore.php';
 
 AP_Admin::requireCapability('activate_plugins');
 
@@ -21,41 +32,39 @@ AP_Admin::consumeQueryNotice();
 $userId = ap_get_current_user_id();
 $db = ap_db();
 
-// --- Upload (install_plugins) ---
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['ap_plugin_action'])) {
-    $postAction = strtolower(trim((string) $_POST['ap_plugin_action']));
+// Upload plugin (.zip): POST, multipart, nonce plugin-upload, install_plugins.
+// An existing slug shows current vs new version and waits for confirmation.
+$pluginUpload = AP_Admin_Plugin_Upload::handle(
+    (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+    $_POST,
+    $_FILES,
+    $_SERVER,
+    $userId,
+    $db
+);
+if ($pluginUpload['handled']) {
+    if ($pluginUpload['redirect_query'] !== null) {
+        AP_Admin::redirect(AP_Admin::url('plugins.php', $pluginUpload['redirect_query']));
+    }
+    if ($pluginUpload['notice'] !== '') {
+        AP_Admin::addNotice($pluginUpload['notice'], $pluginUpload['notice_type']);
+    }
+}
 
-    if ($postAction === 'upload') {
-        if (!AP_Admin::userCan($userId, 'install_plugins', null, $db)) {
-            AP_Admin::addNotice('You do not have permission to install plugins.', 'error');
-        } else {
-            $nonce = (string) ($_POST['_ap_nonce'] ?? '');
-            if (!ap_check_nonce($nonce, 'plugin-upload', $userId > 0 ? $userId : null)) {
-                AP_Admin::addNotice('Security check failed. Please try again.', 'error');
-            } else {
-                $file = isset($_FILES['pluginzip']) && is_array($_FILES['pluginzip'])
-                    ? $_FILES['pluginzip']
-                    : [];
-                $overwrite = !empty($_POST['overwrite']);
-                $result = AP_Plugin_Installer::handleUpload($file, [
-                    'overwrite' => $overwrite,
-                ]);
-                if ($result['ok']) {
-                    $params = [
-                        'message' => $result['overwritten'] ? 'plugin_replaced' : 'plugin_installed',
-                        'plugin' => $result['plugin'],
-                    ];
-                    if ($result['warnings'] !== []) {
-                        AP_Admin::addNotice(implode(' ', $result['warnings']), 'warning');
-                    }
-                    AP_Admin::redirect(AP_Admin::url('plugins.php', $params));
-                }
-                $msg = $result['errors'] !== []
-                    ? implode(' ', $result['errors'])
-                    : 'Could not install the plugin.';
-                AP_Admin::addNotice($msg, 'error');
-            }
-        }
+// Restore previous version: POST, nonce restore-plugin_{slug}, install_plugins.
+// Shown later only on rows whose slug has a restorable backup.
+$pluginRestore = AP_Admin_Plugin_Restore::handle(
+    (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+    $_POST,
+    $userId,
+    $db
+);
+if ($pluginRestore['handled']) {
+    if ($pluginRestore['redirect_query'] !== null) {
+        AP_Admin::redirect(AP_Admin::url('plugins.php', $pluginRestore['redirect_query']));
+    }
+    if ($pluginRestore['notice'] !== '') {
+        AP_Admin::addNotice($pluginRestore['notice'], $pluginRestore['notice_type']);
     }
 }
 
@@ -117,16 +126,13 @@ if ($message === 'plugin_activated') {
     AP_Admin::addNotice('Plugin activated.', 'success');
 } elseif ($message === 'plugin_deactivated') {
     AP_Admin::addNotice('Plugin deactivated.', 'success');
-} elseif ($message === 'plugin_installed') {
-    AP_Admin::addNotice(
-        'Plugin installed' . ($msgPlugin !== '' ? ': ' . $msgPlugin : '') . '. You can activate it below.',
-        'success'
-    );
-} elseif ($message === 'plugin_replaced') {
-    AP_Admin::addNotice(
-        'Plugin replaced' . ($msgPlugin !== '' ? ': ' . $msgPlugin : '') . '.',
-        'success'
-    );
+} elseif (
+    $message === AP_Admin_Plugin_Upload::MESSAGE_INSTALLED
+    || $message === AP_Admin_Plugin_Upload::MESSAGE_REPLACED
+) {
+    AP_Admin::addNotice(AP_Admin_Plugin_Upload::successNotice($_GET), 'success');
+} elseif ($message === AP_Admin_Plugin_Restore::MESSAGE_RESTORED) {
+    AP_Admin::addNotice(AP_Admin_Plugin_Restore::successNotice($_GET), 'success');
 } elseif ($message === 'plugin_deleted') {
     AP_Admin::addNotice(
         'Plugin deleted' . ($msgPlugin !== '' ? ': ' . $msgPlugin : '') . '.',
@@ -138,10 +144,8 @@ $plugins = ap_get_plugins();
 $active = ap_get_active_plugins($db);
 $activeMap = array_fill_keys($active, true);
 $muPlugins = function_exists('ap_get_mu_plugins') ? ap_get_mu_plugins() : [];
-$canInstall = AP_Admin::userCan($userId, 'install_plugins', null, $db);
 $canDelete = AP_Admin::userCan($userId, 'delete_plugins', null, $db)
     || AP_Admin::userCan($userId, 'install_plugins', null, $db);
-$maxZip = AP_Plugin_Installer::formatBytes(AP_Plugin_Installer::maxUploadBytes());
 
 $ap_admin_title = 'Plugins';
 $ap_admin_screen = 'plugins';
@@ -155,39 +159,22 @@ require __DIR__ . '/admin-header.php';
     Drop plugins into <code>ap-content/plugins/</code> as a single PHP file or a
     folder with a main PHP file containing a <strong>Plugin Name:</strong> header,
     or upload a <strong>.zip</strong> below. Activate them here to load on every request.
+    When a backup exists, administrators can use <strong>Restore previous version</strong>
+    on that row. The current copy is saved as a new backup first.
     Must-use plugins in <code>ap-content/mu-plugins/</code> load automatically and cannot
     be deactivated here.
 </p>
 
-<?php if ($canInstall) : ?>
-    <div class="ap-card ap-plugin-upload" style="margin-bottom:1.5rem;">
-        <h2 class="ap-settings-section-title" style="margin-top:0;">Upload plugin</h2>
-        <p class="ap-help">
-            Package must be a zip with <code>plugin-folder/plugin.php</code> (or a
-            single <code>.php</code> file at the zip root) and a <strong>Plugin Name:</strong> header.
-            Max size: <?php echo ap_esc_html($maxZip); ?>.
-        </p>
-        <form class="ap-plugin-upload-form" method="post"
-              action="<?php echo ap_esc_url(AP_Admin::url('plugins.php')); ?>"
-              enctype="multipart/form-data">
-            <?php echo ap_nonce_field('plugin-upload', '_ap_nonce', false, $userId > 0 ? $userId : null); ?>
-            <input type="hidden" name="ap_plugin_action" value="upload" />
-            <p>
-                <label for="pluginzip" class="screen-reader-text">Plugin zip file</label>
-                <input type="file" name="pluginzip" id="pluginzip" accept=".zip,application/zip" required />
-            </p>
-            <p>
-                <label>
-                    <input type="checkbox" name="overwrite" value="1" />
-                    Overwrite if a plugin with the same folder or file name already exists
-                </label>
-            </p>
-            <p>
-                <button type="submit" class="button button-primary">Install plugin</button>
-            </p>
-        </form>
-    </div>
-<?php endif; ?>
+<?php
+$overwriteConfirm = null;
+if (
+    $pluginUpload['status'] === AP_Admin_Plugin_Upload::STATUS_NEEDS_CONFIRMATION
+    && is_array($pluginUpload['confirmation'])
+) {
+    $overwriteConfirm = $pluginUpload['confirmation'];
+}
+echo AP_Admin_Plugin_Upload::render($userId, $db, $overwriteConfirm);
+?>
 
 <?php if ($plugins === []) : ?>
     <div class="ap-notice ap-notice--info">
@@ -282,6 +269,13 @@ require __DIR__ . '/admin-header.php';
                                     <?php echo ap_esc_html($settingsLink['label']); ?>
                                 </a>
                             <?php endif; ?>
+                            <?php
+                            echo AP_Admin_Plugin_Restore::renderAction(
+                                $userId,
+                                $file,
+                                $db
+                            );
+                            ?>
                             <?php if ($canDelete && !$isActive) :
                                 $delUrl = ap_nonce_url(
                                     AP_Admin::url('plugins.php', [

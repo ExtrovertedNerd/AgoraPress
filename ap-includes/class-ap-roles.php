@@ -29,6 +29,17 @@ class AP_Roles
     /** Option for default role assigned to new registrants. */
     public const OPTION_DEFAULT_ROLE = 'default_role';
 
+    /**
+     * Upload, install, upgrade, and restore plugin zip packages.
+     *
+     * Built-in grant is the administrator role only. Editor, author,
+     * contributor, and subscriber do not receive it. {@see self::ensureDefaults()}
+     * adds it to an administrator role saved before this capability existed and
+     * does not add it to the other built-in roles. A later {@see self::addCap()}
+     * call can still grant it to a custom role.
+     */
+    public const CAP_INSTALL_PLUGINS = 'install_plugins';
+
     /** @var array<string, array{name: string, capabilities: array<string, bool>}>|null */
     private static ?array $rolesCache = null;
 
@@ -186,10 +197,10 @@ class AP_Roles
             'install_themes',
             'update_themes',
             'delete_themes',
-            // Plugins (foundation for Phase 4)
+            // Plugins. install_plugins is administrator-only among built-in roles.
             'activate_plugins',
             'edit_plugins',
-            'install_plugins',
+            self::CAP_INSTALL_PLUGINS,
             'update_plugins',
             'delete_plugins',
             // Updates
@@ -259,7 +270,8 @@ class AP_Roles
                 }
             }
             // Administrator always receives every known primitive.
-            if (isset($existing['administrator']['capabilities']) && is_array($existing['administrator']['capabilities'])) {
+            $adminCaps = $existing['administrator']['capabilities'] ?? null;
+            if (is_array($adminCaps)) {
                 foreach (self::allPrimitiveCapabilities() as $cap) {
                     if (empty($existing['administrator']['capabilities'][$cap])) {
                         $existing['administrator']['capabilities'][$cap] = true;

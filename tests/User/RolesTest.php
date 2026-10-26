@@ -14,6 +14,7 @@ use AP_Comment;
 use AP_DB;
 use AP_Migrator;
 use AP_Options;
+use AP_Plugin_Installer;
 use AP_Post;
 use AP_Roles;
 use AP_User;
@@ -90,6 +91,61 @@ final class RolesTest extends TestCase
 
         $names = AP_Roles::getRoleNames($this->db);
         $this->assertSame('Administrator', $names['administrator']);
+    }
+
+    public function testInstallPluginsCapabilityIsAdministratorOnly(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-plugin-installer.php';
+
+        $cap = AP_Roles::CAP_INSTALL_PLUGINS;
+        $this->assertSame('install_plugins', $cap);
+        $this->assertSame($cap, AP_Plugin_Installer::CAPABILITY);
+        $this->assertContains($cap, AP_Roles::allPrimitiveCapabilities());
+        $this->assertSame([$cap], AP_Roles::mapMetaCap($cap, 1, null, $this->db));
+
+        $definitions = AP_Roles::defaultRoleDefinitions();
+        $this->assertTrue($definitions['administrator']['capabilities'][$cap] ?? false);
+        foreach (['editor', 'author', 'contributor', 'subscriber'] as $slug) {
+            $this->assertArrayNotHasKey($cap, $definitions[$slug]['capabilities']);
+        }
+
+        $adminId = $this->createUser('installadmin');
+        $this->assertTrue(AP_Roles::setUserRole($adminId, 'administrator', $this->db));
+        $this->assertTrue(AP_Roles::userCan($adminId, $cap, null, $this->db));
+        $this->assertTrue(ap_user_can($adminId, $cap, null, $this->db));
+        $this->assertFalse(AP_Roles::userCan(0, $cap, null, $this->db));
+
+        foreach (['editor', 'author', 'contributor', 'subscriber'] as $slug) {
+            $userId = $this->createUser('install' . $slug);
+            $this->assertTrue(AP_Roles::setUserRole($userId, $slug, $this->db));
+            $this->assertFalse(
+                AP_Roles::userCan($userId, $cap, null, $this->db),
+                $slug . ' must not receive install_plugins'
+            );
+            $this->assertFalse(ap_user_can($userId, $cap, null, $this->db));
+        }
+
+        // Upgrade path: a stored administrator map that predates the cap gets it
+        // back. The same pass must not copy it onto the other built-in roles.
+        $this->assertTrue(AP_Roles::removeCap('administrator', $cap, $this->db));
+        $stored = AP_Roles::getRole('administrator', $this->db);
+        $this->assertNotNull($stored);
+        $this->assertArrayNotHasKey($cap, $stored['capabilities']);
+
+        AP_Roles::flushCache();
+        AP_Options::flushCache();
+        AP_Roles::ensureDefaults($this->db);
+
+        $restored = AP_Roles::getRole('administrator', $this->db);
+        $this->assertNotNull($restored);
+        $this->assertTrue($restored['capabilities'][$cap] ?? false);
+        $this->assertTrue(AP_Roles::userCan($adminId, $cap, null, $this->db));
+
+        foreach (['editor', 'author', 'contributor', 'subscriber'] as $slug) {
+            $role = AP_Roles::getRole($slug, $this->db);
+            $this->assertNotNull($role);
+            $this->assertArrayNotHasKey($cap, $role['capabilities']);
+        }
     }
 
     public function testEnsureDefaultsIsIdempotent(): void
@@ -368,6 +424,7 @@ final class RolesTest extends TestCase
         $this->assertSame(['administrator'], AP_Roles::getUserRoles($adminId, $db));
         $this->assertTrue(AP_Roles::userCan($adminId, 'manage_options', null, $db));
         $this->assertTrue(AP_Roles::userCan($adminId, 'edit_theme_options', null, $db));
+        $this->assertTrue(AP_Roles::userCan($adminId, AP_Roles::CAP_INSTALL_PLUGINS, null, $db));
 
         $defaultRole = $db->getVar(
             'SELECT option_value FROM ' . $db->quoteIdentifier($db->table('options'))

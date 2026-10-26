@@ -18,6 +18,7 @@ FUNCTIONS = ROOT / "ap-includes" / "functions.php"
 BOOTSTRAP = ROOT / "ap-includes" / "bootstrap.php"
 INSTALLER = ROOT / "ap-includes" / "class-ap-installer.php"
 ADMIN_PLUGINS = ROOT / "ap-admin" / "plugins.php"
+ADMIN_PLUGIN_UPLOAD = ROOT / "ap-admin" / "includes" / "class-ap-admin-plugin-upload.php"
 ADMIN_CLASS = ROOT / "ap-admin" / "includes" / "class-ap-admin.php"
 PHPUNIT = ROOT / "tests" / "Plugin" / "PluginApiTest.php"
 PLUGINS_DIR = ROOT / "ap-content" / "plugins"
@@ -108,9 +109,18 @@ def test_admin_plugins_screen_and_menu() -> None:
     assert "pluginSettingsActionLink" in screen
     assert "ap-plugin-settings-link" in screen
     assert "AP_Plugin_Installer" in screen
+    assert "AP_Admin_Plugin_Upload::handle" in screen
+    assert "AP_Admin_Plugin_Upload::render" in screen
     assert "plugin-upload" in screen
-    assert "pluginzip" in screen
     assert "install_plugins" in screen
+
+    form = ADMIN_PLUGIN_UPLOAD.read_text(encoding="utf-8")
+    assert "pluginzip" in form
+    assert 'method="post"' in form
+    assert 'enctype="multipart/form-data"' in form
+    assert "plugin-upload" in form
+    assert "install_plugins" in form
+    assert "Upload plugin (.zip)" in form
 
     admin = ADMIN_CLASS.read_text(encoding="utf-8")
     assert "plugins.php" in admin
