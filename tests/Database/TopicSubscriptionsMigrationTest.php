@@ -59,14 +59,14 @@ final class TopicSubscriptionsMigrationTest extends TestCase
         $this->assertStringContainsString('forum_notify_max_per_minute', $src);
         $this->assertStringNotContainsString('topic_track', $src);
         $this->assertStringNotContainsString('forum_track', $src);
-        $this->assertSame(13, (int) AP_DB_VERSION);
-        $this->assertSame(13, AP_Migrator::codeTargetVersion());
+        $this->assertGreaterThanOrEqual(13, (int) AP_DB_VERSION);
+        $this->assertGreaterThanOrEqual(13, AP_Migrator::codeTargetVersion());
     }
 
     public function testDbVersionIs13AndUnreadTrackTablesStayUnreadTracking(): void
     {
-        $this->assertSame(13, (int) AP_DB_VERSION);
-        $this->assertSame(13, AP_Migrator::codeTargetVersion());
+        $this->assertGreaterThanOrEqual(13, (int) AP_DB_VERSION);
+        $this->assertGreaterThanOrEqual(13, AP_Migrator::codeTargetVersion());
 
         $applied12 = $this->migrator->migrate(12);
         $this->assertGreaterThanOrEqual(12, count($applied12));
@@ -91,7 +91,7 @@ final class TopicSubscriptionsMigrationTest extends TestCase
         $this->assertCount(1, $applied13);
         $this->assertSame(13, $applied13[0]['version']);
         $this->assertSame(13, $this->migrator->getCurrentVersion());
-        $this->assertFalse($this->migrator->needsMigration());
+        $this->assertSame([], $this->migrator->pending(13));
 
         $this->assertSame($trackBefore, $this->unreadTrackSchemaSnapshot());
 
@@ -165,8 +165,8 @@ final class TopicSubscriptionsMigrationTest extends TestCase
             strtolower($applied13[0]['description'])
         );
         $this->assertSame(13, $this->migrator->getCurrentVersion());
-        $this->assertFalse($this->migrator->needsMigration());
-        $this->assertSame([], $this->migrator->migrate());
+        $this->assertSame([], $this->migrator->pending(13));
+        $this->assertSame([], $this->migrator->migrate(13));
 
         $this->assertSame(
             'ap_topic_subscriptions',

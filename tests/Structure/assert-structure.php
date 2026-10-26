@@ -97,6 +97,7 @@ $requiredPaths = [
     'ap-admin/site-health.php',
     'ap-includes/class-ap-nonce.php',
     'ap-includes/class-ap-rate-limit.php',
+    'ap-includes/class-ap-activity-log.php',
     'ap-includes/class-ap-formatting.php',
     'ap-includes/class-ap-editor.php',
     'ap-includes/css/ap-editor.css',

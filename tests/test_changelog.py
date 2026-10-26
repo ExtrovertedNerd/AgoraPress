@@ -255,7 +255,7 @@ def test_unreleased_documents_plugin_zip_installer(changelog_text: str) -> None:
         "php ap-cli plugin install",
     ):
         assert phrase in lower, f"[Unreleased] should mention {phrase}"
-    assert "**13**" in body or " 13" in body
+    assert "**14**" in body or " 14" in body
 
 
 def _section_body(text: str, version: str) -> str:

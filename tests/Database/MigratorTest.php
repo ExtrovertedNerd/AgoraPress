@@ -360,9 +360,9 @@ PHP;
         $m = new AP_Migrator($this->db, AP_Migrator::defaultMigrationsPath());
         $found = $m->discover();
         $this->assertNotSame([], $found);
-        $this->assertGreaterThanOrEqual(13, $m->getAvailableTargetVersion());
-        $this->assertSame(13, (int) AP_DB_VERSION);
-        $this->assertSame(13, AP_Migrator::codeTargetVersion());
+        $this->assertGreaterThanOrEqual(14, $m->getAvailableTargetVersion());
+        $this->assertSame(14, (int) AP_DB_VERSION);
+        $this->assertSame(14, AP_Migrator::codeTargetVersion());
         $this->assertSame(1, $found[0]->version());
         $this->assertStringContainsString('options', $found[0]->description());
         $this->assertSame(2, $found[1]->version());
@@ -394,6 +394,11 @@ PHP;
         $this->assertStringContainsString(
             'subscription',
             strtolower($found[12]->description())
+        );
+        $this->assertSame(14, $found[13]->version());
+        $this->assertStringContainsString(
+            'activity',
+            strtolower($found[13]->description())
         );
     }
 }

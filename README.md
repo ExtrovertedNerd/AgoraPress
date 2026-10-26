@@ -57,7 +57,7 @@ Enable any mix of **Static Pages**, **Blog**, and **Forum**. Brochure site, blog
 | **Web server** | Apache with `mod_rewrite`, or Nginx with rewrite rules |
 | **Disk** | Writable site root (for `ap-config.php`) and `ap-content/` (including `uploads/`) |
 
-Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **13** (see [docs/schema.md](docs/schema.md)).
+Default table prefix: `ap_` (changeable at install). Schema target: `AP_DB_VERSION` **14** (see [docs/schema.md](docs/schema.md)).
 
 ---
 

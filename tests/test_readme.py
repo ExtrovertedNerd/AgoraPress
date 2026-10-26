@@ -98,8 +98,8 @@ def test_mentions_local_analytics_and_schema_version(readme_text: str) -> None:
     lower = readme_text.lower()
     assert "0.3.12-beta" in readme_text
     assert "ap_db_version" in lower or "AP_DB_VERSION" in readme_text
-    # Schema target must match shipped AP_DB_VERSION (currently 13: topic_subscriptions).
-    assert re.search(r"\b13\b", readme_text), "Schema target 13 should appear"
+    # Schema target must match shipped AP_DB_VERSION (currently 14: activity_log).
+    assert re.search(r"\b14\b", readme_text), "Schema target 14 should appear"
     assert "local analytics" in lower or "tools → analytics" in lower
     assert "off by default" in lower or "default off" in lower or "analytics_enabled" in lower
     assert "no third-party" in lower or "third-party" in lower

@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace AgoraPress\Tests\Admin;
 
+use AP_Activity_Log;
 use AP_Admin;
 use AP_Admin_User_Edit;
 use AP_DB;
@@ -110,7 +111,7 @@ final class AdminUsersTest extends TestCase
         if (class_exists('AP_Rate_Limit', false)) {
             AP_Rate_Limit::resetTestState();
         }
-        unset($_SERVER['REMOTE_ADDR']);
+        unset($_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_X_FORWARDED_FOR'], $_SERVER['HTTP_X_REAL_IP']);
         if (class_exists('AP_Session', false)) {
             AP_Session::resetCurrentUser();
             AP_Session::disableTestMode();
@@ -808,6 +809,686 @@ final class AdminUsersTest extends TestCase
         $this->assertTrue(AP_User::checkPassword('password123', $fresh->user_pass));
     }
 
+    public function testAdminEditOfAnotherUserSetsPasswordAndEmailWithoutCurrentPassword(): void
+    {
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.77';
+        AP_Rate_Limit::setTestLimits(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, [
+            'max' => 1,
+            'window' => 900,
+            'lockout' => 900,
+        ]);
+
+        $admin = AP_User::create([
+            'user_login' => 'credadmin',
+            'user_email' => 'credadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+            'display_name' => 'Cred Admin',
+        ], $this->db);
+        $this->assertTrue($admin['ok'], implode('; ', $admin['errors']));
+        $adminId = (int) $admin['id'];
+
+        $target = AP_User::create([
+            'user_login' => 'credtarget',
+            'user_email' => 'credtarget@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+            'display_name' => 'Cred Target',
+        ], $this->db);
+        $this->assertTrue($target['ok'], implode('; ', $target['errors']));
+        $targetId = (int) $target['id'];
+
+        $editor = AP_User::create([
+            'user_login' => 'crededitor',
+            'user_email' => 'crededitor@example.test',
+            'password' => 'password123',
+            'role' => 'editor',
+        ], $this->db);
+        $this->assertTrue($editor['ok'], implode('; ', $editor['errors']));
+        $editorId = (int) $editor['id'];
+        $this->assertFalse(ap_user_can($editorId, 'edit_users', null, $this->db));
+        $this->assertTrue(ap_user_can($adminId, 'edit_users', null, $this->db));
+
+        AP_Rate_Limit::recordFailedCurrentPassword($targetId, '203.0.113.77', $this->db);
+        $locked = AP_Rate_Limit::checkCurrentPassword($targetId, '203.0.113.77', $this->db);
+        $this->assertFalse($locked['allowed']);
+        $attemptsBefore = $this->currentPasswordAttempts($targetId);
+
+        $screen = file_get_contents($this->root . '/ap-admin/user-edit.php');
+        $this->assertIsString($screen);
+        $this->assertStringContainsString("AP_Admin::requireCapability('edit_users')", $screen);
+        $this->assertStringContainsString("unset(\$_POST['current_password']", $screen);
+        $this->assertStringContainsString(", 'update'", $screen);
+
+        $targetUser = AP_User::getById($targetId, $this->db);
+        $this->assertNotNull($targetUser);
+        $html = AP_Admin_User_Edit::renderForm($targetUser, 'update', $adminId, [
+            'current_password' => 'do-not-echo-this',
+        ], $this->db);
+        $this->assertStringContainsString('name="user_email"', $html);
+        $this->assertStringContainsString('name="pass1"', $html);
+        $this->assertStringContainsString('name="pass2"', $html);
+        $this->assertStringNotContainsString('name="current_password"', $html);
+        $this->assertStringNotContainsString('autocomplete="current-password"', $html);
+        $this->assertStringNotContainsString('do-not-echo-this', $html);
+        $this->assertStringContainsString('value="' . $targetId . '"', $html);
+
+        $emailOnly = $this->saveOtherUser($adminId, $targetId, 'credtarget-new@example.test', [
+            'display_name' => 'Renamed',
+            'description' => 'Bio from admin',
+        ]);
+        $this->assertTrue($emailOnly['ok'], implode('; ', $emailOnly['errors']));
+        $this->assertSame('user_updated', $emailOnly['message_key']);
+        $this->assertSame([], $emailOnly['errors']);
+        $this->assertNotNull($emailOnly['user']);
+        $this->assertSame('credtarget-new@example.test', $emailOnly['user']->user_email);
+        $this->assertSame('Renamed', $emailOnly['user']->display_name);
+        $this->assertSame('Bio from admin', AP_User::getMeta($targetId, 'description', $this->db));
+        $this->assertTrue(AP_User::checkPassword('password123', $emailOnly['user']->user_pass));
+        $this->assertSame($attemptsBefore, $this->currentPasswordAttempts($targetId));
+
+        $adminFresh = AP_User::getById($adminId, $this->db);
+        $this->assertNotNull($adminFresh);
+        $this->assertSame('credadmin@example.test', $adminFresh->user_email);
+        $this->assertTrue(AP_User::checkPassword('password123', $adminFresh->user_pass));
+
+        $newPassword = 'reset-password-1';
+        $passwordOnly = $this->saveOtherUser($adminId, $targetId, 'credtarget-new@example.test', [
+            'pass1' => $newPassword,
+            'pass2' => $newPassword,
+            'display_name' => 'Renamed',
+        ]);
+        $this->assertTrue($passwordOnly['ok'], implode('; ', $passwordOnly['errors']));
+        $this->assertNotNull($passwordOnly['user']);
+        $this->assertSame('credtarget-new@example.test', $passwordOnly['user']->user_email);
+        $this->assertTrue(AP_User::checkPassword($newPassword, $passwordOnly['user']->user_pass));
+        $this->assertFalse(AP_User::checkPassword('password123', $passwordOnly['user']->user_pass));
+        $this->assertStringNotContainsString($newPassword, implode("\n", $passwordOnly['errors']));
+        $this->assertSame($attemptsBefore, $this->currentPasswordAttempts($targetId));
+        $this->assertFalse(AP_Rate_Limit::checkCurrentPassword($targetId, '203.0.113.77', $this->db)['allowed']);
+
+        $crafted = 'not-the-target-password';
+        $bothPassword = 'reset-password-2';
+        $both = $this->saveOtherUser($adminId, $targetId, 'credtarget-both@example.test', [
+            'pass1' => $bothPassword,
+            'pass2' => $bothPassword,
+            'display_name' => 'Both Saved',
+            'current_password' => $crafted,
+        ]);
+        $this->assertTrue($both['ok'], implode('; ', $both['errors']));
+        $this->assertSame([], $both['errors']);
+        $this->assertNotNull($both['user']);
+        $this->assertSame('credtarget-both@example.test', $both['user']->user_email);
+        $this->assertSame('Both Saved', $both['user']->display_name);
+        $this->assertTrue(AP_User::checkPassword($bothPassword, $both['user']->user_pass));
+        $this->assertStringNotContainsString($crafted, $this->encodeResult($both));
+        $this->assertStringNotContainsString($bothPassword, $this->encodeResult($both));
+        $this->assertSame($attemptsBefore, $this->currentPasswordAttempts($targetId));
+
+        $emptyCurrent = $this->saveOtherUser($adminId, $targetId, 'credtarget-empty@example.test', [
+            'display_name' => 'Both Saved',
+            'current_password' => '',
+        ]);
+        $this->assertTrue($emptyCurrent['ok'], implode('; ', $emptyCurrent['errors']));
+        $this->assertNotNull($emptyCurrent['user']);
+        $this->assertSame('credtarget-empty@example.test', $emptyCurrent['user']->user_email);
+        $this->assertTrue(AP_User::checkPassword($bothPassword, $emptyCurrent['user']->user_pass));
+
+        $missingNonce = AP_Admin_User_Edit::save([
+            'user_ID' => $targetId,
+            'user_email' => 'credtarget-hijack@example.test',
+            'pass1' => 'other-password-9',
+            'pass2' => 'other-password-9',
+            'display_name' => 'Hijack',
+            'current_password' => '',
+        ], $adminId, 'update', $this->db);
+        $this->assertFalse($missingNonce['ok']);
+        $this->assertSame('nonce', $missingNonce['message_key']);
+        $kept = AP_User::getById($targetId, $this->db);
+        $this->assertNotNull($kept);
+        $this->assertSame('credtarget-empty@example.test', $kept->user_email);
+        $this->assertSame('Both Saved', $kept->display_name);
+        $this->assertTrue(AP_User::checkPassword($bothPassword, $kept->user_pass));
+
+        $forbidden = $this->saveOtherUser($editorId, $targetId, 'credtarget-editor@example.test', [
+            'pass1' => 'other-password-8',
+            'pass2' => 'other-password-8',
+            'display_name' => 'Editor Takeover',
+            'current_password' => $bothPassword,
+        ]);
+        $this->assertFalse($forbidden['ok']);
+        $this->assertSame(
+            ['You do not have permission to edit this user.'],
+            $forbidden['errors']
+        );
+        $still = AP_User::getById($targetId, $this->db);
+        $this->assertNotNull($still);
+        $this->assertSame('credtarget-empty@example.test', $still->user_email);
+        $this->assertSame('Both Saved', $still->display_name);
+        $this->assertTrue(AP_User::checkPassword($bothPassword, $still->user_pass));
+        $this->assertFalse(AP_User::checkPassword('other-password-8', $still->user_pass));
+
+        $mismatch = $this->saveOtherUser($adminId, $targetId, 'credtarget-empty@example.test', [
+            'pass1' => 'other-password-7',
+            'pass2' => 'other-password-6',
+            'display_name' => 'Mismatch Name',
+        ]);
+        $this->assertFalse($mismatch['ok']);
+        $this->assertSame(['Passwords do not match.'], $mismatch['errors']);
+        $afterMismatch = AP_User::getById($targetId, $this->db);
+        $this->assertNotNull($afterMismatch);
+        $this->assertSame('Both Saved', $afterMismatch->display_name);
+        $this->assertTrue(AP_User::checkPassword($bothPassword, $afterMismatch->user_pass));
+        $this->assertStringNotContainsString('other-password-7', implode("\n", $mismatch['errors']));
+    }
+
+    public function testAdminPasswordAndEmailChangesAreAuditedWithoutThePassword(): void
+    {
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.50';
+        $_SERVER['HTTP_X_FORWARDED_FOR'] = '198.51.100.20';
+
+        $admin = AP_User::create([
+            'user_login' => 'auditadmin',
+            'user_email' => 'auditadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+            'display_name' => 'Audit Admin',
+        ], $this->db);
+        $this->assertTrue($admin['ok'], implode('; ', $admin['errors']));
+        $adminId = (int) $admin['id'];
+
+        $target = AP_User::create([
+            'user_login' => 'audittarget',
+            'user_email' => 'audittarget@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+            'display_name' => 'Audit Target',
+        ], $this->db);
+        $this->assertTrue($target['ok'], implode('; ', $target['errors']));
+        $targetId = (int) $target['id'];
+
+        $editor = AP_User::create([
+            'user_login' => 'auditeditor',
+            'user_email' => 'auditeditor@example.test',
+            'password' => 'password123',
+            'role' => 'editor',
+        ], $this->db);
+        $this->assertTrue($editor['ok'], implode('; ', $editor['errors']));
+        $editorId = (int) $editor['id'];
+        $this->assertFalse(ap_user_can($editorId, 'edit_users', null, $this->db));
+
+        $renamed = $this->saveOtherUser($adminId, $targetId, 'audittarget@example.test', [
+            'display_name' => 'Renamed Only',
+        ]);
+        $this->assertTrue($renamed['ok'], implode('; ', $renamed['errors']));
+        $this->assertSame('Renamed Only', $renamed['user']->display_name);
+        $this->assertSame([], $this->activityRows($targetId));
+        $this->assertSame(0, $this->activityCount());
+
+        $newEmail = 'audittarget-new@example.test';
+        $emailOnly = $this->saveOtherUser($adminId, $targetId, $newEmail, [
+            'display_name' => 'Renamed Only',
+        ]);
+        $this->assertTrue($emailOnly['ok'], implode('; ', $emailOnly['errors']));
+        $this->assertSame($newEmail, $emailOnly['user']->user_email);
+        $emailRows = $this->activityRows($targetId);
+        $this->assertCount(1, $emailRows);
+        $this->assertActivityRow($emailRows[0], $adminId, $targetId, AP_Activity_Log::FIELD_EMAIL, '203.0.113.50');
+        $this->assertLogOmits($emailRows, [$newEmail, '198.51.100.20']);
+
+        $secret = 'reset-password-1';
+        $passwordOnly = $this->saveOtherUser($adminId, $targetId, $newEmail, [
+            'pass1' => $secret,
+            'pass2' => $secret,
+            'display_name' => 'Renamed Only',
+        ]);
+        $this->assertTrue($passwordOnly['ok'], implode('; ', $passwordOnly['errors']));
+        $this->assertTrue(AP_User::checkPassword($secret, $passwordOnly['user']->user_pass));
+        $passwordRows = $this->activityRows($targetId);
+        $this->assertCount(2, $passwordRows);
+        $this->assertActivityRow(
+            $passwordRows[1],
+            $adminId,
+            $targetId,
+            AP_Activity_Log::FIELD_PASSWORD,
+            '203.0.113.50'
+        );
+        $this->assertLogOmits($passwordRows, [$secret, $newEmail]);
+
+        $bothSecret = 'reset-password-2';
+        $bothEmail = 'audittarget-both@example.test';
+        $crafted = 'not-the-target-password';
+        $both = $this->saveOtherUser($adminId, $targetId, $bothEmail, [
+            'pass1' => $bothSecret,
+            'pass2' => $bothSecret,
+            'display_name' => 'Both Saved',
+            'current_password' => $crafted,
+        ]);
+        $this->assertTrue($both['ok'], implode('; ', $both['errors']));
+        $this->assertTrue(AP_User::checkPassword($bothSecret, $both['user']->user_pass));
+        $bothRows = $this->activityRows($targetId);
+        $this->assertCount(4, $bothRows);
+        $this->assertSame(AP_Activity_Log::FIELD_PASSWORD, (string) $bothRows[2]->field_name);
+        $this->assertSame(AP_Activity_Log::FIELD_EMAIL, (string) $bothRows[3]->field_name);
+        $this->assertLogOmits($bothRows, [$bothSecret, $crafted, $bothEmail, $secret]);
+
+        $beforeReject = $this->activityCount();
+        $mismatch = $this->saveOtherUser($adminId, $targetId, $bothEmail, [
+            'pass1' => 'other-password-7',
+            'pass2' => 'other-password-6',
+        ]);
+        $this->assertFalse($mismatch['ok']);
+        $this->assertSame(['Passwords do not match.'], $mismatch['errors']);
+        $short = $this->saveOtherUser($adminId, $targetId, $bothEmail, [
+            'pass1' => 'short',
+            'pass2' => 'short',
+        ]);
+        $this->assertFalse($short['ok']);
+        $forbidden = $this->saveOtherUser($editorId, $targetId, 'audittarget-editor@example.test', [
+            'pass1' => 'other-password-8',
+            'pass2' => 'other-password-8',
+            'current_password' => $bothSecret,
+        ]);
+        $this->assertFalse($forbidden['ok']);
+        $this->assertSame(
+            ['You do not have permission to edit this user.'],
+            $forbidden['errors']
+        );
+        $missingNonce = AP_Admin_User_Edit::save([
+            'user_ID' => $targetId,
+            'user_email' => 'audittarget-hijack@example.test',
+            'pass1' => 'other-password-9',
+            'pass2' => 'other-password-9',
+        ], $adminId, 'update', $this->db);
+        $this->assertFalse($missingNonce['ok']);
+        $this->assertSame('nonce', $missingNonce['message_key']);
+        $this->assertSame($beforeReject, $this->activityCount());
+        $kept = AP_User::getById($targetId, $this->db);
+        $this->assertNotNull($kept);
+        $this->assertSame($bothEmail, $kept->user_email);
+        $this->assertTrue(AP_User::checkPassword($bothSecret, $kept->user_pass));
+        $this->assertLogOmits($this->activityRows($targetId), [
+            'other-password-7',
+            'other-password-8',
+            'other-password-9',
+            'short',
+            $bothSecret,
+        ]);
+
+        $selfMissing = AP_Admin_User_Edit::save([
+            '_ap_nonce' => ap_create_nonce('update-user-' . $adminId, $adminId),
+            'user_ID' => $adminId,
+            'user_email' => 'auditadmin-new@example.test',
+            'pass1' => 'self-password-1',
+            'pass2' => 'self-password-1',
+            'display_name' => 'Self Missing',
+            'current_password' => '',
+        ], $adminId, 'update', $this->db);
+        $this->assertFalse($selfMissing['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_REQUIRED],
+            $selfMissing['errors']
+        );
+        $adminStill = AP_User::getById($adminId, $this->db);
+        $this->assertNotNull($adminStill);
+        $this->assertSame('auditadmin@example.test', $adminStill->user_email);
+        $this->assertTrue(AP_User::checkPassword('password123', $adminStill->user_pass));
+        $this->assertSame('Self Missing', $adminStill->display_name);
+
+        $selfSecret = 'self-password-1';
+        $selfOk = AP_Admin_User_Edit::save([
+            '_ap_nonce' => ap_create_nonce('update-user-' . $adminId, $adminId),
+            'user_ID' => $adminId,
+            'user_email' => 'auditadmin-new@example.test',
+            'pass1' => $selfSecret,
+            'pass2' => $selfSecret,
+            'display_name' => 'Self Saved',
+            'current_password' => 'password123',
+        ], $adminId, 'update', $this->db);
+        $this->assertTrue($selfOk['ok'], implode('; ', $selfOk['errors']));
+        $this->assertSame('auditadmin-new@example.test', $selfOk['user']->user_email);
+        $this->assertTrue(AP_User::checkPassword($selfSecret, $selfOk['user']->user_pass));
+
+        $profile = $this->saveProfile($adminId, 'auditadmin-profile@example.test', [
+            'display_name' => 'Profile Saved',
+            'current_password' => $selfSecret,
+        ]);
+        $this->assertTrue($profile['ok'], implode('; ', $profile['errors']));
+        $this->assertSame('auditadmin-profile@example.test', $profile['user']->user_email);
+
+        $this->assertSame([], $this->activityRows($adminId));
+        $this->assertSame(4, $this->activityCount());
+        $this->assertLogOmits($this->activityRows($targetId), [$selfSecret, 'password123']);
+    }
+
+    public function testUserEditOfOwnAccountRequiresCurrentPassword(): void
+    {
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.90';
+        AP_Rate_Limit::setTestLimits(AP_Rate_Limit::ACTION_CURRENT_PASSWORD, [
+            'max' => 3,
+            'window' => 900,
+            'lockout' => 900,
+        ]);
+
+        $admin = AP_User::create([
+            'user_login' => 'selfeditadmin',
+            'user_email' => 'selfeditadmin@example.test',
+            'password' => 'password123',
+            'role' => 'administrator',
+            'display_name' => 'Before',
+        ], $this->db);
+        $this->assertTrue($admin['ok'], implode('; ', $admin['errors']));
+        $id = (int) $admin['id'];
+        $this->assertTrue(ap_user_can($id, 'edit_users', null, $this->db));
+
+        $other = AP_User::create([
+            'user_login' => 'selfeditother',
+            'user_email' => 'selfeditother@example.test',
+            'password' => 'password123',
+            'role' => 'subscriber',
+            'display_name' => 'Other',
+        ], $this->db);
+        $this->assertTrue($other['ok'], implode('; ', $other['errors']));
+        $otherId = (int) $other['id'];
+
+        $editor = AP_User::create([
+            'user_login' => 'selfediteditor',
+            'user_email' => 'selfediteditor@example.test',
+            'password' => 'password123',
+            'role' => 'editor',
+            'display_name' => 'Editor',
+        ], $this->db);
+        $this->assertTrue($editor['ok'], implode('; ', $editor['errors']));
+        $editorId = (int) $editor['id'];
+        $this->assertFalse(ap_user_can($editorId, 'edit_users', null, $this->db));
+
+        $screen = file_get_contents($this->root . '/ap-admin/user-edit.php');
+        $this->assertIsString($screen);
+        $this->assertStringContainsString("AP_Admin::requireCapability('edit_users')", $screen);
+        $this->assertStringContainsString("unset(\$_POST['current_password']", $screen);
+        $this->assertStringContainsString('profileEmailAfterSave(', $screen);
+        $this->assertStringNotContainsString("extra['current_password']", $screen);
+        $this->assertStringContainsString(", 'update'", $screen);
+
+        $selfUser = AP_User::getById($id, $this->db);
+        $this->assertNotNull($selfUser);
+        $html = AP_Admin_User_Edit::renderForm($selfUser, 'update', $id, [
+            'current_password' => 'do-not-echo-this',
+        ], $this->db);
+        $this->assertStringContainsString('>Current password<', $html);
+        $this->assertStringContainsString('name="current_password"', $html);
+        $this->assertStringContainsString('id="current_password"', $html);
+        $this->assertStringContainsString('autocomplete="current-password"', $html);
+        $this->assertStringContainsString('name="user_email"', $html);
+        $this->assertStringContainsString('name="pass1"', $html);
+        $this->assertStringContainsString('name="pass2"', $html);
+        $this->assertStringContainsString(
+            'Enter your current password to change your password or email.',
+            $html
+        );
+        $this->assertStringContainsString(
+            'Changing your email requires your current password',
+            $html
+        );
+        $this->assertStringNotContainsString('do-not-echo-this', $html);
+        $this->assertDoesNotMatchRegularExpression(
+            '/name="current_password"[^>]*value="/',
+            $html
+        );
+        $this->assertSame(1, substr_count($html, 'name="current_password"'));
+        $this->assertSame(1, substr_count($html, 'name="pass1"'));
+        $emailPos = strpos($html, 'name="user_email"');
+        $currentPos = strpos($html, 'name="current_password"');
+        $passPos = strpos($html, 'name="pass1"');
+        $nameLegend = strpos($html, '<legend>Name</legend>');
+        $this->assertNotFalse($emailPos);
+        $this->assertNotFalse($currentPos);
+        $this->assertNotFalse($passPos);
+        $this->assertNotFalse($nameLegend);
+        $this->assertGreaterThan($emailPos, $currentPos);
+        $this->assertLessThan($passPos, $currentPos);
+        $this->assertLessThan($nameLegend, $currentPos);
+
+        $otherUser = AP_User::getById($otherId, $this->db);
+        $this->assertNotNull($otherUser);
+        $otherHtml = AP_Admin_User_Edit::renderForm($otherUser, 'update', $id, [
+            'current_password' => 'do-not-echo-this',
+        ], $this->db);
+        $this->assertStringContainsString('name="pass1"', $otherHtml);
+        $this->assertStringNotContainsString('name="current_password"', $otherHtml);
+        $this->assertStringNotContainsString('autocomplete="current-password"', $otherHtml);
+        $this->assertStringNotContainsString('do-not-echo-this', $otherHtml);
+        $this->assertStringNotContainsString(
+            'Changing your email requires your current password',
+            $otherHtml
+        );
+
+        $create = AP_Admin_User_Edit::renderForm(null, 'create', $id, [], $this->db);
+        $this->assertStringNotContainsString('name="current_password"', $create);
+
+        $otherSave = $this->saveOtherUser($id, $otherId, 'selfeditother-new@example.test', [
+            'display_name' => 'Renamed Other',
+        ]);
+        $this->assertTrue($otherSave['ok'], implode('; ', $otherSave['errors']));
+        $this->assertNotNull($otherSave['user']);
+        $this->assertSame('selfeditother-new@example.test', $otherSave['user']->user_email);
+        $this->assertSame('Renamed Other', $otherSave['user']->display_name);
+        $this->assertTrue(AP_User::checkPassword('password123', $otherSave['user']->user_pass));
+        $this->assertSame(0, $this->currentPasswordAttempts($otherId));
+
+        $ignored = $this->saveOtherUser($id, $id, '  selfeditadmin@example.test  ', [
+            'display_name' => 'After',
+            'description' => 'Bio saved',
+            'current_password' => 'not-the-real-password',
+        ]);
+        $this->assertTrue($ignored['ok'], implode('; ', $ignored['errors']));
+        $this->assertSame([], $ignored['errors']);
+        $this->assertNotNull($ignored['user']);
+        $this->assertSame('selfeditadmin@example.test', $ignored['user']->user_email);
+        $this->assertSame('After', $ignored['user']->display_name);
+        $this->assertSame('Bio saved', AP_User::getMeta($id, 'description', $this->db));
+        $this->assertTrue(AP_User::checkPassword('password123', $ignored['user']->user_pass));
+        $this->assertSame(0, $this->currentPasswordAttempts($id));
+        $this->assertStringNotContainsString('not-the-real-password', $this->encodeResult($ignored));
+        $this->assertSame('administrator', AP_Roles::getUserRole($id, $this->db));
+
+        $missingEmail = $this->saveOtherUser($id, $id, 'selfedit-new@example.test', [
+            'display_name' => 'Named',
+            'description' => 'Bio still',
+        ]);
+        $this->assertFalse($missingEmail['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_REQUIRED],
+            $missingEmail['errors']
+        );
+        $this->assertNotNull($missingEmail['user']);
+        $this->assertSame('selfeditadmin@example.test', $missingEmail['user']->user_email);
+        $this->assertSame('Named', $missingEmail['user']->display_name);
+        $this->assertSame('Bio still', AP_User::getMeta($id, 'description', $this->db));
+        $this->assertTrue(AP_User::checkPassword('password123', $missingEmail['user']->user_pass));
+        $this->assertSame(1, $this->currentPasswordAttempts($id));
+        $this->assertSame(
+            'selfeditadmin@example.test',
+            AP_Admin_User_Edit::profileEmailAfterSave(
+                $missingEmail['errors'],
+                'selfedit-new@example.test',
+                $missingEmail['user']->user_email
+            )
+        );
+
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.91';
+        $editorMissing = $this->saveOtherUser($editorId, $editorId, 'selfediteditor-new@example.test', [
+            'display_name' => 'Editor Named',
+        ]);
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.90';
+        $this->assertFalse($editorMissing['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_REQUIRED],
+            $editorMissing['errors']
+        );
+        $this->assertNotNull($editorMissing['user']);
+        $this->assertSame('selfediteditor@example.test', $editorMissing['user']->user_email);
+        $this->assertSame('Editor Named', $editorMissing['user']->display_name);
+        $this->assertTrue(AP_User::checkPassword('password123', $editorMissing['user']->user_pass));
+        $this->assertSame(1, $this->currentPasswordAttempts($id));
+        $this->assertSame(1, $this->currentPasswordAttempts($editorId));
+
+        $wrong = 'wrong-current-secret';
+        $short = 'short';
+        $wrongPass = $this->saveOtherUser($id, $id, 'selfeditadmin@example.test', [
+            'pass1' => $short,
+            'pass2' => $short,
+            'location' => 'Porto',
+            'display_name' => 'Named',
+            'current_password' => $wrong,
+        ]);
+        $this->assertFalse($wrongPass['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_INCORRECT],
+            $wrongPass['errors']
+        );
+        $this->assertNotNull($wrongPass['user']);
+        $this->assertSame('selfeditadmin@example.test', $wrongPass['user']->user_email);
+        $this->assertSame('Porto', AP_User::getMeta($id, 'location', $this->db));
+        $this->assertTrue(AP_User::checkPassword('password123', $wrongPass['user']->user_pass));
+        $this->assertFalse(AP_User::checkPassword($short, $wrongPass['user']->user_pass));
+        $this->assertStringNotContainsString($wrong, implode("\n", $wrongPass['errors']));
+        $this->assertStringNotContainsString($short, implode("\n", $wrongPass['errors']));
+        $this->assertStringNotContainsString($wrong, $this->encodeResult($wrongPass));
+        $this->assertSame(2, $this->currentPasswordAttempts($id));
+
+        $mismatch = $this->saveOtherUser($id, $id, 'selfeditadmin@example.test', [
+            'pass1' => 'new-password-99',
+            'pass2' => 'different-password',
+            'display_name' => 'Should Stay',
+            'current_password' => 'password123',
+        ]);
+        $this->assertFalse($mismatch['ok']);
+        $this->assertSame(['Passwords do not match.'], $mismatch['errors']);
+        $this->assertNotNull($mismatch['user']);
+        $this->assertSame('Named', $mismatch['user']->display_name);
+        $this->assertTrue(AP_User::checkPassword('password123', $mismatch['user']->user_pass));
+        $this->assertSame(0, $this->currentPasswordAttempts($id));
+        $this->assertStringNotContainsString('new-password-99', implode("\n", $mismatch['errors']));
+        $this->assertStringNotContainsString('password123', $this->encodeResult($mismatch));
+
+        $email = $this->saveOtherUser($id, $id, 'selfedit-ok@example.test', [
+            'display_name' => 'Ready',
+            'current_password' => 'password123',
+        ]);
+        $this->assertTrue($email['ok'], implode('; ', $email['errors']));
+        $this->assertSame('user_updated', $email['message_key']);
+        $this->assertNotNull($email['user']);
+        $this->assertSame('selfedit-ok@example.test', $email['user']->user_email);
+        $this->assertSame('Ready', $email['user']->display_name);
+        $this->assertTrue(AP_User::checkPassword('password123', $email['user']->user_pass));
+        $this->assertStringNotContainsString('password123', $this->encodeResult($email));
+
+        $newPassword = 'new-password-99';
+        $password = $this->saveOtherUser($id, $id, 'selfedit-ok@example.test', [
+            'pass1' => $newPassword,
+            'pass2' => $newPassword,
+            'display_name' => 'Ready',
+            'current_password' => 'password123',
+        ]);
+        $this->assertTrue($password['ok'], implode('; ', $password['errors']));
+        $this->assertNotNull($password['user']);
+        $this->assertSame('selfedit-ok@example.test', $password['user']->user_email);
+        $this->assertTrue(AP_User::checkPassword($newPassword, $password['user']->user_pass));
+        $this->assertFalse(AP_User::checkPassword('password123', $password['user']->user_pass));
+        $this->assertStringNotContainsString($newPassword, $this->encodeResult($password));
+        $this->assertStringNotContainsString('password123', $this->encodeResult($password));
+        $this->assertSame(0, $this->currentPasswordAttempts($id));
+
+        $missingNonce = AP_Admin_User_Edit::save([
+            'user_ID' => $id,
+            'user_email' => 'selfedit-hijack@example.test',
+            'pass1' => 'other-password-9',
+            'pass2' => 'other-password-9',
+            'display_name' => 'Hijack',
+            'current_password' => $newPassword,
+        ], $id, 'update', $this->db);
+        $this->assertFalse($missingNonce['ok']);
+        $this->assertSame('nonce', $missingNonce['message_key']);
+        $this->assertSame(
+            ['Security check failed. Please reload and try again.'],
+            $missingNonce['errors']
+        );
+        $kept = AP_User::getById($id, $this->db);
+        $this->assertNotNull($kept);
+        $this->assertSame('selfedit-ok@example.test', $kept->user_email);
+        $this->assertSame('Ready', $kept->display_name);
+        $this->assertTrue(AP_User::checkPassword($newPassword, $kept->user_pass));
+        $this->assertSame(0, $this->currentPasswordAttempts($id));
+        $this->assertStringNotContainsString($newPassword, $this->encodeResult($missingNonce));
+
+        $bad = 'still-wrong';
+        $firstLock = $this->saveOtherUser($id, $id, 'selfedit-stolen@example.test', [
+            'pass1' => 'other-password-1',
+            'pass2' => 'other-password-1',
+            'display_name' => 'Lock One',
+            'current_password' => $bad,
+        ]);
+        $this->assertFalse($firstLock['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_INCORRECT],
+            $firstLock['errors']
+        );
+        $this->assertSame('Lock One', $firstLock['user']->display_name ?? '');
+        $this->assertSame('selfedit-ok@example.test', $firstLock['user']->user_email ?? '');
+        $secondLock = $this->saveOtherUser($id, $id, 'selfedit-stolen@example.test', [
+            'display_name' => 'Lock Two',
+            'current_password' => '',
+        ]);
+        $this->assertFalse($secondLock['ok']);
+        $this->assertSame(
+            [AP_Admin_User_Edit::NOTICE_CURRENT_PASSWORD_REQUIRED],
+            $secondLock['errors']
+        );
+        $locked = $this->saveOtherUser($id, $id, 'selfedit-stolen@example.test', [
+            'pass1' => 'other-password-2',
+            'pass2' => 'other-password-2',
+            'display_name' => 'Locked Name',
+            'current_password' => $bad,
+        ]);
+        $this->assertFalse($locked['ok']);
+        $this->assertSame(['Too many attempts, try again in 15 minutes.'], $locked['errors']);
+        $this->assertNotNull($locked['user']);
+        $this->assertSame('selfedit-ok@example.test', $locked['user']->user_email);
+        $this->assertSame('Locked Name', $locked['user']->display_name);
+        $this->assertTrue(AP_User::checkPassword($newPassword, $locked['user']->user_pass));
+        $this->assertFalse(AP_User::checkPassword('other-password-2', $locked['user']->user_pass));
+        $this->assertStringNotContainsString($bad, implode("\n", $locked['errors']));
+        $this->assertStringNotContainsString($newPassword, $this->encodeResult($locked));
+        $this->assertStringNotContainsString('other-password-2', $this->encodeResult($locked));
+        $attemptsWhileLocked = $this->currentPasswordAttempts($id);
+
+        $still = $this->saveOtherUser($id, $id, 'selfedit-stolen@example.test', [
+            'display_name' => 'Still Locked',
+            'current_password' => $newPassword,
+        ]);
+        $this->assertFalse($still['ok']);
+        $this->assertSame(['Too many attempts, try again in 15 minutes.'], $still['errors']);
+        $this->assertSame('selfedit-ok@example.test', $still['user']->user_email ?? '');
+        $this->assertTrue(AP_User::checkPassword($newPassword, (string) $still['user']?->user_pass));
+        $this->assertSame($attemptsWhileLocked, $this->currentPasswordAttempts($id));
+
+        $duringLock = $this->saveOtherUser($id, $otherId, 'selfeditother-locked@example.test', [
+            'pass1' => 'other-password-3',
+            'pass2' => 'other-password-3',
+            'display_name' => 'Other During Lock',
+        ]);
+        $this->assertTrue($duringLock['ok'], implode('; ', $duringLock['errors']));
+        $this->assertNotNull($duringLock['user']);
+        $this->assertSame('selfeditother-locked@example.test', $duringLock['user']->user_email);
+        $this->assertSame('Other During Lock', $duringLock['user']->display_name);
+        $this->assertTrue(AP_User::checkPassword('other-password-3', $duringLock['user']->user_pass));
+        $this->assertSame(0, $this->currentPasswordAttempts($otherId));
+        $this->assertSame($attemptsWhileLocked, $this->currentPasswordAttempts($id));
+        $this->assertSame('administrator', AP_Roles::getUserRole($id, $this->db));
+        $this->assertStringNotContainsString('other-password-3', $this->encodeResult($duringLock));
+    }
+
     public function testProfileEmailAndPasswordChangeSucceedWithCurrentPassword(): void
     {
         $user = AP_User::create([
@@ -1115,9 +1796,10 @@ final class AdminUsersTest extends TestCase
         $this->assertStringNotContainsString('name="current_password"', $create);
         $this->assertStringNotContainsString('autocomplete="current-password"', $create);
 
+        // User-edit of this same account asks for the current password too.
         $update = AP_Admin_User_Edit::renderForm($u, 'update', $id, [], $this->db);
-        $this->assertStringNotContainsString('name="current_password"', $update);
-        $this->assertStringNotContainsString('autocomplete="current-password"', $update);
+        $this->assertStringContainsString('name="current_password"', $update);
+        $this->assertStringContainsString('autocomplete="current-password"', $update);
     }
 
     public function testProfileCurrentPasswordFailuresAreThrottled(): void
@@ -2178,6 +2860,74 @@ final class AdminUsersTest extends TestCase
         $this->assertTrue($user['ok'], implode('; ', $user['errors']));
 
         return ['id' => (int) $user['id'], 'email' => $email];
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     *
+     * @return array{ok: bool, id: int, message_key: string, errors: list<string>, user: ?AP_User}
+     */
+    /**
+     * @return list<object>
+     */
+    private function activityRows(int $targetId): array
+    {
+        $rows = AP_Activity_Log::forTarget($targetId, $this->db);
+
+        return $rows;
+    }
+
+    private function activityCount(): int
+    {
+        return (int) $this->db->getVar(
+            'SELECT COUNT(*) FROM ' . $this->db->quoteIdentifier($this->db->table('activity_log'))
+        );
+    }
+
+    private function assertActivityRow(
+        object $row,
+        int $actorId,
+        int $targetId,
+        string $field,
+        string $ip
+    ): void {
+        $this->assertSame($actorId, (int) $row->actor_id);
+        $this->assertSame($targetId, (int) $row->target_id);
+        $this->assertSame($field, (string) $row->field_name);
+        $this->assertSame($ip, (string) $row->ip);
+        $this->assertMatchesRegularExpression(
+            '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/',
+            (string) $row->created_at
+        );
+        $stamp = strtotime((string) $row->created_at . ' UTC');
+        $this->assertNotFalse($stamp);
+        $this->assertLessThanOrEqual(5, abs(time() - $stamp));
+    }
+
+    /**
+     * @param list<object> $rows
+     * @param list<string> $secrets
+     */
+    private function assertLogOmits(array $rows, array $secrets): void
+    {
+        $encoded = json_encode($rows);
+        $this->assertIsString($encoded);
+        foreach ($secrets as $secret) {
+            $this->assertNotSame('', $secret);
+            $this->assertStringNotContainsString($secret, $encoded);
+        }
+    }
+
+    private function saveOtherUser(int $actorId, int $targetId, string $email, array $fields = []): array
+    {
+        return AP_Admin_User_Edit::save(array_merge([
+            '_ap_nonce' => ap_create_nonce('update-user-' . $targetId, $actorId),
+            'user_ID' => $targetId,
+            'user_email' => $email,
+            'pass1' => '',
+            'pass2' => '',
+            'display_name' => 'Kept',
+        ], $fields), $actorId, 'update', $this->db);
     }
 
     /**

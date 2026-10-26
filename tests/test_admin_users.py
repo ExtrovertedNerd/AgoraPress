@@ -108,6 +108,9 @@ def test_admin_user_edit_api() -> None:
         "renderForumNotifyFieldset",
         "shouldShowForumNotifyFields",
         "topic_unsubscribed",
+        "AP_Activity_Log::record",
+        "activity_log",
+        "The password and the new address are not stored.",
     ):
         assert needle in src, f"Expected {needle!r} in admin user edit"
 

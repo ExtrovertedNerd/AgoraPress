@@ -118,6 +118,8 @@ function ap_core_base_tables(): array
         'options',
         'users',
         'usermeta',
+        // Admin credential changes on another user (migration 0014). No secret column.
+        'activity_log',
         'posts',
         'postmeta',
         'terms',

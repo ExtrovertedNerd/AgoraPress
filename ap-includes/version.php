@@ -32,7 +32,10 @@ define('AP_VERSION', '0.3.12-beta');
  * Version 13: topic email notify ({prefix}topic_subscriptions; options
  * forum_topic_notify_enabled default off, forum_notify_max_per_minute default 4;
  * usermeta forum_notify_email default off; topic_track / forum_track unchanged).
+ * Version 14: activity log ({prefix}activity_log). An administrator changing
+ * another user's password or email is recorded as actor id, target id, field
+ * name, UTC time, and IP. The password is not stored.
  * {@see AP_Migrator} tracks applied versions in schema_migrations. Installer /
  * update path apply pending migrations until the database matches this target.
  */
-define('AP_DB_VERSION', '13');
+define('AP_DB_VERSION', '14');

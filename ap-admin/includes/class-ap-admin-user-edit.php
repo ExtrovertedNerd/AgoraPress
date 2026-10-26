@@ -8,6 +8,8 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__, 2) . '/ap-includes/class-ap-activity-log.php';
+
 /**
  * User edit form save + render (shared by user-new, user-edit, profile).
  */
@@ -35,13 +37,22 @@ class AP_Admin_User_Edit
      *
      * Modes:
      * - create (user_ID empty)
-     * - update (user_ID set, typically requires edit_users)
+     * - update (user_ID set). Editing someone else requires `edit_users`.
+     *   That actor may set the other user's password or email without the
+     *   target's current password. The capability check is unchanged.
+     *   A successful password or email change on that other user is appended
+     *   to `{prefix}activity_log` (actor id, target id, field name, UTC time,
+     *   IP). The password and the new address are not stored. A failed save
+     *   writes nothing, and a log failure does not undo the user update.
+     *   Editing one's own row uses the same current-password rule as profile
+     *   and is not written to the activity log.
      * - profile (user_ID = current user; role not changed). Changing the
      *   password or email requires the current password. A missing or wrong
      *   current password is an error notice; that password and email are not
      *   saved, and other submitted fields still save. Other fields do not
      *   require the current password. Failed checks are throttled per user
-     *   and per IP when {@see AP_Rate_Limit} is loaded.
+     *   and per IP when {@see AP_Rate_Limit} is loaded. The same rule applies
+     *   when user-edit saves the signed-in user's own account.
      *
      * @param array<string, mixed> $input Typically $_POST.
      * @param string               $mode  create|update|profile
@@ -153,13 +164,23 @@ class AP_Admin_User_Edit
 
         $data = self::collectFields($input, $isNew, $mode, $actorId, $db);
 
-        // Own profile: password and email changes need the current password.
-        // This runs before new-password checks so a missing, wrong, or
-        // throttled current password drops only those fields. A mismatched
-        // or short new password must not replace that notice or block the
-        // rest of the save. Nonce and capability checks above are unchanged.
+        // Own account (profile, or user-edit of the signed-in user): password
+        // and email changes need the current password. This runs before
+        // new-password checks so a missing, wrong, or throttled current
+        // password drops only those fields. A mismatched or short new
+        // password must not replace that notice or block the rest of the
+        // save. Nonce and capability checks above are unchanged. User-edit
+        // of one's own row is not an admin exemption.
+        //
+        // User-edit of a different account does not ask for that account's
+        // current password. `edit_users` (checked above) is the gate. A
+        // crafted current_password is discarded and is not stored. After a
+        // successful password or email change, the activity log stores the
+        // field name only.
         $reauthError = null;
-        if ($mode === 'profile') {
+        $auditAdminChange = false;
+        $emailBeforeAudit = null;
+        if ($mode === 'profile' || self::userEditOfSelf($mode, $actorId, $id)) {
             $existing = AP_User::getById($id, $db);
             if ($existing === null) {
                 return [
@@ -173,6 +194,13 @@ class AP_Admin_User_Edit
             [$data, $reauthError] = self::applyProfileCurrentPassword($existing, $input, $data, $db);
             // Drop the submitted secret before later steps see $input.
             unset($input['current_password']);
+        } elseif (self::adminEditsAnotherUser($mode, $actorId, $id, $db)) {
+            unset($input['current_password'], $data['current_password']);
+            $auditAdminChange = true;
+            $beforeUser = AP_User::getById($id, $db);
+            if ($beforeUser !== null) {
+                $emailBeforeAudit = (string) $beforeUser->user_email;
+            }
         }
 
         $passErrors = self::passwordErrors($data, $isNew);
@@ -237,6 +265,20 @@ class AP_Admin_User_Edit
                 'errors' => $errors,
                 'user' => $result['user'],
             ];
+        }
+
+        if ($auditAdminChange) {
+            $emailAfter = AP_User::sanitizeEmail((string) ($data['user_email'] ?? ''));
+            $emailBefore = $emailBeforeAudit === null
+                ? null
+                : AP_User::sanitizeEmail($emailBeforeAudit);
+            self::auditAdminCredentialChanges(
+                $actorId,
+                $id,
+                (string) ($data['password'] ?? '') !== '',
+                $emailBefore !== null && $emailAfter !== '' && $emailAfter !== $emailBefore,
+                $db
+            );
         }
 
         $avatarErrors = self::processAvatar($id, $input, $files, $db);
@@ -311,6 +353,7 @@ class AP_Admin_User_Edit
         $isNew = $user === null || $user->ID < 1 || $mode === 'create';
         $id = $isNew ? 0 : $user->ID;
         $mode = in_array($mode, ['create', 'update', 'profile'], true) ? $mode : ($isNew ? 'create' : 'update');
+        $askCurrent = self::formAsksForCurrentPassword($mode, $actorId, $id, $isNew);
 
         $nonceAction = $isNew
             ? 'create-user'
@@ -390,7 +433,7 @@ class AP_Admin_User_Edit
         $html .= '<label for="user_email">Email <span class="required">*</span></label>';
         $html .= '<input type="email" name="user_email" id="user_email" class="regular-text" required '
             . 'maxlength="100" value="' . ap_esc_attr($email) . '" autocomplete="email" />';
-        if ($mode === 'profile') {
+        if ($askCurrent) {
             $html .= '<p class="description">Changing your email requires your current password '
                 . 'in Account Management.</p>';
         }
@@ -405,8 +448,8 @@ class AP_Admin_User_Edit
 
         $html .= '</fieldset>';
 
-        // Own profile: current password sits with the email field and the new-password fields.
-        if ($mode === 'profile') {
+        // Own account: current password sits with the email field and the new-password fields.
+        if ($askCurrent) {
             $html .= self::renderPasswordFieldset(false, true);
         }
 
@@ -481,7 +524,7 @@ class AP_Admin_User_Edit
         }
 
         // Create and editing another user: password fields stay at the end, with no current password.
-        if ($mode !== 'profile') {
+        if (!$askCurrent) {
             $html .= self::renderPasswordFieldset($isNew, false);
         }
 
@@ -1024,7 +1067,64 @@ class AP_Admin_User_Edit
     }
 
     /**
-     * Require the current password only when this profile save changes email or password.
+     * User-edit of the signed-in user's own row (`update` mode, same id).
+     *
+     * Password and email changes follow the profile current-password rule.
+     * There is no exemption for holding `edit_users`. Profile mode and
+     * edits of a different account are not this case.
+     */
+    private static function userEditOfSelf(string $mode, int $actorId, int $targetId): bool
+    {
+        return $mode === 'update'
+            && $actorId > 0
+            && $targetId > 0
+            && $actorId === $targetId;
+    }
+
+    /**
+     * Whether the form must ask for the signed-in user's current password.
+     *
+     * Profile always does. User-edit does only when the actor is that account.
+     */
+    private static function formAsksForCurrentPassword(
+        string $mode,
+        int $actorId,
+        int $targetId,
+        bool $isNew
+    ): bool {
+        if ($isNew) {
+            return false;
+        }
+        if ($mode === 'profile') {
+            return true;
+        }
+
+        return self::userEditOfSelf($mode, $actorId, $targetId);
+    }
+
+    /**
+     * Whether this save is an `edit_users` actor changing a different account.
+     *
+     * That actor may set the target's password or email without the target's
+     * current password. Callers still require `edit_users` before saving.
+     * Own-profile saves, creates, and a user editing their own row are not
+     * this case.
+     */
+    private static function adminEditsAnotherUser(
+        string $mode,
+        int $actorId,
+        int $targetId,
+        ?AP_DB $db
+    ): bool {
+        if ($mode !== 'update' || $actorId < 1 || $targetId < 1 || $actorId === $targetId) {
+            return false;
+        }
+
+        return self::actorCan($actorId, 'edit_users', $db);
+    }
+
+    /**
+     * Require the current password only when this own-account save changes email or password.
      *
      * Other submitted fields are left in `$data` either way. On failure the new email
      * and password are removed (including a mismatch flag) so they are not stored and
@@ -1234,5 +1334,30 @@ class AP_Admin_User_Edit
         }
 
         return $errors;
+    }
+
+    /**
+     * Append activity-log rows after an admin changes another user's password or email.
+     *
+     * Only booleans cross this boundary. The password and the address stay in
+     * the caller and are not arguments here, so they cannot be written to the log.
+     * A log failure is ignored. The user row is already saved.
+     */
+    private static function auditAdminCredentialChanges(
+        int $actorId,
+        int $targetId,
+        bool $passwordChanged,
+        bool $emailChanged,
+        AP_DB $db
+    ): void {
+        if (!class_exists('AP_Activity_Log', false)) {
+            return;
+        }
+        if ($passwordChanged) {
+            AP_Activity_Log::record($actorId, $targetId, AP_Activity_Log::FIELD_PASSWORD, $db);
+        }
+        if ($emailChanged) {
+            AP_Activity_Log::record($actorId, $targetId, AP_Activity_Log::FIELD_EMAIL, $db);
+        }
     }
 }

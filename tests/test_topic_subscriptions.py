@@ -40,7 +40,7 @@ def test_db_version_includes_topic_subscriptions() -> None:
     src = VERSION.read_text(encoding="utf-8")
     m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", src)
     assert m is not None
-    assert int(m.group(1)) == 13
+    assert int(m.group(1)) >= 13
     assert "Version 13" in src
     assert "topic_subscriptions" in src
     assert "topic_track / forum_track unchanged" in src
@@ -203,7 +203,8 @@ def test_migrate_from_12_unique_and_add_remove() -> None:
         }}
         $migration = require {str(MIGRATIONS / "0013_topic_subscriptions.php")!r};
         $migration->up($db);
-        if ($m->migrate() !== []) {{
+        // Ceiling stays 13. A later migration must not look like 0013 failed to settle.
+        if ($m->pending(13) !== [] || $m->migrate(13) !== []) {{
             fwrite(STDERR, "migrator not idempotent after 13\\n");
             exit(15);
         }}
@@ -246,8 +247,8 @@ def test_schema_13_leaves_unread_track_tables_unchanged() -> None:
         ]);
         $db = AP_DB::fromPdo($pdo, 'sqlite', 'ap_');
         $m = new AP_Migrator($db, AP_Migrator::defaultMigrationsPath());
-        if ((int) AP_DB_VERSION !== 13) {{
-            fwrite(STDERR, "AP_DB_VERSION expected 13\\n");
+        if ((int) AP_DB_VERSION < 13) {{
+            fwrite(STDERR, "AP_DB_VERSION expected >= 13\\n");
             exit(1);
         }}
         $m->migrate(12);

@@ -212,9 +212,24 @@ def test_shipped_forum_likes_and_topic_type_migrations_exist() -> None:
     ):
         assert needle in subs_src, f"Expected {needle} in 0013 topic subscriptions migration"
 
+    activity = MIGRATIONS_DIR / "0014_activity_log.php"
+    assert activity.is_file(), "Missing 0014_activity_log.php"
+    activity_src = activity.read_text(encoding="utf-8")
+    for needle in (
+        "AP_Migration_0014_Activity_Log",
+        "activity_log",
+        "actor_id",
+        "target_id",
+        "field_name",
+        "created_at",
+        "IF NOT EXISTS",
+    ):
+        assert needle in activity_src, f"Expected {needle} in 0014 activity log migration"
+    assert "user_pass" not in activity_src
+
     ver = VERSION.read_text(encoding="utf-8")
     m = re.search(r"define\('AP_DB_VERSION',\s*'(\d+)'\)", ver)
-    assert m is not None and int(m.group(1)) == 13
+    assert m is not None and int(m.group(1)) == 14
 
 
 def test_shipped_core_migration_applies_via_php() -> None:

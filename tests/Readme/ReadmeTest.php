@@ -137,8 +137,8 @@ final class ReadmeTest extends TestCase
         $lower = strtolower($this->readme);
         $this->assertStringContainsString('0.3.12-beta', $this->readme);
         $this->assertMatchesRegularExpression('/AP_DB_VERSION/i', $this->readme);
-        // Schema target tracks AP_DB_VERSION (13: topic_subscriptions).
-        $this->assertMatchesRegularExpression('/\b13\b/', $this->readme);
+        // Schema target tracks AP_DB_VERSION (14: activity_log).
+        $this->assertMatchesRegularExpression('/\b14\b/', $this->readme);
         $this->assertTrue(
             str_contains($lower, 'local analytics') || str_contains($lower, 'tools → analytics'),
             'README should document Tools → Analytics / local analytics'

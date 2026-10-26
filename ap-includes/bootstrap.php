@@ -378,6 +378,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-nonce.php';
     // Rate limiting + login protection (brute-force / flood).
     require_once AP_ABSPATH . 'ap-includes/class-ap-rate-limit.php';
+    // Activity log for admin password and email changes on another user.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-activity-log.php';
     // Escaping / sanitization (ap_esc_* / ap_sanitize_* implementation).
     require_once AP_ABSPATH . 'ap-includes/class-ap-formatting.php';
     // Internationalization (gettext MO catalogs) + RTL locale helpers.

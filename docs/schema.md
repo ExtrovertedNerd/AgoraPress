@@ -1,11 +1,11 @@
 # Database schema
 
-This is the **schema guide** for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **13**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
+This is the **schema guide** for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **14**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
 
 AgoraPress uses a **versioned migration system**. Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**. Operator apply path: [install.md](install.md) (fresh) and [updates.md](updates.md) / `php ap-cli db migrate` ([cli.md](cli.md)). Forum column semantics: [forums.md](forums.md). Local analytics options: [admin.md](admin.md).
 
 **Source:** `ap-includes/schema/migrations/`, `class-ap-migrator.php`, `class-ap-migration.php`, `class-ap-db.php`  
-**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **13**, AgoraPress `0.3.12-beta`)
+**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **14**, AgoraPress `0.3.12-beta`)
 
 Do not invent tables. If a base name is not in this file and not in `ap_all_base_tables()`, it is **not in core**.
 
@@ -56,6 +56,7 @@ php ap-cli db check
 | 11 | `0011_forum_likes_stats.php` | `forum_post_likes`; `forum_posts.like_count` |
 | 12 | `0012_topic_type_enum.php` | **No new table.** Enum backfill only. Canonical `topics.topic_type` values `standard` \| `sticky` \| `announcement` \| `rules`. Backfills `normal`→`standard`, `announce`/`global`→`announcement`, empty/unknown→`standard`. `sticky` is unchanged. `rules` is new (no legacy source). Column default becomes `standard` where the driver supports it (MySQL/MariaDB `MODIFY`; PostgreSQL `SET DEFAULT`; SQLite leaves DEFAULT to the application). Extra types are **not in core**. |
 | 13 | `0013_topic_subscriptions.php` | `topic_subscriptions` (`user_id`, `topic_id`, `created_at`; unique `(user_id, topic_id)`; index on `topic_id`). Seeds `forum_topic_notify_enabled` `'0'`, `forum_notify_max_per_minute` `'4'`. Does **not** backfill usermeta `forum_notify_email`. Unread tables unchanged. |
+| 14 | `0014_activity_log.php` | `activity_log` (`actor_id`, `target_id`, `field_name`, `created_at`, `ip`). Field name is `password` or `user_email`. No password, hash, or address column. |
 
 Also created by the migrator infrastructure: **`{prefix}schema_migrations`**.
 
@@ -100,6 +101,21 @@ Shared accounts for CMS, forums, and admin.
 | `umeta_id` | PK |
 | `user_id` | |
 | `meta_key` / `meta_value` | Capabilities, sessions, avatar, profile fields, … |
+
+### activity_log
+
+Audit rows when an administrator changes another user's password or email on user-edit (`AP_Activity_Log`). Schema **14**. Own-profile saves and a user editing their own row do not write here. Rows stay if the user is later deleted.
+
+| Column | Notes |
+|--------|-------|
+| `log_id` | PK |
+| `actor_id` | Signed-in administrator |
+| `target_id` | The other account |
+| `field_name` | `password` or `user_email` only. Not the password, the hash, or the new address |
+| `created_at` | UTC `Y-m-d H:i:s` |
+| `ip` | Client IP from the same helper as rate limiting (`REMOTE_ADDR`, or a trusted proxy hop when `AP_TRUST_PROXY` is on). Empty when the value is not an IP |
+
+Indexes on `actor_id`, `target_id`, and `created_at`.
 
 ### posts
 
@@ -337,6 +353,7 @@ Primary key: `(day, path, object_id)`.
 users ──┬── posts / postmeta
         ├── comments
         ├── usermeta (caps, sessions, avatar)
+        ├── activity_log (actor_id / target_id; field name only)
         ├── group_members → groups → forum_permissions → forums
         ├── topics / forum_posts / messages
         ├── topic_track / forum_track / topic_subscriptions / online

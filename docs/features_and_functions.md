@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Core | `AP_VERSION` **0.3.12-beta** |
-| Schema | `AP_DB_VERSION` **13** |
+| Schema | `AP_DB_VERSION` **14** |
 | Table prefix | default `ap_` (`$table_prefix` in `ap-config.php`) |
 | Control Panel | `/ap-admin/` |
 | REST prefix | `/ap-json/` · namespace `ap/v1` |
@@ -205,7 +205,7 @@
 
 | | |
 |---|---|
-| Target | `AP_DB_VERSION` **13** (`ap-includes/version.php`) |
+| Target | `AP_DB_VERSION` **14** (`ap-includes/version.php`) |
 | Prefix | default `ap_` — physical names `{prefix}{base}` |
 | Drivers | MySQL 8+ / MariaDB 10.6+ (production), SQLite (demos), PostgreSQL |
 | Apply | installer, or `php ap-cli db migrate` |
@@ -227,6 +227,7 @@
 | 11 | `0011_forum_likes_stats.php` | `forum_post_likes`; `forum_posts.like_count` |
 | 12 | `0012_topic_type_enum.php` | **No new table.** Canonical `topics.topic_type` `standard` \| `sticky` \| `announcement` \| `rules` |
 | 13 | `0013_topic_subscriptions.php` | `topic_subscriptions` (`user_id`, `topic_id`, `created_at`; unique `(user_id, topic_id)`; index on `topic_id`). Seeds `forum_topic_notify_enabled` `'0'`, `forum_notify_max_per_minute` `'4'`. Does **not** backfill usermeta `forum_notify_email`. Unread tables unchanged. |
+| 14 | `0014_activity_log.php` | `activity_log` (`actor_id`, `target_id`, `field_name`, `created_at`, `ip`). Field name is `password` or `user_email`. No password, hash, or address column. |
 
 | Core base (`ap_core_base_tables()`) | Forum base (`ap_forum_base_tables()`) |
 |-------------------------------------|---------------------------------------|
@@ -243,6 +244,7 @@
 | `commentmeta` | `warnings` |
 | `analytics_hits` | `bans` |
 | `analytics_daily` | `online` |
+| `activity_log` | |
 | | `topic_track` |
 | | `forum_track` |
 | | `forum_post_likes` |

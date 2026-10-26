@@ -41,6 +41,8 @@ class AP_DB
 
     public string $usermeta = '';
 
+    public string $activity_log = '';
+
     public string $posts = '';
 
     public string $postmeta = '';
@@ -247,6 +249,7 @@ class AP_DB
             'options',
             'users',
             'usermeta',
+            'activity_log',
             'posts',
             'postmeta',
             'terms',

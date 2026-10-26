@@ -32,7 +32,12 @@ if ($editUser === null) {
 $extra = [];
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    $result = AP_Admin_User_Edit::save($_POST, $actorId, 'update', null, $_FILES);
+    try {
+        $result = AP_Admin_User_Edit::save($_POST, $actorId, 'update', null, $_FILES);
+    } finally {
+        // Never redisplay a submitted current password.
+        unset($_POST['current_password'], $_REQUEST['current_password']);
+    }
     if ($result['ok']) {
         AP_Admin::redirect(AP_Admin::url('user-edit.php', [
             'user_id' => $result['id'],
@@ -42,8 +47,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     foreach ($result['errors'] as $err) {
         AP_Admin::addNotice($err, 'error');
     }
+    $storedUser = ($result['user'] instanceof AP_User) ? $result['user'] : $editUser;
+    $submittedEmail = (string) ($_POST['user_email'] ?? $storedUser->user_email);
     $extra = [
-        'user_email' => (string) ($_POST['user_email'] ?? $editUser->user_email),
+        'user_email' => AP_Admin_User_Edit::profileEmailAfterSave(
+            $result['errors'],
+            $submittedEmail,
+            (string) $storedUser->user_email
+        ),
         'user_url' => (string) ($_POST['user_url'] ?? $editUser->user_url),
         'display_name' => (string) ($_POST['display_name'] ?? $editUser->display_name),
         'first_name' => (string) ($_POST['first_name'] ?? ''),

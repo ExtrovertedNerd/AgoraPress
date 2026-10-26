@@ -9,7 +9,7 @@ Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive
 
 ## [Unreleased]
 
-Plugin zip install and upgrade (`AP_Plugin_Installer`). Schema stays `AP_DB_VERSION` **13**; no telemetry by default.
+Plugin zip install and upgrade (`AP_Plugin_Installer`). Admin password and email changes on another user are recorded in `{prefix}activity_log`. Schema `AP_DB_VERSION` **14**; no telemetry by default.
 
 ### Added
 
@@ -25,10 +25,11 @@ Plugin zip install and upgrade (`AP_Plugin_Installer`). Schema stays `AP_DB_VERS
 - Size cap default **20 MiB** (`ap_plugin_zip_max_bytes`); **5000** entries (`ap_plugin_zip_max_entries`); **128 MiB** uncompressed (`ap_plugin_zip_max_uncompressed_bytes`)
 - Actions `ap_plugin_before_install` / `ap_plugin_after_install`, `ap_plugin_before_upgrade` / `ap_plugin_after_upgrade`, `ap_plugin_before_restore` / `ap_plugin_after_restore`, `ap_plugin_before_activate` / `ap_plugin_after_activate`, `ap_plugin_before_deactivate` / `ap_plugin_after_deactivate`
 - Operator how-to: [docs/admin.md](docs/admin.md#plugin-zip-installer). Developer API: [docs/plugins.md](docs/plugins.md#plugin-installer)
+- `{prefix}activity_log`: an administrator who changes another user's password or email on user-edit is recorded with actor id, target id, field name (`password` or `user_email`), UTC time, and IP. The password is not stored
 
 ### Changed
 
-- Schema stays `AP_DB_VERSION` **13** (no table change)
+- Schema `AP_DB_VERSION` **14** (`{prefix}activity_log` for admin password and email changes on another user; the password is not stored)
 - A plugin that was active stays active after upgrade or restore. If `activate` fails, the new files stay and the plugin is inactive; that failure does not restore the previous version
 - A failed swap puts the timestamped backup back. There is no `php ap-cli plugin install`
 - The Plugins screen calls `install()` and does not fire legacy `ap_plugin_installed`. `installFromZip()` / `handleUpload()` remain on the **40 MiB** `DEFAULT_MAX_BYTES` path

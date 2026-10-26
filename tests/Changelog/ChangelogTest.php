@@ -367,8 +367,8 @@ final class ChangelogTest extends TestCase
             );
         }
         $this->assertTrue(
-            str_contains($body, '**13**') || str_contains($body, ' 13'),
-            '[Unreleased] should keep schema 13'
+            str_contains($body, '**14**') || str_contains($body, ' 14'),
+            '[Unreleased] should record schema 14'
         );
     }
 
