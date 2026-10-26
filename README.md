@@ -331,9 +331,11 @@ composer cs:check         # Coding standards
 composer analyse          # PHPStan
 composer package          # Production zip
 # or: pytest tests/ -v
+git config core.hooksPath .githooks
 ```
 
-CI runs tests, CS, and analysis on PHP 8.2–8.4.  
+CI runs those three commands on PHP 8.2, 8.3, and 8.4 on `ubuntu-24.04`.  
+`.githooks/pre-push` runs the same three and refuses the push when one fails.  
 See [`CODING_STANDARDS.md`](CODING_STANDARDS.md) for style rules.
 
 ---

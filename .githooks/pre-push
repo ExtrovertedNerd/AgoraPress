@@ -1,0 +1,11 @@
+#!/bin/sh
+# Refuse the push unless the local gate is green.
+# Enable once per clone: git config core.hooksPath .githooks
+set -eu
+cd "$(dirname "$0")/.."
+export COMPOSER_NO_INTERACTION=1
+# The full PHPUnit suite can exceed Composer's 300s default.
+export COMPOSER_PROCESS_TIMEOUT=0
+composer test
+composer cs:check
+composer analyse

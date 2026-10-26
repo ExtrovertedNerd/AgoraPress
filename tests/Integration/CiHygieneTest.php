@@ -44,6 +44,54 @@ final class CiHygieneTest extends TestCase
         $this->assertStringContainsString('"8.2"', $raw);
         $this->assertStringContainsString('"8.3"', $raw);
         $this->assertStringContainsString('"8.4"', $raw);
+        $this->assertDoesNotMatchRegularExpression(
+            '/runs-on:\s*ubuntu-latest\b/',
+            $raw,
+            'Pin runs-on. ubuntu-latest changes libzip out from under the suite'
+        );
+        $this->assertMatchesRegularExpression(
+            '/runs-on:\s*ubuntu-24\.04\b/',
+            $raw,
+            'CI must run on the pinned ubuntu-24.04 image'
+        );
+    }
+
+    public function testPrePushHookRunsTestCsAndAnalyse(): void
+    {
+        $path = $this->root . '/.githooks/pre-push';
+        $this->assertFileIsReadable($path);
+        $this->assertTrue(is_executable($path), 'pre-push must be executable');
+        $raw = (string) file_get_contents($path);
+
+        $this->assertStringNotContainsString(
+            '|| true',
+            $raw,
+            'pre-push must not swallow a failed composer command'
+        );
+        $this->assertMatchesRegularExpression('/^composer test$/m', $raw);
+        $this->assertMatchesRegularExpression('/^composer cs:check$/m', $raw);
+        $this->assertMatchesRegularExpression('/^composer analyse$/m', $raw);
+        $this->assertStringContainsString(
+            'COMPOSER_PROCESS_TIMEOUT=0',
+            $raw,
+            'pre-push must not let Composer stop the suite at its 300s default'
+        );
+
+        $composerPath = $this->root . '/composer.json';
+        $composer = json_decode((string) file_get_contents($composerPath), true);
+        $this->assertIsArray($composer);
+        $config = $composer['config'] ?? [];
+        $this->assertIsArray($config);
+        $this->assertSame(
+            0,
+            $config['process-timeout'] ?? null,
+            'composer test must be allowed to outlive the 300s script default'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/composer test\s+--/',
+            $raw,
+            'pre-push must not hide PHPUnit suites behind extra flags'
+        );
     }
 
     public function testPhpunitKeepsFailOnRiskyAndDoesNotExcludeTests(): void

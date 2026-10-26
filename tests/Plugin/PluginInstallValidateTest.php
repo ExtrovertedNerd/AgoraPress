@@ -1173,8 +1173,24 @@ final class PluginInstallValidateTest extends TestCase
 
         $opened = new ZipArchive();
         $this->assertTrue($opened->open($zip));
-        $this->assertSame('good/good.php', $opened->getNameIndex(0));
+        $reported = $opened->getNameIndex(0);
         $opened->close();
+
+        // getNameIndex is library-dependent when the name contains a NUL.
+        // Some builds truncate to good/good.php. Others keep the suffix, and
+        // the NUL may show up as a normal space. The archive bytes still
+        // contain the NUL and the ../ tail. Both reports are valid.
+        $this->assertIsString($reported);
+        $truncated = $reported === 'good/good.php';
+        $keepsDanger = str_contains($reported, "\0") || str_contains($reported, '../');
+        $this->assertTrue(
+            $truncated || $keepsDanger,
+            'Unexpected ZipArchive entry name: ' . json_encode($reported)
+        );
+
+        $stored = file_get_contents($zip);
+        $this->assertIsString($stored);
+        $this->assertStringContainsString("good/good.php\0../outside.php", $stored);
 
         $error = AP_Plugin_Installer::validate($zip, [
             'plugins_root' => $this->pluginsRoot,
@@ -1914,27 +1930,53 @@ final class PluginInstallValidateTest extends TestCase
             $path = $this->workDir . '/unreadable-' . bin2hex(random_bytes(3)) . '.zip';
             $this->assertNotFalse(file_put_contents($path, $crafted));
 
+            // Older libzip refuses an EOCD comment length past EOF. libzip
+            // 1.11+ clamps that length and opens. Trailing bytes after a
+            // zero-length comment are ignored by both. Our parser still
+            // requires the comment to end at EOF, so a lenient open must
+            // surface as ZIP_OPEN_FAILED. A refused open is still a rejection.
             $opened = new ZipArchive();
-            $this->assertTrue($opened->open($path) === true, $label);
-            $opened->close();
+            $libzipOpened = $opened->open($path) === true;
+            if ($libzipOpened) {
+                $opened->close();
+            }
 
             $error = AP_Plugin_Installer::validate($path, [
                 'plugins_root' => $this->pluginsRoot,
             ]);
             $this->assertInstanceOf(AP_Plugin_Install_Error::class, $error, $label);
-            $this->assertSame(AP_Plugin_Install_Error::ZIP_OPEN_FAILED, $error->code(), $label);
-            $this->assertStringContainsString('entry names', strtolower($error->message()), $label);
 
             $installed = AP_Plugin_Installer::installFromZip($path, [
                 'plugins_root' => $this->pluginsRoot,
             ]);
             $this->assertFalse($installed['ok'], $label);
-            $this->assertStringContainsString(
-                'entry names',
-                strtolower(implode(' ', $installed['errors'])),
+            $this->assertDirectoryDoesNotExist($this->pluginsRoot . '/named');
+
+            if ($libzipOpened) {
+                $this->assertSame(AP_Plugin_Install_Error::ZIP_OPEN_FAILED, $error->code(), $label);
+                $this->assertStringContainsString('entry names', strtolower($error->message()), $label);
+                $this->assertStringContainsString(
+                    'entry names',
+                    strtolower(implode(' ', $installed['errors'])),
+                    $label
+                );
+                continue;
+            }
+
+            $this->assertContains(
+                $error->code(),
+                [
+                    AP_Plugin_Install_Error::NOT_ZIP,
+                    AP_Plugin_Install_Error::ZIP_OPEN_FAILED,
+                ],
                 $label
             );
-            $this->assertDirectoryDoesNotExist($this->pluginsRoot . '/named');
+            $joined = strtolower(implode(' ', $installed['errors']));
+            $this->assertNotSame('', $joined, $label);
+            $this->assertTrue(
+                str_contains($joined, 'entry names') || str_contains($joined, 'could not open'),
+                $label
+            );
         }
     }
 
