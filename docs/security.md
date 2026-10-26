@@ -1,7 +1,7 @@
 # Security and privacy
 
-This is the **hardening and privacy guide** for AgoraPress **`0.3.12-beta`**
-(schema `AP_DB_VERSION` **13**). It describes the security model **as built**:
+This is the **hardening and privacy guide** for AgoraPress **`0.3.13-beta`**
+(schema `AP_DB_VERSION` **14**). It describes the security model **as built**:
 PDO prepared statements, HMAC nonces, Argon2id passwords, rate limits,
 `php` / `smtp` outbound mail, a first-party public-register gate, reserved
 logins as **anti-squat** (not 2FA), production deny rules, no telemetry,
@@ -22,8 +22,11 @@ those are **not in core**.
 `ap-includes/class-ap-analytics.php`, `ap-includes/class-ap-media.php`,
 `ap-includes/class-ap-mail.php`, `ap-includes/class-ap-smtp.php`,
 `ap-includes/class-ap-registration.php`,
+`ap-includes/class-ap-account-notice.php`, `ap-includes/class-ap-activity-log.php`,
 `ap-includes/class-ap-site-health.php`, `ap-includes/class-ap-rest.php`,
-`install/index.php`, `ap-admin/login.php`, `ap-admin/options-mail.php`,
+`install/index.php`, `ap-admin/login.php`, `ap-admin/profile.php`,
+`ap-admin/user-edit.php`, `ap-admin/includes/class-ap-admin-user-edit.php`,
+`ap-admin/options-mail.php`,
 `ap-admin/options-general.php`, `ap-admin/js/register-guard.js`,
 `ap-admin/options-privacy.php`,
 `ap-admin/export-personal-data.php`, `ap-admin/erase-personal-data.php`,
@@ -44,7 +47,7 @@ those are **not in core**.
 | Native outbound mail (`php` / `smtp` via `AP_Mail::send()`) | PHPMailer, Composer mail libraries, HTML newsletters |
 | Always-on public-register gate + first-party `math` / `guard` | Google reCAPTCHA, hCaptcha, or Turnstile in core |
 | Reserved public-register logins (**anti-squat**, not a second factor) | Treating those names as 2FA / TOTP |
-| Transient-backed rate limits (login, register, password reset, upload, outbound mail) | Fail2ban, IP firewalls, or a bundled WAF |
+| Transient-backed rate limits (login, register, password reset, current-password checks, upload, outbound mail) | Fail2ban, IP firewalls, or a bundled WAF |
 | Capability checks on admin screens and privileged APIs | A second permission system besides [roles.md](roles.md) / forum ACL |
 | Escape on output / sanitize on input (`AP_Formatting`) | “Trusted HTML from the database” as a security model |
 | Deny rules in shipped Apache / Nginx examples | IIS `web.config`, Caddy, or PHP built-in-server deny files |
@@ -151,9 +154,136 @@ verification account from Users without the emailed key
 activate-purpose key on the row, so it does **not** lift a forum ban that
 reuses `user_status` = `1`.
 
+Own-account password and email changes also require the current password.
+An administrator editing a different user does not. See
+[Profile re-authentication](#profile-re-authentication).
+
 **Optional 2FA / TOTP is not in core.** The public-register gate and
 reserved-login list are anti-spam / **anti-squat**. They are **not** a
-second password factor.
+second password factor. Re-entering the current password on Profile is the
+same password, not a second factor.
+
+---
+
+## Profile re-authentication
+
+Profile (`ap-admin/profile.php`, cap `read`) and Users → Edit of **your own**
+account (`user-edit.php`, even with `edit_users`) ask for **Current password**
+(`name="current_password"`, `autocomplete="current-password"`) beside the
+email field and the new-password fields. The check runs only when the
+password or the email address is being changed, including a change that only
+rewrites the letter case of the same mailbox. Display name, bio, website,
+signature, avatar, admin color mode, and the forum-notify checkbox save
+without it. A wrong value in the field is ignored when neither password nor
+email is changing.
+
+Verification is `AP_User::checkPassword()` (`password_verify`). The submitted
+value is not logged, not copied onto the saved field bag, and not written
+back into the form.
+
+| Result | Notice | What is stored |
+|--------|--------|----------------|
+| Password or email change, field empty | `Enter your current password to change your password or email.` | Other submitted fields. Password and email stay as stored. |
+| Field filled, hash does not match | `Your current password is incorrect.` | Same. |
+| Failed checks over the limit | `Too many attempts, try again in N minute.` or `minutes.` | The password is not verified while the lockout holds. Other fields still save. |
+| Current password matches | No re-authentication notice | The new password and/or email, plus the other fields. |
+
+The screen still returns an error for the rejected password or email change
+after the other fields have been saved. Nonce (`update-profile-{id}` on
+Profile, `update-user-{id}` on user-edit) and capability checks are unchanged.
+Users → Add does not show the field.
+
+### Administrator editing another user
+
+An actor with `edit_users` who saves a **different** account may set that
+account’s password or email without the target’s current password. A posted
+`current_password` on that form is discarded. Users → Edit of the signed-in
+user’s own row is the Profile rule above. Holding `edit_users` does not
+bypass it, and that self-save is not audited.
+
+Each successful password or email change on the other account appends
+`{prefix}activity_log` (`AP_Activity_Log`, schema **14**). The row stores
+actor id, target id, field name (`password` or `user_email`), UTC
+`created_at`, and client IP. It has no column for the password, the hash, or
+the address. A letter-case-only email rewrite is stored as `user_email` and
+does not fire `ap_email_changed`. A failed save writes nothing. A log failure
+does not undo the user update. Columns and indexes:
+[schema.md](schema.md#activity_log).
+
+### Sessions and notice mail
+
+A successful password change on the signed-in account destroys that user’s
+other sessions and remember-me tokens, rotates this request’s session id,
+and leaves this browser signed in. A password change on any other account
+destroys all of that account’s sessions. An email change does not, by
+itself, destroy sessions. Password reset goes through
+`AP_User::updatePassword()`, which revokes every stored session token,
+including the browser that submitted the reset. A login rehash uses that
+same method and does not send the notice below.
+
+`AP_Account_Notice` sends **text/plain** through `AP_Mail::send()` with
+`skip_rate_limit`, so the message does not consume the verification / reset
+`mail` bucket. The body states what changed, when (UTC), and the client IP,
+and tells the reader to contact the site administrator if they did not make
+the change. It contains no password and no reset key. The password notice
+includes the public lost-password URL (`login.php?action=lostpassword`) with
+no key on the query string.
+
+| Change | Recipients |
+|--------|------------|
+| Password | The address that was on the account before this save (a simultaneous email change still reaches that inbox). Subject: `[{site}] Your password was changed`. |
+| Email | The previous address (`[{site}] Your email address was changed`, including that password-reset mail now goes to the new address) and a confirmation to the new address (`[{site}] Your new email address is confirmed`). |
+| Same mailbox, including letter case only | Nothing is sent. `ap_email_changed` does not fire. The stored spelling can still update when the current password checked out. |
+
+When outbound mail is disabled (`mail_transport` `none`, `off`, or
+`disabled`) or not configured (SMTP with an empty host, or PHP `mail()`
+unavailable), the notice is skipped. The reason is stored in
+`mail_last_error` (Settings → Mail / Site Health) and written to the PHP
+error log as `AgoraPress mail: … (password change notice)` or
+`(email change notice)`. That line has no password and no mailbox. A skipped
+or failed send does not undo the account change.
+
+### Throttle
+
+Failed current-password checks use `AP_Rate_Limit` action `current_password`
+on the same transient store as login. The buckets are the user id and the
+client IP. Either bucket blocks. They do not consume the `login`,
+`password_reset`, or `mail` buckets. A successful check clears both
+`current_password` counters. While locked, the submitted password is not
+verified and the counter is not cleared. Only attempt counts are stored.
+
+Defaults (options, **no ACP screen**; `php ap-cli option get` / `set`):
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `rate_limit_current_password_max` | `5` | Failures allowed in the window |
+| `rate_limit_current_password_window` | `900` | Window, seconds (15 minutes) |
+| `rate_limit_current_password_lockout` | `900` | Lockout, seconds (15 minutes) |
+
+`getLimits('current_password')` applies those options, clamps them, then
+runs filter `ap_current_password_rate_limits`. The filter receives
+`array{max, window, lockout}` and the user id (`0` when the limit is read
+outside a per-user check). Use `accepted_args` 2. A non-array return is
+ignored. A non-numeric field keeps the resolved value. Returned numbers are
+clamped: `max` 1–1000, `window` 30–86400, `lockout` 0–86400. The lockout
+notice always states the wait in whole minutes (at least 1).
+
+### Hooks
+
+After the row is stored, a successful password change fires
+`ap_password_changed`. A successful change to a different mailbox
+(case-insensitive) fires `ap_email_changed`. Each action receives the
+account user id, the actor user id, and `self` or `admin`. Use
+`accepted_args` 3. The password and the addresses are not arguments.
+
+| Context | When |
+|---------|------|
+| `self` | Profile, user-edit of this same account, `AP_User::update()` with no other actor, and password reset (`AP_Registration::resetPassword()`). Reset uses the account id as the actor even when another user is signed in. |
+| `admin` | User-edit of a different account, or `AP_User::update()` with a different actor. |
+
+A failed save does not fire either action. `AP_User::updatePassword()` does
+not fire `ap_password_changed` (login rehash). Password reset fires it after
+that method returns. Argument detail: [hooks.md](hooks.md#users--registration).
 
 ---
 
@@ -187,10 +317,17 @@ Default windows (`AP_Rate_Limit`; override with options
 | Action | Max | Window | Lockout |
 |--------|-----|--------|---------|
 | `login` | 5 | 15 min | 15 min |
+| `current_password` | 5 | 15 min | 15 min |
 | `register` | 5 | 1 h | 1 h |
 | `password_reset` | 5 | 1 h | 30 min |
 | `upload` | 40 | 10 min | 5 min |
 | `mail` | 20 | 1 h | 1 h |
+
+`current_password` counts failed current-password checks per user id and per
+IP. It does not share buckets with `login`. Options
+`rate_limit_current_password_max` / `_window` / `_lockout`, then filter
+`ap_current_password_rate_limits`. Detail:
+[Profile re-authentication](#profile-re-authentication).
 
 `AP_Mail::send()` (the only outbound API) applies the `mail` action to the
 client IP **and** each recipient identity before php/smtp or the `ap_mail_send`
@@ -640,6 +777,6 @@ REST master switch: option `rest_api_enabled` (default on). Set `0` to disable
 | `php ap-cli option set` for flags with no ACP screen | [cli.md](cli.md) |
 | Plugin Settings API / nonces | [plugins.md](plugins.md) |
 | Classic `wp_mail()` shim | [compatibility.md](compatibility.md) |
-| `ap_mail_send`, `ap_reserved_usernames`, `ap_user_created` | [hooks.md](hooks.md) |
+| `ap_mail_send`, `ap_reserved_usernames`, `ap_user_created`, `ap_password_changed`, `ap_email_changed`, `ap_current_password_rate_limits` | [hooks.md](hooks.md) |
 | Prepared statements; no invented tables | [schema.md](schema.md) |
 | Forum flood vs login rate limits | [forums.md](forums.md) |

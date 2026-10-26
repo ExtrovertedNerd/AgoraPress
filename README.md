@@ -4,7 +4,7 @@
 
 A spiritual successor to classic WordPress + phpBB: one install for publishing and community discussion. No bloat, no paywalls, **no telemetry** by default.
 
-> **Status:** **`0.3.12-beta`** — MVP feature-complete with Site Icon (favicon pack), plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
+> **Status:** **`0.3.13-beta`** — MVP feature-complete with Site Icon (favicon pack), plugin admin pages (ACP registry + router), forum UI phpBB-parity (board index + two-pane topic view), forum likes/moderation, Theme Options API, and local privacy-respecting site analytics; **ready for live-site install**. Product principles and intentional deviations: [docs/vision-compliance.md](docs/vision-compliance.md).
 
 ---
 
@@ -359,7 +359,7 @@ guides:
 | [docs/forums.md](docs/forums.md) | Hierarchy, topic types, likes, moderation, ACL, PMs |
 | [docs/roles.md](docs/roles.md) | Roles, capabilities, comment ownership, forum ACL |
 | [docs/rest.md](docs/rest.md) | `/ap-json/`, `ap/v1`, auth, `rest_api_enabled` |
-| [docs/security.md](docs/security.md) | Prepared statements, nonces, deny rules, no telemetry |
+| [docs/security.md](docs/security.md) | Prepared statements, nonces, deny rules, profile re-authentication, no telemetry |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptom → check → related path |
 | [docs/bot_handbook.md](docs/bot_handbook.md) | Trusted-agent operating model for this product |
 | [docs/features_and_functions.md](docs/features_and_functions.md) | Lookup catalog of tables pointing at the guides |
@@ -378,6 +378,7 @@ guides:
 
 - PDO prepared statements; nonces and capability checks on privileged actions  
 - Argon2id password hashing  
+- **Profile re-authentication** — changing your own password or email on Profile (and on Users → Edit of your own account) requires the current password. Other profile fields save without it. Failed checks are throttled (default 5 per 15 minutes, per user and per IP; options `rate_limit_current_password_*`, filter `ap_current_password_rate_limits`). An administrator editing another user does not need that password; the change is written to `activity_log` (actor, target, field, time, IP — never the password). Hooks: `ap_password_changed`, `ap_email_changed`. Depth: [docs/security.md](docs/security.md#profile-re-authentication)  
 - **No telemetry** — version check and updates never send your domain or site identity  
 - **Local analytics only** — opt-in pageviews for admins; never third-party analytics endpoints or beacons  
 - Optional Hall of Fame domain listing is voluntary only (Settings → Hall of Fame)  

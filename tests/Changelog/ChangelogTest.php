@@ -372,6 +372,61 @@ final class ChangelogTest extends TestCase
         );
     }
 
+    public function testUnreleasedDocumentsProfileReauthentication(): void
+    {
+        $matched = preg_match(
+            '/(?ims)^##\s+\[Unreleased\]\s*\n(.*?)(?=^##\s+\[|\z)/',
+            $this->changelog,
+            $m
+        );
+        $this->assertSame(1, $matched, 'Missing ## [Unreleased] body');
+        $body = $m[1];
+        $this->assertMatchesRegularExpression(
+            '/(?im)^###\s+Security\s*$/',
+            $body,
+            '[Unreleased] should have a Security heading'
+        );
+        $sectionMatched = preg_match(
+            '/(?ims)^###\s+Security\s*\n(.*?)(?=^###\s+|\z)/',
+            $body,
+            $section
+        );
+        $this->assertSame(1, $sectionMatched, 'Missing ### Security body');
+        $lower = strtolower($section[1]);
+        foreach (
+            [
+                'current password',
+                'current_password',
+                'autocomplete="current-password"',
+                'password_verify',
+                'enter your current password to change your password or email.',
+                'your current password is incorrect.',
+                'too many attempts, try again in n minutes.',
+                'rate_limit_current_password_max',
+                'rate_limit_current_password_window',
+                'rate_limit_current_password_lockout',
+                'ap_current_password_rate_limits',
+                'edit_users',
+                'activity_log',
+                'user_email',
+                'remember-me',
+                'ap_account_notice',
+                'ap_password_changed',
+                'ap_email_changed',
+                'self',
+                'admin',
+                'docs/security.md',
+                'profile-re-authentication',
+            ] as $phrase
+        ) {
+            $this->assertStringContainsString(
+                $phrase,
+                $lower,
+                "[Unreleased] Security should mention {$phrase}"
+            );
+        }
+    }
+
     public function test037BetaDocumentsCharterAndDocsPass(): void
     {
         $matched = preg_match(
@@ -459,7 +514,7 @@ final class ChangelogTest extends TestCase
         );
     }
 
-    public function testCurrentApVersionIs0312Beta(): void
+    public function testCurrentApVersionIs0313Beta(): void
     {
         $versionPath = $this->root . '/ap-includes/version.php';
         $this->assertFileIsReadable($versionPath);
@@ -472,9 +527,9 @@ final class ChangelogTest extends TestCase
         );
         $this->assertSame(1, $matched, 'ap-includes/version.php should define AP_VERSION');
         $this->assertSame(
-            '0.3.12-beta',
+            '0.3.13-beta',
             $m[1],
-            'AP_VERSION must be 0.3.12-beta for this release'
+            'AP_VERSION must be 0.3.13-beta for this release'
         );
     }
 }

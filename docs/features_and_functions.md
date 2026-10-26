@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Core | `AP_VERSION` **0.3.12-beta** |
+| Core | `AP_VERSION` **0.3.13-beta** |
 | Schema | `AP_DB_VERSION` **14** |
 | Table prefix | default `ap_` (`$table_prefix` in `ap-config.php`) |
 | Control Panel | `/ap-admin/` |
@@ -184,6 +184,9 @@
 | `rate_limit_login_max` | `5` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_login_window` | `900` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_login_lockout` | `900` | **no ACP screen** | [security.md](security.md) |
+| `rate_limit_current_password_max` | `5` | **no ACP screen** (failed current-password checks; per user and per IP; separate from `login`) | [security.md](security.md#profile-re-authentication) |
+| `rate_limit_current_password_window` | `900` | **no ACP screen** | [security.md](security.md#profile-re-authentication) |
+| `rate_limit_current_password_lockout` | `900` | **no ACP screen** | [security.md](security.md#profile-re-authentication) |
 | `rate_limit_register_max` | `5` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_register_window` | `3600` | **no ACP screen** | [security.md](security.md) |
 | `rate_limit_register_lockout` | `3600` | **no ACP screen** | [security.md](security.md) |
@@ -691,6 +694,9 @@
 | `ap_mail_send` | filter | `AP_Mail::send()`: return `true`/`false` to replace php/smtp; `null` continues. Does not run when the `mail` rate limit blocks the send — [hooks.md](hooks.md#mail) · [admin.md](admin.md#mail) |
 | Classic-compat `wp_mail()` | shim | Calls `AP_Mail::send()` when the classic layer is loaded; attachments ignored this pass — [compatibility.md](compatibility.md) · [admin.md](admin.md#mail) |
 | `ap_user_created` | action | After `AP_User::create()` insert, including pending (`user_status` 1). Args: id, login, email, status — [hooks.md](hooks.md#users--registration) |
+| `ap_password_changed` | action | After a successful password change. Args: user id, actor id, `self` or `admin`. `accepted_args` 3. The password is not an argument — [hooks.md](hooks.md#users--registration) · [security.md](security.md#profile-re-authentication) |
+| `ap_email_changed` | action | After a successful change to a different mailbox. Same args. A case-only rewrite does not fire — [hooks.md](hooks.md#users--registration) · [security.md](security.md#profile-re-authentication) |
+| `ap_current_password_rate_limits` | filter | `array{max, window, lockout}` plus user id, after `rate_limit_current_password_*` — [hooks.md](hooks.md#users--registration) · [security.md](security.md#profile-re-authentication) |
 | `ap_reserved_usernames` | filter | Public-register reserved logins (locked list + extras). May **add** names; locked names always remain — [hooks.md](hooks.md#users--registration) |
 | `ap_registration_captcha_mode` | filter | Visible mode string (`off` / `math` / `guard` / plugin) — [hooks.md](hooks.md#users--registration) · [admin.md](admin.md#public-registration) |
 | `ap_registration_captcha_challenge` | filter | Challenge payload for the register form — [hooks.md](hooks.md#users--registration) · [admin.md](admin.md#public-registration) |

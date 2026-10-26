@@ -1,7 +1,7 @@
 # AgoraPress documentation index
 
 This directory is the **operator, integrator, and trusted-agent documentation**
-for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **13**). Start here if
+for AgoraPress **`0.3.13-beta`** (schema `AP_DB_VERSION` **13**). Start here if
 you need exhaustive instructions, then follow the topic guides for depth.
 
 The human landing page (vision, requirements, four install paths) remains
@@ -135,7 +135,7 @@ guides and the lookup catalog. Do **not** invent product surfaces.
 | Install / rewrites / CLI / admin / forums / REST / roles / security | The day-to-day table above |
 | File a Heph bug against registry name **AgoraPress** | [bot_handbook.md](bot_handbook.md) (short pointer to Heph Agent API — do not duplicate that contract here) |
 
-Describe the system **as built** at 0.3.12-beta / schema 13. Missing from these
+Describe the system **as built** at 0.3.13-beta / schema 13. Missing from these
 guides and from core means **not in core**. Stay inside the public-safe rule
 above.
 
@@ -164,7 +164,7 @@ above.
 | [forums.md](forums.md) | Hierarchy, topic types, likes, moderation, ACL, PMs, search, flood, module-off |
 | [roles.md](roles.md) | Roles, caps, comment ownership, forum ACL relationship |
 | [rest.md](rest.md) | `/ap-json/`, `ap/v1` resources as built, cookie + `X-AP-Nonce` or Basic, `rest_api_enabled` |
-| [security.md](security.md) | Prepared statements, nonces, Argon2id, deny rules, no telemetry, privacy export/erase |
+| [security.md](security.md) | Prepared statements, nonces, Argon2id, profile re-authentication, deny rules, no telemetry, privacy export/erase |
 | [troubleshooting.md](troubleshooting.md) | Symptom → check → related path |
 | [bot_handbook.md](bot_handbook.md) | How a trusted agent supports AgoraPress from this public repo |
 | [features_and_functions.md](features_and_functions.md) | Lookup catalog of tables pointing at the guides above |
@@ -221,6 +221,7 @@ built-in or plugin-registered commands (`ap_cli_init`). Fresh install is a
 | Compat | `ap-includes/compatibility/` |
 | Updates | `AP_Version_Check`, `AP_Core_Updater` (no site identity) |
 | Roles | `AP_Roles` — five builtins: administrator, editor, author, contributor, subscriber |
+| Account password / email | Profile re-authentication, filter `ap_current_password_rate_limits`, actions `ap_password_changed` / `ap_email_changed` — [security.md](security.md#profile-re-authentication) |
 
 ---
 

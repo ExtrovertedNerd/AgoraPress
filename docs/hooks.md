@@ -1,6 +1,6 @@
 # Hooks (Actions & Filters)
 
-This is the **integrator hook guide** for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **13**). It describes the public action/filter API, request lifecycle, and a **selected** set of core hook names that exist in shipped code.
+This is the **integrator hook guide** for AgoraPress **`0.3.13-beta`** (schema `AP_DB_VERSION` **13**). It describes the public action/filter API, request lifecycle, and a **selected** set of core hook names that exist in shipped code.
 
 AgoraPress uses a WordPress-inspired hook system so plugins and themes can extend core without forking it. This file is **not** an encyclopedia. Every name in the tables below was grepped from shipped `ap_do_action` / `ap_apply_filters` (or is labeled as a compat **map target** that native core does **not** fire). Grep for the rest. Do **not invent** hook names. If a name is not in this file and not in core, it is **not in core**.
 
@@ -78,6 +78,30 @@ ap_add_filter('ap_the_content', static function (string $content): string {
     return $content . "\n<!-- tracked -->";
 }, 20);
 ```
+
+### React to a password or email change (action)
+
+```php
+ap_add_action('ap_password_changed', function (int $userId, int $actorId, string $context): void {
+    // $context is "self" or "admin". The new password is not passed.
+}, 10, 3);
+
+ap_add_action('ap_email_changed', function (int $userId, int $actorId, string $context): void {
+    // Fires only when the mailbox changed. Letter case alone does not fire.
+}, 10, 3);
+```
+
+### Tighten the current-password throttle (filter)
+
+```php
+ap_add_filter('ap_current_password_rate_limits', function (array $limits, int $userId): array {
+    $limits['max'] = 3;
+
+    return $limits;
+}, 10, 2);
+```
+
+Returned `max` / `window` / `lockout` are clamped. See the users table below and [security.md](security.md#profile-re-authentication).
 
 ### Remove a callback
 
@@ -173,13 +197,16 @@ There is **no** block-editor hook surface in core.
 
 ### Users / registration
 
-Operator surface: [admin.md](admin.md#public-registration), [security.md](security.md#public-registration-gate). Always-on public-register checks (honeypot, ~3s min fill, GET form ticket) have **no** hook. Visible captcha is option `registration_captcha` (`off` / `math` / `guard`). Core has **no** Google, hCaptcha, or Turnstile widget.
+Operator surface: [admin.md](admin.md#public-registration), [admin.md](admin.md#users), [security.md](security.md#public-registration-gate), [security.md](security.md#profile-re-authentication). Always-on public-register checks (honeypot, ~3s min fill, GET form ticket) have **no** hook. Visible captcha is option `registration_captcha` (`off` / `math` / `guard`). Core has **no** Google, hCaptcha, or Turnstile widget. Profile re-authentication is the current password on the signed-in account, not a second factor.
 
 PHP helpers `ap_registration_captcha_mode()` and `ap_registration_verify_captcha()` wrap `AP_Registration` methods. They apply the filters below; they are **not** the filters.
 
 | Hook | Type | Notes |
 |------|------|-------|
 | `ap_user_created` | action | After `AP_User::create()` inserts a row, including pending verification (`AP_Registration::STATUS_PENDING` / `user_status` 1). Args: user id, login, email, status. Use `accepted_args` 4. Does not fire when create fails. ACP Users → Add and `php ap-cli user create` use the same method, so they fire it too. |
+| `ap_password_changed` | action | After a successful password change in `AP_User::update()`, and after `AP_Registration::resetPassword()` stores the new hash. Args: account user id, actor user id, context `self` or `admin`. Use `accepted_args` 3. The password is not an argument. Profile and user-edit of the same account pass `self`. User-edit of a different account passes `admin`. Reset passes `self` and the account id as the actor. `AP_User::updatePassword()` does not fire this (a login rehash uses that method). A failed save does not fire it. |
+| `ap_email_changed` | action | After `AP_User::update()` stores a different mailbox (comparison is case-insensitive). Same three arguments as `ap_password_changed`. Use `accepted_args` 3. The addresses are not arguments. A case-only rewrite does not fire. A failed save does not fire. |
+| `ap_current_password_rate_limits` | filter | Limits for failed current-password checks (`AP_Rate_Limit` action `current_password`), after options `rate_limit_current_password_max` / `_window` / `_lockout`. Value is `array{max, window, lockout}`. Second arg is the user id, or `0` when the limit is read outside a per-user check. Use `accepted_args` 2. Return an array. A non-array return is ignored. A non-numeric field keeps the resolved value. Clamps: `max` 1–1000, `window` 30–86400 seconds, `lockout` 0–86400 seconds. Does not apply to `login` or `mail`. Operator detail: [security.md](security.md#profile-re-authentication). |
 | `ap_reserved_usernames` | filter | Public-register reserved logins. Value is the locked staff/system list plus Settings → General extras (`reserved_usernames`, one login per line). Return an array of logins; plugins may **add** names. Locked core names always remain after the filter. Second arg is `?AP_DB`. Use `accepted_args` 2. Match is case-insensitive. Public `AP_Registration::register()` rejects these with “That username is not available.” (it does not say the name is reserved); ACP Users → Add and `php ap-cli user create` (via `AP_User::create()`) may still create them. |
 | `ap_registration_captcha_mode` | filter | Visible mode string. Value is the saved option (`off` / `math` / `guard`, or a plugin string). Second arg is `?AP_DB`. Return a non-empty string. Use `accepted_args` 2. Settings sanitizer still collapses unknown **saved** values to `off`; runtime keeps unknown strings so a plugin can supply a custom mode. |
 | `ap_registration_captcha_challenge` | filter | Challenge payload for the register form. Value is an array (`mode`, field names, …). Args: mode string, `?AP_DB`. Return an array. Use `accepted_args` 3. Does **not** run when the visible mode is `off` (that path returns `mode=off` unfiltered). |

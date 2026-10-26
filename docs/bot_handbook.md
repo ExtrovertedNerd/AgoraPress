@@ -2,7 +2,7 @@
 
 How a trusted scripted agent (Grok Bot) that can **only** read this **public**
 repository supports AgoraPress. This is the operating model for *this*
-product at `AP_VERSION` **0.3.12-beta** · schema `AP_DB_VERSION` **13**.
+product at `AP_VERSION` **0.3.13-beta** · schema `AP_DB_VERSION` **13**.
 
 It is **not** a copy of the Heph Agent API / Control Panel contract. Filing
 mechanics live in Heph’s own docs (short pointer below). Product facts live
@@ -37,7 +37,7 @@ Do this every time. Do not skip the index.
 4. Confirm behaviour against shipped PHP in **this** repository. Reading
    code is allowed and expected. Inventing hook names, routes, CLI verbs,
    options, capabilities, tables, or admin screens is not.
-5. Describe the system **as built** at 0.3.12-beta / schema 13. Do **not
+5. Describe the system **as built** at 0.3.13-beta / schema 13. Do **not
    invent** product surfaces so an answer looks complete.
 6. If a surface is not in these guides and not in the shipped code, say it
    is **not in core**.
@@ -143,7 +143,7 @@ remote log collector, or host-specific repair flow.
 
 Order of work:
 
-1. Confirm the site is **0.3.12-beta** / schema **13** when the question is
+1. Confirm the site is **0.3.13-beta** / schema **13** when the question is
    about current behaviour (`php ap-cli version`, Tools → Site Health).
 2. Run **Tools → Site Health** (`/ap-admin/site-health.php`, cap
    `view_site_health`; `manage_options` is accepted as a fallback) or
@@ -162,6 +162,7 @@ Order of work:
 | How do I turn forums on? | [forums.md](forums.md) — Settings → Modules, option `ap_module_forum`. CLI: `php ap-cli option get\|set ap_module_forum`. There is **no** `php ap-cli module` verb and **no** `php ap-cli forum` group. |
 | Why is `/2026/09/03/hello-world/` a 404 while `?p=` works? | [troubleshooting.md](troubleshooting.md#pretty-permalink-404-p-still-works) · [rewrites.md](rewrites.md). Missing front-controller `try_files $uri $uri/ /index.php?$args` (nginx) or `mod_rewrite` + shipped `.htaccess` (Apache). Flush only after the web server reaches `index.php`. |
 | Does core send telemetry? | [security.md](security.md#no-telemetry) — **no**. No `AP_TELEMETRY`. Version check never sends site identity. |
+| Own password or email change asks for the current password, or Profile says too many attempts | [security.md](security.md#profile-re-authentication). Profile and user-edit of that same account. Options `rate_limit_current_password_*`. Filter `ap_current_password_rate_limits`. Actions `ap_password_changed` / `ap_email_changed`. |
 | Is Gutenberg coming? | [editor.md](editor.md) — **not in core**; non-goal. |
 | Installer CSRF / session will not persist | [troubleshooting.md](troubleshooting.md) · [security.md](security.md) — `session.save_path` must be writable by the **php-fpm** user. |
 | Uploads / Site Icon fail | [install.md](install.md#permissions) · [site-icon.md](site-icon.md) |
@@ -257,7 +258,7 @@ Heph job: <job id, or “none filed”>
 | [forums.md](forums.md) | Forum module, `ap_module_forum` |
 | [roles.md](roles.md) | Roles, caps, comment ownership |
 | [rest.md](rest.md) | `/ap-json/`, `ap/v1`, `rest_api_enabled` |
-| [security.md](security.md) | No telemetry, sessions, deny rules |
+| [security.md](security.md) | No telemetry, sessions, profile re-authentication, deny rules |
 | [plugins.md](plugins.md) | Headers, zip installer API, `ap_register_admin_page` |
 | [themes.md](themes.md) | Template hierarchy, Agora, Theme Options |
 | [editor.md](editor.md) | Visual editor; Gutenberg not in core |

@@ -2,7 +2,7 @@
 
 This is the **operator and integrator guide** for AgoraPress roles,
 capabilities, blog-comment ownership, and the relationship to forum ACL at
-**`0.3.12-beta`** (schema `AP_DB_VERSION` **13**). It describes the system
+**`0.3.13-beta`** (schema `AP_DB_VERSION` **13**). It describes the system
 **as built**. Do not invent extra core roles, caps, filters, CLI verbs, or
 admin screens.
 
@@ -379,8 +379,8 @@ built-in AgoraPress role.
 |---------|----------|
 | Users list (`users.php`) | Cap `list_users`. Filter by role; bulk role change needs `promote_users`. Cannot delete the sole administrator. **No** ban / suspend control. Pending email verification: **Pending** label and **Activate** row action (needs `edit_users`; nonce `activate-user-{id}`). Activate does not lift a forum ban. |
 | Add user (`user-new.php`) | Cap `create_users`. Role dropdown is the registered slug list. Reserved public-register logins are allowed. |
-| Edit user (`user-edit.php`) | Cap `edit_users`. Changing role needs `promote_users`. Cannot demote the last administrator. Pending email verification: **Resend verification** and **Activate account** (no emailed key). |
-| Profile (`profile.php`) | Cap `read`. **Never** changes the signed-in user’s role. |
+| Edit user (`user-edit.php`) | Cap `edit_users`. Changing role needs `promote_users`. Cannot demote the last administrator. Editing a **different** user may set password or email without that user’s current password; the change is appended to `{prefix}activity_log`. Editing **your own** row requires the current password, the same as Profile. Pending email verification: **Resend verification** and **Activate account** (no emailed key). |
+| Profile (`profile.php`) | Cap `read`. **Never** changes the signed-in user’s role. Changing your own password or email requires the current password — [security.md](security.md#profile-re-authentication). |
 | Settings → General | `default_role` for self-registration. |
 | `php ap-cli user list --role=` | Filter. |
 | `php ap-cli user get <id\|login\|email>` | Public fields + `roles:`. Password hash is **not** printed. |

@@ -3,13 +3,13 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.12-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.13-beta**).
 
 Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
 ## [Unreleased]
 
-Plugin zip install and upgrade (`AP_Plugin_Installer`). Admin password and email changes on another user are recorded in `{prefix}activity_log`. Schema `AP_DB_VERSION` **14**; no telemetry by default.
+Plugin zip install and upgrade (`AP_Plugin_Installer`). Own-account password and email changes require the current password. An administrator changing another user's password or email is recorded in `{prefix}activity_log`. Schema `AP_DB_VERSION` **14**; no telemetry by default.
 
 ### Added
 
@@ -33,6 +33,16 @@ Plugin zip install and upgrade (`AP_Plugin_Installer`). Admin password and email
 - A plugin that was active stays active after upgrade or restore. If `activate` fails, the new files stay and the plugin is inactive; that failure does not restore the previous version
 - A failed swap puts the timestamped backup back. There is no `php ap-cli plugin install`
 - The Plugins screen calls `install()` and does not fire legacy `ap_plugin_installed`. `installFromZip()` / `handleUpload()` remain on the **40 MiB** `DEFAULT_MAX_BYTES` path
+
+### Security
+
+- Profile (`profile.php`) and Users → Edit of your own account require **Current password** (`current_password`, `autocomplete="current-password"`) to change the password or the email. Display name and the other profile fields save without it. The check is `AP_User::checkPassword()` (`password_verify`). The submitted value is not logged, echoed, or stored
+- Missing current password: `Enter your current password to change your password or email.` Wrong current password: `Your current password is incorrect.` The rejected password and email stay as stored; other submitted fields still save. Nonce and capability checks are unchanged
+- Failed checks use `AP_Rate_Limit` action `current_password`, per user id and per IP (default 5 failures / 15 minutes). Options `rate_limit_current_password_max`, `rate_limit_current_password_window`, and `rate_limit_current_password_lockout` (no ACP screen). Filter `ap_current_password_rate_limits`. Over the limit: `Too many attempts, try again in N minutes.` A successful check clears both counters
+- An administrator with `edit_users` may set another user's password or email without that user's current password. Each such change is appended to `{prefix}activity_log` (actor id, target id, field `password` or `user_email`, UTC time, IP). The password is not stored. Editing your own row is not exempt and is not written to the log
+- A successful own password change destroys that user's other sessions and remember-me tokens, rotates this session id, and keeps this browser signed in. An administrator reset of another user's password destroys all of that user's sessions. An email change does not, by itself, destroy sessions
+- `AP_Account_Notice` emails the account on a password change. An email change notifies the old address and confirms the new one (`text/plain`; what changed, UTC time, and IP; no password and no reset key). Outbound mail that is disabled or not configured is skipped; the reason is logged and the account change stands
+- Actions `ap_password_changed` and `ap_email_changed` (account user id, actor user id, context `self` or `admin`). Depth: [docs/security.md](docs/security.md#profile-re-authentication)
 
 ## [0.3.11-beta] - 2026-09-15
 

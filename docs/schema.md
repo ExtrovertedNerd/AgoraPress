@@ -1,11 +1,11 @@
 # Database schema
 
-This is the **schema guide** for AgoraPress **`0.3.12-beta`** (schema `AP_DB_VERSION` **14**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
+This is the **schema guide** for AgoraPress **`0.3.13-beta`** (schema `AP_DB_VERSION` **14**). It describes tables, numbered migrations, the configurable prefix (default **`ap_`**), and multi-driver notes **as built**.
 
 AgoraPress uses a **versioned migration system**. Schema supports **MySQL 8+ / MariaDB 10.6+**, **SQLite 3.35+**, and **PostgreSQL**. Operator apply path: [install.md](install.md) (fresh) and [updates.md](updates.md) / `php ap-cli db migrate` ([cli.md](cli.md)). Forum column semantics: [forums.md](forums.md). Local analytics options: [admin.md](admin.md).
 
 **Source:** `ap-includes/schema/migrations/`, `class-ap-migrator.php`, `class-ap-migration.php`, `class-ap-db.php`  
-**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **14**, AgoraPress `0.3.12-beta`)
+**Target schema version:** `AP_DB_VERSION` in `ap-includes/version.php` (currently **14**, AgoraPress `0.3.13-beta`)
 
 Do not invent tables. If a base name is not in this file and not in `ap_all_base_tables()`, it is **not in core**.
 
@@ -104,7 +104,7 @@ Shared accounts for CMS, forums, and admin.
 
 ### activity_log
 
-Audit rows when an administrator changes another user's password or email on user-edit (`AP_Activity_Log`). Schema **14**. Own-profile saves and a user editing their own row do not write here. Rows stay if the user is later deleted.
+Audit rows when an administrator changes another user's password or email on user-edit (`AP_Activity_Log`). Schema **14**. Own-profile saves and a user editing their own row do not write here. Rows stay if the user is later deleted. The screen rule, throttle, and hooks: [security.md](security.md#profile-re-authentication).
 
 | Column | Notes |
 |--------|-------|

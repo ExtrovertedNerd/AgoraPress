@@ -258,6 +258,45 @@ def test_unreleased_documents_plugin_zip_installer(changelog_text: str) -> None:
     assert "**14**" in body or " 14" in body
 
 
+def test_unreleased_documents_profile_reauthentication(changelog_text: str) -> None:
+    body = _unreleased_body(changelog_text)
+    assert re.search(r"(?im)^###\s+Security\s*$", body), (
+        "[Unreleased] should have a Security heading"
+    )
+    security = re.search(
+        r"(?ims)^###\s+Security\s*\n(.*?)(?=^###\s+|\Z)",
+        body,
+    )
+    assert security, "Missing ### Security body"
+    section = security.group(1)
+    lower = section.lower()
+    for phrase in (
+        "current password",
+        "current_password",
+        "autocomplete=\"current-password\"",
+        "password_verify",
+        "enter your current password to change your password or email.",
+        "your current password is incorrect.",
+        "too many attempts, try again in n minutes.",
+        "rate_limit_current_password_max",
+        "rate_limit_current_password_window",
+        "rate_limit_current_password_lockout",
+        "ap_current_password_rate_limits",
+        "edit_users",
+        "activity_log",
+        "user_email",
+        "remember-me",
+        "ap_account_notice",
+        "ap_password_changed",
+        "ap_email_changed",
+        "self",
+        "admin",
+        "docs/security.md",
+        "profile-re-authentication",
+    ):
+        assert phrase in lower, f"[Unreleased] Security should mention {phrase}"
+
+
 def _section_body(text: str, version: str) -> str:
     match = re.search(
         rf"(?ims)^##\s+\[{re.escape(version)}\][^\n]*\n(.*?)(?=^##\s+\[|\Z)",
@@ -301,15 +340,15 @@ def test_038_beta_documents_absolute_mail_links(archive_text: str) -> None:
     assert "verification" in lower and "reset" in lower
 
 
-def test_current_ap_version_is_0312_beta() -> None:
+def test_current_ap_version_is_0313_beta() -> None:
     version_php = VERSION_PHP.read_text(encoding="utf-8")
     match = re.search(
         r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
         version_php,
     )
     assert match, "ap-includes/version.php should define AP_VERSION"
-    assert match.group(1) == "0.3.12-beta", (
-        "AP_VERSION must be 0.3.12-beta for this release "
+    assert match.group(1) == "0.3.13-beta", (
+        "AP_VERSION must be 0.3.13-beta for this release "
         f"(found {match.group(1)})"
     )
 
