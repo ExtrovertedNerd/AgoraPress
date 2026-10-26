@@ -1703,10 +1703,53 @@ function ap_activate_plugin(string $plugin, ?AP_DB $db = null): array
     return AP_Plugin::activate($plugin, $db);
 }
 
+require_once __DIR__ . '/class-ap-plugin-install-result.php';
+
+/**
+ * Validate a plugin zip without installing it.
+ *
+ * @param array{
+ *   overwrite?: bool,
+ *   activate?: bool,
+ *   expected_sha256?: string,
+ *   plugins_root?: string,
+ *   content_dir?: string
+ * } $opts
+ *   plugins_root detects an existing slug. content_dir, when set, is the
+ *   content directory that owns private staging (default: the parent of the
+ *   plugins directory). overwrite and activate are not applied here. When
+ *   expected_sha256 is a non-empty string, that digest is checked against the
+ *   file before the archive is opened. The validator rejects empty files,
+ *   files over the filterable 20 MiB cap (`ap_plugin_zip_max_bytes`), and
+ *   files that do not start with a zip signature. The extension is ignored.
+ *   Entry names that are absolute, contain a `..` segment, a backslash, a
+ *   drive letter, or a NUL byte are rejected. Every other name must resolve
+ *   inside a private staging directory. Symlinks and other special files are
+ *   rejected from external attributes. Entry count
+ *   (`ap_plugin_zip_max_entries`) and declared uncompressed size
+ *   (`ap_plugin_zip_max_uncompressed_bytes`) are capped before inflate.
+ *   The zip must be one top-level slug folder, or a flat archive mapped to a
+ *   slug, with Plugin Name and Version in the main file. Theme-shaped and
+ *   core-shaped archives are rejected. A package that passes is extracted
+ *   only into `{content}/.ap-plugin-staging/` (mode 0700), never into the
+ *   plugins directory. That staging directory is removed before the call
+ *   returns.
+ *
+ * @return AP_Plugin_Install_Result|AP_Plugin_Install_Error
+ *
+ * @see AP_Plugin_Installer::validate()
+ */
+function ap_validate_plugin_zip(string $zipPath, array $opts = []): AP_Plugin_Install_Result|AP_Plugin_Install_Error
+{
+    return AP_Plugin_Installer::validate($zipPath, $opts);
+}
+
 /**
  * Install a plugin from a zip file path.
  *
- * @param array<string, mixed> $args overwrite, plugins_root, slug
+ * @param array<string, mixed> $args overwrite, plugins_root, content_dir, slug, expected_sha256.
+ *   Extraction writes only under a private staging directory in the content
+ *   directory, then the staged payload is moved into the plugins directory.
  *
  * @return array<string, mixed>
  *

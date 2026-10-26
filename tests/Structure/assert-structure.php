@@ -170,6 +170,7 @@ $requiredPaths = [
     'ap-admin/themes.php',
     'ap-includes/class-ap-plugin.php',
     'ap-includes/class-ap-plugin-installer.php',
+    'ap-includes/class-ap-plugin-install-result.php',
     'ap-includes/class-ap-hook.php',
     'ap-includes/class-ap-hooks.php',
     'ap-includes/class-ap-forum.php',

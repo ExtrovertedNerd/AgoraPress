@@ -115,6 +115,53 @@ final class PluginInstallerTest extends TestCase
         $this->assertTrue(AP_Plugin::isActive('classic-upload/classic-upload.php', $this->db));
     }
 
+    public function testInstallFromZipRejectsSha256MismatchBeforeExtraction(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $zip = $this->buildFolderPluginZip('checksum-plugin', [
+            'Plugin Name: Checksum Plugin',
+            'Version: 1.0.0',
+        ]);
+        $before = glob(sys_get_temp_dir() . '/ap-plugin-install-*') ?: [];
+
+        $result = AP_Plugin_Installer::installFromZip($zip, [
+            'plugins_root' => $this->tempPlugins,
+            'expected_sha256' => str_repeat('ab', 32),
+        ]);
+
+        $after = glob(sys_get_temp_dir() . '/ap-plugin-install-*') ?: [];
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('does not match', strtolower(implode(' ', $result['errors'])));
+        $this->assertFileDoesNotExist($this->tempPlugins . '/checksum-plugin/checksum-plugin.php');
+        $this->assertSame([], array_values(array_diff($after, $before)));
+    }
+
+    public function testInstallFromZipAcceptsMatchingSha256(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $zip = $this->buildFolderPluginZip('checksum-ok', [
+            'Plugin Name: Checksum Ok',
+            'Version: 3.1.0',
+        ]);
+        $hash = hash_file('sha256', $zip);
+        $this->assertIsString($hash);
+
+        $result = AP_Plugin_Installer::installFromZip($zip, [
+            'plugins_root' => $this->tempPlugins,
+            'expected_sha256' => 'sha256:' . strtoupper($hash),
+        ]);
+
+        $this->assertTrue($result['ok'], implode('; ', $result['errors']));
+        $this->assertSame('checksum-ok', $result['slug']);
+        $this->assertFileExists($this->tempPlugins . '/checksum-ok/checksum-ok.php');
+    }
+
     public function testInstallSingleFilePluginFromZipRoot(): void
     {
         if (!class_exists(ZipArchive::class)) {
@@ -299,6 +346,63 @@ final class PluginInstallerTest extends TestCase
         $del = AP_Plugin_Installer::deletePlugin('doomed/doomed.php', $this->db);
         $this->assertTrue($del['ok'], implode('; ', $del['errors']));
         $this->assertDirectoryDoesNotExist($this->tempPlugins . '/doomed');
+    }
+
+    public function testInstallFromZipRejectsThemePackage(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $zipPath = $this->workDir . '/theme.zip';
+        $zip = new ZipArchive();
+        $this->assertTrue($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString(
+            'example-theme/style.css',
+            "/*\nTheme Name: Example Theme\nVersion: 1.0.0\n*/\n"
+        );
+        $zip->addFromString('example-theme/index.php', "<?php\n");
+        $zip->addFromString(
+            'example-theme/functions.php',
+            "<?php\n/**\n * Plugin Name: Sneaky\n * Version: 1.0.0\n */\n"
+        );
+        $zip->close();
+
+        $result = AP_Plugin_Installer::installFromZip($zipPath, [
+            'plugins_root' => $this->tempPlugins,
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('theme', strtolower(implode(' ', $result['errors'])));
+        $this->assertDirectoryDoesNotExist($this->tempPlugins . '/example-theme');
+    }
+
+    public function testInstallFromZipRejectsCorePackage(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $zipPath = $this->workDir . '/core.zip';
+        $zip = new ZipArchive();
+        $this->assertTrue($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString('AgoraPress/index.php', "<?php\n");
+        $zip->addFromString('AgoraPress/ap-admin/index.php', "<?php\n");
+        $zip->addFromString('AgoraPress/ap-includes/version.php', "<?php\ndefine('AP_VERSION', '9.9.9');\n");
+        $zip->addFromString(
+            'AgoraPress/ap-content/plugins/demo/demo.php',
+            "<?php\n/**\n * Plugin Name: Nested\n * Version: 1\n */\n"
+        );
+        $zip->close();
+
+        $result = AP_Plugin_Installer::installFromZip($zipPath, [
+            'plugins_root' => $this->tempPlugins,
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('core', strtolower(implode(' ', $result['errors'])));
+        $this->assertDirectoryDoesNotExist($this->tempPlugins . '/AgoraPress');
+        $this->assertDirectoryDoesNotExist($this->tempPlugins . '/demo');
     }
 
     public function testRejectsDeeplyNestedPlugin(): void
