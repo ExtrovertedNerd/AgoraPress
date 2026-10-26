@@ -377,7 +377,11 @@ Installed plugins stay **inactive** until you activate them (Plugins screen or `
 
 Drop-in without zip still works: copy a PHP file or folder into `ap-content/plugins/` yourself, then activate.
 
-Actions `ap_plugin_installed` / `ap_plugin_deleted` fire after a successful zip install or delete ([hooks.md](hooks.md)).
+Actions `ap_plugin_installed` / `ap_plugin_deleted` fire after a successful legacy zip install or delete ([hooks.md](hooks.md)).
+
+`AP_Plugin_Installer::install()` (`ap_install_plugin()`) and `restorePrevious()` (`ap_restore_previous_plugin()`) fire before and after actions for install, upgrade, and restore. The argument is a context array (`slug`, `name`, `version`, `previous_version`, `plugin`, `action`, `backup_path`, `activated`). Activate and deactivate also fire `ap_plugin_before_activate` / `ap_plugin_after_activate` and the deactivate pair, in addition to `ap_activate_plugin` / `ap_deactivate_plugin`. The argument there is the plugin basename. Listener exceptions on these actions do not cancel the operation.
+
+`validate()` / `install()` cap the zip with `ap_plugin_zip_max_bytes` (default 20 MiB), `ap_plugin_zip_max_entries`, and `ap_plugin_zip_max_uncompressed_bytes`. Upgrades and restores keep the last N backups per slug (`ap_plugin_zip_max_backups`, default 5). The legacy upload screen still uses `DEFAULT_MAX_BYTES` (40 MiB) above. See [hooks.md](hooks.md).
 
 There is **no** `php ap-cli plugin install`. After upload, activate with `php ap-cli plugin activate my-plugin/my-plugin.php` ([cli.md](cli.md)).
 

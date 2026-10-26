@@ -1694,6 +1694,11 @@ function ap_is_plugin_active(string $plugin, ?AP_DB $db = null): bool
 /**
  * Activate a plugin (loads file, runs activation hooks, updates active list).
  *
+ * Fires `ap_plugin_before_activate` before the file is loaded and
+ * `ap_plugin_after_activate` after the active list is saved. The argument
+ * is the plugin basename. `ap_activate_plugin` still fires in between.
+ * An already active plugin does not fire them again.
+ *
  * @return array{ok: bool, errors: list<string>}
  *
  * @see AP_Plugin::activate()
@@ -1745,6 +1750,94 @@ function ap_validate_plugin_zip(string $zipPath, array $opts = []): AP_Plugin_In
 }
 
 /**
+ * Install a plugin slug from a zip file, or upgrade it when overwrite is true.
+ *
+ * Same checks as {@see ap_validate_plugin_zip()}. The package is extracted
+ * into a private staging directory, then that payload is moved into the
+ * plugins directory. An existing slug is left unchanged
+ * ({@see AP_Plugin_Install_Error::ALREADY_INSTALLED}) unless `overwrite` is
+ * boolean true. True backs up the previous folder or file to a timestamped
+ * directory under the content directory, swaps in the staged payload, and
+ * restores that backup if the swap fails. The last N backups for the slug
+ * are kept (`ap_plugin_zip_max_backups`, default
+ * {@see AP_Plugin_Installer::DEFAULT_MAX_BACKUPS}). `activate` must be
+ * boolean true to activate after the files are in place. Any other value
+ * leaves a plugin that was not already active inactive. A plugin that was
+ * already active stays active, and its registered upgrade routine runs
+ * ({@see ap_register_upgrade_hook()}). If activation fails, the plugin stays
+ * installed and inactive and the result is
+ * {@see AP_Plugin_Install_Error::ACTIVATION_FAILED} with a message that says
+ * so. The previous version is not restored.
+ *
+ * A new slug fires `ap_plugin_before_install` and `ap_plugin_after_install`.
+ * An overwrite fires `ap_plugin_before_upgrade` and `ap_plugin_after_upgrade`.
+ * The argument is a context array: slug, name, version, previous_version,
+ * plugin, action, backup_path, activated. After does not run when a failed
+ * upgrade puts the previous plugin back. Optional activation fires
+ * `ap_plugin_before_activate` and `ap_plugin_after_activate` before the
+ * install or upgrade after action. Limits are the filters
+ * `ap_plugin_zip_max_bytes`, `ap_plugin_zip_max_entries`,
+ * `ap_plugin_zip_max_uncompressed_bytes`, and `ap_plugin_zip_max_backups`.
+ *
+ * @param array{
+ *   overwrite?: bool,
+ *   activate?: bool,
+ *   expected_sha256?: string,
+ *   plugins_root?: string,
+ *   content_dir?: string
+ * } $opts
+ *
+ * @return AP_Plugin_Install_Result|AP_Plugin_Install_Error
+ *
+ * @see AP_Plugin_Installer::install()
+ */
+function ap_install_plugin(string $zipPath, array $opts = []): AP_Plugin_Install_Result|AP_Plugin_Install_Error
+{
+    return AP_Plugin_Installer::install($zipPath, $opts);
+}
+
+/**
+ * Restore the newest timestamped backup of one plugin slug.
+ *
+ * When the slug is installed, those files are backed up first and put back
+ * if the restore fails. A plugin that was active stays active. An inactive
+ * plugin stays inactive. `plugins_root` and `content_dir` match
+ * {@see ap_install_plugin()}. Fires `ap_plugin_before_restore` before files
+ * move and `ap_plugin_after_restore` only when the restore sticks. The
+ * argument matches the install context array with action `restored`.
+ * How many backups are kept is `ap_plugin_zip_max_backups`.
+ *
+ * @param array{
+ *   plugins_root?: string,
+ *   content_dir?: string
+ * } $opts
+ *
+ * @return AP_Plugin_Install_Result|AP_Plugin_Install_Error
+ *
+ * @see AP_Plugin_Installer::restorePrevious()
+ */
+function ap_restore_previous_plugin(
+    string $slug,
+    array $opts = []
+): AP_Plugin_Install_Result|AP_Plugin_Install_Error {
+    return AP_Plugin_Installer::restorePrevious($slug, $opts);
+}
+
+/**
+ * List installed plugins as slug, name, version, and active flag.
+ *
+ * @param array{plugins_root?: string} $opts
+ *
+ * @return list<array{slug: string, name: string, version: string, active: bool}>
+ *
+ * @see AP_Plugin_Installer::listInstalled()
+ */
+function ap_list_installed_plugins(array $opts = []): array
+{
+    return AP_Plugin_Installer::listInstalled($opts);
+}
+
+/**
  * Install a plugin from a zip file path.
  *
  * @param array<string, mixed> $args overwrite, plugins_root, content_dir, slug, expected_sha256.
@@ -1789,6 +1882,11 @@ function ap_delete_plugin(string $plugin, ?AP_DB $db = null): array
 
 /**
  * Deactivate a plugin (runs deactivation hooks, updates active list).
+ *
+ * Fires `ap_plugin_before_deactivate` before the plugin's deactivation
+ * callbacks and `ap_plugin_after_deactivate` after the active list is saved.
+ * The argument is the plugin basename. `ap_deactivate_plugin` still fires
+ * in between. An inactive plugin does not fire them.
  *
  * @return array{ok: bool, errors: list<string>}
  *
@@ -1861,6 +1959,23 @@ function ap_register_activation_hook(string $file, callable $callback): void
 function ap_register_deactivation_hook(string $file, callable $callback): void
 {
     AP_Plugin::registerDeactivationHook($file, $callback);
+}
+
+/**
+ * Register a callback for an in-place upgrade of an active plugin.
+ *
+ * Core runs the callback after a zip upgrade when the plugin was already
+ * active. It is not run for a new install, and it is not run when the plugin
+ * was inactive. The callback receives the plugin basename, the previous
+ * version or null, and the new version.
+ *
+ * @param callable $callback function (string $plugin, ?string $fromVersion, string $toVersion): void
+ *
+ * @see AP_Plugin::registerUpgradeHook()
+ */
+function ap_register_upgrade_hook(string $file, callable $callback): void
+{
+    AP_Plugin::registerUpgradeHook($file, $callback);
 }
 
 /**

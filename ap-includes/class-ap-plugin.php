@@ -16,11 +16,20 @@ declare(strict_types=1);
 
 /**
  * Plugin API: scan, parse headers, activate/deactivate, load active + MU plugins.
+ * An active plugin can register an upgrade routine. Core runs that routine
+ * after the plugin's files are replaced and the plugin stays active.
  */
 class AP_Plugin
 {
     /** Option storing the list of active plugin basenames. */
     public const OPTION_ACTIVE = 'active_plugins';
+
+    /**
+     * Option storing upgrade routines deferred until the next plugin load.
+     *
+     * Shape: plugin basename => array{from: string|null, to: string}.
+     */
+    public const OPTION_PENDING_UPGRADES = 'plugin_pending_upgrades';
 
     /** @var string|null Override plugins root (tests). */
     private static ?string $pluginsRootOverride = null;
@@ -53,6 +62,26 @@ class AP_Plugin
      * @var array<string, list<callable>>
      */
     private static array $deactivationHooks = [];
+
+    /**
+     * Upgrade routines keyed by plugin basename.
+     *
+     * Registered from the plugin main file, same as activation hooks.
+     * Each callback is `function (string $plugin, ?string $fromVersion, string $toVersion): void`.
+     *
+     * @var array<string, list<callable>>
+     */
+    private static array $upgradeHooks = [];
+
+    /**
+     * Upgrades deferred during this request.
+     *
+     * The replacement file cannot be included again in this process, so
+     * {@see self::loadActivePlugins()} must leave these pending.
+     *
+     * @var array<string, true>
+     */
+    private static array $deferredThisRequest = [];
 
     // -------------------------------------------------------------------------
     // Paths
@@ -496,6 +525,12 @@ class AP_Plugin
     /**
      * Activate a plugin: include file, fire activation hooks, persist active list.
      *
+     * Fires `ap_plugin_before_activate` with the plugin basename before the
+     * file is loaded, then `ap_activate_plugin` and `ap_activate_{slug}` after
+     * the plugin's own activation callbacks. `ap_plugin_after_activate` fires
+     * only after the active list is saved. An already active plugin does not
+     * fire them. Exceptions from the before and after actions are ignored.
+     *
      * @return array{ok: bool, errors: list<string>}
      */
     public static function activate(string $plugin, ?AP_DB $db = null): array
@@ -527,6 +562,8 @@ class AP_Plugin
             return ['ok' => true, 'errors' => []];
         }
 
+        self::fireLifecycle('ap_plugin_before_activate', $plugin);
+
         // Include so the plugin can register activation hooks.
         $included = self::includePlugin($plugin);
         if (!$included) {
@@ -551,11 +588,19 @@ class AP_Plugin
             return ['ok' => false, 'errors' => $errors];
         }
 
+        self::fireLifecycle('ap_plugin_after_activate', $plugin);
+
         return ['ok' => true, 'errors' => []];
     }
 
     /**
      * Deactivate a plugin: fire deactivation hooks, remove from active list.
+     *
+     * Fires `ap_plugin_before_deactivate` with the plugin basename before the
+     * plugin's own deactivation callbacks, then `ap_deactivate_plugin` and
+     * `ap_deactivate_{slug}`. `ap_plugin_after_deactivate` fires only after
+     * the active list is saved. An inactive plugin does not fire them.
+     * Exceptions from the before and after actions are ignored.
      *
      * @return array{ok: bool, errors: list<string>}
      */
@@ -570,6 +615,8 @@ class AP_Plugin
         if (!self::isActive($plugin, $db)) {
             return ['ok' => true, 'errors' => []];
         }
+
+        self::fireLifecycle('ap_plugin_before_deactivate', $plugin);
 
         // Ensure the plugin is loaded so deactivation hooks registered at top-level run.
         if (self::isValidPlugin($plugin) && !self::isLoaded($plugin)) {
@@ -593,7 +640,36 @@ class AP_Plugin
             return ['ok' => false, 'errors' => ['Could not update the active plugins list.']];
         }
 
+        self::fireLifecycle('ap_plugin_after_deactivate', $plugin);
+
         return ['ok' => true, 'errors' => []];
+    }
+
+    /**
+     * Fire a before or after activate/deactivate action.
+     *
+     * Names are literals so the hook inventory can see them. Listener
+     * exceptions are ignored so a logger cannot cancel activation.
+     */
+    private static function fireLifecycle(string $hook, string $plugin): void
+    {
+        if (!function_exists('ap_do_action')) {
+            return;
+        }
+
+        try {
+            if ($hook === 'ap_plugin_before_activate') {
+                ap_do_action('ap_plugin_before_activate', $plugin);
+            } elseif ($hook === 'ap_plugin_after_activate') {
+                ap_do_action('ap_plugin_after_activate', $plugin);
+            } elseif ($hook === 'ap_plugin_before_deactivate') {
+                ap_do_action('ap_plugin_before_deactivate', $plugin);
+            } elseif ($hook === 'ap_plugin_after_deactivate') {
+                ap_do_action('ap_plugin_after_deactivate', $plugin);
+            }
+        } catch (Throwable) {
+            // Observers may log. They do not cancel activate or deactivate.
+        }
     }
 
     /**
@@ -629,9 +705,171 @@ class AP_Plugin
     }
 
     /**
+     * Register a callback to run when an active plugin is upgraded in place.
+     *
+     * The callback receives the plugin basename, the previous version (or null
+     * when that version was not recorded), and the new version. Core calls it
+     * only when the plugin stays active. It does not run on a fresh install.
+     *
+     * @param callable $callback function (string $plugin, ?string $fromVersion, string $toVersion): void
+     */
+    public static function registerUpgradeHook(string $file, callable $callback): void
+    {
+        $plugin = self::pluginBasename($file);
+        if ($plugin === '') {
+            return;
+        }
+        self::$upgradeHooks[$plugin] ??= [];
+        self::$upgradeHooks[$plugin][] = $callback;
+    }
+
+    /**
+     * Keep a plugin on the active list without activation or deactivation hooks.
+     *
+     * `$replace` basenames are removed. Pass the previous main file when an
+     * upgrade changes the basename and the plugin should stay active under the
+     * new file. The plugin file must already be a valid plugin.
+     *
+     * @param list<string> $replace
+     *
+     * @return array{ok: bool, errors: list<string>}
+     */
+    public static function keepActive(string $plugin, array $replace = [], ?AP_DB $db = null): array
+    {
+        $plugin = self::normalizePlugin($plugin);
+        if ($plugin === '' || !self::isSafePluginPath($plugin)) {
+            return ['ok' => false, 'errors' => ['Invalid plugin path.']];
+        }
+        if (!self::isValidPlugin($plugin)) {
+            return ['ok' => false, 'errors' => ['Plugin not found or missing Plugin Name header.']];
+        }
+
+        $drop = self::normalizeBasenameSet($replace);
+        $drop[$plugin] = true;
+
+        $active = self::getActivePlugins($db, false);
+        $next = [];
+        foreach ($active as $item) {
+            if (!isset($drop[$item])) {
+                $next[] = $item;
+            }
+        }
+        $next[] = $plugin;
+        $next = array_values(array_unique($next));
+        sort($next);
+
+        $current = $active;
+        sort($current);
+        if ($next !== $current && !self::writeActiveOption($next, $db)) {
+            return ['ok' => false, 'errors' => ['Could not update the active plugins list.']];
+        }
+
+        self::forgetLoadedBasenames($drop, $plugin);
+
+        return ['ok' => true, 'errors' => []];
+    }
+
+    /**
+     * Keep an upgraded plugin active and run its upgrade routine.
+     *
+     * The routine runs now when this request has not included the plugin, so
+     * the replacement file can register it. When this request already included
+     * that file, the routine is stored and runs on the next
+     * {@see self::loadActivePlugins()}. Activation and deactivation hooks are
+     * not run. On failure the active list is put back the way it was.
+     *
+     * @param list<string> $replace Previous basenames that belong to this plugin.
+     *
+     * @return array{ok: bool, ran: bool, deferred: bool, errors: list<string>}
+     */
+    public static function keepActiveAndUpgrade(
+        string $plugin,
+        array $replace,
+        ?string $fromVersion,
+        string $toVersion,
+        ?AP_DB $db = null
+    ): array {
+        $before = self::getActivePlugins($db, false);
+        $kept = self::keepActive($plugin, $replace, $db);
+        if (!$kept['ok']) {
+            return [
+                'ok' => false,
+                'ran' => false,
+                'deferred' => false,
+                'errors' => $kept['errors'],
+            ];
+        }
+
+        $result = self::upgrade($plugin, $fromVersion, $toVersion, $db);
+        if (!$result['ok']) {
+            self::writeActiveOption($before, $db);
+            $normalized = self::normalizePlugin($plugin);
+            self::$loaded = array_values(array_filter(
+                self::$loaded,
+                static fn (string $loaded): bool => $loaded !== $normalized
+            ));
+        }
+
+        return $result;
+    }
+
+    /**
+     * Run the upgrade routine for a plugin that is already active.
+     *
+     * No routine is run when the plugin is inactive or when it did not
+     * register one. A plugin already included in this request cannot be
+     * included again, so the routine is deferred until the next load.
+     *
+     * @return array{ok: bool, ran: bool, deferred: bool, errors: list<string>}
+     */
+    public static function upgrade(
+        string $plugin,
+        ?string $fromVersion,
+        string $toVersion,
+        ?AP_DB $db = null
+    ): array {
+        $plugin = self::normalizePlugin($plugin);
+        $toVersion = trim($toVersion);
+        $from = $fromVersion !== null ? trim($fromVersion) : '';
+        $fromVersion = $from !== '' ? $from : null;
+
+        if ($plugin === '' || !self::isSafePluginPath($plugin)) {
+            return [
+                'ok' => false,
+                'ran' => false,
+                'deferred' => false,
+                'errors' => ['Invalid plugin path.'],
+            ];
+        }
+        if (!self::isActive($plugin, $db)) {
+            return ['ok' => true, 'ran' => false, 'deferred' => false, 'errors' => []];
+        }
+
+        if (self::isLoaded($plugin) || !self::includePlugin($plugin)) {
+            $stored = self::deferUpgrade($plugin, $fromVersion, $toVersion, $db);
+            if (!$stored) {
+                return [
+                    'ok' => false,
+                    'ran' => false,
+                    'deferred' => false,
+                    'errors' => ['Could not store the plugin upgrade routine for the next load.'],
+                ];
+            }
+
+            return ['ok' => true, 'ran' => false, 'deferred' => true, 'errors' => []];
+        }
+
+        self::runUpgradeHooks($plugin, $fromVersion, $toVersion);
+        self::forgetPendingUpgrade($plugin, $db);
+
+        return ['ok' => true, 'ran' => true, 'deferred' => false, 'errors' => []];
+    }
+
+    /**
      * Include all active plugins (once per request).
      *
-     * Fires `ap_plugins_loaded` after includes complete.
+     * Deferred upgrade routines run after each plugin is included and before
+     * `ap_plugins_loaded`.
      */
     public static function loadActivePlugins(?AP_DB $db = null): void
     {
@@ -640,9 +878,22 @@ class AP_Plugin
         }
         self::$loadDone = true;
 
+        $pending = self::readPendingUpgrades($db);
+        $ran = [];
         foreach (self::getActivePlugins($db, true) as $plugin) {
             self::includePlugin($plugin);
+            if (
+                !isset($pending[$plugin])
+                || !self::isLoaded($plugin)
+                || isset(self::$deferredThisRequest[$plugin])
+            ) {
+                continue;
+            }
+            $job = $pending[$plugin];
+            self::runUpgradeHooks($plugin, $job['from'], $job['to']);
+            $ran[] = $plugin;
         }
+        self::clearFinishedPendingUpgrades($pending, $ran, $db);
 
         if (function_exists('ap_do_action')) {
             ap_do_action('ap_plugins_loaded');
@@ -781,6 +1032,8 @@ class AP_Plugin
         self::$muLoadDone = false;
         self::$activationHooks = [];
         self::$deactivationHooks = [];
+        self::$upgradeHooks = [];
+        self::$deferredThisRequest = [];
     }
 
     // -------------------------------------------------------------------------
@@ -853,18 +1106,199 @@ class AP_Plugin
     /**
      * @param list<callable> $hooks
      */
-    private static function runHooks(array $hooks, string $plugin): void
+    private static function runHooks(array $hooks, mixed ...$args): void
     {
         foreach ($hooks as $cb) {
             if (!is_callable($cb)) {
                 continue;
             }
             try {
-                $cb($plugin);
+                $cb(...$args);
             } catch (Throwable) {
-                // Activation/deactivation must not fatal the admin request.
+                // Activation, deactivation, and upgrade must not fatal the request.
             }
         }
+    }
+
+    /**
+     * @param list<string> $basenames
+     *
+     * @return array<string, true>
+     */
+    private static function normalizeBasenameSet(array $basenames): array
+    {
+        $drop = [];
+        foreach ($basenames as $item) {
+            if (!is_string($item)) {
+                continue;
+            }
+            $normalized = self::normalizePlugin($item);
+            if ($normalized === '' || !self::isSafePluginPath($normalized)) {
+                continue;
+            }
+            $drop[$normalized] = true;
+        }
+
+        return $drop;
+    }
+
+    /**
+     * Drop replaced basenames from the loaded list. The plugin that stays active is kept.
+     *
+     * @param array<string, true> $drop
+     */
+    private static function forgetLoadedBasenames(array $drop, string $keep): void
+    {
+        if ($drop === []) {
+            return;
+        }
+        self::$loaded = array_values(array_filter(
+            self::$loaded,
+            static function (string $loaded) use ($drop, $keep): bool {
+                if ($loaded === $keep) {
+                    return true;
+                }
+
+                return !isset($drop[$loaded]);
+            }
+        ));
+    }
+
+    private static function runUpgradeHooks(string $plugin, ?string $fromVersion, string $toVersion): void
+    {
+        self::runHooks(self::$upgradeHooks[$plugin] ?? [], $plugin, $fromVersion, $toVersion);
+    }
+
+    private static function deferUpgrade(
+        string $plugin,
+        ?string $fromVersion,
+        string $toVersion,
+        ?AP_DB $db
+    ): bool {
+        if ($toVersion === '') {
+            return false;
+        }
+        $pending = self::readPendingUpgrades($db);
+        $pending[$plugin] = [
+            'from' => $fromVersion,
+            'to' => $toVersion,
+        ];
+        self::$deferredThisRequest[$plugin] = true;
+
+        return self::writePendingUpgrades($pending, $db);
+    }
+
+    private static function forgetPendingUpgrade(string $plugin, ?AP_DB $db): void
+    {
+        $pending = self::readPendingUpgrades($db);
+        if (!isset($pending[$plugin])) {
+            return;
+        }
+        unset($pending[$plugin]);
+        self::writePendingUpgrades($pending, $db);
+    }
+
+    /**
+     * Remove routines that ran, and routines whose plugin is no longer active.
+     *
+     * A plugin that is still active but failed to load keeps its pending row
+     * so a later request can try the replacement file.
+     *
+     * @param array<string, array{from: string|null, to: string}> $original
+     * @param list<string> $ran
+     */
+    private static function clearFinishedPendingUpgrades(array $original, array $ran, ?AP_DB $db): void
+    {
+        if ($original === [] && $ran === []) {
+            $latest = self::readPendingUpgrades($db);
+            if ($latest === []) {
+                return;
+            }
+        }
+
+        $latest = self::readPendingUpgrades($db);
+        if ($latest === [] && $original === []) {
+            return;
+        }
+
+        $active = array_flip(self::getActivePlugins($db, false));
+        $ranSet = array_flip($ran);
+        $next = [];
+        foreach ($latest as $plugin => $job) {
+            if (isset($ranSet[$plugin]) || !isset($active[$plugin])) {
+                continue;
+            }
+            $next[$plugin] = $job;
+        }
+        if ($next !== $original) {
+            self::writePendingUpgrades($next, $db);
+        }
+    }
+
+    /**
+     * @return array<string, array{from: string|null, to: string}>
+     */
+    private static function readPendingUpgrades(?AP_DB $db): array
+    {
+        if (class_exists('AP_Options', false)) {
+            $value = AP_Options::get(self::OPTION_PENDING_UPGRADES, [], $db);
+        } elseif (function_exists('ap_get_option')) {
+            $value = ap_get_option(self::OPTION_PENDING_UPGRADES, [], $db);
+        } else {
+            $value = self::readOptionRaw(self::OPTION_PENDING_UPGRADES, $db);
+        }
+
+        return self::normalizePendingUpgrades($value);
+    }
+
+    /**
+     * @param array<string, array{from: string|null, to: string}> $pending
+     */
+    private static function writePendingUpgrades(array $pending, ?AP_DB $db): bool
+    {
+        $pending = self::normalizePendingUpgrades($pending);
+        if (class_exists('AP_Options', false)) {
+            return AP_Options::update(self::OPTION_PENDING_UPGRADES, $pending, $db);
+        }
+        if (function_exists('ap_update_option')) {
+            return ap_update_option(self::OPTION_PENDING_UPGRADES, $pending, $db);
+        }
+
+        return self::writeOptionRaw(self::OPTION_PENDING_UPGRADES, $pending, $db);
+    }
+
+    /**
+     * @return array<string, array{from: string|null, to: string}>
+     */
+    private static function normalizePendingUpgrades(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($value as $plugin => $job) {
+            if (!is_string($plugin) || !is_array($job)) {
+                continue;
+            }
+            $plugin = self::normalizePlugin($plugin);
+            if ($plugin === '' || !self::isSafePluginPath($plugin)) {
+                continue;
+            }
+            $to = trim((string) ($job['to'] ?? ''));
+            if ($to === '') {
+                continue;
+            }
+            $fromRaw = $job['from'] ?? null;
+            $from = is_string($fromRaw) ? trim($fromRaw) : '';
+            $out[$plugin] = [
+                'from' => $from !== '' ? $from : null,
+                'to' => $to,
+            ];
+        }
+        ksort($out);
+
+        return $out;
     }
 
     /**

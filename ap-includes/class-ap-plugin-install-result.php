@@ -3,7 +3,8 @@
 /**
  * Structured result and typed error for plugin zip validation and install.
  *
- * {@see AP_Plugin_Installer::validate()} returns one or the other.
+ * {@see AP_Plugin_Installer::validate()} and {@see AP_Plugin_Installer::install()}
+ * return one or the other.
  * A result means the package is acceptable. An error carries a stable code
  * and a human message. Callers tell them apart with instanceof.
  *
@@ -13,17 +14,22 @@
 declare(strict_types=1);
 
 /**
- * Successful plugin zip validation or install.
+ * Successful plugin zip validation, install, or backup restore.
  *
- * `action` is `installed` when the slug is new and `upgraded` when that slug
- * is already present. `validate()` does not write files: `backupPath()` is
- * null and `activated()` is false until install.
+ * `action` is `installed` when the slug is new, `upgraded` when that slug is
+ * already present, and `restored` when the newest backup was put back.
+ * `validate()` does not write files: `backupPath()` is null and `activated()`
+ * is false until install. A restore result uses `backupPath()` for the backup
+ * of the version that was displaced, or null when nothing was installed.
+ * `activated()` on a restore is true only when that plugin stays active.
  */
 final class AP_Plugin_Install_Result
 {
     public const ACTION_INSTALLED = 'installed';
 
     public const ACTION_UPGRADED = 'upgraded';
+
+    public const ACTION_RESTORED = 'restored';
 
     private function __construct(
         private readonly string $slug,
@@ -38,7 +44,7 @@ final class AP_Plugin_Install_Result
     }
 
     /**
-     * @param self::ACTION_INSTALLED|self::ACTION_UPGRADED $action
+     * @param self::ACTION_INSTALLED|self::ACTION_UPGRADED|self::ACTION_RESTORED $action
      */
     public static function success(
         string $slug,
@@ -59,8 +65,12 @@ final class AP_Plugin_Install_Result
                 'A plugin install result requires slug, name, version, and plugin file.'
             );
         }
-        if ($action !== self::ACTION_INSTALLED && $action !== self::ACTION_UPGRADED) {
-            throw new InvalidArgumentException('Plugin install action must be installed or upgraded.');
+        if (
+            $action !== self::ACTION_INSTALLED
+            && $action !== self::ACTION_UPGRADED
+            && $action !== self::ACTION_RESTORED
+        ) {
+            throw new InvalidArgumentException('Plugin install action must be installed, upgraded, or restored.');
         }
 
         $previous = $previousVersion !== null ? trim($previousVersion) : '';
@@ -99,7 +109,7 @@ final class AP_Plugin_Install_Result
     }
 
     /**
-     * @return self::ACTION_INSTALLED|self::ACTION_UPGRADED
+     * @return self::ACTION_INSTALLED|self::ACTION_UPGRADED|self::ACTION_RESTORED
      */
     public function action(): string
     {
@@ -198,9 +208,27 @@ final class AP_Plugin_Install_Error
 
     public const STAGING_FAILED = 'staging_failed';
 
+    public const INSTALL_FAILED = 'install_failed';
+
+    /**
+     * The package is installed, but activation failed.
+     *
+     * The plugin files stay in the plugins directory. The plugin is not left
+     * on the active list. `message()` says that it remains inactive.
+     */
     public const ACTIVATION_FAILED = 'activation_failed';
 
     public const BACKUP_FAILED = 'backup_failed';
+
+    /** No timestamped backup exists for the requested slug. */
+    public const NO_BACKUP = 'no_backup';
+
+    /**
+     * The newest backup could not be put back.
+     *
+     * When the installed plugin was still in place, it is left unchanged.
+     */
+    public const RESTORE_FAILED = 'restore_failed';
 
     /** @var list<string> */
     public const CODES = [
@@ -223,8 +251,11 @@ final class AP_Plugin_Install_Error
         self::CORE_PACKAGE,
         self::ALREADY_INSTALLED,
         self::STAGING_FAILED,
+        self::INSTALL_FAILED,
         self::ACTIVATION_FAILED,
         self::BACKUP_FAILED,
+        self::NO_BACKUP,
+        self::RESTORE_FAILED,
     ];
 
     private function __construct(

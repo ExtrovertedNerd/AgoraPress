@@ -12,6 +12,54 @@
  * is not used. After a successful install the staged payload is moved into
  * the plugins directory; that move is not an extraction.
  *
+ * {@see AP_Plugin_Installer::install()} does that move when the slug is not
+ * already present. An existing slug is left unchanged unless `overwrite` is
+ * true. Overwrite moves the previous folder or file into a timestamped backup
+ * under `{content}/.ap-plugin-backups/{slug}/{stamp}/`, then moves the staged
+ * payload into its place. `rename` is used when the source and destination
+ * are on the same filesystem; otherwise the tree is copied and the source is
+ * removed. A failed swap, or a failed check after the swap, moves that backup
+ * back into place. The last N backups of that slug are kept (default
+ * {@see self::DEFAULT_MAX_BACKUPS}, filter `ap_plugin_zip_max_backups`).
+ * A plugin that was already active stays active. Its upgrade routine runs
+ * when one is registered with {@see AP_Plugin::registerUpgradeHook()}.
+ * A plugin that was not active stays inactive unless `activate` is boolean
+ * true. True activates it after the files are in place. If that activation
+ * fails, the plugin stays installed and inactive and install() returns
+ * {@see AP_Plugin_Install_Error::ACTIVATION_FAILED}.
+ *
+ * {@see AP_Plugin_Installer::restorePrevious()} puts the newest timestamped
+ * backup of one slug back into the plugins directory. When that slug is
+ * already installed, those files are moved into a new timestamped backup
+ * first and are put back if the restore fails. The last N backups stay
+ * capped by `ap_plugin_zip_max_backups`. A plugin that was active stays
+ * active. Restore does not activate an inactive plugin and does not run
+ * activation hooks.
+ * {@see AP_Plugin_Installer::listInstalled()} lists installed plugins as
+ * slug, name, version, and whether that plugin is active.
+ *
+ * Install, upgrade, and restore each fire a before action and an after
+ * action. Before runs once the package is accepted and before any plugin
+ * file moves. After runs only when that operation sticks. A failed upgrade
+ * or restore that puts the previous files back does not fire after. An
+ * activation failure still fires the install or upgrade after action with
+ * `activated` false. Optional activation runs before that after action, so
+ * `activated` matches the result returned to the caller. The argument is
+ * one context array: slug, name, version,
+ * previous_version, plugin, action (`installed`, `upgraded`, or `restored`),
+ * backup_path, and activated. Names: `ap_plugin_before_install`,
+ * `ap_plugin_after_install`, `ap_plugin_before_upgrade`,
+ * `ap_plugin_after_upgrade`, `ap_plugin_before_restore`,
+ * `ap_plugin_after_restore`. {@see AP_Plugin::activate()} fires
+ * `ap_plugin_before_activate` and `ap_plugin_after_activate`.
+ * {@see AP_Plugin::deactivate()} fires `ap_plugin_before_deactivate` and
+ * `ap_plugin_after_deactivate`. That argument is the plugin basename.
+ * Exceptions from these listeners are ignored, so a logger cannot cancel
+ * the operation. Zip size, entry count, uncompressed size, and how many
+ * backups are kept stay filterable (`ap_plugin_zip_max_bytes`,
+ * `ap_plugin_zip_max_entries`, `ap_plugin_zip_max_uncompressed_bytes`,
+ * `ap_plugin_zip_max_backups`).
+ *
  * {@see AP_Plugin_Installer::validate()} inspects a zip and returns either
  * {@see AP_Plugin_Install_Result} or {@see AP_Plugin_Install_Error}. It does
  * not write into the plugins directory. It rejects empty files, files over
@@ -74,6 +122,14 @@ class AP_Plugin_Installer
      */
     public const DEFAULT_MAX_UNCOMPRESSED_BYTES = 134217728;
 
+    /**
+     * Default number of timestamped backups kept for one plugin slug.
+     *
+     * Filter `ap_plugin_zip_max_backups` may replace this with a positive
+     * integer. The backup just written counts toward the cap.
+     */
+    public const DEFAULT_MAX_BACKUPS = 5;
+
     private const UNSAFE_PATH_MESSAGE = 'Zip contains unsafe paths and was rejected.';
 
     private const SYMLINK_MESSAGE = 'Plugin zip contains a symbolic link and was rejected.';
@@ -99,6 +155,59 @@ class AP_Plugin_Installer
     Deny from all
 </IfModule>
 HTACCESS;
+
+    /**
+     * Hidden content-directory parent for timestamped plugin backups.
+     *
+     * Each upgrade writes `{slug}/{YmdHis}{sequence}-{hex}/` inside this directory.
+ * The sequence keeps two backups taken in the same second in creation order.
+     * A folder plugin is stored as `{stamp}/{slug}/`. A flat plugin is stored
+     * as `{stamp}/{slug}.php`. The install result's backup path is `{stamp}`.
+     */
+    private const BACKUP_PARENT_NAME = '.ap-plugin-backups';
+
+    /**
+     * Stamp directory names created by {@see self::createBackupStamp()}.
+     *
+     * 14-digit UTC time, a 6-digit per-process sequence, then 8 hex characters.
+     */
+    private const BACKUP_STAMP_PATTERN = '/\A[0-9]{20}-[a-f0-9]{8}\z/';
+
+    private const BACKUP_HTACCESS = <<<'HTACCESS'
+# Private plugin backups. Do not serve these files.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
+HTACCESS;
+
+    /**
+     * Test-only upgrade failure point. Production leaves this null.
+     *
+     * `after_backup` fails once the previous plugin is in the backup directory.
+     * `after_swap` fails after the new payload is in place and has passed the
+     * same checks as a new install. Either point restores the previous plugin.
+     */
+    private static ?string $upgradeFailurePoint = null;
+
+    /**
+     * Test-only restore failure point. Production leaves this null.
+     *
+     * `after_backup` fails once the installed plugin is in a new backup
+     * directory and before the previous version is moved into place.
+     * `after_swap` fails after that previous version is in place. Either
+     * point puts the installed plugin back and leaves the backup that was
+     * being restored where it was.
+     */
+    private static ?string $restoreFailurePoint = null;
+
+    /**
+     * Increments for every stamp so same-second backups stay in creation order.
+     */
+    private static int $backupSequence = 0;
 
 
     /**
@@ -186,6 +295,777 @@ HTACCESS;
      * } $opts
      */
     public static function validate(string $zipPath, array $opts = []): AP_Plugin_Install_Result|AP_Plugin_Install_Error
+    {
+        $staged = self::stageValidatedPackage($zipPath, $opts);
+        if ($staged instanceof AP_Plugin_Install_Error) {
+            return $staged;
+        }
+
+        if (!self::discardStagingDir($staged['stage'])) {
+            self::discardStagingDir($staged['stage']);
+
+            return AP_Plugin_Install_Error::make(
+                AP_Plugin_Install_Error::STAGING_FAILED,
+                'Could not remove the private plugin staging directory.'
+            );
+        }
+
+        return self::resultFromStagedPackage($staged, null, false);
+    }
+
+    /**
+     * Install a plugin zip, or upgrade an existing slug when overwrite is requested.
+     *
+     * The zip is checked with the same rules as {@see self::validate()}. A
+     * package that passes is extracted into a private staging directory under
+     * the content directory, then that payload is moved into the plugins
+     * directory. The staging directory is removed before this method returns.
+     * Nothing is extracted directly into the plugins directory.
+     *
+     * When the slug is already installed, those files stay in place and the
+     * result is {@see AP_Plugin_Install_Error::ALREADY_INSTALLED} unless
+     * `overwrite` is boolean true. True moves the previous folder or file into
+     * `{content}/.ap-plugin-backups/{slug}/{YmdHis}{sequence}-{hex}/` (a folder plugin is
+     * `{stamp}/{slug}/`, a flat plugin is `{stamp}/{file}.php`), then moves
+     * the staged payload into the plugins directory. The move is `rename`
+     * when that works, and a copy followed by removing the source otherwise.
+     * If the new payload cannot be placed, or the placed files fail the same
+     * checks as a new install, the backup is moved back and the new files are
+     * removed. The result backup path is that stamp directory.
+     *
+     * After a successful upgrade, stamp directories older than the newest
+     * {@see self::maxBackups()} entries for that slug are deleted. The filter
+     * is `ap_plugin_zip_max_backups`.
+     *
+     * `activate` must be boolean true. Any other value does not activate.
+     * A plugin that was not already active stays off the active list, and
+     * `activated()` is false. True activates the plugin after the files are
+     * in place: the main file is loaded, activation hooks run, and the
+     * basename is stored in the active list. `activated()` is then true.
+     * A plugin that was already active stays active either way. When
+     * `activate` is true for that plugin, `activated()` is true and activation
+     * hooks are not run again. If activation fails, the new files stay, the
+     * plugin is left inactive, and the return value is
+     * {@see AP_Plugin_Install_Error::ACTIVATION_FAILED}. The message names the
+     * plugin and says it remains inactive. The previous version is not
+     * restored. When an already-active plugin registered an upgrade routine
+     * with {@see AP_Plugin::registerUpgradeHook()}, the routine runs after
+     * the new files are in place. If this request already included the
+     * plugin, the routine runs on the next {@see AP_Plugin::loadActivePlugins()}
+     * so the replacement file is the one that registers it. A failed attempt
+     * to keep the plugin active restores the backup. A new slug is action
+     * `installed` with no previous version and no backup. An overwrite is
+     * action `upgraded`.
+     *
+     * A new slug fires `ap_plugin_before_install` before the files move and
+     * `ap_plugin_after_install` when this method finishes with the files in
+     * place. An overwrite fires `ap_plugin_before_upgrade` and
+     * `ap_plugin_after_upgrade`. After does not run when the previous plugin
+     * is put back. The argument is the context array described on this class.
+     * Optional activation runs before that after action. When activation
+     * fails, after still runs with activated false.
+     *
+     * @param array{
+     *   overwrite?: bool,
+     *   activate?: bool,
+     *   expected_sha256?: string,
+     *   plugins_root?: string,
+     *   content_dir?: string
+     * } $opts
+     */
+    public static function install(string $zipPath, array $opts = []): AP_Plugin_Install_Result|AP_Plugin_Install_Error
+    {
+        try {
+            return self::installPackage($zipPath, $opts);
+        } finally {
+            self::$upgradeFailurePoint = null;
+        }
+    }
+
+    /**
+     * Put the newest backup of one plugin slug back into the plugins directory.
+     *
+     * Backups live under `{content}/.ap-plugin-backups/{slug}/{stamp}/`. The
+     * newest stamp name is the one that sorts last. A folder plugin is stored
+     * as `{stamp}/{slug}/`. A flat plugin is stored as `{stamp}/{slug}.php`.
+     * Older stamps are left in place. A stamp that is not a single safe plugin
+     * payload is not restored and is not replaced by an older stamp.
+     *
+     * When the slug is already installed, those files move into a new
+     * timestamped backup first. The previous version then moves into the
+     * plugins directory. `rename` is used when that works, and a copy followed
+     * by removing the source otherwise. If that swap fails, or a later check
+     * fails, the installed files are put back and the backup being restored
+     * stays where it was. After a successful restore the consumed stamp is
+     * removed. Stamp directories older than the newest
+     * {@see self::maxBackups()} entries for that slug are deleted. The filter
+     * is `ap_plugin_zip_max_backups`.
+     *
+     * When the slug is not installed, the backup moves into place and no new
+     * backup is written. `previousVersion()` is null and `backupPath()` is
+     * null in that result. Otherwise `previousVersion()` is the version that
+     * was displaced, when that version could be read, and `backupPath()` is
+     * the new stamp that holds those files.
+     *
+     * A plugin that was active stays active, including when the restored main
+     * file basename differs. Activation and upgrade hooks are not run. An
+     * inactive plugin stays inactive. `activated()` is true only when the
+     * restored plugin is on the live active list afterward. Passing a
+     * `plugins_root` other than that live directory does not change the
+     * active list. `ap_plugin_before_restore` fires before files move.
+     * `ap_plugin_after_restore` fires only after a restore that sticks.
+     * The argument is the same context array as {@see self::install()}.
+     *
+     * `plugins_root` and `content_dir` match {@see self::install()}. The slug
+     * is trimmed. It must be a lowercase plugin slug.
+     *
+     * @param array{
+     *   plugins_root?: string,
+     *   content_dir?: string
+     * } $opts
+     */
+    public static function restorePrevious(
+        string $slug,
+        array $opts = []
+    ): AP_Plugin_Install_Result|AP_Plugin_Install_Error {
+        try {
+            return self::restorePreviousPackage($slug, $opts);
+        } finally {
+            self::$restoreFailurePoint = null;
+        }
+    }
+
+    /**
+     * Installed plugins as slug, name, version, and active flag.
+     *
+     * One row is a folder whose name is a lowercase slug and whose main file
+     * has Plugin Name and Version, or a flat `{slug}.php` with those headers.
+     * The main file is `{slug}/{slug}.php` when that file has a plugin header.
+     * A folder with several header files and no `{slug}.php` is omitted.
+     * Symlinks are not followed. Dot entries are skipped.
+     *
+     * Rows are ordered by slug, then by plugin basename. A folder and a flat
+     * file can share a slug; both are listed. `active` is true when that
+     * plugin is on the live active list for this plugins directory. Any other
+     * directory reports `active` false and does not read the active list.
+     *
+     * @param array{plugins_root?: string} $opts
+     *
+     * @return list<array{slug: string, name: string, version: string, active: bool}>
+     */
+    public static function listInstalled(array $opts = []): array
+    {
+        $pluginsRoot = self::resolvePluginsRoot(
+            isset($opts['plugins_root']) && is_string($opts['plugins_root'])
+                ? $opts['plugins_root']
+                : null
+        );
+        if ($pluginsRoot === '' || is_link($pluginsRoot) || !is_dir($pluginsRoot)) {
+            return [];
+        }
+
+        $entries = @scandir($pluginsRoot);
+        if (!is_array($entries)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..' || str_starts_with($entry, '.')) {
+                continue;
+            }
+            $full = $pluginsRoot . '/' . $entry;
+            if (is_link($full)) {
+                continue;
+            }
+            if (is_dir($full)) {
+                $row = self::installedFolderRow($pluginsRoot, $entry);
+            } elseif (is_file($full)) {
+                $row = self::installedFlatRow($pluginsRoot, $entry);
+            } else {
+                continue;
+            }
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
+        usort(
+            $rows,
+            static function (array $left, array $right): int {
+                $bySlug = strcmp($left['slug'], $right['slug']);
+                if ($bySlug !== 0) {
+                    return $bySlug;
+                }
+
+                return strcmp($left['plugin'], $right['plugin']);
+            }
+        );
+
+        $listed = [];
+        foreach ($rows as $row) {
+            $listed[] = [
+                'slug' => $row['slug'],
+                'name' => $row['name'],
+                'version' => $row['version'],
+                'active' => $row['active'],
+            ];
+        }
+
+        return $listed;
+    }
+
+    /**
+     * @param array{
+     *   overwrite?: bool,
+     *   activate?: bool,
+     *   expected_sha256?: string,
+     *   plugins_root?: string,
+     *   content_dir?: string
+     * } $opts
+     */
+    private static function installPackage(
+        string $zipPath,
+        array $opts
+    ): AP_Plugin_Install_Result|AP_Plugin_Install_Error {
+        $staged = self::stageValidatedPackage($zipPath, $opts);
+        if ($staged instanceof AP_Plugin_Install_Error) {
+            return $staged;
+        }
+
+        $error = null;
+        $backupPath = null;
+        $placed = false;
+        $upgraded = false;
+        $activeUpgrade = null;
+        if ($staged['exists']) {
+            if (!self::overwriteRequested($opts)) {
+                $error = self::alreadyInstalledError($staged['slug']);
+            } else {
+                self::firePackageHook(
+                    'ap_plugin_before_upgrade',
+                    self::lifecycleContext(
+                        $staged,
+                        AP_Plugin_Install_Result::ACTION_UPGRADED,
+                        null,
+                        false
+                    )
+                );
+                $activeUpgrade = self::snapshotActiveUpgrade($staged);
+                $replaced = self::replaceExistingSlug($staged);
+                if ($replaced instanceof AP_Plugin_Install_Error) {
+                    $error = $replaced;
+                } else {
+                    $backupPath = $replaced;
+                    $placed = true;
+                    $upgraded = true;
+                }
+            }
+        } else {
+            self::firePackageHook(
+                'ap_plugin_before_install',
+                self::lifecycleContext(
+                    $staged,
+                    AP_Plugin_Install_Result::ACTION_INSTALLED,
+                    null,
+                    false
+                )
+            );
+            $error = self::placeNewSlug($staged);
+            $placed = $error === null;
+        }
+
+        if (!self::discardStagingDir($staged['stage'])) {
+            self::discardStagingDir($staged['stage']);
+            if ($upgraded && is_string($backupPath)) {
+                $restored = self::rollBackPlacedUpgrade($staged, $backupPath);
+                if (!$restored) {
+                    return AP_Plugin_Install_Error::make(
+                        AP_Plugin_Install_Error::INSTALL_FAILED,
+                        'Could not remove the private plugin staging directory, and the previous plugin '
+                        . 'could not be restored. Backup: ' . $backupPath
+                    );
+                }
+            } elseif ($placed) {
+                self::removePlacedPayload($staged['is_folder'], self::pluginDestination($staged));
+            }
+
+            return AP_Plugin_Install_Error::make(
+                AP_Plugin_Install_Error::STAGING_FAILED,
+                'Could not remove the private plugin staging directory.'
+            );
+        }
+
+        if ($error !== null) {
+            return $error;
+        }
+
+        if ($upgraded && is_string($backupPath)) {
+            if (is_array($activeUpgrade) && $activeUpgrade['basenames'] !== []) {
+                $activeError = self::finishActiveUpgrade($staged, $activeUpgrade);
+                if ($activeError !== null) {
+                    $restored = self::rollBackPlacedUpgrade($staged, $backupPath);
+                    if (!$restored) {
+                        return AP_Plugin_Install_Error::make(
+                            AP_Plugin_Install_Error::INSTALL_FAILED,
+                            'Could not keep the active plugin active, and the previous plugin could not be restored. '
+                            . 'Backup: ' . $backupPath
+                        );
+                    }
+
+                    return $activeError;
+                }
+            }
+            self::pruneSlugBackups(dirname($backupPath), self::maxBackups($staged['slug']));
+        }
+
+        $activated = false;
+        if (self::activateRequested($opts)) {
+            $activationError = self::activateInstalledPlugin($staged);
+            if ($activationError !== null) {
+                self::fireSettledPackage($staged, $backupPath, false);
+
+                return $activationError;
+            }
+            $activated = true;
+        }
+
+        $result = self::resultFromStagedPackage($staged, $backupPath, $activated);
+        self::fireSettledResult($result);
+
+        return $result;
+    }
+
+    /**
+     * Context for install, upgrade, and restore actions.
+     *
+     * `activated` matches {@see AP_Plugin_Install_Result::activated()} and is
+     * false on the before action. `backup_path` is null until a backup exists.
+     *
+     * @param array{
+     *   slug: string,
+     *   name: string,
+     *   version: string,
+     *   previous_version: string|null,
+     *   plugin: string
+     * } $package
+     *
+     * @return array{
+     *   slug: string,
+     *   name: string,
+     *   version: string,
+     *   previous_version: string|null,
+     *   plugin: string,
+     *   action: string,
+     *   backup_path: string|null,
+     *   activated: bool
+     * }
+     */
+    private static function lifecycleContext(
+        array $package,
+        string $action,
+        ?string $backupPath,
+        bool $activated
+    ): array {
+        $previous = $package['previous_version'] ?? null;
+        if (!is_string($previous)) {
+            $previous = null;
+        } else {
+            $previous = trim($previous);
+            if ($previous === '') {
+                $previous = null;
+            }
+        }
+        $backup = $backupPath !== null ? trim($backupPath) : '';
+
+        return [
+            'slug' => $package['slug'],
+            'name' => $package['name'],
+            'version' => $package['version'],
+            'previous_version' => $previous,
+            'plugin' => $package['plugin'],
+            'action' => $action,
+            'backup_path' => $backup !== '' ? $backup : null,
+            'activated' => $activated,
+        ];
+    }
+
+    /**
+     * After action for a package that is on disk, including a failed activation.
+     *
+     * @param array{
+     *   slug: string,
+     *   name: string,
+     *   version: string,
+     *   previous_version: string|null,
+     *   plugin: string,
+     *   exists: bool
+     * } $staged
+     */
+    private static function fireSettledPackage(array $staged, ?string $backupPath, bool $activated): void
+    {
+        $upgraded = $staged['exists'] === true;
+        self::firePackageHook(
+            $upgraded ? 'ap_plugin_after_upgrade' : 'ap_plugin_after_install',
+            self::lifecycleContext(
+                $staged,
+                $upgraded
+                    ? AP_Plugin_Install_Result::ACTION_UPGRADED
+                    : AP_Plugin_Install_Result::ACTION_INSTALLED,
+                $backupPath,
+                $activated
+            )
+        );
+    }
+
+    /**
+     * After action whose context matches the result returned to the caller.
+     */
+    private static function fireSettledResult(AP_Plugin_Install_Result $result): void
+    {
+        $action = $result->action();
+        if ($action === AP_Plugin_Install_Result::ACTION_UPGRADED) {
+            $hook = 'ap_plugin_after_upgrade';
+        } elseif ($action === AP_Plugin_Install_Result::ACTION_RESTORED) {
+            $hook = 'ap_plugin_after_restore';
+        } else {
+            $hook = 'ap_plugin_after_install';
+        }
+        self::firePackageHook($hook, self::lifecycleContext(
+            [
+                'slug' => $result->slug(),
+                'name' => $result->name(),
+                'version' => $result->version(),
+                'previous_version' => $result->previousVersion(),
+                'plugin' => $result->plugin(),
+            ],
+            $action,
+            $result->backupPath(),
+            $result->activated()
+        ));
+    }
+
+    /**
+     * Fire one installer lifecycle action.
+     *
+     * Names are literals so the hook inventory can see them. Any other name
+     * is ignored. Listener exceptions are ignored so logging cannot cancel
+     * install, upgrade, or restore, and cannot skip staging cleanup.
+     *
+     * @param array<string, mixed> $context
+     */
+    private static function firePackageHook(string $hook, array $context): void
+    {
+        if (!function_exists('ap_do_action')) {
+            return;
+        }
+
+        try {
+            switch ($hook) {
+                case 'ap_plugin_before_install':
+                    ap_do_action('ap_plugin_before_install', $context);
+                    break;
+                case 'ap_plugin_after_install':
+                    ap_do_action('ap_plugin_after_install', $context);
+                    break;
+                case 'ap_plugin_before_upgrade':
+                    ap_do_action('ap_plugin_before_upgrade', $context);
+                    break;
+                case 'ap_plugin_after_upgrade':
+                    ap_do_action('ap_plugin_after_upgrade', $context);
+                    break;
+                case 'ap_plugin_before_restore':
+                    ap_do_action('ap_plugin_before_restore', $context);
+                    break;
+                case 'ap_plugin_after_restore':
+                    ap_do_action('ap_plugin_after_restore', $context);
+                    break;
+                default:
+                    break;
+            }
+        } catch (Throwable) {
+            // Observers may log. They do not cancel the installer operation.
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $opts
+     */
+    private static function activateRequested(array $opts): bool
+    {
+        return ($opts['activate'] ?? false) === true;
+    }
+
+    /**
+     * Activate a plugin that is already in the plugins directory.
+     *
+     * A plugin that is already active is left active and is not activated
+     * again. A failed activation does not remove the installed files and does
+     * not restore a backup. The plugin is removed from the active list when
+     * a failed attempt left it there.
+     *
+     * @param array{
+     *   name: string,
+     *   version: string,
+     *   plugin: string,
+     *   exists: bool,
+     *   plugins_root: string
+     * } $staged
+     */
+    private static function activateInstalledPlugin(array $staged): ?AP_Plugin_Install_Error
+    {
+        $plugin = $staged['plugin'];
+        $verb = $staged['exists'] === true ? 'upgraded' : 'installed';
+        $label = 'Plugin “' . $staged['name'] . '” ' . $staged['version'] . ' (' . $plugin . ')';
+
+        if (!class_exists('AP_Plugin', false) || !method_exists(AP_Plugin::class, 'activate')) {
+            return self::activationFailed($label, $verb, 'Plugin activation is not available.');
+        }
+
+        if (!self::installerUsesLivePlugins($staged['plugins_root'])) {
+            $reason = 'The install directory is not the active plugins directory, '
+                . 'so the active plugin list was left unchanged.';
+            if (AP_Plugin::isActive($plugin, null)) {
+                return AP_Plugin_Install_Error::make(
+                    AP_Plugin_Install_Error::ACTIVATION_FAILED,
+                    $label . ' was ' . $verb . ' but could not be activated. ' . $reason
+                );
+            }
+
+            return self::activationFailed($label, $verb, $reason);
+        }
+
+        if (AP_Plugin::isActive($plugin, null)) {
+            return null;
+        }
+
+        try {
+            $attempt = AP_Plugin::activate($plugin, null);
+        } catch (Throwable $e) {
+            $attempt = [
+                'ok' => false,
+                'errors' => ['Activation failed: ' . $e->getMessage()],
+            ];
+        }
+
+        $reason = self::activationReason(is_array($attempt) ? $attempt : []);
+        $activated = is_array($attempt)
+            && ($attempt['ok'] ?? false) === true
+            && AP_Plugin::isActive($plugin, null);
+        if ($activated) {
+            return null;
+        }
+
+        if (AP_Plugin::isActive($plugin, null)) {
+            try {
+                AP_Plugin::deactivate($plugin, null);
+            } catch (Throwable) {
+                // The message below reports that the plugin could not be left inactive.
+            }
+        }
+
+        if (AP_Plugin::isActive($plugin, null)) {
+            return AP_Plugin_Install_Error::make(
+                AP_Plugin_Install_Error::ACTIVATION_FAILED,
+                $label . ' was ' . $verb
+                . ' but could not be activated, and it could not be left inactive. ' . $reason
+            );
+        }
+
+        return self::activationFailed($label, $verb, $reason);
+    }
+
+    private static function activationFailed(string $label, string $verb, string $reason): AP_Plugin_Install_Error
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            $reason = 'Activation failed.';
+        }
+
+        return AP_Plugin_Install_Error::make(
+            AP_Plugin_Install_Error::ACTIVATION_FAILED,
+            $label . ' was ' . $verb . ' but could not be activated and remains inactive. ' . $reason
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $attempt
+     */
+    private static function activationReason(array $attempt): string
+    {
+        $errors = $attempt['errors'] ?? [];
+        if (!is_array($errors)) {
+            return 'Activation failed.';
+        }
+
+        $parts = [];
+        foreach ($errors as $error) {
+            if (!is_string($error)) {
+                continue;
+            }
+            $error = trim($error);
+            if ($error !== '') {
+                $parts[] = $error;
+            }
+        }
+
+        return $parts === [] ? 'Activation failed.' : implode(' ', $parts);
+    }
+
+    /**
+     * Active basenames for this slug, captured before the previous files move.
+     *
+     * Null when plugin activation state is not available for this plugins
+     * directory (the installer is writing somewhere other than the live
+     * plugins root, or the plugin API is not loaded). An empty basename list
+     * means the plugin is not active.
+     *
+     * @param array{
+     *   slug: string,
+     *   plugin: string,
+     *   is_folder: bool,
+     *   plugins_root: string,
+     *   previous_version: string|null
+     * } $staged
+     *
+     * @return array{basenames: list<string>, from_version: string|null}|null
+     */
+    private static function snapshotActiveUpgrade(array $staged): ?array
+    {
+        if (!self::installerUsesLivePlugins($staged['plugins_root'])) {
+            return null;
+        }
+
+        $basenames = [];
+        foreach (AP_Plugin::getActivePlugins(null, false) as $basename) {
+            if (self::basenameBelongsToInstalledSlug($basename, $staged['slug'], $staged['is_folder'] === true)) {
+                $basenames[] = $basename;
+            }
+        }
+        if ($basenames === []) {
+            return ['basenames' => [], 'from_version' => null];
+        }
+
+        $preferred = $basenames[0];
+        foreach ($basenames as $basename) {
+            if ($basename === $staged['plugin']) {
+                $preferred = $basename;
+                break;
+            }
+        }
+
+        $from = null;
+        $headers = AP_Plugin::getPluginHeaders($preferred);
+        if (is_array($headers)) {
+            $version = trim((string) ($headers['Version'] ?? ''));
+            if ($version !== '') {
+                $from = $version;
+            }
+        }
+        if ($from === null && is_string($staged['previous_version'])) {
+            $previous = trim($staged['previous_version']);
+            if ($previous !== '') {
+                $from = $previous;
+            }
+        }
+
+        return [
+            'basenames' => $basenames,
+            'from_version' => $from,
+        ];
+    }
+
+    /**
+     * Leave an already-active plugin active and run its upgrade routine.
+     *
+     * @param array{plugin: string, version: string} $staged
+     * @param array{basenames: list<string>, from_version: string|null} $activeUpgrade
+     */
+    private static function finishActiveUpgrade(array $staged, array $activeUpgrade): ?AP_Plugin_Install_Error
+    {
+        if (!class_exists('AP_Plugin', false) || !method_exists(AP_Plugin::class, 'keepActiveAndUpgrade')) {
+            return null;
+        }
+
+        $result = AP_Plugin::keepActiveAndUpgrade(
+            $staged['plugin'],
+            $activeUpgrade['basenames'],
+            $activeUpgrade['from_version'],
+            $staged['version'],
+            null
+        );
+        if ($result['ok']) {
+            return null;
+        }
+
+        return AP_Plugin_Install_Error::make(
+            AP_Plugin_Install_Error::INSTALL_FAILED,
+            'Could not keep the active plugin active, so the previous version was restored.'
+        );
+    }
+
+    /**
+     * True when $pluginsRoot is the directory {@see AP_Plugin} treats as live.
+     */
+    private static function installerUsesLivePlugins(string $pluginsRoot): bool
+    {
+        if (!class_exists('AP_Plugin', false)) {
+            return false;
+        }
+
+        $live = AP_Plugin::pluginsRoot();
+        $left = realpath($pluginsRoot);
+        $right = realpath($live);
+        if ($left === false || $right === false) {
+            return rtrim($pluginsRoot, '/\\') === rtrim($live, '/\\');
+        }
+
+        return $left === $right;
+    }
+
+    private static function basenameBelongsToInstalledSlug(string $plugin, string $slug, bool $isFolder): bool
+    {
+        if ($slug === '' || $plugin === '') {
+            return false;
+        }
+        if ($isFolder) {
+            return str_starts_with($plugin, $slug . '/');
+        }
+
+        return $plugin === $slug . '.php';
+    }
+
+    /**
+     * Validate a zip and leave the unpacked payload in private staging.
+     *
+     * On success the caller owns `stage` and must move the payload or discard
+     * the directory. On failure any staging directory created here is removed
+     * before the error is returned.
+     *
+     * @param array{
+     *   overwrite?: bool,
+     *   activate?: bool,
+     *   expected_sha256?: string,
+     *   plugins_root?: string,
+     *   content_dir?: string
+     * } $opts
+     *
+     * @return array{
+     *   slug: string,
+     *   name: string,
+     *   version: string,
+     *   previous_version: string|null,
+     *   exists: bool,
+     *   plugin: string,
+     *   is_folder: bool,
+     *   main_rel: string,
+     *   stage: string,
+     *   payload: string,
+     *   plugins_root: string,
+     *   content_dir: string
+     * }|AP_Plugin_Install_Error
+     */
+    private static function stageValidatedPackage(string $zipPath, array $opts): array|AP_Plugin_Install_Error
     {
         if ($zipPath === '' || !is_file($zipPath) || !is_readable($zipPath)) {
             return AP_Plugin_Install_Error::make(
@@ -305,9 +1185,6 @@ HTACCESS;
 
             $plugin = $isFolder ? $slug . '/' . basename($mainRel) : $slug . '.php';
             $previous = self::lookupInstalledVersion($pluginsRoot, $plugin, $isFolder, $slug);
-            $action = $previous['exists']
-                ? AP_Plugin_Install_Result::ACTION_UPGRADED
-                : AP_Plugin_Install_Result::ACTION_INSTALLED;
 
             $contentDir = self::resolveContentDir(
                 isset($opts['content_dir']) && is_string($opts['content_dir']) ? $opts['content_dir'] : null,
@@ -326,30 +1203,1523 @@ HTACCESS;
 
             $extractedMain = $staged['payload'] . '/' . $mainRel;
             $unpacked = is_file($extractedMain) && !is_link($extractedMain);
-            if (!$unpacked || !self::discardStagingDir($staged['stage'])) {
+            if (!$unpacked) {
+                self::discardStagingDir($staged['stage']);
                 self::discardStagingDir($staged['stage']);
 
                 return AP_Plugin_Install_Error::make(
                     AP_Plugin_Install_Error::STAGING_FAILED,
-                    $unpacked
-                        ? 'Could not remove the private plugin staging directory.'
-                        : 'Extraction failed: plugin main file missing after unpack.'
+                    'Extraction failed: plugin main file missing after unpack.'
                 );
             }
 
-            return AP_Plugin_Install_Result::success(
-                $slug,
-                $name,
-                $version,
-                $previous['version'],
-                $action,
-                null,
-                false,
-                $plugin
-            );
+            return [
+                'slug' => $slug,
+                'name' => $name,
+                'version' => $version,
+                'previous_version' => $previous['version'],
+                'exists' => $previous['exists'],
+                'plugin' => $plugin,
+                'is_folder' => $isFolder,
+                'main_rel' => $mainRel,
+                'stage' => $staged['stage'],
+                'payload' => $staged['payload'],
+                'plugins_root' => $pluginsRoot,
+                'content_dir' => $contentDir,
+            ];
         } finally {
             $zip->close();
         }
+    }
+
+    /**
+     * @param array{
+     *   slug: string,
+     *   name: string,
+     *   version: string,
+     *   previous_version: string|null,
+     *   exists: bool,
+     *   plugin: string,
+     *   is_folder: bool,
+     *   main_rel: string,
+     *   stage: string,
+     *   payload: string,
+     *   plugins_root: string
+     * } $staged
+     */
+    private static function resultFromStagedPackage(
+        array $staged,
+        ?string $backupPath,
+        bool $activated
+    ): AP_Plugin_Install_Result {
+        $exists = $staged['exists'] === true;
+
+        return AP_Plugin_Install_Result::success(
+            $staged['slug'],
+            $staged['name'],
+            $staged['version'],
+            $exists ? $staged['previous_version'] : null,
+            $exists
+                ? AP_Plugin_Install_Result::ACTION_UPGRADED
+                : AP_Plugin_Install_Result::ACTION_INSTALLED,
+            $backupPath,
+            $activated,
+            $staged['plugin']
+        );
+    }
+
+    private static function alreadyInstalledError(string $slug): AP_Plugin_Install_Error
+    {
+        return AP_Plugin_Install_Error::make(
+            AP_Plugin_Install_Error::ALREADY_INSTALLED,
+            'A plugin with the slug “' . $slug . '” is already installed and was left unchanged.'
+        );
+    }
+
+    /**
+     * @param array{plugins_root: string, is_folder: bool, slug: string, plugin: string} $staged
+     */
+    private static function pluginDestination(array $staged): string
+    {
+        $root = rtrim($staged['plugins_root'], '/\\');
+        if ($staged['is_folder']) {
+            return $root . '/' . $staged['slug'];
+        }
+
+        return $root . '/' . $staged['plugin'];
+    }
+
+    /**
+     * Move a staged payload for a new slug into the plugins directory.
+     *
+     * The destination must not already exist. A failed copy removes a partial
+     * destination. The caller still owns the staging directory.
+     *
+     * @param array{
+     *   slug: string,
+     *   name: string,
+     *   version: string,
+     *   plugin: string,
+     *   is_folder: bool,
+     *   main_rel: string,
+     *   payload: string,
+     *   plugins_root: string
+     * } $staged
+     */
+    private static function placeNewSlug(array $staged): ?AP_Plugin_Install_Error
+    {
+        $pluginsRoot = $staged['plugins_root'];
+        if ($pluginsRoot === '' || !self::ensureDir($pluginsRoot)) {
+            return AP_Plugin_Install_Error::make(
+                AP_Plugin_Install_Error::INSTALL_FAILED,
+                'Plugins directory is missing or not writable.'
+            );
+        }
+
+        $isFolder = $staged['is_folder'];
+        $dest = self::pluginDestination($staged);
+        if (file_exists($dest) || is_link($dest)) {
+            return self::alreadyInstalledError($staged['slug']);
+        }
+
+        $source = $isFolder ? $staged['payload'] : $staged['payload'] . '/' . $staged['main_rel'];
+        $sourceOk = $isFolder
+            ? (is_dir($source) && !is_link($source))
+            : (is_file($source) && !is_link($source));
+        if (!$sourceOk) {
+            return AP_Plugin_Install_Error::make(
+                AP_Plugin_Install_Error::INSTALL_FAILED,
+                'Could not install the plugin into the plugins directory.'
+            );
+        }
+
+        if (!@rename($source, $dest)) {
+            if (file_exists($dest) || is_link($dest)) {
+                return self::alreadyInstalledError($staged['slug']);
+            }
+
+            $copied = $isFolder ? self::copyDir($source, $dest) : @copy($source, $dest);
+            if ($copied !== true) {
+                self::removePlacedPayload($isFolder, $dest);
+
+                return AP_Plugin_Install_Error::make(
+                    AP_Plugin_Install_Error::INSTALL_FAILED,
+                    'Could not install the plugin into the plugins directory.'
+                );
+            }
+            if ($isFolder) {
+                self::removeDir($source);
+            } else {
+                @unlink($source);
+            }
+        }
+
+        if (!self::placedPluginIsIntact($staged, $dest)) {
+            self::removePlacedPayload($isFolder, $dest);
+
+            return AP_Plugin_Install_Error::make(
+                AP_Plugin_Install_Error::INSTALL_FAILED,
+                'Could not install the plugin into the plugins directory.'
+            );
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether the moved plugin file and its folder stay inside the plugins directory.
+     */
+    private static function placedPluginStaysInside(string $pluginsRoot, string $dest, string $installedFile): bool
+    {
+        if (is_link($dest) || is_link($installedFile) || !is_file($installedFile)) {
+            return false;
+        }
+
+        $rootReal = realpath($pluginsRoot);
+        $destReal = realpath($dest);
+        $fileReal = realpath($installedFile);
+        if ($rootReal === false || $destReal === false || $fileReal === false) {
+            return false;
+        }
+
+        $root = self::normalizeFsPath($rootReal);
+        $destNorm = self::normalizeFsPath($destReal);
+        $fileNorm = self::normalizeFsPath($fileReal);
+        $destInside = $destNorm !== $root && self::pathIsInside($root, $destNorm);
+        $fileInside = $fileNorm !== $root && self::pathIsInside($root, $fileNorm);
+
+        return $destInside && $fileInside;
+    }
+
+    /**
+     * Remove a destination this installer just created. A missing path is success.
+     */
+    private static function removePlacedPayload(bool $isFolder, string $dest): void
+    {
+        if (is_link($dest)) {
+            @unlink($dest);
+
+            return;
+        }
+        if ($isFolder) {
+            if (is_dir($dest)) {
+                self::removeDir($dest);
+            }
+
+            return;
+        }
+        if (is_file($dest)) {
+            @unlink($dest);
+        }
+    }
+
+    /**
+     * Whether `overwrite` was passed as boolean true.
+     *
+     * Only `true` replaces an existing slug. Other truthy values do not.
+     *
+     * @param array<string, mixed> $opts
+     */
+    private static function overwriteRequested(array $opts): bool
+    {
+        return ($opts['overwrite'] ?? false) === true;
+    }
+
+    /**
+     * Replace an existing slug with the staged payload.
+     *
+     * The previous plugin is moved into a new stamp directory first. The
+     * staged payload is then moved into the plugins directory. `rename` is
+     * preferred. A copy is used only when `rename` cannot (for example across
+     * filesystems). Any failure after the previous plugin has left the plugins
+     * directory restores that backup.
+     *
+     * @param array{
+     *   slug: string,
+     *   name: string,
+     *   version: string,
+     *   plugin: string,
+     *   is_folder: bool,
+     *   main_rel: string,
+     *   payload: string,
+     *   plugins_root: string,
+     *   content_dir: string
+     * } $staged
+     *
+     * @return string|AP_Plugin_Install_Error Absolute stamp directory, or an error.
+     */
+    private static function replaceExistingSlug(array $staged): string|AP_Plugin_Install_Error
+    {
+        $pluginsRoot = $staged['plugins_root'];
+        if ($pluginsRoot === '' || !self::ensureDir($pluginsRoot)) {
+            return self::installFailed('Plugins directory is missing or not writable.');
+        }
+
+        $dest = self::pluginDestination($staged);
+        $isFolder = $staged['is_folder'] === true;
+        if (is_link($dest)) {
+            return self::installFailed(
+                'Cannot replace a symlinked plugin path. The existing plugin was left unchanged.'
+            );
+        }
+
+        $present = $isFolder ? is_dir($dest) : is_file($dest);
+        if (!$present) {
+            return self::backupFailed('Could not back up the existing plugin, so it was left unchanged.');
+        }
+
+        $backupRoot = self::ensureBackupRoot($staged['content_dir'], $pluginsRoot);
+        if ($backupRoot instanceof AP_Plugin_Install_Error) {
+            return $backupRoot;
+        }
+
+        $slugDir = $backupRoot . '/' . $staged['slug'];
+        if (is_link($slugDir) || !self::ensurePrivateDir($slugDir) || is_link($slugDir)) {
+            return self::backupDirFailed();
+        }
+
+        $stampDir = self::createBackupStamp($slugDir);
+        if ($stampDir === null) {
+            return self::backupDirFailed();
+        }
+
+        $backupPayload = $stampDir . '/' . basename($dest);
+        $moved = self::movePath($dest, $backupPayload);
+        if (!$moved || !self::backupPayloadIsSafe($backupRoot, $pluginsRoot, $backupPayload)) {
+            if (!file_exists($dest) && !is_link($dest) && (file_exists($backupPayload) || is_link($backupPayload))) {
+                self::restoreBackupPayload($backupPayload, $dest, $isFolder);
+            }
+            self::removeBackupStamp($stampDir);
+
+            return self::backupFailed('Could not back up the existing plugin, so it was left unchanged.');
+        }
+
+        if (self::upgradeShouldFail('after_backup')) {
+            return self::restoreOrKeepBackup($staged, $stampDir, $backupPayload, $dest, $isFolder);
+        }
+
+        $source = $isFolder ? $staged['payload'] : $staged['payload'] . '/' . $staged['main_rel'];
+        $swapped = self::movePath($source, $dest) && self::placedPluginIsIntact($staged, $dest);
+        if (!$swapped || self::upgradeShouldFail('after_swap')) {
+            self::removePlacedPayload($isFolder, $dest);
+
+            return self::restoreOrKeepBackup($staged, $stampDir, $backupPayload, $dest, $isFolder);
+        }
+
+        $realStamp = realpath($stampDir);
+
+        return $realStamp === false ? $stampDir : $realStamp;
+    }
+
+    /**
+     * Put the backed-up plugin back. On success the stamp directory is removed.
+     *
+     * @param array{main_rel: string, is_folder: bool} $staged
+     */
+    private static function restoreOrKeepBackup(
+        array $staged,
+        string $stampDir,
+        string $backupPayload,
+        string $dest,
+        bool $isFolder
+    ): AP_Plugin_Install_Error {
+        $mainName = basename($staged['main_rel']);
+        $previousMain = $isFolder ? $backupPayload . '/' . $mainName : $backupPayload;
+        $snapshot = (is_file($previousMain) && !is_link($previousMain))
+            ? @file_get_contents($previousMain)
+            : null;
+
+        if (file_exists($dest) || is_link($dest)) {
+            self::removePlacedPayload($isFolder, $dest);
+        }
+
+        $restored = self::restoreBackupPayload($backupPayload, $dest, $isFolder);
+        $destOk = $isFolder
+            ? (is_dir($dest) && !is_link($dest))
+            : (is_file($dest) && !is_link($dest));
+        $bytesOk = true;
+        if (is_string($snapshot)) {
+            $liveMain = $isFolder ? $dest . '/' . $mainName : $dest;
+            $bytesOk = is_file($liveMain) && !is_link($liveMain) && @file_get_contents($liveMain) === $snapshot;
+        }
+
+        if (!$restored || !$destOk || !$bytesOk) {
+            return self::installFailed(
+                'Plugin upgrade failed. The previous version is in the backup at ' . $stampDir . '.'
+            );
+        }
+
+        self::removeBackupStamp($stampDir);
+
+        return self::installFailed('Plugin upgrade failed and the previous version was restored.');
+    }
+
+    /**
+     * Undo a swap that already landed, used when staging cleanup fails afterward.
+     *
+     * @param array{
+     *   is_folder: bool,
+     *   main_rel: string,
+     *   slug: string,
+     *   plugin: string,
+     *   plugins_root: string
+     * } $staged
+     */
+    private static function rollBackPlacedUpgrade(array $staged, string $stampDir): bool
+    {
+        $dest = self::pluginDestination($staged);
+        $isFolder = $staged['is_folder'] === true;
+        $backupPayload = $stampDir . '/' . basename($dest);
+        $mainName = basename($staged['main_rel']);
+        $previousMain = $isFolder ? $backupPayload . '/' . $mainName : $backupPayload;
+        $snapshot = (is_file($previousMain) && !is_link($previousMain))
+            ? @file_get_contents($previousMain)
+            : null;
+
+        self::removePlacedPayload($isFolder, $dest);
+        if (!self::restoreBackupPayload($backupPayload, $dest, $isFolder)) {
+            return false;
+        }
+        if (is_string($snapshot)) {
+            $liveMain = $isFolder ? $dest . '/' . $mainName : $dest;
+            if (!is_file($liveMain) || is_link($liveMain) || @file_get_contents($liveMain) !== $snapshot) {
+                return false;
+            }
+        }
+
+        self::removeBackupStamp($stampDir);
+
+        return true;
+    }
+
+    /**
+     * Whether the placed plugin is still inside the plugins directory and matches the zip header.
+     *
+     * @param array{
+     *   name: string,
+     *   version: string,
+     *   is_folder: bool,
+     *   main_rel: string,
+     *   plugins_root: string
+     * } $staged
+     */
+    private static function placedPluginIsIntact(array $staged, string $dest): bool
+    {
+        $isFolder = $staged['is_folder'] === true;
+        $installedFile = $isFolder ? $dest . '/' . basename($staged['main_rel']) : $dest;
+        if (!self::placedPluginStaysInside($staged['plugins_root'], $dest, $installedFile)) {
+            return false;
+        }
+
+        $raw = @file_get_contents($installedFile);
+        if (!is_string($raw)) {
+            return false;
+        }
+
+        $headers = self::parsePluginContents($raw);
+        $name = trim((string) ($headers['Plugin Name'] ?? ''));
+        $version = trim((string) ($headers['Version'] ?? ''));
+
+        return $name === $staged['name'] && $version === $staged['version'];
+    }
+
+    /**
+     * Create `{content}/.ap-plugin-backups` at mode 0700, outside the plugins directory.
+     *
+     * @return string|AP_Plugin_Install_Error Absolute backup root.
+     */
+    private static function ensureBackupRoot(string $contentDir, string $pluginsRoot): string|AP_Plugin_Install_Error
+    {
+        if ($contentDir === '' || !is_dir($contentDir) || is_link($contentDir) || !is_writable($contentDir)) {
+            return self::backupDirFailed();
+        }
+
+        $root = rtrim($contentDir, '/\\') . '/' . self::BACKUP_PARENT_NAME;
+        if (
+            is_link($root)
+            || self::directoryIsInside($pluginsRoot, $root)
+            || self::directoryIsInside($root, $pluginsRoot)
+        ) {
+            return self::backupFailed(
+                'Plugin backups must stay outside the plugins directory. The existing plugin was left unchanged.'
+            );
+        }
+        $rootReady = self::ensurePrivateDir($root)
+            && !is_link($root)
+            && self::stagingPathIsPrivate($root, $contentDir, $pluginsRoot);
+        if (!$rootReady) {
+            return self::backupDirFailed();
+        }
+
+        $deny = $root . '/.htaccess';
+        if (!is_file($deny)) {
+            $written = @file_put_contents($deny, self::BACKUP_HTACCESS);
+            if ($written === false) {
+                return self::backupDirFailed();
+            }
+            @chmod($deny, 0644);
+        }
+
+        $real = realpath($root);
+        if ($real === false) {
+            return self::backupDirFailed();
+        }
+
+        return $real;
+    }
+
+    /**
+     * Create one `{YmdHis}{sequence}-{hex}` directory under the slug's backup directory.
+     *
+     * The sequence is per process so two backups in the same UTC second still
+     * sort in the order they were created.
+     */
+    private static function createBackupStamp(string $slugDir): ?string
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $sequence = self::$backupSequence + 1 + $attempt;
+            if ($sequence > 999999) {
+                return null;
+            }
+
+            $stamp = gmdate('YmdHis') . sprintf('%06d', $sequence) . '-' . bin2hex(random_bytes(4));
+            if (preg_match(self::BACKUP_STAMP_PATTERN, $stamp) !== 1) {
+                continue;
+            }
+
+            $path = $slugDir . '/' . $stamp;
+            if (!@mkdir($path, 0700)) {
+                continue;
+            }
+
+            self::$backupSequence = $sequence;
+            @chmod($path, 0700);
+            if (is_dir($path) && !is_link($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether a backed-up payload resolved inside the backup root and outside plugins.
+     */
+    private static function backupPayloadIsSafe(string $backupRoot, string $pluginsRoot, string $payload): bool
+    {
+        if (is_link($payload) || (!is_dir($payload) && !is_file($payload))) {
+            return false;
+        }
+
+        $rootReal = realpath($backupRoot);
+        $payloadReal = realpath($payload);
+        if ($rootReal === false || $payloadReal === false) {
+            return false;
+        }
+
+        $root = self::normalizeFsPath($rootReal);
+        $path = self::normalizeFsPath($payloadReal);
+        if (!self::pathIsInside($root, $path)) {
+            return false;
+        }
+
+        $pluginsReal = realpath($pluginsRoot);
+        if ($pluginsReal !== false) {
+            $plugins = self::normalizeFsPath($pluginsReal);
+            if ($path === $plugins || self::pathIsInside($plugins, $path)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Move a file or directory. `rename` is used when it succeeds.
+     *
+     * When `rename` fails and the destination was not created, the tree is
+     * copied and the source is removed. A failed copy removes a partial
+     * destination. Symlinks are refused.
+     */
+    private static function movePath(string $from, string $to): bool
+    {
+        if ($from === '' || $to === '' || is_link($from) || is_link($to) || file_exists($to)) {
+            return false;
+        }
+
+        $fromIsDir = is_dir($from);
+        $fromIsFile = is_file($from);
+        if (($fromIsDir && $fromIsFile) || (!$fromIsDir && !$fromIsFile)) {
+            return false;
+        }
+
+        if (@rename($from, $to)) {
+            return $fromIsDir ? (is_dir($to) && !is_link($to)) : (is_file($to) && !is_link($to));
+        }
+        if (file_exists($to) || is_link($to)) {
+            return false;
+        }
+
+        $copied = $fromIsDir ? self::copyDir($from, $to) : @copy($from, $to);
+        if ($copied !== true) {
+            self::removePlacedPayload($fromIsDir, $to);
+
+            return false;
+        }
+
+        $removed = $fromIsDir ? self::removeDir($from) : @unlink($from);
+        if ($removed !== true) {
+            self::removePlacedPayload($fromIsDir, $to);
+
+            return false;
+        }
+
+        return $fromIsDir ? (is_dir($to) && !is_link($to)) : (is_file($to) && !is_link($to));
+    }
+
+    /**
+     * Move a backup payload back to the plugins directory.
+     */
+    private static function restoreBackupPayload(string $backupPayload, string $dest, bool $isFolder): bool
+    {
+        if (!self::movePath($backupPayload, $dest)) {
+            return false;
+        }
+        if ($isFolder) {
+            return is_dir($dest) && !is_link($dest);
+        }
+
+        return is_file($dest) && !is_link($dest);
+    }
+
+    /**
+     * Delete one stamp directory. Removes the slug directory and backup root when they are empty.
+     */
+    private static function removeBackupStamp(string $stampDir): void
+    {
+        $stampDir = rtrim($stampDir, '/\\');
+        $stamp = basename($stampDir);
+        if (preg_match(self::BACKUP_STAMP_PATTERN, $stamp) !== 1) {
+            return;
+        }
+
+        $slugDir = dirname($stampDir);
+        $root = dirname($slugDir);
+        if (basename($root) !== self::BACKUP_PARENT_NAME || is_link($stampDir)) {
+            return;
+        }
+
+        self::removeDir($stampDir);
+        if (!is_dir($slugDir) || is_link($slugDir) || !self::directoryIsEmpty($slugDir)) {
+            return;
+        }
+        @rmdir($slugDir);
+
+        if (!is_dir($root) || is_link($root)) {
+            return;
+        }
+        $entries = @scandir($root);
+        if (!is_array($entries)) {
+            return;
+        }
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..' || $entry === '.htaccess') {
+                continue;
+            }
+
+            return;
+        }
+
+        @unlink($root . '/.htaccess');
+        @rmdir($root);
+    }
+
+    /**
+     * Keep the newest stamp directories for one slug and delete the rest.
+     *
+     * `$slugDir` is `{content}/.ap-plugin-backups/{slug}`. Names that are not
+     * stamp directories are left alone, as are other slugs.
+     */
+    private static function pruneSlugBackups(string $slugDir, int $keep): void
+    {
+        if ($keep < 1 || is_link($slugDir) || !is_dir($slugDir)) {
+            return;
+        }
+        if (basename(dirname($slugDir)) !== self::BACKUP_PARENT_NAME) {
+            return;
+        }
+
+        $entries = @scandir($slugDir);
+        if (!is_array($entries)) {
+            return;
+        }
+
+        $stamps = [];
+        foreach ($entries as $entry) {
+            if (preg_match(self::BACKUP_STAMP_PATTERN, $entry) !== 1) {
+                continue;
+            }
+            $path = $slugDir . '/' . $entry;
+            if (is_dir($path) && !is_link($path)) {
+                $stamps[] = $entry;
+            }
+        }
+
+        rsort($stamps, SORT_STRING);
+        foreach (array_slice($stamps, $keep) as $entry) {
+            self::removeDir($slugDir . '/' . $entry);
+        }
+    }
+
+    /**
+     * @param array{
+     *   plugins_root?: string,
+     *   content_dir?: string
+     * } $opts
+     */
+    private static function restorePreviousPackage(
+        string $slug,
+        array $opts
+    ): AP_Plugin_Install_Result|AP_Plugin_Install_Error {
+        $slug = trim($slug);
+        if (!self::isValidPluginSlug($slug)) {
+            return AP_Plugin_Install_Error::make(
+                AP_Plugin_Install_Error::INVALID_SLUG,
+                'Plugin slug must be lowercase letters, numbers, hyphens, and underscores.'
+            );
+        }
+
+        $pluginsRoot = self::resolvePluginsRoot(
+            isset($opts['plugins_root']) && is_string($opts['plugins_root'])
+                ? $opts['plugins_root']
+                : null
+        );
+        if ($pluginsRoot === '' || is_link($pluginsRoot) || !self::ensureDir($pluginsRoot)) {
+            return self::restoreFailed('Plugins directory is missing or not writable.');
+        }
+
+        $contentDir = self::resolveContentDir(
+            isset($opts['content_dir']) && is_string($opts['content_dir']) ? $opts['content_dir'] : null,
+            $pluginsRoot
+        );
+        $backupParent = rtrim($contentDir, '/\\') . '/' . self::BACKUP_PARENT_NAME;
+        if (!is_dir($backupParent) && !is_link($backupParent)) {
+            return self::noBackup($slug);
+        }
+        if (
+            is_link($backupParent)
+            || !is_dir($backupParent)
+            || self::directoryIsInside($pluginsRoot, $backupParent)
+            || self::directoryIsInside($backupParent, $pluginsRoot)
+        ) {
+            return self::restoreFailed('Plugin backups are not in a private directory. Nothing was changed.');
+        }
+
+        $slugDir = $backupParent . '/' . $slug;
+        if (!is_dir($slugDir) && !is_link($slugDir)) {
+            return self::noBackup($slug);
+        }
+        if (is_link($slugDir) || !is_dir($slugDir)) {
+            return self::badBackup($slug);
+        }
+
+        $rootReal = realpath($backupParent);
+        $slugReal = realpath($slugDir);
+        if ($rootReal === false || $slugReal === false) {
+            return self::badBackup($slug);
+        }
+        $rootNorm = self::normalizeFsPath($rootReal);
+        $slugNorm = self::normalizeFsPath($slugReal);
+        if (!self::pathIsInside($rootNorm, $slugNorm)) {
+            return self::badBackup($slug);
+        }
+
+        $stampDir = self::newestBackupStamp($slugReal);
+        if ($stampDir === null) {
+            return self::noBackup($slug);
+        }
+
+        $described = self::describeBackupPayload($stampDir, $slug);
+        if ($described === null || !self::backupPayloadIsSafe($rootReal, $pluginsRoot, $described['payload'])) {
+            return self::badBackup($slug);
+        }
+        $payloadReal = realpath($described['payload']);
+        if (
+            $payloadReal === false
+            || self::backupTreeWalk(self::normalizeFsPath($payloadReal), $payloadReal, 0) < 0
+        ) {
+            return self::badBackup($slug);
+        }
+
+        $isFolder = $described['is_folder'];
+        $dest = rtrim($pluginsRoot, '/\\') . '/' . $described['dest_name'];
+        $other = rtrim($pluginsRoot, '/\\') . '/' . ($isFolder ? $slug . '.php' : $slug);
+        if (file_exists($other) || is_link($other)) {
+            return self::restoreFailed(
+                'Could not restore “' . $slug . '” because both a folder and a single file are installed '
+                . 'for that slug. Nothing was changed.'
+            );
+        }
+        if (is_link($dest)) {
+            return self::restoreFailed(
+                'Cannot restore over a symlinked plugin path. The installed plugin was left unchanged.'
+            );
+        }
+
+        $currentPresent = $isFolder
+            ? (is_dir($dest) && !is_link($dest))
+            : (is_file($dest) && !is_link($dest));
+        $previousVersion = null;
+        $currentBytes = null;
+        $currentMain = null;
+        if ($currentPresent && $isFolder) {
+            $current = self::folderPluginIdentity($dest, $slug);
+            if ($current !== null) {
+                $previousVersion = $current['version'];
+                $currentBytes = $current['bytes'];
+                $currentMain = $current['main_rel'];
+            }
+        } elseif ($currentPresent) {
+            $raw = @file_get_contents($dest);
+            $currentBytes = is_string($raw) ? $raw : null;
+            $currentMain = $slug . '.php';
+            $current = self::flatPluginIdentity($dest, $slug);
+            if ($current !== null) {
+                $previousVersion = $current['version'];
+                $currentBytes = $current['bytes'];
+            }
+        }
+
+        $activeBasenames = self::activeBasenamesForSlug($pluginsRoot, $slug);
+        self::firePackageHook(
+            'ap_plugin_before_restore',
+            self::lifecycleContext(
+                [
+                    'slug' => $slug,
+                    'name' => $described['name'],
+                    'version' => $described['version'],
+                    'previous_version' => $previousVersion,
+                    'plugin' => $described['plugin'],
+                ],
+                AP_Plugin_Install_Result::ACTION_RESTORED,
+                null,
+                false
+            )
+        );
+        $displacedStamp = null;
+        $displacedPayload = null;
+        if ($currentPresent) {
+            $prepared = self::displaceInstalledPlugin($slugReal, $pluginsRoot, $contentDir, $dest, $isFolder);
+            if ($prepared instanceof AP_Plugin_Install_Error) {
+                return $prepared;
+            }
+            $displacedStamp = $prepared['stamp'];
+            $displacedPayload = $prepared['payload'];
+            if (self::restoreShouldFail('after_backup')) {
+                return self::finishFailedRestore(
+                    $slug,
+                    $isFolder,
+                    $dest,
+                    $described['payload'],
+                    false,
+                    $displacedStamp,
+                    $displacedPayload,
+                    $currentBytes,
+                    $currentMain,
+                    $described['bytes'],
+                    $described['main_rel']
+                );
+            }
+        }
+
+        $oldPayload = $described['payload'];
+        $moved = self::movePath($oldPayload, $dest);
+        $liveMain = $isFolder ? $dest . '/' . $described['main_rel'] : $dest;
+        $intact = $moved
+            && self::placedPluginIsIntact(
+                [
+                    'name' => $described['name'],
+                    'version' => $described['version'],
+                    'is_folder' => $isFolder,
+                    'main_rel' => $described['main_rel'],
+                    'plugins_root' => $pluginsRoot,
+                ],
+                $dest
+            )
+            && self::fileHasBytes($liveMain, $described['bytes']);
+        if (!$intact || self::restoreShouldFail('after_swap')) {
+            return self::finishFailedRestore(
+                $slug,
+                $isFolder,
+                $dest,
+                $oldPayload,
+                $moved,
+                $displacedStamp,
+                $displacedPayload,
+                $currentBytes,
+                $currentMain,
+                $described['bytes'],
+                $described['main_rel']
+            );
+        }
+
+        if ($activeBasenames !== []) {
+            if (!self::keepRestoredPluginActive($described['plugin'], $activeBasenames)) {
+                $undo = self::undoRestoreSwap(
+                    $isFolder,
+                    $dest,
+                    $oldPayload,
+                    true,
+                    $displacedStamp,
+                    $displacedPayload,
+                    $currentBytes,
+                    $currentMain,
+                    $described['bytes'],
+                    $described['main_rel']
+                );
+
+                return $undo
+                    ? self::restoreFailed(
+                        'Could not keep the plugin active, so the installed plugin was left unchanged.'
+                    )
+                    : self::restoreFailed(
+                        'Could not restore the previous version of “' . $slug
+                        . '”, and the installed plugin could not be put back.'
+                    );
+            }
+        }
+
+        self::removeBackupStamp($stampDir);
+        if (is_string($displacedStamp)) {
+            self::pruneSlugBackups($slugReal, self::maxBackups($slug));
+        }
+
+        $activated = $activeBasenames !== []
+            && self::installerUsesLivePlugins($pluginsRoot)
+            && class_exists('AP_Plugin', false)
+            && AP_Plugin::isActive($described['plugin'], null);
+        $backupPath = null;
+        if (is_string($displacedStamp)) {
+            $realStamp = realpath($displacedStamp);
+            $backupPath = $realStamp === false ? $displacedStamp : $realStamp;
+        }
+
+        $result = AP_Plugin_Install_Result::success(
+            $slug,
+            $described['name'],
+            $described['version'],
+            $previousVersion,
+            AP_Plugin_Install_Result::ACTION_RESTORED,
+            $backupPath,
+            $activated,
+            $described['plugin']
+        );
+        self::fireSettledResult($result);
+
+        return $result;
+    }
+
+    /**
+     * Move the installed plugin into a new stamp directory.
+     *
+     * On failure the installed plugin is still at $dest and no stamp remains.
+     *
+     * @return array{stamp: string, payload: string}|AP_Plugin_Install_Error
+     */
+    private static function displaceInstalledPlugin(
+        string $slugDir,
+        string $pluginsRoot,
+        string $contentDir,
+        string $dest,
+        bool $isFolder
+    ): array|AP_Plugin_Install_Error {
+        $backupRoot = self::ensureBackupRoot($contentDir, $pluginsRoot);
+        if ($backupRoot instanceof AP_Plugin_Install_Error) {
+            return $backupRoot;
+        }
+        if (is_link($slugDir) || !self::ensurePrivateDir($slugDir)) {
+            return self::backupDirFailed();
+        }
+
+        $stampDir = self::createBackupStamp($slugDir);
+        if ($stampDir === null) {
+            return self::backupDirFailed();
+        }
+
+        $payload = $stampDir . '/' . basename($dest);
+        $moved = self::movePath($dest, $payload)
+            && self::backupPayloadIsSafe($backupRoot, $pluginsRoot, $payload);
+        if (!$moved) {
+            if (!file_exists($dest) && !is_link($dest) && (file_exists($payload) || is_link($payload))) {
+                self::restoreBackupPayload($payload, $dest, $isFolder);
+            }
+            self::removeBackupStamp($stampDir);
+
+            return self::backupFailed('Could not back up the installed plugin, so it was left unchanged.');
+        }
+
+        $realStamp = realpath($stampDir);
+        $realPayload = realpath($payload);
+
+        return [
+            'stamp' => $realStamp === false ? $stampDir : $realStamp,
+            'payload' => $realPayload === false ? $payload : $realPayload,
+        ];
+    }
+
+    private static function finishFailedRestore(
+        string $slug,
+        bool $isFolder,
+        string $dest,
+        string $oldPayload,
+        bool $backupMoved,
+        ?string $displacedStamp,
+        ?string $displacedPayload,
+        ?string $currentBytes,
+        ?string $currentMain,
+        string $backupBytes,
+        string $backupMain
+    ): AP_Plugin_Install_Error {
+        $undo = self::undoRestoreSwap(
+            $isFolder,
+            $dest,
+            $oldPayload,
+            $backupMoved,
+            $displacedStamp,
+            $displacedPayload,
+            $currentBytes,
+            $currentMain,
+            $backupBytes,
+            $backupMain
+        );
+        if ($undo) {
+            return self::restoreFailed(
+                'Could not restore the previous version of “' . $slug
+                . '”. The installed plugin was left unchanged.'
+            );
+        }
+
+        return self::restoreFailed(
+            'Could not restore the previous version of “' . $slug
+            . '”, and the installed plugin could not be put back.'
+        );
+    }
+
+    /**
+     * Put a restore attempt back to the files that were there before it started.
+     *
+     * $backupMoved is true when the backup payload is currently at $dest.
+     */
+    private static function undoRestoreSwap(
+        bool $isFolder,
+        string $dest,
+        string $oldPayload,
+        bool $backupMoved,
+        ?string $displacedStamp,
+        ?string $displacedPayload,
+        ?string $currentBytes,
+        ?string $currentMain,
+        string $backupBytes,
+        string $backupMain
+    ): bool {
+        if ($backupMoved) {
+            if (is_link($dest) || file_exists($oldPayload) || is_link($oldPayload)) {
+                return false;
+            }
+            if (
+                (file_exists($dest) || is_link($dest))
+                && !self::restoreBackupPayload($dest, $oldPayload, $isFolder)
+            ) {
+                return false;
+            }
+        } elseif (file_exists($dest) || is_link($dest)) {
+            if (is_link($dest)) {
+                @unlink($dest);
+            } else {
+                self::removePlacedPayload($isFolder, $dest);
+            }
+        }
+
+        $backupMainPath = $isFolder ? $oldPayload . '/' . $backupMain : $oldPayload;
+        $backupOk = self::fileHasBytes($backupMainPath, $backupBytes);
+        if ($displacedPayload === null) {
+            return $backupOk && !file_exists($dest) && !is_link($dest);
+        }
+
+        $currentOk = true;
+        if (file_exists($dest) || is_link($dest)) {
+            $currentOk = false;
+        } elseif (!self::restoreBackupPayload($displacedPayload, $dest, $isFolder)) {
+            $currentOk = false;
+        } elseif ($currentBytes === null) {
+            $currentOk = $isFolder
+                ? (is_dir($dest) && !is_link($dest))
+                : (is_file($dest) && !is_link($dest));
+        } else {
+            $liveMain = $isFolder
+                ? $dest . '/' . ($currentMain !== null && $currentMain !== '' ? $currentMain : $backupMain)
+                : $dest;
+            $currentOk = self::fileHasBytes($liveMain, $currentBytes);
+        }
+        if ($currentOk && is_string($displacedStamp)) {
+            self::removeBackupStamp($displacedStamp);
+        }
+
+        return $backupOk && $currentOk;
+    }
+
+    private static function newestBackupStamp(string $slugDir): ?string
+    {
+        if (is_link($slugDir) || !is_dir($slugDir)) {
+            return null;
+        }
+
+        $entries = @scandir($slugDir);
+        if (!is_array($entries)) {
+            return null;
+        }
+
+        $stamps = [];
+        foreach ($entries as $entry) {
+            if (preg_match(self::BACKUP_STAMP_PATTERN, $entry) !== 1) {
+                continue;
+            }
+            $path = $slugDir . '/' . $entry;
+            if (is_dir($path) && !is_link($path)) {
+                $stamps[] = $entry;
+            }
+        }
+        if ($stamps === []) {
+            return null;
+        }
+
+        rsort($stamps, SORT_STRING);
+
+        return $slugDir . '/' . $stamps[0];
+    }
+
+    /**
+     * @return array{
+     *   is_folder: bool,
+     *   payload: string,
+     *   dest_name: string,
+     *   main_rel: string,
+     *   name: string,
+     *   version: string,
+     *   plugin: string,
+     *   bytes: string
+     * }|null
+     */
+    private static function describeBackupPayload(string $stampDir, string $slug): ?array
+    {
+        if (is_link($stampDir) || !is_dir($stampDir)) {
+            return null;
+        }
+
+        $entries = @scandir($stampDir);
+        if (!is_array($entries)) {
+            return null;
+        }
+
+        $names = [];
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $names[] = $entry;
+        }
+        if (count($names) !== 1) {
+            return null;
+        }
+
+        $name = $names[0];
+        $isFolder = $name === $slug;
+        $isFile = $name === $slug . '.php';
+        if ($isFolder === $isFile) {
+            return null;
+        }
+
+        $payload = $stampDir . '/' . $name;
+        if (is_link($payload)) {
+            return null;
+        }
+        if ($isFolder) {
+            if (!is_dir($payload)) {
+                return null;
+            }
+            $identity = self::folderPluginIdentity($payload, $slug);
+            if ($identity === null) {
+                return null;
+            }
+
+            return [
+                'is_folder' => true,
+                'payload' => $payload,
+                'dest_name' => $slug,
+                'main_rel' => $identity['main_rel'],
+                'name' => $identity['name'],
+                'version' => $identity['version'],
+                'plugin' => $identity['plugin'],
+                'bytes' => $identity['bytes'],
+            ];
+        }
+        if (!is_file($payload)) {
+            return null;
+        }
+
+        $identity = self::flatPluginIdentity($payload, $slug);
+        if ($identity === null) {
+            return null;
+        }
+
+        return [
+            'is_folder' => false,
+            'payload' => $payload,
+            'dest_name' => $slug . '.php',
+            'main_rel' => $identity['main_rel'],
+            'name' => $identity['name'],
+            'version' => $identity['version'],
+            'plugin' => $identity['plugin'],
+            'bytes' => $identity['bytes'],
+        ];
+    }
+
+    /**
+     * Walk a backup payload. Returns the entry count, or -1 when it is unsafe.
+     *
+     * Symlinks, special files, and realpaths outside the payload are unsafe.
+     * The walk stops at {@see self::DEFAULT_MAX_ENTRIES}.
+     */
+    private static function backupTreeWalk(string $payloadReal, string $path, int $count): int
+    {
+        $count++;
+        if ($count > self::DEFAULT_MAX_ENTRIES || is_link($path)) {
+            return -1;
+        }
+
+        $real = realpath($path);
+        if ($real === false) {
+            return -1;
+        }
+        $norm = self::normalizeFsPath($real);
+        if ($norm !== $payloadReal && !self::pathIsInside($payloadReal, $norm)) {
+            return -1;
+        }
+        if (is_dir($path)) {
+            $entries = @scandir($path);
+            if (!is_array($entries)) {
+                return -1;
+            }
+            foreach ($entries as $entry) {
+                if ($entry === '.' || $entry === '..') {
+                    continue;
+                }
+                $count = self::backupTreeWalk($payloadReal, $path . '/' . $entry, $count);
+                if ($count < 0) {
+                    return -1;
+                }
+            }
+
+            return $count;
+        }
+        if (!is_file($path)) {
+            return -1;
+        }
+
+        return $count;
+    }
+
+    /**
+     * @return array{
+     *   name: string,
+     *   version: string,
+     *   main_rel: string,
+     *   plugin: string,
+     *   bytes: string
+     * }|null
+     */
+    private static function folderPluginIdentity(string $folderPath, string $slug): ?array
+    {
+        if (is_link($folderPath) || !is_dir($folderPath) || !self::isValidPluginSlug($slug)) {
+            return null;
+        }
+
+        $entries = @scandir($folderPath);
+        if (!is_array($entries)) {
+            return null;
+        }
+
+        $candidates = [];
+        $bytesByFile = [];
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..' || str_starts_with($entry, '.')) {
+                continue;
+            }
+            if (!str_ends_with(strtolower($entry), '.php')) {
+                continue;
+            }
+            $path = $folderPath . '/' . $entry;
+            if (is_link($path) || !is_file($path)) {
+                continue;
+            }
+            $raw = @file_get_contents($path);
+            if (!is_string($raw) || !self::phpHasPluginName($raw)) {
+                continue;
+            }
+            $candidates[] = $entry;
+            $bytesByFile[$entry] = $raw;
+        }
+
+        $chosen = self::choosePluginMainFile($slug, $candidates);
+        if ($chosen === null || !isset($bytesByFile[$chosen])) {
+            return null;
+        }
+
+        $headers = self::parsePluginContents($bytesByFile[$chosen]);
+        $name = trim((string) ($headers['Plugin Name'] ?? ''));
+        $version = trim((string) ($headers['Version'] ?? ''));
+        if ($name === '' || $version === '') {
+            return null;
+        }
+
+        return [
+            'name' => $name,
+            'version' => $version,
+            'main_rel' => $chosen,
+            'plugin' => $slug . '/' . $chosen,
+            'bytes' => $bytesByFile[$chosen],
+        ];
+    }
+
+    /**
+     * @return array{
+     *   name: string,
+     *   version: string,
+     *   main_rel: string,
+     *   plugin: string,
+     *   bytes: string
+     * }|null
+     */
+    private static function flatPluginIdentity(string $filePath, string $slug): ?array
+    {
+        if (is_link($filePath) || !is_file($filePath) || !self::isValidPluginSlug($slug)) {
+            return null;
+        }
+        if (basename($filePath) !== $slug . '.php') {
+            return null;
+        }
+
+        $raw = @file_get_contents($filePath);
+        if (!is_string($raw) || trim($raw) === '') {
+            return null;
+        }
+
+        $headers = self::parsePluginContents($raw);
+        $name = trim((string) ($headers['Plugin Name'] ?? ''));
+        $version = trim((string) ($headers['Version'] ?? ''));
+        if ($name === '' || $version === '') {
+            return null;
+        }
+
+        return [
+            'name' => $name,
+            'version' => $version,
+            'main_rel' => $slug . '.php',
+            'plugin' => $slug . '.php',
+            'bytes' => $raw,
+        ];
+    }
+
+    /**
+     * @return array{slug: string, name: string, version: string, active: bool, plugin: string}|null
+     */
+    private static function installedFolderRow(string $pluginsRoot, string $slug): ?array
+    {
+        $identity = self::folderPluginIdentity(rtrim($pluginsRoot, '/\\') . '/' . $slug, $slug);
+        if ($identity === null) {
+            return null;
+        }
+
+        return [
+            'slug' => $slug,
+            'name' => $identity['name'],
+            'version' => $identity['version'],
+            'active' => self::installedPluginIsActive($pluginsRoot, $slug, true, $identity['plugin']),
+            'plugin' => $identity['plugin'],
+        ];
+    }
+
+    /**
+     * @return array{slug: string, name: string, version: string, active: bool, plugin: string}|null
+     */
+    private static function installedFlatRow(string $pluginsRoot, string $filename): ?array
+    {
+        if (!str_ends_with($filename, '.php')) {
+            return null;
+        }
+        $slug = substr($filename, 0, -4);
+        $identity = self::flatPluginIdentity(rtrim($pluginsRoot, '/\\') . '/' . $filename, $slug);
+        if ($identity === null) {
+            return null;
+        }
+
+        return [
+            'slug' => $slug,
+            'name' => $identity['name'],
+            'version' => $identity['version'],
+            'active' => self::installedPluginIsActive($pluginsRoot, $slug, false, $identity['plugin']),
+            'plugin' => $identity['plugin'],
+        ];
+    }
+
+    private static function installedPluginIsActive(
+        string $pluginsRoot,
+        string $slug,
+        bool $isFolder,
+        string $plugin
+    ): bool {
+        if (!self::installerUsesLivePlugins($pluginsRoot) || !class_exists('AP_Plugin', false)) {
+            return false;
+        }
+        if (AP_Plugin::isActive($plugin, null)) {
+            return true;
+        }
+        foreach (AP_Plugin::getActivePlugins(null, false) as $basename) {
+            if (self::basenameBelongsToInstalledSlug($basename, $slug, $isFolder)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function activeBasenamesForSlug(string $pluginsRoot, string $slug): array
+    {
+        if (
+            !self::installerUsesLivePlugins($pluginsRoot)
+            || !class_exists('AP_Plugin', false)
+            || !method_exists(AP_Plugin::class, 'getActivePlugins')
+        ) {
+            return [];
+        }
+
+        $out = [];
+        foreach (AP_Plugin::getActivePlugins(null, false) as $basename) {
+            $inFolder = self::basenameBelongsToInstalledSlug($basename, $slug, true);
+            $inFile = self::basenameBelongsToInstalledSlug($basename, $slug, false);
+            if ($inFolder || $inFile) {
+                $out[] = $basename;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param list<string> $replace
+     */
+    private static function keepRestoredPluginActive(string $plugin, array $replace): bool
+    {
+        if (!class_exists('AP_Plugin', false) || !method_exists(AP_Plugin::class, 'keepActive')) {
+            return false;
+        }
+
+        $result = AP_Plugin::keepActive($plugin, $replace, null);
+
+        return ($result['ok'] ?? false) === true && AP_Plugin::isActive($plugin, null);
+    }
+
+    private static function fileHasBytes(string $path, string $bytes): bool
+    {
+        if (is_link($path) || !is_file($path)) {
+            return false;
+        }
+        $raw = @file_get_contents($path);
+
+        return is_string($raw) && $raw === $bytes;
+    }
+
+    /**
+     * True when the next restore should fail at $point. The flag is consumed.
+     */
+    private static function restoreShouldFail(string $point): bool
+    {
+        if (self::$restoreFailurePoint !== $point) {
+            return false;
+        }
+
+        self::$restoreFailurePoint = null;
+
+        return true;
+    }
+
+    private static function noBackup(string $slug): AP_Plugin_Install_Error
+    {
+        return AP_Plugin_Install_Error::make(
+            AP_Plugin_Install_Error::NO_BACKUP,
+            'No backup is available for the plugin “' . $slug . '”.'
+        );
+    }
+
+    private static function badBackup(string $slug): AP_Plugin_Install_Error
+    {
+        return self::restoreFailed(
+            'The most recent backup for “' . $slug . '” is not safe to restore and was left in place.'
+        );
+    }
+
+    private static function restoreFailed(string $message): AP_Plugin_Install_Error
+    {
+        return AP_Plugin_Install_Error::make(AP_Plugin_Install_Error::RESTORE_FAILED, $message);
+    }
+
+    private static function directoryIsEmpty(string $dir): bool
+    {
+        $entries = @scandir($dir);
+        if (!is_array($entries)) {
+            return false;
+        }
+        foreach ($entries as $entry) {
+            if ($entry !== '.' && $entry !== '..') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * True when the next upgrade should fail at $point. The flag is consumed.
+     */
+    private static function upgradeShouldFail(string $point): bool
+    {
+        if (self::$upgradeFailurePoint !== $point) {
+            return false;
+        }
+
+        self::$upgradeFailurePoint = null;
+
+        return true;
+    }
+
+    private static function installFailed(string $message): AP_Plugin_Install_Error
+    {
+        return AP_Plugin_Install_Error::make(AP_Plugin_Install_Error::INSTALL_FAILED, $message);
+    }
+
+    private static function backupFailed(string $message): AP_Plugin_Install_Error
+    {
+        return AP_Plugin_Install_Error::make(AP_Plugin_Install_Error::BACKUP_FAILED, $message);
+    }
+
+    private static function backupDirFailed(): AP_Plugin_Install_Error
+    {
+        return self::backupFailed(
+            'Could not create a private backup directory. The existing plugin was left unchanged.'
+        );
     }
 
     /**
@@ -916,6 +3286,29 @@ HTACCESS;
 
         return self::positiveIntOrDefault(
             ap_apply_filters('ap_plugin_zip_max_uncompressed_bytes', $default, $zipPath),
+            $default
+        );
+    }
+
+    /**
+     * How many timestamped backups to keep for one plugin slug.
+     *
+     * Starts at {@see self::DEFAULT_MAX_BACKUPS}. The `ap_plugin_zip_max_backups`
+     * filter receives that cap and the slug and may return a positive integer,
+     * or a digit string, to replace it. Any other return value leaves the
+     * default in place. Zero is not accepted: a successful upgrade always
+     * keeps the backup it just wrote when that backup is among the newest
+     * entries the cap allows.
+     */
+    public static function maxBackups(string $slug = ''): int
+    {
+        $default = self::DEFAULT_MAX_BACKUPS;
+        if (!function_exists('ap_apply_filters')) {
+            return $default;
+        }
+
+        return self::positiveIntOrDefault(
+            ap_apply_filters('ap_plugin_zip_max_backups', $default, $slug),
             $default
         );
     }
