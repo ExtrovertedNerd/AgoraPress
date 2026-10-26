@@ -150,6 +150,7 @@ $requiredPaths = [
     'ap-includes/class-ap-session.php',
     'ap-includes/class-ap-mail.php',
     'ap-includes/class-ap-smtp.php',
+    'ap-includes/class-ap-account-notice.php',
     'ap-includes/class-ap-registration.php',
     'ap-includes/class-ap-post.php',
     'ap-includes/class-ap-taxonomy.php',

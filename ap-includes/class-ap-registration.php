@@ -1313,6 +1313,11 @@ class AP_Registration
     /**
      * Complete password reset with a valid key.
      *
+     * On success, fires `ap_password_changed` with the account user id, that
+     * same id as the actor, and context `self`. The new password is not an
+     * argument. The signed-in user is not the actor: the reset link is the
+     * account owner.
+     *
      * @return array{ok: bool, errors: list<string>, user: ?AP_User}
      */
     public static function resetPassword(
@@ -1357,6 +1362,21 @@ class AP_Registration
 
         // Re-fetch so callers see the new hash / clean key.
         $fresh = AP_User::getById($user->ID, $db);
+
+        // The reset link was already emailed. This notice has no key and no
+        // password. A skipped or failed send does not undo the reset.
+        if (class_exists('AP_Account_Notice', false)) {
+            $noticeUser = $fresh ?? $user;
+            AP_Account_Notice::notifyPasswordChanged(
+                $noticeUser,
+                $db,
+                (string) $user->user_email
+            );
+        }
+
+        // The reset link is the account owner, even if another user is signed in.
+        // The new password is not an argument.
+        AP_User::fireCredentialChange('password', (int) $user->ID, (int) $user->ID, 'self');
 
         return ['ok' => true, 'errors' => [], 'user' => $fresh];
     }

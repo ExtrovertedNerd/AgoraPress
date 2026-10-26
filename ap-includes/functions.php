@@ -81,6 +81,10 @@ function ap_create_user(array $data, ?AP_DB $db = null): array
 /**
  * Update a user.
  *
+ * A password change fires `ap_password_changed`. An email change fires
+ * `ap_email_changed`. Arguments are the account user id, the actor user id,
+ * and `self` or `admin`. The password is not an argument.
+ *
  * @param array<string, mixed> $data
  *
  * @return array{ok: bool, id: int, errors: list<string>, user: ?AP_User}

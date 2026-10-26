@@ -51,6 +51,11 @@ class AP_Mail
     private static ?string $forcedFailure = null;
 
     /**
+     * Test-only override for {@see phpMailAvailable()}. Null uses `mail()`.
+     */
+    private static ?bool $phpMailAvailableForTests = null;
+
+    /**
      * Capture outbound mail in memory instead of calling mail().
      */
     public static function enableTestMode(): void
@@ -113,6 +118,17 @@ class AP_Mail
         self::$configOverride = null;
         self::$lastError = '';
         self::$forcedFailure = null;
+        self::$phpMailAvailableForTests = null;
+    }
+
+    /**
+     * Test helper: pretend PHP `mail()` is available or missing.
+     *
+     * Pass null to use the real `mail()` function again.
+     */
+    public static function setPhpMailAvailableForTests(?bool $available): void
+    {
+        self::$phpMailAvailableForTests = $available;
     }
 
     /**
@@ -182,7 +198,7 @@ class AP_Mail
             'smtp_user_set' => $smtp['username'] !== '',
             'smtp_pass_set' => $smtp['password'] !== '',
             'last_error' => self::storedLastError($db),
-            'php_mail_available' => function_exists('mail'),
+            'php_mail_available' => self::phpMailAvailable(),
             'override_constants' => self::definedConfigConstants(),
         ];
     }
@@ -219,12 +235,71 @@ class AP_Mail
      * Active transport: `php` (default) or `smtp`.
      *
      * `AP_MAIL_TRANSPORT` wins over the `mail_transport` option when defined.
+     * A raw value of `none`, `off`, or `disabled` still normalizes to `php`
+     * here. Callers that must not send in that case use {@see outboundSkipReason()}.
      */
     public static function transport(?AP_DB $db = null): string
     {
         $raw = self::configValue('transport', self::TRANSPORT_PHP, $db);
 
         return self::normalizeTransport((string) $raw);
+    }
+
+    /**
+     * Why a notice must not be sent, or null when a send may be attempted.
+     *
+     * Disabled: the raw transport (`mail_transport`, `AP_MAIL_TRANSPORT`, or
+     * the test overlay) is `none`, `off`, or `disabled`.
+     * Unconfigured: transport is SMTP and the host is empty, or transport is
+     * PHP and `mail()` is not available. An empty SMTP host does not block
+     * the PHP transport.
+     *
+     * The result is safe to log. It has no address, password, or message body.
+     */
+    public static function outboundSkipReason(?AP_DB $db = null): ?string
+    {
+        $raw = strtolower(trim((string) self::configValue('transport', self::TRANSPORT_PHP, $db)));
+        if (in_array($raw, ['none', 'off', 'disabled'], true)) {
+            return 'Outbound mail is disabled.';
+        }
+
+        if (self::normalizeTransport($raw) === self::TRANSPORT_SMTP) {
+            $host = trim((string) self::configValue('smtp_host', '', $db));
+            if ($host === '') {
+                return 'Outbound mail is not configured (SMTP host is empty).';
+            }
+
+            return null;
+        }
+
+        if (!self::phpMailAvailable()) {
+            return 'Outbound mail is not configured (PHP mail() is unavailable).';
+        }
+
+        return null;
+    }
+
+    /**
+     * Record that a send was skipped because mail is disabled or not configured.
+     *
+     * Stores `$reason` as the mail last-error (Settings → Mail / Site Health)
+     * and writes one `error_log` line. Newlines are stripped. Callers must not
+     * pass a password, a reset key, or a mailbox in `$reason` or `$context`.
+     */
+    public static function logOutboundSkip(string $reason, string $context = '', ?AP_DB $db = null): void
+    {
+        $reason = self::sanitizeHeaderValue($reason);
+        if ($reason === '') {
+            $reason = 'Outbound mail was skipped.';
+        }
+        $context = self::sanitizeHeaderValue($context);
+        self::rememberError($reason, $db);
+
+        $line = 'AgoraPress mail: ' . $reason;
+        if ($context !== '') {
+            $line .= ' (' . $context . ')';
+        }
+        error_log($line);
     }
 
     /**
@@ -754,17 +829,29 @@ class AP_Mail
         return '';
     }
 
-    private static function rememberError(string $message): void
+    private static function rememberError(string $message, ?AP_DB $db = null): void
     {
         self::$lastError = $message;
         if (!class_exists('AP_Options', false)) {
             return;
         }
         try {
-            AP_Options::update('mail_last_error', $message, null, 'no');
+            AP_Options::update('mail_last_error', $message, $db, 'no');
         } catch (Throwable) {
             // Best-effort persistence for Settings → Mail.
         }
+    }
+
+    /**
+     * Whether PHP `mail()` can be called. Tests may override this.
+     */
+    private static function phpMailAvailable(): bool
+    {
+        if (self::$phpMailAvailableForTests !== null) {
+            return self::$phpMailAvailableForTests;
+        }
+
+        return function_exists('mail');
     }
 }
 

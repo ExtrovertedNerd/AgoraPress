@@ -447,6 +447,9 @@ class AP_User
     /**
      * Persist a new password hash for this user.
      *
+     * Does not fire `ap_password_changed`. A login rehash uses this method.
+     * Password reset fires that action after this returns.
+     *
      * @return bool True when the DB update succeeded.
      */
     public function updatePassword(string $password, ?AP_DB $db = null): bool
@@ -698,13 +701,46 @@ class AP_User
      * the browser signed in. A password change for any other account destroys
      * all of that account's sessions. {@see self::updatePassword()} always
      * destroys every session.
+     * A successful password change emails the address that was on the account
+     * before this save ({@see AP_Account_Notice::notifyPasswordChanged()}).
+     * The message has no password. A skipped or failed send does not undo
+     * the update. Disabled or unconfigured outbound mail is skipped and
+     * logged. {@see self::updatePassword()} does not send that notice
+     * (a transparent rehash is not a password change). Password reset sends
+     * it after the new hash is stored.
+     * A successful email change notifies the previous address and sends a
+     * confirmation to the new address
+     * ({@see AP_Account_Notice::notifyEmailChanged()}).
+     * The same mailbox, including a case-only change, is not mailed.
+     * A skipped or failed send does not undo the email change.
+     * Disabled or unconfigured outbound mail is skipped and logged.
+     *
+     * After a successful password change, fires `ap_password_changed`.
+     * After a successful change to a different mailbox, fires
+     * `ap_email_changed`. Each action receives the account user id, the
+     * actor user id, and `self` or `admin`. Callbacks need `accepted_args`
+     * 3. The password is not an argument. A case-only email rewrite does
+     * not fire. A failed save does not fire. {@see self::updatePassword()}
+     * does not fire; password reset fires `ap_password_changed` with
+     * context `self` and the account as the actor.
+     *
+     * `$actorId` and `$actorContext` record who made the change. An empty
+     * context is inferred: a different actor is `admin`, and this account
+     * (or no other actor) is `self`.
      *
      * @param array<string, mixed> $data
+     * @param int                  $actorId      User who made the change, or 0 to infer.
+     * @param string               $actorContext `self`, `admin`, or empty to infer.
      *
      * @return array{ok: bool, id: int, errors: list<string>, user: ?self}
      */
-    public static function update(int $id, array $data, ?AP_DB $db = null): array
-    {
+    public static function update(
+        int $id,
+        array $data,
+        ?AP_DB $db = null,
+        int $actorId = 0,
+        string $actorContext = ''
+    ): array {
         if ($id < 1) {
             return ['ok' => false, 'id' => 0, 'errors' => ['Invalid user ID.'], 'user' => null];
         }
@@ -774,6 +810,18 @@ class AP_User
 
         if ($errors !== []) {
             return ['ok' => false, 'id' => $id, 'errors' => $errors, 'user' => $existing];
+        }
+
+        $passwordChanged = $newPassword !== null;
+        $emailChanged = isset($cols['user_email'])
+            && strcasecmp((string) $cols['user_email'], (string) $existing->user_email) !== 0;
+        // Resolve before session cleanup. A self password change can rotate
+        // or clear the signed-in user, and the action must still name the
+        // actor who submitted it.
+        $changeActorId = $id;
+        $changeContext = 'self';
+        if ($passwordChanged || $emailChanged) {
+            [$changeActorId, $changeContext] = self::accountChangeActor($id, $actorId, $actorContext, $db);
         }
 
         // Capture before the hash is stored. The auth cookie binds a fragment
@@ -846,7 +894,100 @@ class AP_User
 
         $user = self::getById($id, $db);
 
+        // Address from before this save, so a simultaneous email change still
+        // notifies that inbox. The plaintext password is not an argument.
+        $noticeUser = $user ?? $existing;
+        if ($newPassword !== null && class_exists('AP_Account_Notice', false)) {
+            AP_Account_Notice::notifyPasswordChanged(
+                $noticeUser,
+                $db,
+                (string) $existing->user_email
+            );
+        }
+
+        // Previous inbox is warned. The new inbox gets a confirmation.
+        // Case-only is the same mailbox and is not mailed. Neither body
+        // includes the password. A skipped or failed send keeps the save.
+        if (
+            isset($cols['user_email'])
+            && (string) $cols['user_email'] !== (string) $existing->user_email
+            && class_exists('AP_Account_Notice', false)
+        ) {
+            AP_Account_Notice::notifyEmailChanged(
+                $noticeUser,
+                $db,
+                (string) $existing->user_email,
+                (string) $cols['user_email']
+            );
+        }
+
+        // Plugins react after the row is stored. Arguments are ids and
+        // context only — never the password or the addresses.
+        if ($passwordChanged) {
+            self::fireCredentialChange('password', $id, $changeActorId, $changeContext);
+        }
+        if ($emailChanged) {
+            self::fireCredentialChange('email', $id, $changeActorId, $changeContext);
+        }
+
         return ['ok' => true, 'id' => $id, 'errors' => [], 'user' => $user];
+    }
+
+    /**
+     * Fire `ap_password_changed` or `ap_email_changed`.
+     *
+     * `$change` is `password` or `email`. `$context` is `self` or `admin`.
+     * Callbacks receive the account user id, the actor user id, and the
+     * context (`accepted_args` 3). The password is not an argument. Any
+     * other `$change` or `$context`, or an id below 1, does nothing.
+     */
+    public static function fireCredentialChange(
+        string $change,
+        int $userId,
+        int $actorId,
+        string $context
+    ): void {
+        if ($userId < 1 || $actorId < 1 || !function_exists('ap_do_action')) {
+            return;
+        }
+        if ($context !== 'self' && $context !== 'admin') {
+            return;
+        }
+        if ($change === 'password') {
+            ap_do_action('ap_password_changed', $userId, $actorId, $context);
+
+            return;
+        }
+        if ($change === 'email') {
+            ap_do_action('ap_email_changed', $userId, $actorId, $context);
+        }
+    }
+
+    /**
+     * Actor and context for a credential-change action.
+     *
+     * An explicit `self` or `admin` context is kept. Otherwise a different
+     * actor is `admin`, and this account (or no other actor) is `self`.
+     *
+     * @return array{0: int, 1: 'self'|'admin'}
+     */
+    private static function accountChangeActor(
+        int $userId,
+        int $actorId,
+        string $context,
+        ?AP_DB $db
+    ): array {
+        if ($context !== 'self' && $context !== 'admin') {
+            if ($actorId < 1) {
+                $current = function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id($db) : 0;
+                $actorId = $current > 0 ? $current : $userId;
+            }
+            $context = $actorId !== $userId ? 'admin' : 'self';
+        } elseif ($actorId < 1) {
+            $actorId = $userId;
+        }
+
+        return [$actorId, $context];
     }
 
     /**
@@ -1499,3 +1640,5 @@ class AP_User
         return [$sql, $params];
     }
 }
+
+require_once __DIR__ . '/class-ap-account-notice.php';

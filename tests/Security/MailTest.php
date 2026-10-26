@@ -174,6 +174,95 @@ final class MailTest extends TestCase
         $this->assertSame(AP_Mail::TRANSPORT_PHP, AP_Mail::transport());
     }
 
+    public function testOutboundSkipReasonIsNullForPhpAndConfiguredSmtp(): void
+    {
+        $this->assertNull(AP_Mail::outboundSkipReason());
+
+        AP_Mail::setConfigForTests([
+            'transport' => 'php',
+            'smtp_host' => '',
+        ]);
+        $this->assertNull(AP_Mail::outboundSkipReason());
+
+        AP_Mail::setConfigForTests([
+            'transport' => 'smtp',
+            'smtp_host' => 'smtp.example.com',
+        ]);
+        $this->assertNull(AP_Mail::outboundSkipReason());
+
+        AP_Mail::setConfigForTests(['transport' => 'sendmail']);
+        $this->assertNull(AP_Mail::outboundSkipReason());
+    }
+
+    public function testOutboundSkipReasonWhenMailIsDisabled(): void
+    {
+        foreach (['none', 'off', 'disabled', ' NONE '] as $transport) {
+            AP_Mail::setConfigForTests([
+                'transport' => $transport,
+                'smtp_host' => '',
+            ]);
+            $this->assertSame('Outbound mail is disabled.', AP_Mail::outboundSkipReason());
+        }
+    }
+
+    public function testOutboundSkipReasonWhenSmtpHostIsEmpty(): void
+    {
+        AP_Mail::setConfigForTests([
+            'transport' => 'SMTP',
+            'smtp_host' => '   ',
+        ]);
+        $this->assertSame(
+            'Outbound mail is not configured (SMTP host is empty).',
+            AP_Mail::outboundSkipReason()
+        );
+    }
+
+    public function testOutboundSkipReasonWhenPhpMailIsUnavailable(): void
+    {
+        AP_Mail::setPhpMailAvailableForTests(false);
+        $this->assertSame(
+            'Outbound mail is not configured (PHP mail() is unavailable).',
+            AP_Mail::outboundSkipReason()
+        );
+        $this->assertFalse(AP_Mail::healthSnapshot()['php_mail_available']);
+
+        AP_Mail::setPhpMailAvailableForTests(true);
+        $this->assertNull(AP_Mail::outboundSkipReason());
+        $this->assertTrue(AP_Mail::healthSnapshot()['php_mail_available']);
+    }
+
+    public function testLogOutboundSkipWritesLastErrorAndOneLogLine(): void
+    {
+        $logFile = tempnam(sys_get_temp_dir(), 'ap-mail-skip-');
+        $this->assertIsString($logFile);
+        $previous = ini_set('error_log', $logFile);
+        $logged = '';
+        try {
+            AP_Mail::logOutboundSkip(
+                "Outbound mail is disabled.\r\nBcc: injected@example.test",
+                "password change notice\nsecret-value"
+            );
+        } finally {
+            if ($previous !== false) {
+                ini_set('error_log', (string) $previous);
+            }
+            if (is_file($logFile)) {
+                $logged = (string) file_get_contents($logFile);
+                unlink($logFile);
+            }
+        }
+
+        $this->assertSame(
+            'Outbound mail is disabled.Bcc: injected@example.test',
+            AP_Mail::lastError()
+        );
+        $this->assertStringContainsString('AgoraPress mail: Outbound mail is disabled.', $logged);
+        $this->assertStringContainsString('(password change notice', $logged);
+        $this->assertStringNotContainsString("\r", $logged);
+        $this->assertDoesNotMatchRegularExpression('/(?:^|[\r\n])Bcc:/', $logged);
+        $this->assertSame(1, substr_count($logged, 'AgoraPress mail:'));
+    }
+
     public function testSmtpTransportCanBeSelected(): void
     {
         AP_Mail::setConfigForTests(['transport' => 'SMTP']);

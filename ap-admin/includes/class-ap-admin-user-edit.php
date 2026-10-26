@@ -56,6 +56,11 @@ class AP_Admin_User_Edit
      *   when user-edit saves the signed-in user's own account. After that
      *   password is saved, other sessions and remember-me tokens are destroyed
      *   and this request's session id is rotated so the browser stays signed in.
+     *   A successful password change fires `ap_password_changed`, and a
+     *   successful email change fires `ap_email_changed`. Arguments are the
+     *   account user id, this actor id, and `self` or `admin` (`self` for
+     *   profile and for user-edit of this same account). The password is
+     *   not an argument.
      *
      * @param array<string, mixed> $input Typically $_POST.
      * @param string               $mode  create|update|profile
@@ -254,7 +259,15 @@ class AP_Admin_User_Edit
             ];
         }
 
-        $result = AP_User::update($id, $data, $db);
+        // self: this account. admin: a different account. The password is
+        // not an action argument.
+        $result = AP_User::update(
+            $id,
+            $data,
+            $db,
+            $actorId,
+            self::credentialChangeContext($mode, $actorId, $id)
+        );
         if (!$result['ok']) {
             $errors = $result['errors'];
             if ($reauthError !== null) {
@@ -1067,6 +1080,18 @@ class AP_Admin_User_Edit
         }
 
         return $data;
+    }
+
+    /**
+     * `self` when this account changes its own password or email, otherwise `admin`.
+     */
+    private static function credentialChangeContext(string $mode, int $actorId, int $targetId): string
+    {
+        if ($mode === 'profile' || self::userEditOfSelf($mode, $actorId, $targetId)) {
+            return 'self';
+        }
+
+        return 'admin';
     }
 
     /**

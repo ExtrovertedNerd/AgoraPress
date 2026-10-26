@@ -286,6 +286,8 @@ function ap_bootstrap(): void
     // Outbound mail (php mail() / native SMTP) with test outbox.
     require_once AP_ABSPATH . 'ap-includes/class-ap-mail.php';
     require_once AP_ABSPATH . 'ap-includes/class-ap-smtp.php';
+    // Password-change notice (text/plain; no password or reset key).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-account-notice.php';
     // Public registration, email verification, password reset.
     require_once AP_ABSPATH . 'ap-includes/class-ap-registration.php';
     // Roles & capabilities (role map + userCan / currentUserCan).
