@@ -29,6 +29,14 @@
     </IfModule>
 </FilesMatch>
 
+# Uploaded SVG is active XML. Lock it down when Apache serves the file.
+<IfModule mod_headers.c>
+    <If "%{REQUEST_URI} =~ m~/ap-content/uploads/.+\.svg$~i">
+        Header set Content-Security-Policy "script-src 'none'; sandbox"
+        Header set X-Content-Type-Options "nosniff"
+    </If>
+</IfModule>
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /

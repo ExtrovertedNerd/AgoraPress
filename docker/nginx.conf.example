@@ -40,6 +40,13 @@ server {
         deny all;
     }
 
+    # Uploaded SVG is active XML. Serve it with a locked-down policy.
+    location ~* ^/ap-content/uploads/.+\.svg$ {
+        add_header Content-Security-Policy "script-src 'none'; sandbox" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
     # Front controller (required for pretty permalinks).
     # Existing files (including a manual root favicon.ico) are served first via $uri.
     location / {

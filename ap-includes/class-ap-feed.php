@@ -160,10 +160,7 @@ class AP_Feed
             $title = (string) $post->post_title;
             $pub = self::rfc822Date((string) $post->post_date_gmt, (string) $post->post_date);
             $guid = $link !== '' ? $link : ('post-' . (int) $post->ID);
-            $body = $useExcerpt
-                ? self::excerptForFeed($post)
-                : self::stripSpoilers((string) $post->post_content);
-            $desc = self::excerptForFeed($post);
+            $itemText = self::itemTexts($post, $useExcerpt);
 
             $xml .= "    <item>\n";
             $xml .= '      <title>' . self::xmlText($title) . "</title>\n";
@@ -173,9 +170,10 @@ class AP_Feed
             if ($pub !== '') {
                 $xml .= '      <pubDate>' . self::xmlText($pub) . "</pubDate>\n";
             }
-            $xml .= '      <description>' . self::xmlText($desc) . "</description>\n";
-            if (!$useExcerpt && $body !== '') {
-                $xml .= '      <content:encoded><![CDATA[' . self::cdataSafe($body) . "]]></content:encoded>\n";
+            $xml .= '      <description>' . self::xmlText($itemText['description']) . "</description>\n";
+            if ($itemText['include_full']) {
+                $xml .= '      <content:encoded><![CDATA[' . self::cdataSafe($itemText['body'])
+                    . "]]></content:encoded>\n";
             }
             $xml .= "    </item>\n";
         }
@@ -218,10 +216,7 @@ class AP_Feed
             $title = (string) $post->post_title;
             $id = $link !== '' ? $link : ('urn:agorapress:post:' . (int) $post->ID);
             $pub = self::atomDate((string) $post->post_date_gmt, (string) $post->post_date);
-            $body = $useExcerpt
-                ? self::excerptForFeed($post)
-                : self::stripSpoilers((string) $post->post_content);
-            $summary = self::excerptForFeed($post);
+            $itemText = self::itemTexts($post, $useExcerpt);
 
             $xml .= "  <entry>\n";
             $xml .= '    <title>' . self::xmlText($title) . "</title>\n";
@@ -233,12 +228,12 @@ class AP_Feed
                 $xml .= '    <updated>' . self::xmlText($pub) . "</updated>\n";
                 $xml .= '    <published>' . self::xmlText($pub) . "</published>\n";
             }
-            if ($summary !== '') {
-                $xml .= '    <summary type="text">' . self::xmlText($summary) . "</summary>\n";
+            if ($itemText['description'] !== '') {
+                $xml .= '    <summary type="text">' . self::xmlText($itemText['description']) . "</summary>\n";
             }
-            if ($body !== '') {
+            if ($itemText['body'] !== '') {
                 $type = $useExcerpt ? 'text' : 'html';
-                $xml .= '    <content type="' . $type . '">' . self::xmlText($body) . "</content>\n";
+                $xml .= '    <content type="' . $type . '">' . self::xmlText($itemText['body']) . "</content>\n";
             }
             $xml .= "  </entry>\n";
         }
@@ -788,8 +783,42 @@ class AP_Feed
         return self::homeUrl($db) . '/?p=' . (int) $post->ID;
     }
 
+    /**
+     * Description and optional full body for one feed item.
+     *
+     * A password-protected post that this request has not unlocked contributes
+     * only {@see AP_Post::PASSWORD_PROTECTED_LABEL}. The excerpt and body
+     * are omitted, including content:encoded / Atom content.
+     *
+     * @return array{description: string, body: string, include_full: bool}
+     */
+    private static function itemTexts(AP_Post $post, bool $useExcerpt): array
+    {
+        if (AP_Post::passwordRequired($post)) {
+            return [
+                'description' => AP_Post::PASSWORD_PROTECTED_LABEL,
+                'body' => '',
+                'include_full' => false,
+            ];
+        }
+
+        $body = $useExcerpt
+            ? self::excerptForFeed($post)
+            : self::stripSpoilers((string) $post->post_content);
+
+        return [
+            'description' => self::excerptForFeed($post),
+            'body' => $body,
+            'include_full' => !$useExcerpt && $body !== '',
+        ];
+    }
+
     private static function excerptForFeed(AP_Post $post): string
     {
+        if (AP_Post::passwordRequired($post)) {
+            return AP_Post::PASSWORD_PROTECTED_LABEL;
+        }
+
         $excerpt = trim((string) $post->post_excerpt);
         if ($excerpt !== '') {
             return trim(self::stripSpoilers($excerpt));

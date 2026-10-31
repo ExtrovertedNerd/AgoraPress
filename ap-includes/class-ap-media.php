@@ -208,6 +208,14 @@ Options -Indexes
     </IfModule>
 </FilesMatch>
 
+# SVG is XML and can carry script. Serve uploaded SVG as inert bytes.
+<FilesMatch "(?i)\.svg$">
+    <IfModule mod_headers.c>
+        Header set Content-Security-Policy "script-src 'none'; sandbox"
+        Header set X-Content-Type-Options "nosniff"
+    </IfModule>
+</FilesMatch>
+
 HTACCESS;
     }
 
@@ -231,6 +239,7 @@ HTACCESS;
             if (
                 $current === ''
                 || !str_contains($current, 'FilesMatch')
+                || !str_contains($current, "script-src 'none'")
                 || (
                     str_contains($current, 'Require all denied')
                     && !str_contains($current, 'Require all granted')
@@ -1176,10 +1185,14 @@ HTACCESS;
     }
 
     /**
-     * Scan an SVG file for common XSS / script-injection patterns.
+     * Scan an SVG file for script and active-content payloads.
      *
-     * Returns an empty string when safe enough to store; otherwise an error message.
-     * This is intentionally strict: SVG is XML and can embed active content.
+     * Parses the file as XML with network access disabled (no external DTD
+     * or entities). Element and attribute names must be on the allowlist.
+     * Character references are decoded, then URL-bearing values are checked
+     * again after whitespace and control characters are removed.
+     *
+     * Returns an empty string when safe enough to store; otherwise an error.
      */
     public static function scanSvgSafety(string $path): string
     {
@@ -1201,36 +1214,251 @@ HTACCESS;
             return 'SVG file is empty.';
         }
 
-        // Must look like SVG/XML.
+        if (preg_match('/<\?(php|=)/i', $content) === 1) {
+            return 'SVG must not contain PHP tags.';
+        }
+        if (preg_match('/<!DOCTYPE|<!ENTITY/i', $content) === 1) {
+            return 'SVG must not contain a document type or entity declaration.';
+        }
         if (
             !preg_match('/<svg[\s>]/i', $content)
             && !preg_match('/<\?xml/i', $content)
         ) {
             return 'File does not appear to be a valid SVG.';
         }
+        if (!class_exists(DOMDocument::class)) {
+            return 'SVG file could not be scanned.';
+        }
 
-        $patterns = [
-            '/<script[\s>]/i' => 'SVG must not contain <script> elements.',
-            '/<\/script>/i' => 'SVG must not contain <script> elements.',
-            '/\bon[a-z]+\s*=/i' => 'SVG must not contain event handler attributes.',
-            '/javascript\s*:/i' => 'SVG must not contain javascript: URLs.',
-            '/vbscript\s*:/i' => 'SVG must not contain vbscript: URLs.',
-            '/data\s*:\s*text\/html/i' => 'SVG must not embed HTML data URLs.',
-            '/<foreignObject[\s>]/i' => 'SVG must not contain foreignObject elements.',
-            '/xlink:href\s*=\s*["\']\s*javascript:/i' => 'SVG must not use javascript xlink:href.',
-            '/href\s*=\s*["\']\s*javascript:/i' => 'SVG must not use javascript href values.',
-            '/<iframe[\s>]/i' => 'SVG must not contain iframes.',
-            '/<embed[\s>]/i' => 'SVG must not contain embed elements.',
-            '/<object[\s>]/i' => 'SVG must not contain object elements.',
-            '/<\?(php|=)/i' => 'SVG must not contain PHP tags.',
-        ];
-        foreach ($patterns as $pattern => $message) {
-            if (preg_match($pattern, $content) === 1) {
-                return $message;
+        $prev = libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        // LIBXML_NONET blocks external DTD/entity fetches. Character
+        // references are still decoded into attribute values. LIBXML_NOENT
+        // is intentionally off so entity declarations are not substituted.
+        $loaded = $dom->loadXML($content, LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+        if ($loaded !== true) {
+            return 'File does not appear to be a valid SVG.';
+        }
+
+        $root = $dom->documentElement;
+        if (!$root instanceof DOMElement || strtolower($root->localName) !== 'svg') {
+            return 'File does not appear to be a valid SVG.';
+        }
+
+        return self::auditSvgElement($root);
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private static function svgAllowedElements(): array
+    {
+        static $allowed = null;
+        if (is_array($allowed)) {
+            return $allowed;
+        }
+        $names = 'a altglyph altglyphdef altglyphitem animate animatecolor animatemotion'
+            . ' animatetransform circle clippath color-profile cursor defs desc ellipse'
+            . ' feblend fecolormatrix fecomponenttransfer fecomposite feconvolvematrix'
+            . ' fediffuselighting fedisplacementmap fedistantlight feflood fefunca fefuncb'
+            . ' fefuncg fefuncr fegaussianblur feimage femerge femergenode femorphology'
+            . ' feoffset fepointlight fespecularlighting fespotlight fetile feturbulence'
+            . ' filter font font-face font-face-format font-face-name font-face-src'
+            . ' font-face-uri g glyph glyphref hkern image line lineargradient marker mask'
+            . ' metadata missing-glyph mpath path pattern polygon polyline radialgradient'
+            . ' rect set stop style svg switch symbol text textpath title tref tspan use'
+            . ' view vkern';
+        $allowed = [];
+        foreach (preg_split('/\s+/', trim($names)) ?: [] as $name) {
+            $allowed[$name] = true;
+        }
+
+        return $allowed;
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private static function svgAllowedAttributes(): array
+    {
+        static $allowed = null;
+        if (is_array($allowed)) {
+            return $allowed;
+        }
+        $names = 'accent-height accumulate additive alignment-baseline amplitude'
+            . ' attributename attributetype azimuth basefrequency baseline-shift begin bias'
+            . ' by calcmode class clip clip-path clip-rule color color-interpolation'
+            . ' color-interpolation-filters color-rendering cursor cx cy d diffuseconstant'
+            . ' direction display divisor dur dx dy edgemode elevation end exponent fill'
+            . ' fill-opacity fill-rule filter filterunits flood-color flood-opacity'
+            . ' font-family font-size font-size-adjust font-stretch font-style font-variant'
+            . ' font-weight fr from fx fy gradienttransform gradientunits height href id'
+            . ' in in2 intercept k k1 k2 k3 k4 kernelmatrix kernelunitlength keypoints'
+            . ' keysplines keytimes lang lengthadjust letter-spacing lighting-color'
+            . ' limitingconeangle marker-end marker-mid marker-start markerheight'
+            . ' markerunits markerwidth mask maskcontentunits maskunits max media method min'
+            . ' mode numoctaves offset opacity operator order orient overflow paint-order'
+            . ' path pathlength patterncontentunits patterntransform patternunits'
+            . ' pointer-events points pointsatx pointsaty pointsatz preservealpha'
+            . ' preserveaspectratio primitiveunits r radius refx refy repeatcount repeatdur'
+            . ' restart result role rotate rx ry scale seed shape-rendering slope spacing'
+            . ' specularconstant specularexponent spreadmethod startoffset stddeviation'
+            . ' stitchtiles stop-color stop-opacity stroke stroke-dasharray stroke-dashoffset'
+            . ' stroke-linecap stroke-linejoin stroke-miterlimit stroke-opacity stroke-width'
+            . ' style surfacescale systemlanguage tabindex target text-anchor text-decoration'
+            . ' text-rendering textlength to transform type values vector-effect version'
+            . ' viewbox visibility width x x1 x2 y y1 y2 z zoomandpan';
+        $allowed = [];
+        foreach (preg_split('/\s+/', trim($names)) ?: [] as $name) {
+            $allowed[$name] = true;
+        }
+
+        return $allowed;
+    }
+
+    private static function auditSvgElement(DOMElement $el): string
+    {
+        $tag = strtolower($el->localName);
+        if ($tag === 'script') {
+            return 'SVG must not contain <script> elements.';
+        }
+        if ($tag === 'foreignobject') {
+            return 'SVG must not contain foreignObject elements.';
+        }
+        if ($tag === 'iframe') {
+            return 'SVG must not contain iframes.';
+        }
+        if ($tag === 'embed') {
+            return 'SVG must not contain embed elements.';
+        }
+        if ($tag === 'object') {
+            return 'SVG must not contain object elements.';
+        }
+        if (!isset(self::svgAllowedElements()[$tag])) {
+            return 'SVG contains a disallowed element.';
+        }
+
+        if (in_array($tag, ['animate', 'set', 'animatecolor', 'animatemotion', 'animatetransform'], true)) {
+            $target = '';
+            if ($el->hasAttributes()) {
+                foreach ($el->attributes as $attr) {
+                    if ($attr instanceof DOMAttr && strtolower($attr->localName) === 'attributename') {
+                        $target = self::normalizeSvgToken($attr->value);
+                        break;
+                    }
+                }
+            }
+            if ($target === 'href' || $target === 'xlink:href' || str_ends_with($target, ':href')) {
+                return 'SVG must not animate href values.';
+            }
+        }
+
+        if ($el->hasAttributes()) {
+            foreach ($el->attributes as $attr) {
+                if (!$attr instanceof DOMAttr) {
+                    continue;
+                }
+                $error = self::auditSvgAttribute($attr);
+                if ($error !== '') {
+                    return $error;
+                }
+            }
+        }
+
+        if ($tag === 'style' && self::svgStyleIsDangerous($el->textContent)) {
+            return 'SVG must not contain active style.';
+        }
+
+        foreach ($el->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $error = self::auditSvgElement($child);
+                if ($error !== '') {
+                    return $error;
+                }
             }
         }
 
         return '';
+    }
+
+    private static function auditSvgAttribute(DOMAttr $attr): string
+    {
+        $name = strtolower($attr->localName);
+        $node = strtolower($attr->nodeName);
+        if ($name === 'xmlns' || str_starts_with($node, 'xmlns:') || str_starts_with($node, 'xml:')) {
+            return '';
+        }
+        if (str_starts_with($name, 'aria-')) {
+            return '';
+        }
+        if (isset(self::svgAllowedAttributes()[$name])) {
+            return self::auditSvgUrlAttribute($name, $node, $attr->value);
+        }
+        if (preg_match('/^on[a-z]{2,}$/', $name) === 1) {
+            return 'SVG must not contain event handler attributes.';
+        }
+
+        return 'SVG contains a disallowed attribute.';
+    }
+
+    private static function auditSvgUrlAttribute(string $name, string $node, string $value): string
+    {
+        $isUrl = in_array($name, ['href', 'values', 'from', 'to'], true) || $node === 'xlink:href';
+        if ($isUrl && self::svgUrlIsDangerous($value)) {
+            return 'SVG must not contain javascript:, data:, or vbscript: URLs.';
+        }
+        if ($name === 'style' && self::svgStyleIsDangerous($value)) {
+            return 'SVG must not contain active style.';
+        }
+
+        return '';
+    }
+
+    /**
+     * Decode entities and strip whitespace / control characters from a token.
+     */
+    private static function normalizeSvgToken(string $value): string
+    {
+        $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $stripped = preg_replace('/[\x00-\x20\x7F]+/', '', $value);
+        if (is_string($stripped)) {
+            $value = $stripped;
+        }
+        $stripped = preg_replace(
+            '/[\x{00A0}\x{1680}\x{2000}-\x{200D}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+/u',
+            '',
+            $value
+        );
+        if (is_string($stripped)) {
+            $value = $stripped;
+        }
+        $value = str_replace(['\\', '"', "'", '`'], '', $value);
+
+        return strtolower($value);
+    }
+
+    private static function svgUrlIsDangerous(string $value): bool
+    {
+        $norm = self::normalizeSvgToken($value);
+
+        return str_starts_with($norm, 'javascript:')
+            || str_starts_with($norm, 'vbscript:')
+            || str_starts_with($norm, 'data:');
+    }
+
+    private static function svgStyleIsDangerous(string $value): bool
+    {
+        $norm = self::normalizeSvgToken($value);
+
+        return str_contains($norm, 'javascript:')
+            || str_contains($norm, 'vbscript:')
+            || str_contains($norm, 'data:')
+            || str_contains($norm, 'expression(')
+            || str_contains($norm, '-moz-binding')
+            || str_contains($norm, 'behavior:');
     }
 
     /**

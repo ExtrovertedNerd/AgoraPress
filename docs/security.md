@@ -309,7 +309,11 @@ store, not a second credential.
 `AP_Session::login()` applies **rate limits** (IP + identity) before
 `AP_User::authenticate()`. Failed attempts increment both buckets; success
 clears them. Identity and IP keys are hashed so raw emails do not sit in
-transient names.
+transient names. REST HTTP Basic (`AP_Rest::authenticate()`) uses those
+same `login` buckets and thresholds. A locked Basic attempt is refused
+with HTTP 429 before the password is checked, so a correct password and a
+wrong password look the same while the lockout holds. Form failures and
+Basic failures share the counters.
 
 Default windows (`AP_Rate_Limit`; override with options
 `rate_limit_{action}_max` / `_window` / `_lockout`):
@@ -711,6 +715,20 @@ Media lives under `ap-content/uploads/` (optionally `YYYY/MM/`). `AP_Media`:
   allows static media, disables indexes, turns the PHP engine off when
   `mod_php` is in use, and denies `php` / `phtml` / `phar` / `cgi` / `pl` /
   `py` / `asp` / `aspx` / `jsp` / `shtml` / `.htaccess` / `.htpasswd`.
+- SVG uploads are parsed as XML (no external entities). Elements and
+  attributes are allowlisted. Script, `foreignObject`, event handlers, and
+  `javascript:` / `data:` / `vbscript:` URLs are rejected, including entity
+  encodings. `animate` / `set` that target `href` are rejected.
+- Shipped `.htaccess` and `docker/nginx.conf.example` send uploaded SVG with
+  `Content-Security-Policy: script-src 'none'; sandbox` and
+  `X-Content-Type-Options: nosniff`. The uploads `.htaccess` template does
+  the same.
+
+Password-protected posts keep their body and excerpt out of RSS/Atom
+(`This post is password protected.` and no `content:encoded`), Open Graph /
+Twitter descriptions (site tagline, or that same generic line), search and
+archive excerpts, and sitemaps. A request that already holds the post
+password cookie can see the text. There is no JSON-LD block in core.
 
 Nginx should not `fastcgi_pass` PHP under `uploads/` (restrict PHP to known
 entry points when you can — the example file comments that). Site Icon uses

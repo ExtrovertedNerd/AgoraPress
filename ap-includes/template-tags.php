@@ -142,6 +142,10 @@ function ap_get_the_excerpt(AP_Post|int|null $post = null, int $words = 55): str
         return '';
     }
 
+    if (AP_Post::passwordRequired($obj)) {
+        return AP_Post::PASSWORD_PROTECTED_LABEL;
+    }
+
     $excerpt = trim((string) $obj->post_excerpt);
     if ($excerpt !== '') {
         if (function_exists('ap_strip_spoilers')) {

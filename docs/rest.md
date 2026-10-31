@@ -111,6 +111,10 @@ Two methods, in this order:
    `user_status` (disabled / not activated) fail the same as a bad
    password. PHP CGI fallbacks: `HTTP_AUTHORIZATION`,
    `REDIRECT_HTTP_AUTHORIZATION`, `PHP_AUTH_USER` / `PHP_AUTH_PW`.
+   Basic auth uses the same login lockout as the form (per IP and per
+   identity, `AP_Rate_Limit` action `login`). While that lockout holds,
+   the password is not checked and the response is **429**
+   `rest_rate_limited` (same body for a correct password and a wrong one).
 2. **Session cookie** — the same logged-in browser cookie as `/ap-admin/`
    (`AP_Session::getCurrentUser()` / `ap_get_current_user_id()`).
 

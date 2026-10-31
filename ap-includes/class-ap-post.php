@@ -50,6 +50,19 @@ class AP_Post
      */
     public const DEFAULT_MAX_REVISIONS = 25;
 
+    /**
+     * Plain text used when a locked post must not reveal its body or excerpt.
+     */
+    public const PASSWORD_PROTECTED_LABEL = 'This post is password protected.';
+
+    /**
+     * Cookie that unlocks password-protected posts for this browser.
+     *
+     * Value is {@see passwordCookieValue()} for the post password. Core does
+     * not render a password form; callers that accept the password set this.
+     */
+    public const PASSWORD_COOKIE = 'ap_postpass';
+
     /** @var array<string, array<string, mixed>> Registered post statuses. */
     private static array $statuses = [];
 
@@ -457,6 +470,45 @@ class AP_Post
     public function isPasswordProtected(): bool
     {
         return $this->post_password !== '';
+    }
+
+    /**
+     * Whether the body and excerpt must stay hidden from this request.
+     *
+     * Empty post passwords are public. A matching {@see PASSWORD_COOKIE}
+     * counts as unlocked. The cookie is not the password itself.
+     */
+    public static function passwordRequired(self $post): bool
+    {
+        if ($post->post_password === '') {
+            return false;
+        }
+
+        return !self::cookieUnlocksPassword($post->post_password);
+    }
+
+    /**
+     * Whether the current request cookie matches this post password.
+     */
+    public static function cookieUnlocksPassword(string $password): bool
+    {
+        if ($password === '') {
+            return true;
+        }
+        $raw = $_COOKIE[self::PASSWORD_COOKIE] ?? null;
+        if (!is_string($raw) || $raw === '') {
+            return false;
+        }
+
+        return hash_equals(self::passwordCookieValue($password), $raw);
+    }
+
+    /**
+     * Cookie value for a post password. Not the password and not the DB column.
+     */
+    public static function passwordCookieValue(string $password): string
+    {
+        return hash('sha256', 'ap-postpass:' . $password);
     }
 
     public function isSticky(?AP_DB $db = null): bool

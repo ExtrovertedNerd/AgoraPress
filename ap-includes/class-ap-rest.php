@@ -23,8 +23,10 @@
  * Plugins register routes on `ap_rest_api_init` via AP_Rest::registerRoute().
  *
  * Auth: session cookie (logged-in browser) and optional HTTP Basic
- * (username:password). Cookie-authenticated mutations require X-AP-Nonce
- * (or _ap_nonce body field) matching action "ap_rest".
+ * (username:password). Basic auth uses the same login lockout as the
+ * form ({@see AP_Rate_Limit::checkLogin()}). Cookie-authenticated
+ * mutations require X-AP-Nonce (or _ap_nonce body field) matching
+ * action "ap_rest".
  *
  * @package AgoraPress
  */
@@ -68,6 +70,17 @@ class AP_Rest
 
     /** Whether {@see registerBuiltins()} is mid-run (guards re-entry). */
     private static bool $registering = false;
+
+    /**
+     * Last HTTP Basic failure in this process.
+     *
+     * Status 429 means the login lockout already applies. The password is
+     * not checked in that case, so a correct password and a wrong password
+     * produce the same result.
+     *
+     * @var array{status: int, message: string, retry_after: int}|null
+     */
+    private static ?array $basicAuthFailure = null;
 
     /**
      * Whether the REST API is enabled (option + filter).
@@ -181,6 +194,7 @@ class AP_Rest
         self::$routes = [];
         self::$builtinsRegistered = false;
         self::$registering = false;
+        self::$basicAuthFailure = null;
     }
 
     /**
@@ -296,7 +310,8 @@ class AP_Rest
      *     body?: array<string, mixed>|string|null,
      *     headers?: array<string, string>,
      *     server?: array<string, mixed>,
-     *     user_id?: int
+     *     user_id?: int,
+     *     auth_resolved?: bool
      * } $input
      *
      * @return array{status: int, data: mixed, headers: array<string, string>}
@@ -320,9 +335,18 @@ class AP_Rest
         $body = self::parseBody($input['body'] ?? null, $headers);
         $server = is_array($input['server'] ?? null) ? $input['server'] : [];
 
-        $userId = isset($input['user_id']) ? (int) $input['user_id'] : 0;
-        if ($userId < 1) {
+        if (!empty($input['auth_resolved'])) {
+            $userId = max(0, (int) ($input['user_id'] ?? 0));
+        } elseif (isset($input['user_id']) && (int) $input['user_id'] > 0) {
+            $userId = (int) $input['user_id'];
+        } else {
             $userId = self::authenticate($headers, $server, $db);
+        }
+        if ($userId < 1) {
+            $locked = self::basicLockoutResponse();
+            if ($locked !== null) {
+                return $locked;
+            }
         }
 
         $match = self::matchRoute($method, $route);
@@ -445,25 +469,26 @@ class AP_Rest
         }
 
         $userId = self::authenticate($headers, $_SERVER, $db);
+        $locked = $userId < 1 ? self::basicLockoutResponse() : null;
 
         // Already-denied rewrite args (name/slug stripped) must not fall
         // through to a 200 collection that would confirm the room.
         $scope = self::forumRestScopeVars($vars, $query, $route);
-        if (self::isEnabled($db) && self::shouldDenyForumRest($scope, $db, $userId)) {
+        if ($locked !== null) {
+            $response = $locked;
+        } elseif (self::isEnabled($db) && self::shouldDenyForumRest($scope, $db, $userId)) {
             $response = self::cannotViewResponse();
         } else {
-            $dispatch = [
+            $response = self::dispatch([
                 'method' => $method,
                 'route' => $route,
                 'query' => $query,
                 'body' => $rawBody,
                 'headers' => $headers,
                 'server' => $_SERVER,
-            ];
-            if ($userId > 0) {
-                $dispatch['user_id'] = $userId;
-            }
-            $response = self::dispatch($dispatch, $db);
+                'user_id' => $userId,
+                'auth_resolved' => true,
+            ], $db);
         }
 
         if (function_exists('ap_do_action')) {
@@ -2033,40 +2058,26 @@ class AP_Rest
     /**
      * Cookie or Basic auth → user id.
      *
+     * HTTP Basic uses the same IP + identity lockout as {@see AP_Session::login()}
+     * ({@see AP_Rate_Limit::checkLogin()}). A locked attempt returns 0 and
+     * does not check the password or fall through to the session cookie.
+     *
      * @param array<string, string> $headers
      * @param array<string, mixed>  $server
      */
     public static function authenticate(array $headers, array $server = [], ?AP_DB $db = null): int
     {
-        // HTTP Basic first (explicit API credentials).
-        $auth = $headers['Authorization'] ?? $headers['authorization'] ?? '';
-        if ($auth === '' && isset($server['HTTP_AUTHORIZATION']) && is_string($server['HTTP_AUTHORIZATION'])) {
-            $auth = $server['HTTP_AUTHORIZATION'];
-        }
-        if ($auth === '' && isset($server['REDIRECT_HTTP_AUTHORIZATION']) && is_string($server['REDIRECT_HTTP_AUTHORIZATION'])) {
-            $auth = $server['REDIRECT_HTTP_AUTHORIZATION'];
-        }
-        if ($auth === '' && isset($server['PHP_AUTH_USER']) && is_string($server['PHP_AUTH_USER'])) {
-            $user = $server['PHP_AUTH_USER'];
-            $pass = isset($server['PHP_AUTH_PW']) && is_string($server['PHP_AUTH_PW'])
-                ? $server['PHP_AUTH_PW']
-                : '';
-            if ($user !== '' && class_exists('AP_User', false)) {
-                $u = AP_User::authenticate($user, $pass, $db);
-                if ($u !== null) {
-                    return (int) $u->ID;
-                }
+        self::$basicAuthFailure = null;
+
+        $creds = self::basicCredentials($headers, $server);
+        if ($creds !== null) {
+            [$user, $pass] = $creds;
+            $account = self::authenticateBasic($user, $pass, $server, $db);
+            if ($account instanceof AP_User) {
+                return (int) $account->ID;
             }
-        } elseif (preg_match('/^Basic\s+(.+)$/i', $auth, $m) === 1) {
-            $decoded = base64_decode($m[1], true);
-            if (is_string($decoded) && str_contains($decoded, ':')) {
-                [$user, $pass] = explode(':', $decoded, 2);
-                if ($user !== '' && class_exists('AP_User', false)) {
-                    $u = AP_User::authenticate($user, $pass, $db);
-                    if ($u !== null) {
-                        return (int) $u->ID;
-                    }
-                }
+            if (self::$basicAuthFailure !== null && self::$basicAuthFailure['status'] === 429) {
+                return 0;
             }
         }
 
@@ -2086,6 +2097,163 @@ class AP_Rest
         }
 
         return 0;
+    }
+
+    /**
+     * Basic credentials from the Authorization header or PHP CGI fallbacks.
+     *
+     * @param array<string, string> $headers
+     * @param array<string, mixed>  $server
+     *
+     * @return array{0: string, 1: string}|null Username and password, or null
+     *                                          when this request did not send Basic auth.
+     */
+    private static function basicCredentials(array $headers, array $server): ?array
+    {
+        $auth = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+        if ($auth === '' && isset($server['HTTP_AUTHORIZATION']) && is_string($server['HTTP_AUTHORIZATION'])) {
+            $auth = $server['HTTP_AUTHORIZATION'];
+        }
+        if (
+            $auth === ''
+            && isset($server['REDIRECT_HTTP_AUTHORIZATION'])
+            && is_string($server['REDIRECT_HTTP_AUTHORIZATION'])
+        ) {
+            $auth = $server['REDIRECT_HTTP_AUTHORIZATION'];
+        }
+
+        if ($auth !== '') {
+            if (preg_match('/^Basic\s+(.+)$/i', $auth, $m) !== 1) {
+                return null;
+            }
+            $decoded = base64_decode($m[1], true);
+            if (!is_string($decoded) || !str_contains($decoded, ':')) {
+                return null;
+            }
+            [$user, $pass] = explode(':', $decoded, 2);
+            if ($user === '') {
+                return null;
+            }
+
+            return [$user, $pass];
+        }
+
+        if (!isset($server['PHP_AUTH_USER']) || !is_string($server['PHP_AUTH_USER'])) {
+            return null;
+        }
+        $user = $server['PHP_AUTH_USER'];
+        if ($user === '') {
+            return null;
+        }
+        $pass = isset($server['PHP_AUTH_PW']) && is_string($server['PHP_AUTH_PW'])
+            ? $server['PHP_AUTH_PW']
+            : '';
+
+        return [$user, $pass];
+    }
+
+    /**
+     * Check the shared login lockout, then the password.
+     *
+     * While the IP or identity bucket is locked, the password is not verified.
+     * A correct password and a wrong password then share the same 429 result.
+     *
+     * @param array<string, mixed> $server
+     */
+    private static function authenticateBasic(
+        string $user,
+        string $pass,
+        array $server,
+        ?AP_DB $db
+    ): ?AP_User {
+        $ip = self::loginIp($server);
+        if (class_exists('AP_Rate_Limit', false)) {
+            $gate = AP_Rate_Limit::checkLogin($user, $ip, $db);
+            if (!$gate['allowed']) {
+                self::rememberBasicLockout($gate);
+
+                return null;
+            }
+        }
+
+        if (!class_exists('AP_User', false)) {
+            return null;
+        }
+
+        $account = AP_User::authenticate($user, $pass, $db);
+        if (!$account instanceof AP_User) {
+            if (class_exists('AP_Rate_Limit', false)) {
+                $after = AP_Rate_Limit::recordFailedLogin($user, $ip, $db);
+                if (!$after['allowed']) {
+                    self::rememberBasicLockout($after);
+                }
+            }
+
+            return null;
+        }
+
+        if (class_exists('AP_Rate_Limit', false)) {
+            AP_Rate_Limit::clearLogin($user, $ip, $db);
+        }
+        self::$basicAuthFailure = null;
+
+        return $account;
+    }
+
+    /**
+     * IP for the login buckets. An empty string lets {@see AP_Rate_Limit::clientIp()}
+     * read $_SERVER, which is the same default the login form uses.
+     *
+     * @param array<string, mixed> $server
+     */
+    private static function loginIp(array $server): string
+    {
+        if (!class_exists('AP_Rate_Limit', false)) {
+            return '';
+        }
+        if (!isset($server['REMOTE_ADDR']) || !is_string($server['REMOTE_ADDR'])) {
+            return '';
+        }
+
+        return AP_Rate_Limit::sanitizeIp($server['REMOTE_ADDR']);
+    }
+
+    /**
+     * @param array{allowed: bool, retry_after: int, message: string} $gate
+     */
+    private static function rememberBasicLockout(array $gate): void
+    {
+        $message = $gate['message'] !== ''
+            ? $gate['message']
+            : 'Too many failed login attempts. Please try again later.';
+        self::$basicAuthFailure = [
+            'status' => 429,
+            'message' => $message,
+            'retry_after' => max(0, (int) $gate['retry_after']),
+        ];
+    }
+
+    /**
+     * 429 response when Basic auth is locked. Null when this request is not locked.
+     *
+     * The body does not say whether the password would have matched.
+     *
+     * @return array{status: int, data: array<string, mixed>, headers: array<string, string>}|null
+     */
+    private static function basicLockoutResponse(): ?array
+    {
+        $failure = self::$basicAuthFailure;
+        if ($failure === null || $failure['status'] !== 429) {
+            return null;
+        }
+        self::$basicAuthFailure = null;
+
+        $response = self::errorResponse('rest_rate_limited', $failure['message'], 429);
+        if ($failure['retry_after'] > 0) {
+            $response['headers']['Retry-After'] = (string) $failure['retry_after'];
+        }
+
+        return $response;
     }
 
     /**

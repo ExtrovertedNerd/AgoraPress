@@ -332,4 +332,42 @@ final class FeedTest extends TestCase
         $this->assertStringContainsString('Open html', $rss3);
         $this->assertStringContainsString('[Spoiler]', $rss3);
     }
+
+    public function testPasswordProtectedPostOmitsBodyUntilUnlocked(): void
+    {
+        $secretBody = 'feed-body-leak-token';
+        $secretExcerpt = 'feed-excerpt-leak-token';
+        AP_Post::insert([
+            'post_title' => 'Locked Feed Post',
+            'post_content' => '<p>' . $secretBody . '</p>',
+            'post_excerpt' => $secretExcerpt,
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_password' => 's3cret',
+            'post_date' => '2026-07-01 12:00:00',
+            'post_date_gmt' => '2026-07-01 12:00:00',
+        ], $this->db);
+
+        $rss = AP_Feed::buildRss2($this->db);
+        $this->assertStringContainsString('Locked Feed Post', $rss);
+        $this->assertStringContainsString(AP_Post::PASSWORD_PROTECTED_LABEL, $rss);
+        $this->assertStringNotContainsString($secretBody, $rss);
+        $this->assertStringNotContainsString($secretExcerpt, $rss);
+        $this->assertStringNotContainsString('<content:encoded>', $rss);
+
+        $atom = AP_Feed::buildAtom($this->db);
+        $this->assertStringContainsString(AP_Post::PASSWORD_PROTECTED_LABEL, $atom);
+        $this->assertStringNotContainsString($secretBody, $atom);
+        $this->assertStringNotContainsString($secretExcerpt, $atom);
+        $this->assertStringNotContainsString('<content', $atom);
+
+        $_COOKIE[AP_Post::PASSWORD_COOKIE] = AP_Post::passwordCookieValue('s3cret');
+        try {
+            $open = AP_Feed::buildRss2($this->db);
+            $this->assertStringContainsString($secretBody, $open);
+            $this->assertStringContainsString('<content:encoded>', $open);
+        } finally {
+            unset($_COOKIE[AP_Post::PASSWORD_COOKIE]);
+        }
+    }
 }

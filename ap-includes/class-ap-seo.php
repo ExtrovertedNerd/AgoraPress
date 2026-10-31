@@ -218,7 +218,7 @@ class AP_Seo
                     $title = $postTitle . ' — ' . $siteName;
                 }
             }
-            $description = self::excerptForMeta($post);
+            $description = self::descriptionForPost($post, $db);
             $type = ((string) $post->post_type === 'page') ? 'website' : 'article';
             $image = self::featuredImageUrl($post, $db);
 
@@ -477,6 +477,23 @@ class AP_Seo
         $url = AP_Media::getAttachmentUrl((int) $thumbId, $db);
 
         return is_string($url) ? $url : '';
+    }
+
+    /**
+     * Meta description for one post.
+     *
+     * Locked posts do not contribute the body or the excerpt. The site
+     * tagline is used when it is set; otherwise a generic line.
+     */
+    private static function descriptionForPost(AP_Post $post, ?AP_DB $db): string
+    {
+        if (AP_Post::passwordRequired($post)) {
+            $site = trim(self::siteDescription($db));
+
+            return $site !== '' ? $site : AP_Post::PASSWORD_PROTECTED_LABEL;
+        }
+
+        return self::excerptForMeta($post);
     }
 
     private static function excerptForMeta(AP_Post $post): string

@@ -470,4 +470,55 @@ final class SitemapSeoTest extends TestCase
         $this->assertSame(['robots' => '1'], AP_Rewrite::matchSeoPath('robots.txt'));
         $this->assertNull(AP_Rewrite::matchSeoPath('hello-world'));
     }
+
+    public function testPasswordProtectedPostHidesMetaAndSitemapText(): void
+    {
+        $secretBody = 'og-body-leak-token';
+        $secretExcerpt = 'og-excerpt-leak-token';
+        $id = AP_Post::insert([
+            'post_title' => 'Locked OG Post',
+            'post_content' => 'Lead ' . $secretBody . ' tail',
+            'post_excerpt' => $secretExcerpt,
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_password' => 's3cret',
+        ], $this->db);
+
+        $q = new AP_Query(['p' => $id], $this->db);
+        $meta = AP_Seo::getOpenGraphMeta($q, $this->db);
+        $this->assertSame('Sitemap and Open Graph tests', $meta['og:description']);
+        $this->assertSame($meta['og:description'], $meta['twitter:description']);
+        $joined = implode("\n", $meta);
+        $this->assertStringNotContainsString($secretBody, $joined);
+        $this->assertStringNotContainsString($secretExcerpt, $joined);
+
+        $this->assertTrue(AP_Options::update('blogdescription', '', $this->db));
+        AP_Options::flushCache();
+        $generic = AP_Seo::getOpenGraphMeta($q, $this->db);
+        $this->assertSame(AP_Post::PASSWORD_PROTECTED_LABEL, $generic['og:description']);
+        $this->assertSame(AP_Post::PASSWORD_PROTECTED_LABEL, $generic['twitter:description']);
+
+        $GLOBALS['ap_query'] = $q;
+        ob_start();
+        AP_Seo::printHeadTags();
+        $html = (string) ob_get_clean();
+        $this->assertStringNotContainsString($secretBody, $html);
+        $this->assertStringNotContainsString($secretExcerpt, $html);
+        $this->assertStringNotContainsString('ld+json', $html);
+        $this->assertStringContainsString('property="og:description"', $html);
+        $this->assertStringContainsString('name="twitter:description"', $html);
+
+        $xml = AP_Sitemap::buildProvider('posts', 1, $this->db);
+        $this->assertStringNotContainsString($secretBody, $xml);
+        $this->assertStringNotContainsString($secretExcerpt, $xml);
+        $this->assertStringNotContainsString('<url>', $xml);
+
+        $_COOKIE[AP_Post::PASSWORD_COOKIE] = AP_Post::passwordCookieValue('s3cret');
+        try {
+            $open = AP_Seo::getOpenGraphMeta($q, $this->db);
+            $this->assertStringContainsString($secretExcerpt, (string) $open['og:description']);
+        } finally {
+            unset($_COOKIE[AP_Post::PASSWORD_COOKIE], $GLOBALS['ap_query']);
+        }
+    }
 }

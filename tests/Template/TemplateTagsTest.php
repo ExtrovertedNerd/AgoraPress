@@ -174,6 +174,26 @@ final class TemplateTagsTest extends TestCase
         $this->assertStringNotContainsString('html excerpt leak', $htmlExcerpt);
     }
 
+    public function testPasswordProtectedExcerptHidesBodyFromSearch(): void
+    {
+        $id = AP_Post::insert([
+            'post_title' => 'Locked Search Card',
+            'post_content' => 'search-body-leak-token stays in the post',
+            'post_excerpt' => 'search-excerpt-leak-token',
+            'post_status' => 'publish',
+            'post_type' => 'post',
+            'post_password' => 's3cret',
+        ], $this->db);
+        $post = AP_Post::get($id, $this->db);
+        $this->assertInstanceOf(AP_Post::class, $post);
+        $GLOBALS['ap_post'] = $post;
+
+        $excerpt = ap_get_the_excerpt();
+        $this->assertSame(AP_Post::PASSWORD_PROTECTED_LABEL, $excerpt);
+        $this->assertStringNotContainsString('search-body-leak-token', $excerpt);
+        $this->assertStringNotContainsString('search-excerpt-leak-token', $excerpt);
+    }
+
     public function testPermalinkAndDate(): void
     {
         $id = AP_Post::insert([
