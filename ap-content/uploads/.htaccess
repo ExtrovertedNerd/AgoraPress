@@ -1,0 +1,43 @@
+# AgoraPress uploads — allow static media, block script execution.
+# Operator media in this directory is runtime data. AP_Media rewrites this
+# file when the script guard or the SVG headers are missing.
+
+<IfModule mod_authz_core.c>
+    Require all granted
+</IfModule>
+
+# Disable directory listing when allowed by server config.
+Options -Indexes
+
+# Disable PHP engine when mod_php is in use.
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+
+# Deny direct access to common server-side script extensions.
+<FilesMatch "(?i)\.(php|phtml|php\d*|phar|cgi|pl|py|asp|aspx|jsp|shtml|htaccess|htpasswd)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# SVG is XML and can carry script. These headers are best effort: they apply
+# only when mod_headers is loaded and this directory allows Header. If Apache
+# returns HTTP 500 for SVG URLs, remove this block. Nginx does not read this
+# file; use the uploads SVG location in docker/nginx.conf.example.
+<IfModule mod_headers.c>
+    <FilesMatch "\.svg$">
+        Header set Content-Security-Policy "script-src 'none'; sandbox"
+        Header set X-Content-Type-Options "nosniff"
+    </FilesMatch>
+</IfModule>

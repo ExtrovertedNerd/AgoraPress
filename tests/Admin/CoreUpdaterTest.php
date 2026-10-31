@@ -506,6 +506,220 @@ final class CoreUpdaterTest extends TestCase
         $this->assertContains('update-core', $ids);
     }
 
+    public function testExistingRootHtaccessIsNotReplaced(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $site = $this->workDir . '/ht-keep';
+        $this->seedFakeSite($site, '0.1.0-dev');
+        $custom = "# site rules\nRewriteEngine On\n";
+        file_put_contents($site . '/.htaccess', $custom);
+
+        $pkgDir = $this->buildMinimalPackageDir('4.0.0');
+        $packageHt = "# package rules\nRewriteEngine On\n";
+        file_put_contents($pkgDir . '/.htaccess', $packageHt);
+        file_put_contents($pkgDir . '/ap-includes/marker.php', "<?php\n// core update\n");
+
+        $zipPath = $this->workDir . '/ht-keep.zip';
+        $this->zipDirectory($pkgDir, $zipPath, 'AgoraPress-4.0.0');
+
+        $result = AP_Core_Updater::run($this->db, [
+            'abspath' => $site,
+            'package_path' => $zipPath,
+            'expected_version' => '4.0.0',
+            'skip_migrate' => true,
+        ]);
+
+        $this->assertTrue($result['ok'], implode(' ', $result['errors']));
+        $this->assertFalse($result['rolled_back']);
+        $this->assertTrue($result['htaccess_deferred']);
+        $this->assertContains('health_probe_skipped', $result['steps']);
+        $this->assertContains(AP_Core_Updater::HTACCESS_DEFERRED_NOTICE, $result['warnings']);
+        $this->assertSame($custom, (string) file_get_contents($site . '/.htaccess'));
+        $this->assertSame($packageHt, (string) file_get_contents($site . '/.htaccess.ap-new'));
+        $this->assertStringContainsString(
+            'core update',
+            (string) file_get_contents($site . '/ap-includes/marker.php')
+        );
+        $this->assertFalse(AP_Core_Updater::isMaintenanceMode($site));
+    }
+
+    public function testMissingRootHtaccessIsInstalledFromPackage(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $site = $this->workDir . '/ht-new';
+        $this->seedFakeSite($site, '0.1.0-dev');
+        $this->assertFileDoesNotExist($site . '/.htaccess');
+
+        $pkgDir = $this->buildMinimalPackageDir('4.1.0');
+        $packageHt = "# fresh rules\nRewriteEngine On\n";
+        file_put_contents($pkgDir . '/.htaccess', $packageHt);
+        $zipPath = $this->workDir . '/ht-new.zip';
+        $this->zipDirectory($pkgDir, $zipPath, 'AgoraPress-4.1.0');
+
+        $result = AP_Core_Updater::run($this->db, [
+            'abspath' => $site,
+            'package_path' => $zipPath,
+            'expected_version' => '4.1.0',
+            'skip_migrate' => true,
+        ]);
+
+        $this->assertTrue($result['ok'], implode(' ', $result['errors']));
+        $this->assertFalse($result['htaccess_deferred']);
+        $this->assertSame($packageHt, (string) file_get_contents($site . '/.htaccess'));
+        $this->assertFileDoesNotExist($site . '/.htaccess.ap-new');
+    }
+
+    public function testHealthProbe5xxRollsBackFilesAndHtaccess(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $site = $this->workDir . '/probe-500';
+        $this->seedFakeSite($site, '0.1.0-dev');
+        $custom = "# keep me\nRewriteEngine On\n";
+        file_put_contents($site . '/.htaccess', $custom);
+        file_put_contents($site . '/ap-includes/marker.php', "<?php\n// old marker\n");
+        AP_Options::update('home', 'https://example.test', $this->db);
+        AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $pkgDir = $this->buildMinimalPackageDir('5.0.0');
+        file_put_contents($pkgDir . '/.htaccess', "# package\nRewriteEngine On\n");
+        file_put_contents($pkgDir . '/ap-includes/marker.php', "<?php\n// new marker\n");
+        $zipPath = $this->workDir . '/probe-500.zip';
+        $this->zipDirectory($pkgDir, $zipPath, 'AgoraPress-5.0.0');
+
+        $seen = [];
+        AP_Core_Updater::setHttpTransport(static function (string $method, string $url) use (&$seen): array {
+            $seen[] = ['method' => $method, 'url' => $url];
+
+            return [
+                'ok' => false,
+                'status' => 500,
+                'body' => 'unavailable',
+                'error' => 'HTTP 500',
+            ];
+        });
+
+        $result = AP_Core_Updater::run($this->db, [
+            'abspath' => $site,
+            'package_path' => $zipPath,
+            'expected_version' => '5.0.0',
+            'skip_migrate' => true,
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertTrue($result['rolled_back']);
+        $this->assertContains('health_probe_failed', $result['steps']);
+        $this->assertContains('rolled_back', $result['steps']);
+        $this->assertContains('maintenance_off', $result['steps']);
+        $joined = implode(' ', $result['errors']);
+        $this->assertStringContainsString('HTTP 500', $joined);
+        $this->assertStringContainsString('rolled back', strtolower($joined));
+        $this->assertStringContainsString('https://example.test/', $joined);
+        $this->assertStringContainsString('https://example.test/ap-json/', $joined);
+        $this->assertSame($custom, (string) file_get_contents($site . '/.htaccess'));
+        $this->assertStringContainsString('old marker', (string) file_get_contents($site . '/ap-includes/marker.php'));
+        $this->assertStringContainsString('0.1.0-dev', (string) file_get_contents($site . '/ap-includes/version.php'));
+        $this->assertStringContainsString('// front', (string) file_get_contents($site . '/index.php'));
+        $this->assertStringContainsString('# package', (string) file_get_contents($site . '/.htaccess.ap-new'));
+        $this->assertFalse(AP_Core_Updater::isMaintenanceMode($site));
+        $urls = array_column($seen, 'url');
+        $this->assertContains('https://example.test/', $urls);
+        $this->assertContains('https://example.test/ap-json/', $urls);
+        $this->assertNotSame('5.0.0', (string) AP_Options::get('ap_version', '', $this->db));
+    }
+
+    public function testHealthProbeUnavailableDoesNotRollBack(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $site = $this->workDir . '/probe-down';
+        $this->seedFakeSite($site, '0.1.0-dev');
+        AP_Options::update('home', 'https://example.test/blog', $this->db);
+
+        $pkgDir = $this->buildMinimalPackageDir('5.1.0');
+        file_put_contents($pkgDir . '/ap-includes/marker.php', "<?php\n// stayed\n");
+        $zipPath = $this->workDir . '/probe-down.zip';
+        $this->zipDirectory($pkgDir, $zipPath, 'AgoraPress-5.1.0');
+
+        AP_Core_Updater::setHttpTransport(static function (string $method, string $url): array {
+            return [
+                'ok' => false,
+                'status' => 0,
+                'body' => '',
+                'error' => 'Connection refused for ' . $url,
+            ];
+        });
+
+        $result = AP_Core_Updater::run($this->db, [
+            'abspath' => $site,
+            'package_path' => $zipPath,
+            'expected_version' => '5.1.0',
+            'skip_migrate' => true,
+        ]);
+
+        $this->assertTrue($result['ok'], implode(' ', $result['errors']));
+        $this->assertFalse($result['rolled_back']);
+        $this->assertContains('health_probe_skipped', $result['steps']);
+        $warning = implode(' ', $result['warnings']);
+        $this->assertStringContainsString('could not be reached', $warning);
+        $this->assertStringContainsString('https://example.test/blog/', $warning);
+        $this->assertStringContainsString('https://example.test/blog/ap-json/', $warning);
+        $this->assertStringContainsString('stayed', (string) file_get_contents($site . '/ap-includes/marker.php'));
+        $this->assertStringContainsString('5.1.0', (string) file_get_contents($site . '/ap-includes/version.php'));
+        $this->assertFalse(AP_Core_Updater::isMaintenanceMode($site));
+    }
+
+    public function testHealthProbeClientErrorDoesNotRollBack(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $site = $this->workDir . '/probe-404';
+        $this->seedFakeSite($site, '0.1.0-dev');
+        AP_Options::update('siteurl', 'https://example.test', $this->db);
+
+        $pkgDir = $this->buildMinimalPackageDir('5.2.0');
+        file_put_contents($pkgDir . '/ap-includes/marker.php', "<?php\n// kept after 404\n");
+        $zipPath = $this->workDir . '/probe-404.zip';
+        $this->zipDirectory($pkgDir, $zipPath, 'AgoraPress-5.2.0');
+
+        AP_Core_Updater::setHttpTransport(static function (): array {
+            return [
+                'ok' => false,
+                'status' => 404,
+                'body' => 'missing',
+                'error' => 'HTTP 404',
+            ];
+        });
+
+        $result = AP_Core_Updater::run($this->db, [
+            'abspath' => $site,
+            'package_path' => $zipPath,
+            'expected_version' => '5.2.0',
+            'skip_migrate' => true,
+        ]);
+
+        $this->assertTrue($result['ok'], implode(' ', $result['errors']));
+        $this->assertFalse($result['rolled_back']);
+        $this->assertContains('health_probe', $result['steps']);
+        $this->assertNotContains('health_probe_failed', $result['steps']);
+        $this->assertStringContainsString(
+            'kept after 404',
+            (string) file_get_contents($site . '/ap-includes/marker.php')
+        );
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

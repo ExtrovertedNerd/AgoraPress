@@ -528,7 +528,7 @@ function shouldExcludeRelative(string $relative, bool $isDir): bool
         if ($rel === 'ap-content/uploads') {
             return false; // include the directory itself
         }
-        if ($rel === 'ap-content/uploads/index.php') {
+        if ($rel === 'ap-content/uploads/index.php' || $rel === 'ap-content/uploads/.htaccess') {
             return false;
         }
 
@@ -575,9 +575,10 @@ function isUnderExcludedTree(string $relative): bool
         }
     }
 
-    // uploads: only index.php allowed under ap-content/uploads/
+    // uploads: only the silent index and the SVG guard ship
     if (str_starts_with($rel, 'ap-content/uploads/')) {
-        return $rel !== 'ap-content/uploads/index.php';
+        return $rel !== 'ap-content/uploads/index.php'
+            && $rel !== 'ap-content/uploads/.htaccess';
     }
 
     return false;

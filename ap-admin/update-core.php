@@ -111,6 +111,24 @@ if ($message === 'updated') {
     }
     $text .= ' You may need to refresh or re-login if the admin shell changed.';
     AP_Admin::addNotice($text, 'success');
+    if (class_exists('AP_Core_Updater', false) && class_exists('AP_Options', false)) {
+        $last = AP_Options::get(AP_Core_Updater::OPTION_LAST_UPDATE, null, $db);
+        if (is_string($last) && $last !== '') {
+            $decoded = json_decode($last, true);
+            $last = is_array($decoded) ? $decoded : null;
+        }
+        if (is_array($last)) {
+            $at = (int) ($last['at'] ?? 0);
+            $warns = $last['warnings'] ?? [];
+            if ($at > 0 && (time() - $at) < 300 && is_array($warns)) {
+                foreach ($warns as $warn) {
+                    if (is_string($warn) && $warn !== '') {
+                        AP_Admin::addNotice($warn, 'warning');
+                    }
+                }
+            }
+        }
+    }
 } elseif ($message === 'up_to_date') {
     $v = (string) ($_GET['v'] ?? '');
     AP_Admin::addNotice(

@@ -556,6 +556,7 @@ TLS, and the php-fpm socket. Generic `root` in that file is
 | `^~ /ap-includes/css/` and `…/js/` | `try_files $uri =404` (public assets) |
 | `^~ /ap-includes/` | `deny all` (raw PHP / schema) |
 | `~ /\.` | `deny all` (dotfiles) |
+| `~* ^/ap-content/uploads/.+\.svg$` | `Content-Security-Policy: script-src 'none'; sandbox` and `X-Content-Type-Options: nosniff` |
 | `location /` | `try_files $uri $uri/ /index.php?$args` |
 
 If you skip these denies, `ap-config.php` (credentials + salts) and a SQLite
@@ -719,10 +720,19 @@ Media lives under `ap-content/uploads/` (optionally `YYYY/MM/`). `AP_Media`:
   attributes are allowlisted. Script, `foreignObject`, event handlers, and
   `javascript:` / `data:` / `vbscript:` URLs are rejected, including entity
   encodings. `animate` / `set` that target `href` are rejected.
-- Shipped `.htaccess` and `docker/nginx.conf.example` send uploaded SVG with
-  `Content-Security-Policy: script-src 'none'; sandbox` and
-  `X-Content-Type-Options: nosniff`. The uploads `.htaccess` template does
-  the same.
+- Shipped root `.htaccess` does **not** set SVG response headers and does
+  **not** use an expression container. Those directives make some
+  `AllowOverride` setups reject the whole file (HTTP 500 on every URL).
+- `ap-content/uploads/.htaccess` (also written by
+  `AP_Media::uploadsHtaccessContents()` / `ensureProtectionFiles()`) sends
+  uploaded SVG with `Content-Security-Policy: script-src 'none'; sandbox`
+  and `X-Content-Type-Options: nosniff` inside `<IfModule mod_headers.c>`
+  and `<FilesMatch "\.svg$">`. That block is **best effort**: it runs only
+  when `mod_headers` is loaded and the vhost allows `Header` in that
+  directory. If SVG URLs return HTTP 500, remove the block.
+- [`docker/nginx.conf.example`](../docker/nginx.conf.example) has the same
+  policy in `location ~* ^/ap-content/uploads/.+\.svg$`. Nginx does not
+  read `.htaccess`; copy that location into the live server block.
 
 Password-protected posts keep their body and excerpt out of RSS/Atom
 (`This post is password protected.` and no `content:encoded`), Open Graph /

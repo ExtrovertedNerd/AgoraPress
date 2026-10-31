@@ -237,6 +237,14 @@ skip files, rewrite to `index.php`). The **repo file** is what production
 should keep: it adds the deny rules. Saving Permalinks does **not** rewrite
 `.htaccess` (unlike some CMS hosts). Copy or keep the shipped file.
 
+The shipped root file does not use expression containers or response-header
+directives. Those are rejected by some `AllowOverride` configurations and
+Apache then returns HTTP 500 for every URL. Uploaded SVG headers live in
+`ap-content/uploads/.htaccess` (**best effort**, `<IfModule mod_headers.c>`
+around `<FilesMatch "\.svg$">`) and in the SVG `location` of
+[`docker/nginx.conf.example`](../docker/nginx.conf.example). Nginx does
+not read `.htaccess`.
+
 **`mod_rewrite` required** for pretty permalinks. Without it, stay on Plain
 (`?p=`).
 
@@ -403,6 +411,6 @@ Symptom list: [troubleshooting.md](troubleshooting.md).
 | [security.md](security.md) | Deny rules on the same `.htaccess` / Nginx example |
 | [troubleshooting.md](troubleshooting.md) | Pretty URL 404 → check `try_files` / `.htaccess` |
 | [admin.md](admin.md) | Settings → Permalinks (save flushes rules) |
-| [updates.md](updates.md) | One-click apply **does** copy root `.htaccess` from the package |
+| [updates.md](updates.md) | One-click apply leaves an existing root `.htaccess` in place |
 
 *AgoraPress — free forever. Publish. Discuss. Own your stack.*

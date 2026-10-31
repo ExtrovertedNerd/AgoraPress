@@ -192,20 +192,29 @@ warning, not a hard error.
    “Site briefly unavailable” / “AgoraPress is installing an update.”).
    If the process crashes, a `.maintenance` file older than **30 minutes**
    is ignored so the site is not stuck.
-8. Copy allowed relative paths onto the site ([what is not overwritten](#what-an-update-does-not-overwrite)).
-9. Run `AP_Migrator::migrate()` for pending schema files (unless the
-   internal `skip_migrate` test flag is set).
-10. **On success only:** store `ap_version` and `ap_last_core_update`,
-    delete the `ap_version_check` transient, fire action `ap_core_updated`
-    (`$from`, `$to`, full run-result array).
-11. **Always** after maintenance started (success or fail): remove
-    `.maintenance` and the temp directory.
+8. Back up the files the package will replace, including root `.htaccess`
+   when it is present.
+9. Copy allowed relative paths onto the site ([what is not overwritten](#what-an-update-does-not-overwrite)).
+   An existing root `.htaccess` is not replaced ([below](#what-an-update-does-not-overwrite)).
+10. Run `AP_Migrator::migrate()` for pending schema files (unless the
+    internal `skip_migrate` test flag is set).
+11. Remove `.maintenance`, then loopback GET the stored home URL and
+    `{home}/ap-json/` (5 second timeout). HTTP **5xx** from either URL
+    restores the pre-update files and `.htaccess`, sets `rolled_back`,
+    and leaves maintenance off. If the home URL is missing or the loopback
+    cannot be reached, the update **stands** and a warning is recorded.
+12. **On success only:** store `ap_version` and `ap_last_core_update`
+    (including warnings), delete the `ap_version_check` transient, fire
+    action `ap_core_updated` (`$from`, `$to`, full run-result array).
+13. **Always** after maintenance started: remove `.maintenance` if it is
+    still present, and remove the temp directory.
 
 If migrations fail **after** files were applied, the error is
 `Files were updated but database migration failed: …`. The tree is already
 on the new code. Options / `ap_core_updated` / transient delete do **not**
-run. Finish with `php ap-cli db migrate` (or restore from backup). There
-is **no** automatic file rollback in core.
+run, and the health probe does **not** run. Finish with `php ap-cli db migrate`
+(or restore from backup). A failed migration does **not** roll files back.
+HTTP 5xx from the health probe does.
 
 PHP time/memory on the admin POST: `set_time_limit(300)` and
 `ini_set('memory_limit', '256M')` when those calls are allowed.
@@ -233,10 +242,13 @@ these paths even if they exist inside the zip:
 (`ap-content/themes/agora/…`). If you edited Agora in place, those edits
 are overwritten. Put customizations in a [child theme](themes.md).
 
-**Root `.htaccess` is overwritten** when the package contains one. Custom
-Apache rules in that file are lost on one-click apply — keep a copy, or
-put extra rules in the vhost. Nginx `try_files` lives in the server block,
-not in `.htaccess` ([rewrites.md](rewrites.md)).
+**Root `.htaccess` is not replaced** when the site already has one. If the
+package copy differs, it is written to `.htaccess.ap-new` and a notice is
+logged (the success screen shows that notice). Identical files are left
+alone and no sidecar is written. If the site has **no** root `.htaccess`,
+the package file is installed. Put extra Apache rules in the vhost or in
+the live `.htaccess`. Nginx `try_files` lives in the server block, not in
+`.htaccess` ([rewrites.md](rewrites.md)).
 
 The ACP screen’s “What is preserved” blurb omits `install/` and
 `ap-config-sample.php`; the updater still skips them. Trust this table,
@@ -248,7 +260,8 @@ those onto a live site. `bin/` (the packager itself) is **not** in the
 release zip.
 
 Also applied when present in the package: `index.php`, `ap-cli`,
-`ap-admin/`, `ap-includes/`, root `.htaccess`, `LICENSE`, `CHANGELOG.md`,
+`ap-admin/`, `ap-includes/`, root `.htaccess` (only when the site has
+none — see above), `LICENSE`, `CHANGELOG.md`,
 `CHANGELOG-archive.md`, `composer.json` (lockfile is **not** shipped), docs,
 Docker examples, `ap-content/themes/index.php`, and language placeholders.
 User SQLite files and `.env` are not in the zip.
@@ -400,8 +413,8 @@ label defaults to `AP_VERSION` in `ap-includes/version.php`.
 **Not shipped:** `tests/`, `vendor/`, `bin/`, `.git/`, `.github/`,
 `.hephaestus/`, Composer lock / PHPCS / PHPStan / PHPUnit configs,
 `ap-config.php`, `.env`, runtime SQLite/DB files, real files under
-`ap-content/uploads/` (only `index.php` is kept). Zero production Composer
-packages — `vendor/` is never in the zip.
+`ap-content/uploads/` (only `index.php` and `.htaccess` are kept). Zero
+production Composer packages — `vendor/` is never in the zip.
 
 Required paths inside the zip include `index.php`,
 `ap-includes/version.php`, `ap-admin/index.php`, `ap-config-sample.php`,
@@ -427,9 +440,9 @@ you host a private mirror, change those fields before serving the JSON
 4. If the admin shell changed, refresh or log in again (the success notice
    says so).
 5. If pretty permalinks 404, the front controller is a server issue, not
-   the updater — see [rewrites.md](rewrites.md). If you had customized
-   root `.htaccess`, restore those extra rules (the package copy just
-   replaced it).
+   the updater — see [rewrites.md](rewrites.md). An existing root
+   `.htaccess` is left in place. Review `.htaccess.ap-new` when the
+   success notice says the package copy was not installed.
 
 ---
 
@@ -446,7 +459,8 @@ Say **not in core** rather than inventing these:
 - One-click **plugin** or **theme** updates from this `version.json`
   (plugin/theme zip installers are a different admin surface —
   [plugins.md](plugins.md), [themes.md](themes.md))
-- Rollback UI / automatic restore of overwritten files
+- A rollback screen. File rollback is automatic only when the post-update
+  health probe returns HTTP 5xx. A failed migration does not roll files back.
 - A Settings screen dedicated to `version_check_enabled`
 - Telemetry, license pings, or site-identity query args on the version
   check

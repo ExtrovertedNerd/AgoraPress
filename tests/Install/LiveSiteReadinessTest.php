@@ -133,6 +133,7 @@ final class LiveSiteReadinessTest extends TestCase
             $this->assertNotFalse($zip->locateName('AgoraPress/index.php'));
             $this->assertNotFalse($zip->locateName('AgoraPress/.htaccess'));
             $this->assertNotFalse($zip->locateName('AgoraPress/ap-content/.htaccess'));
+            $this->assertNotFalse($zip->locateName('AgoraPress/ap-content/uploads/.htaccess'));
             $this->assertNotFalse($zip->locateName('AgoraPress/install/index.php'));
             $this->assertFalse(
                 $zip->locateName('AgoraPress/ap-content/database.sqlite'),

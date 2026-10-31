@@ -20,6 +20,12 @@
  * - Never overwrites ap-config.php, ap-config-sample.php, the install/
  *   directory, or user content under ap-content/ (uploads, plugins,
  *   mu-plugins, non-default themes)
+ * - An existing root .htaccess is not replaced. A differing package copy
+ *   is written to .htaccess.ap-new and a notice is logged.
+ * - After files and migrations, a short loopback GET of the home URL and
+ *   /ap-json/ runs. HTTP 5xx restores the pre-update files and .htaccess.
+ *   If the loopback cannot be reached, the update stands and a warning
+ *   is recorded.
  *
  * @package AgoraPress
  */
@@ -45,6 +51,23 @@ class AP_Core_Updater
 
     /** Maintenance file basenames under ABSPATH. */
     public const MAINTENANCE_FILE = '.maintenance';
+
+    /** Sidecar written when a package .htaccess differs from the live file. */
+    public const HTACCESS_SIDECAR = '.htaccess.ap-new';
+
+    /**
+     * Notice when the live root .htaccess is left in place.
+     * Shown in the update result and written to the PHP error log.
+     */
+    public const HTACCESS_DEFERRED_NOTICE =
+        'Existing root .htaccess differs from the package and was not replaced. '
+        . 'The package copy is at .htaccess.ap-new.';
+
+    /** Loopback probe timeout (seconds) for the home URL and /ap-json/. */
+    public const PROBE_TIMEOUT_SECONDS = 5;
+
+    /** Loopback probe connect timeout (seconds). */
+    public const PROBE_CONNECT_TIMEOUT_SECONDS = 3;
 
     /** Option key: last successful auto-update metadata (JSON). */
     public const OPTION_LAST_UPDATE = 'ap_last_core_update';
@@ -187,7 +210,9 @@ class AP_Core_Updater
      *   package_version: string,
      *   errors: list<string>,
      *   warnings: list<string>,
-     *   steps: list<string>
+     *   steps: list<string>,
+     *   rolled_back: bool,
+     *   htaccess_deferred: bool
      * }
      */
     public static function run(?AP_DB $db = null, array $args = []): array
@@ -367,17 +392,28 @@ class AP_Core_Updater
             $maintenanceOn = self::enableMaintenance($abspath);
             $out['steps'][] = $maintenanceOn ? 'maintenance_on' : 'maintenance_skipped';
 
-            $out['steps'][] = 'apply_files';
-            $applied = self::applyPackageFiles($packageRoot, $abspath);
-            if (!$applied['ok']) {
-                $out['errors'] = array_merge($out['errors'], $applied['errors']);
-                $out['files_applied'] = $applied['files_applied'];
+            $out['steps'][] = 'backup';
+            $backupDir = $tmpBase . '/pre-update';
+            $backup = self::backupApplyTargets($packageRoot, $abspath, $backupDir);
+            if (!$backup['ok']) {
+                $out['errors'][] = $backup['error'] !== ''
+                    ? $backup['error']
+                    : 'Could not back up the current files before applying the update.';
 
                 return $out;
             }
+
+            $out['steps'][] = 'apply_files';
+            $applied = self::applyPackageFiles($packageRoot, $abspath);
             $out['files_applied'] = $applied['files_applied'];
+            $out['htaccess_deferred'] = $applied['htaccess_deferred'];
             if ($applied['warnings'] !== []) {
                 $out['warnings'] = array_merge($out['warnings'], $applied['warnings']);
+            }
+            if (!$applied['ok']) {
+                $out['errors'] = array_merge($out['errors'], $applied['errors']);
+
+                return $out;
             }
 
             // DB migrations (new code may have already been applied on disk).
@@ -402,6 +438,34 @@ class AP_Core_Updater
                 : $expectedVersion;
             $out['to_version'] = $toVersion;
 
+            // Maintenance returns 503. Drop it before the probe so that
+            // response is not treated as a failed update.
+            if ($maintenanceOn) {
+                self::disableMaintenance($abspath);
+                $maintenanceOn = false;
+                $out['steps'][] = 'maintenance_off';
+            }
+
+            $probe = self::probeLoopback($db);
+            $out['steps'][] = $probe['step'];
+            if ($probe['warning'] !== '') {
+                $out['warnings'][] = $probe['warning'];
+            }
+            if ($probe['outcome'] === 'failed') {
+                self::logNotice($probe['error']);
+                $restored = self::restoreBackup($backupDir, $abspath, $backup['files']);
+                self::disableMaintenance($abspath);
+                $out['steps'][] = 'rolled_back';
+                $out['errors'][] = $probe['error'];
+                if ($restored['ok']) {
+                    $out['rolled_back'] = true;
+                } else {
+                    $out['errors'][] = 'Automatic rollback failed: ' . $restored['error'];
+                }
+
+                return $out;
+            }
+
             if (class_exists('AP_Options', false) && $db instanceof AP_DB) {
                 try {
                     AP_Options::update('ap_version', $toVersion !== '' ? $toVersion : $out['from_version'], $db);
@@ -411,6 +475,7 @@ class AP_Core_Updater
                         'at' => time(),
                         'files' => $out['files_applied'],
                         'migrations' => count($migrations),
+                        'warnings' => $out['warnings'],
                     ], JSON_UNESCAPED_SLASHES), $db);
                 } catch (Throwable) {
                     // Non-fatal.
@@ -724,7 +789,9 @@ HTML;
      *   package_version: string,
      *   errors: list<string>,
      *   warnings: list<string>,
-     *   steps: list<string>
+     *   steps: list<string>,
+     *   rolled_back: bool,
+     *   htaccess_deferred: bool
      * }
      */
     private static function emptyRunResult(): array
@@ -739,6 +806,8 @@ HTML;
             'errors' => [],
             'warnings' => [],
             'steps' => [],
+            'rolled_back' => false,
+            'htaccess_deferred' => false,
         ];
     }
 
@@ -1161,7 +1230,8 @@ HTML;
      *   ok: bool,
      *   files_applied: int,
      *   errors: list<string>,
-     *   warnings: list<string>
+     *   warnings: list<string>,
+     *   htaccess_deferred: bool
      * }
      */
     private static function applyPackageFiles(string $packageRoot, string $abspath): array
@@ -1169,81 +1239,549 @@ HTML;
         $packageRoot = rtrim(str_replace('\\', '/', $packageRoot), '/');
         $abspath = rtrim(str_replace('\\', '/', $abspath), '/') . '/';
 
-        $files = self::listFilesRecursive($packageRoot);
-        if ($files === []) {
-            return [
-                'ok' => false,
-                'files_applied' => 0,
-                'errors' => ['Package root has no files to apply.'],
-                'warnings' => [],
-            ];
+        if (self::listFilesRecursive($packageRoot) === []) {
+            return self::applyResult(false, 0, ['Package root has no files to apply.'], [], false);
+        }
+
+        $rels = self::listApplyRelative($packageRoot);
+        if ($rels === []) {
+            return self::applyResult(false, 0, ['No package files were eligible to apply.'], [], false);
         }
 
         $applied = 0;
         $warnings = [];
-        $errors = [];
+        $deferred = false;
 
-        foreach ($files as $absFile) {
-            $absFile = str_replace('\\', '/', $absFile);
-            if (!str_starts_with($absFile, $packageRoot . '/')) {
-                continue;
-            }
-            $rel = substr($absFile, strlen($packageRoot) + 1);
-            if ($rel === false || $rel === '') {
-                continue;
-            }
-            if (!self::shouldApplyRelative($rel)) {
-                continue;
-            }
-
+        foreach ($rels as $rel) {
+            $source = $packageRoot . '/' . $rel;
             $dest = $abspath . $rel;
-            $destDir = dirname($dest);
-            if (!self::ensureDir($destDir)) {
-                $errors[] = 'Could not create directory for ' . $rel . '.';
-
-                return [
-                    'ok' => false,
-                    'files_applied' => $applied,
-                    'errors' => $errors,
-                    'warnings' => $warnings,
-                ];
+            if ($rel === '.htaccess') {
+                $placed = self::placeRootHtaccess($source, $dest, $warnings);
+                if ($placed['deferred']) {
+                    $deferred = true;
+                }
+                if (!$placed['ok']) {
+                    return self::applyResult(false, $applied, [$placed['error']], $warnings, $deferred);
+                }
+                if ($placed['wrote']) {
+                    $applied++;
+                }
+                continue;
             }
-
-            // Prefer copy; overwrite existing core files.
-            if (!@copy($absFile, $dest)) {
-                // Retry with unlink for read-only oddities.
-                if (is_file($dest)) {
-                    @unlink($dest);
-                }
-                if (!@copy($absFile, $dest)) {
-                    $errors[] = 'Could not write ' . $rel . '.';
-
-                    return [
-                        'ok' => false,
-                        'files_applied' => $applied,
-                        'errors' => $errors,
-                        'warnings' => $warnings,
-                    ];
-                }
+            if (!self::copyOnto($source, $dest)) {
+                return self::applyResult(
+                    false,
+                    $applied,
+                    ['Could not write ' . $rel . '.'],
+                    $warnings,
+                    $deferred
+                );
             }
             $applied++;
         }
 
         if ($applied < 1) {
+            return self::applyResult(false, 0, ['No package files were eligible to apply.'], $warnings, $deferred);
+        }
+
+        return self::applyResult(true, $applied, [], $warnings, $deferred);
+    }
+
+    /**
+     * @param list<string> $errors
+     * @param list<string> $warnings
+     *
+     * @return array{
+     *   ok: bool,
+     *   files_applied: int,
+     *   errors: list<string>,
+     *   warnings: list<string>,
+     *   htaccess_deferred: bool
+     * }
+     */
+    private static function applyResult(
+        bool $ok,
+        int $applied,
+        array $errors,
+        array $warnings,
+        bool $deferred
+    ): array {
+        return [
+            'ok' => $ok,
+            'files_applied' => $applied,
+            'errors' => $errors,
+            'warnings' => $warnings,
+            'htaccess_deferred' => $deferred,
+        ];
+    }
+
+    /**
+     * Relative paths inside the package that this update will copy.
+     *
+     * @return list<string>
+     */
+    private static function listApplyRelative(string $packageRoot): array
+    {
+        $packageRoot = rtrim(str_replace('\\', '/', $packageRoot), '/');
+        $rels = [];
+        foreach (self::listFilesRecursive($packageRoot) as $absFile) {
+            $absFile = str_replace('\\', '/', $absFile);
+            if (!str_starts_with($absFile, $packageRoot . '/')) {
+                continue;
+            }
+            $rel = substr($absFile, strlen($packageRoot) + 1);
+            if ($rel === '' || str_contains($rel, "\0")) {
+                continue;
+            }
+            if (!self::shouldApplyRelative($rel)) {
+                continue;
+            }
+            $rels[] = $rel;
+        }
+
+        return $rels;
+    }
+
+    /**
+     * Copy the package .htaccess into place only when the site has none.
+     * A different live file is left alone and the package bytes go to
+     * .htaccess.ap-new.
+     *
+     * @param list<string> $warnings
+     *
+     * @return array{ok: bool, wrote: bool, deferred: bool, error: string}
+     */
+    private static function placeRootHtaccess(string $source, string $dest, array &$warnings): array
+    {
+        if (!is_file($dest)) {
+            if (!self::copyOnto($source, $dest)) {
+                return [
+                    'ok' => false,
+                    'wrote' => false,
+                    'deferred' => false,
+                    'error' => 'Could not write .htaccess.',
+                ];
+            }
+
+            return ['ok' => true, 'wrote' => true, 'deferred' => false, 'error' => ''];
+        }
+
+        $current = @file_get_contents($dest);
+        $incoming = @file_get_contents($source);
+        if (!is_string($current) || !is_string($incoming)) {
             return [
                 'ok' => false,
-                'files_applied' => 0,
-                'errors' => ['No package files were eligible to apply.'],
-                'warnings' => $warnings,
+                'wrote' => false,
+                'deferred' => false,
+                'error' => 'Could not read .htaccess while deciding whether to replace it.',
+            ];
+        }
+        if (!self::htaccessBodiesDiffer($current, $incoming)) {
+            return ['ok' => true, 'wrote' => false, 'deferred' => false, 'error' => ''];
+        }
+
+        $sidecar = dirname($dest) . '/' . self::HTACCESS_SIDECAR;
+        if (@file_put_contents($sidecar, $incoming) === false) {
+            $notice = 'Existing root .htaccess was left in place, but .htaccess.ap-new could not be written.';
+            $warnings[] = $notice;
+            self::logNotice($notice);
+
+            return ['ok' => true, 'wrote' => false, 'deferred' => true, 'error' => ''];
+        }
+
+        $warnings[] = self::HTACCESS_DEFERRED_NOTICE;
+        self::logNotice(self::HTACCESS_DEFERRED_NOTICE);
+
+        return ['ok' => true, 'wrote' => true, 'deferred' => true, 'error' => ''];
+    }
+
+    private static function htaccessBodiesDiffer(string $current, string $incoming): bool
+    {
+        return !hash_equals(self::normalizeNewlines($current), self::normalizeNewlines($incoming));
+    }
+
+    private static function normalizeNewlines(string $text): string
+    {
+        $text = str_replace(["\r\n", "\r"], "\n", $text);
+
+        return rtrim($text, "\n") . "\n";
+    }
+
+    /**
+     * Snapshot files this update may replace, including root .htaccess.
+     *
+     * @return array{ok: bool, files: list<array{rel: string, existed: bool}>, error: string}
+     */
+    private static function backupApplyTargets(string $packageRoot, string $abspath, string $backupDir): array
+    {
+        $abspath = rtrim(str_replace('\\', '/', $abspath), '/') . '/';
+        $backupDir = rtrim(str_replace('\\', '/', $backupDir), '/');
+        if (!self::ensureDir($backupDir)) {
+            return [
+                'ok' => false,
+                'files' => [],
+                'error' => 'Could not create the pre-update backup directory.',
+            ];
+        }
+
+        $rels = self::listApplyRelative($packageRoot);
+        if (!in_array('.htaccess', $rels, true) && is_file($abspath . '.htaccess')) {
+            $rels[] = '.htaccess';
+        }
+
+        $files = [];
+        foreach ($rels as $rel) {
+            if ($rel === '' || str_contains($rel, '..') || str_contains($rel, "\0")) {
+                return [
+                    'ok' => false,
+                    'files' => [],
+                    'error' => 'Refusing to back up an unsafe path.',
+                ];
+            }
+            $live = $abspath . $rel;
+            $existed = is_file($live);
+            if ($existed && !self::copyOnto($live, $backupDir . '/' . $rel)) {
+                return [
+                    'ok' => false,
+                    'files' => [],
+                    'error' => 'Could not back up ' . $rel . ' before applying the update.',
+                ];
+            }
+            $files[] = ['rel' => $rel, 'existed' => $existed];
+        }
+
+        return ['ok' => true, 'files' => $files, 'error' => ''];
+    }
+
+    /**
+     * Put the pre-update tree back. .htaccess.ap-new is not removed: Apache
+     * does not read it, and the operator can use it to replace a bad file.
+     *
+     * @param list<array{rel: string, existed: bool}> $files
+     *
+     * @return array{ok: bool, error: string}
+     */
+    private static function restoreBackup(string $backupDir, string $abspath, array $files): array
+    {
+        $abspath = rtrim(str_replace('\\', '/', $abspath), '/') . '/';
+        $backupDir = rtrim(str_replace('\\', '/', $backupDir), '/');
+        $problems = [];
+        foreach ($files as $entry) {
+            $rel = str_replace('\\', '/', (string) ($entry['rel'] ?? ''));
+            if ($rel === '' || str_contains($rel, '..') || str_contains($rel, "\0")) {
+                $problems[] = 'Refusing to restore an unsafe path.';
+                continue;
+            }
+            $dest = $abspath . $rel;
+            if (!empty($entry['existed'])) {
+                $src = $backupDir . '/' . $rel;
+                if (!is_file($src) || !self::copyOnto($src, $dest)) {
+                    $problems[] = 'Could not restore ' . $rel . '.';
+                }
+                continue;
+            }
+            if (is_file($dest) && !@unlink($dest)) {
+                $problems[] = 'Could not remove ' . $rel . '.';
+            }
+        }
+        if ($problems !== []) {
+            return ['ok' => false, 'error' => implode(' ', $problems)];
+        }
+
+        return ['ok' => true, 'error' => ''];
+    }
+
+    private static function copyOnto(string $source, string $dest): bool
+    {
+        if (!is_file($source)) {
+            return false;
+        }
+        if (!self::ensureDir(dirname($dest))) {
+            return false;
+        }
+        if (@copy($source, $dest)) {
+            return true;
+        }
+        if (is_file($dest)) {
+            @unlink($dest);
+        }
+
+        return @copy($source, $dest);
+    }
+
+    /**
+     * Loopback GET of the stored home URL and /ap-json/.
+     *
+     * Uses the site options only. Process constants such as AP_SITEURL are
+     * not consulted: tests and CLI flags can define those for a different
+     * tree than the one just updated.
+     *
+     * @return array{outcome: string, step: string, error: string, warning: string}
+     */
+    private static function probeLoopback(?AP_DB $db): array
+    {
+        $skipped = [
+            'outcome' => 'skipped',
+            'step' => 'health_probe_skipped',
+            'error' => '',
+            'warning' => 'Loopback health probe skipped: home URL is not available. '
+                . 'The update was not rolled back.',
+        ];
+        $home = self::resolveHomeUrl($db);
+        if (!self::isProbeUrl($home)) {
+            self::logNotice($skipped['warning']);
+
+            return $skipped;
+        }
+
+        $home = rtrim($home, '/');
+        $urls = [$home . '/', $home . '/ap-json/'];
+        $failures = [];
+        $unreachable = [];
+        foreach ($urls as $url) {
+            try {
+                $response = self::httpProbe($url);
+            } catch (Throwable) {
+                $unreachable[] = $url;
+                continue;
+            }
+            $status = (int) ($response['status'] ?? 0);
+            if ($status >= 500 && $status <= 599) {
+                $failures[] = 'HTTP ' . $status . ' for ' . $url;
+                continue;
+            }
+            if ($status >= 200 && $status < 500) {
+                continue;
+            }
+            $unreachable[] = $url;
+        }
+
+        if ($failures !== []) {
+            return [
+                'outcome' => 'failed',
+                'step' => 'health_probe_failed',
+                'error' => 'Health probe failed: ' . implode('; ', $failures)
+                    . '. The update was rolled back and maintenance mode is off.',
+                'warning' => '',
+            ];
+        }
+
+        if ($unreachable !== []) {
+            $warning = 'Loopback health probe skipped: ' . implode(', ', $unreachable)
+                . ' could not be reached. The update was not rolled back.';
+            self::logNotice($warning);
+            $all = count($unreachable) === count($urls);
+
+            return [
+                'outcome' => $all ? 'skipped' : 'ok',
+                'step' => $all ? 'health_probe_skipped' : 'health_probe',
+                'error' => '',
+                'warning' => $warning,
             ];
         }
 
         return [
-            'ok' => true,
-            'files_applied' => $applied,
-            'errors' => [],
-            'warnings' => $warnings,
+            'outcome' => 'ok',
+            'step' => 'health_probe',
+            'error' => '',
+            'warning' => '',
         ];
+    }
+
+    /**
+     * Home URL for the health probe. Empty when the site has not stored one.
+     */
+    private static function resolveHomeUrl(?AP_DB $db): string
+    {
+        if (!$db instanceof AP_DB || !class_exists('AP_Options', false)) {
+            return '';
+        }
+        foreach (['home', 'siteurl'] as $key) {
+            $raw = AP_Options::get($key, '', $db);
+            if (!is_string($raw)) {
+                continue;
+            }
+            $url = trim($raw);
+            if ($url !== '') {
+                return $url;
+            }
+        }
+
+        return '';
+    }
+
+    private static function isProbeUrl(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '' || preg_match('/[\r\n\0]/', $url) === 1 || !self::isHttpUrl($url)) {
+            return false;
+        }
+        $user = parse_url($url, PHP_URL_USER);
+        $pass = parse_url($url, PHP_URL_PASS);
+
+        return ($user === null || $user === false || $user === '')
+            && ($pass === null || $pass === false || $pass === '');
+    }
+
+    /**
+     * @return array{ok: bool, status: int, body: string, error: string}
+     */
+    private static function httpProbe(string $url): array
+    {
+        if (self::$httpTransport !== null) {
+            $result = (self::$httpTransport)('GET', $url);
+            if (!is_array($result)) {
+                return [
+                    'ok' => false,
+                    'status' => 0,
+                    'body' => '',
+                    'error' => 'Invalid updater transport response.',
+                ];
+            }
+
+            return [
+                'ok' => (bool) ($result['ok'] ?? false),
+                'status' => (int) ($result['status'] ?? 0),
+                'body' => (string) ($result['body'] ?? ''),
+                'error' => (string) ($result['error'] ?? ''),
+            ];
+        }
+        if (function_exists('curl_init')) {
+            return self::probeViaCurl($url);
+        }
+
+        return self::probeViaStream($url);
+    }
+
+    /**
+     * @return array{ok: bool, status: int, body: string, error: string}
+     */
+    private static function probeViaCurl(string $url): array
+    {
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return [
+                'ok' => false,
+                'status' => 0,
+                'body' => '',
+                'error' => 'Could not initialize HTTP client for the health probe.',
+            ];
+        }
+
+        $body = '';
+        curl_setopt_array($ch, [
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => [
+                'Accept: text/html, application/json, */*',
+                'User-Agent: ' . self::updaterUserAgent(),
+            ],
+            CURLOPT_TIMEOUT => self::PROBE_TIMEOUT_SECONDS,
+            CURLOPT_CONNECTTIMEOUT => self::PROBE_CONNECT_TIMEOUT_SECONDS,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 2,
+            CURLOPT_PROTOCOLS => defined('CURLPROTO_HTTPS')
+                ? (CURLPROTO_HTTPS | CURLPROTO_HTTP)
+                : 3,
+            CURLOPT_REDIR_PROTOCOLS => defined('CURLPROTO_HTTPS')
+                ? (CURLPROTO_HTTPS | CURLPROTO_HTTP)
+                : 3,
+            CURLOPT_WRITEFUNCTION => static function ($resource, string $chunk) use (&$body): int {
+                // Signature is fixed by libcurl. $resource is the transfer handle.
+                if ($chunk === '' && $resource === false) {
+                    return 0;
+                }
+                if (strlen($body) < 65536) {
+                    $body .= $chunk;
+                }
+
+                return strlen($chunk);
+            },
+        ]);
+
+        $exec = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        if ($exec === false) {
+            return [
+                'ok' => false,
+                'status' => $status,
+                'body' => '',
+                'error' => $err !== '' ? $err : 'Health probe request failed.',
+            ];
+        }
+
+        $ok = $status >= 200 && $status < 500;
+
+        return [
+            'ok' => $ok,
+            'status' => $status,
+            'body' => $body,
+            'error' => $ok ? '' : 'HTTP ' . $status,
+        ];
+    }
+
+    /**
+     * @return array{ok: bool, status: int, body: string, error: string}
+     */
+    private static function probeViaStream(string $url): array
+    {
+        $ua = self::updaterUserAgent();
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => "Accept: text/html, application/json, */*\r\nUser-Agent: {$ua}\r\n",
+                'timeout' => self::PROBE_TIMEOUT_SECONDS,
+                'ignore_errors' => true,
+                'follow_location' => 1,
+                'max_redirects' => 2,
+            ],
+        ]);
+
+        $body = @file_get_contents($url, false, $context);
+        // Populated by the HTTP stream wrapper after file_get_contents().
+        $status = self::statusFromHttpHeaders($http_response_header);
+        if ($body === false) {
+            return [
+                'ok' => false,
+                'status' => $status,
+                'body' => '',
+                'error' => 'Could not reach the site for the health probe.',
+            ];
+        }
+        if (strlen($body) > 65536) {
+            $body = substr($body, 0, 65536);
+        }
+        $answered = $status >= 200 && $status < 500;
+        $error = '';
+        if (!$answered) {
+            $error = $status > 0
+                ? 'HTTP ' . $status
+                : 'Could not reach the site for the health probe.';
+        }
+
+        return [
+            'ok' => $answered,
+            'status' => $status,
+            'body' => $body,
+            'error' => $error,
+        ];
+    }
+
+    private static function updaterUserAgent(): string
+    {
+        return 'AgoraPress/' . (defined('AP_VERSION') ? (string) AP_VERSION : 'dev')
+            . ' (CoreUpdater; no-site-id)';
+    }
+
+    private static function logNotice(string $message): void
+    {
+        $message = trim(str_replace(["\r", "\n"], ' ', $message));
+        if ($message === '') {
+            return;
+        }
+        error_log('AgoraPress core update: ' . $message);
     }
 
     /**

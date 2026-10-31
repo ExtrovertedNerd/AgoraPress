@@ -3891,7 +3891,9 @@ function ap_can_core_update(?AP_DB $db = null): array
  *   package_version: string,
  *   errors: list<string>,
  *   warnings: list<string>,
- *   steps: list<string>
+ *   steps: list<string>,
+ *   rolled_back: bool,
+ *   htaccess_deferred: bool
  * }
  *
  * @see AP_Core_Updater::run()
@@ -3909,6 +3911,8 @@ function ap_run_core_update(?AP_DB $db = null, array $args = []): array
             'errors' => ['Core updater is not loaded.'],
             'warnings' => [],
             'steps' => [],
+            'rolled_back' => false,
+            'htaccess_deferred' => false,
         ];
     }
 

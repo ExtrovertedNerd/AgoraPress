@@ -29,8 +29,10 @@ ap-config.php
 .env.local
 .env.*.local
 
-# Uploads & runtime (SPEC: ap-content/uploads is runtime data)
-/ap-content/uploads/
+# Uploads & runtime (SPEC: ap-content/uploads is runtime data).
+# Keep the shipped SVG guard; ignore operator media.
+/ap-content/uploads/*
+!/ap-content/uploads/.htaccess
 /content/uploads/
 *.log
 

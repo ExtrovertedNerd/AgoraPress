@@ -111,14 +111,25 @@ final class SvgSafetyTest extends TestCase
         $this->assertStringContainsString('nosniff', $written);
 
         $root = (string) file_get_contents($this->root . '/.htaccess');
-        $this->assertStringContainsString("script-src 'none'", $root);
-        $this->assertStringContainsString('ap-content/uploads', $root);
-        $this->assertStringContainsString('nosniff', $root);
+        $this->assertDoesNotMatchRegularExpression('/<If[\s>]/', $root);
+        $this->assertStringNotContainsString('Header', $root);
+        $this->assertStringContainsString('ap-content/uploads/.htaccess', $root);
+        $this->assertStringContainsString('best effort', $root);
+
+        $shipped = (string) file_get_contents($this->root . '/ap-content/uploads/.htaccess');
+        $this->assertSame($template, $shipped);
+        $moduleAt = strpos($shipped, '<IfModule mod_headers.c>');
+        $matchAt = strpos($shipped, '<FilesMatch "\.svg$">');
+        $this->assertNotFalse($moduleAt);
+        $this->assertNotFalse($matchAt);
+        $this->assertLessThan($matchAt, $moduleAt);
+        $this->assertStringContainsString('best effort', $shipped);
 
         $nginx = (string) file_get_contents($this->root . '/docker/nginx.conf.example');
         $this->assertStringContainsString('ap-content/uploads', $nginx);
         $this->assertStringContainsString("script-src 'none'", $nginx);
         $this->assertStringContainsString('nosniff', $nginx);
+        $this->assertStringContainsString('location ~* ^/ap-content/uploads/.+\\.svg$', $nginx);
     }
 
     private function write(string $name, string $svg): string

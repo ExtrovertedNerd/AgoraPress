@@ -177,7 +177,8 @@ class AP_Media
     {
         return <<<'HTACCESS'
 # AgoraPress uploads — allow static media, block script execution.
-# This directory is runtime data (gitignored); AP_Media rewrites these files if missing.
+# Operator media in this directory is runtime data. AP_Media rewrites this
+# file when the script guard or the SVG headers are missing.
 
 <IfModule mod_authz_core.c>
     Require all granted
@@ -208,15 +209,18 @@ Options -Indexes
     </IfModule>
 </FilesMatch>
 
-# SVG is XML and can carry script. Serve uploaded SVG as inert bytes.
-<FilesMatch "(?i)\.svg$">
-    <IfModule mod_headers.c>
+# SVG is XML and can carry script. These headers are best effort: they apply
+# only when mod_headers is loaded and this directory allows Header. If Apache
+# returns HTTP 500 for SVG URLs, remove this block. Nginx does not read this
+# file; use the uploads SVG location in docker/nginx.conf.example.
+<IfModule mod_headers.c>
+    <FilesMatch "\.svg$">
         Header set Content-Security-Policy "script-src 'none'; sandbox"
         Header set X-Content-Type-Options "nosniff"
-    </IfModule>
-</FilesMatch>
-
-HTACCESS;
+    </FilesMatch>
+</IfModule>
+HTACCESS
+            . "\n";
     }
 
     /**

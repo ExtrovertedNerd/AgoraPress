@@ -29,13 +29,11 @@
     </IfModule>
 </FilesMatch>
 
-# Uploaded SVG is active XML. Lock it down when Apache serves the file.
-<IfModule mod_headers.c>
-    <If "%{REQUEST_URI} =~ m~/ap-content/uploads/.+\.svg$~i">
-        Header set Content-Security-Policy "script-src 'none'; sandbox"
-        Header set X-Content-Type-Options "nosniff"
-    </If>
-</IfModule>
+# Do not add expression containers or response-header directives here.
+# Some vhosts allow only a subset of AllowOverride. An expression container
+# makes Apache reject this whole file and return HTTP 500 for every URL.
+# Uploaded SVG policy lives in ap-content/uploads/.htaccess (best effort)
+# and in docker/nginx.conf.example.
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
