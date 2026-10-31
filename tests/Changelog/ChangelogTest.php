@@ -297,17 +297,25 @@ final class ChangelogTest extends TestCase
         $this->assertMatchesRegularExpression('/(?im)^###\s+Changed\s*$/', $body);
     }
 
-    public function testUnreleasedDocumentsPluginZipInstaller(): void
+    public function test0313BetaDocumentsPluginZipInstaller(): void
     {
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\s+\[0\.3\.13-beta\]\s+-\s+2026-10-31\s*$/',
+            $this->changelog,
+            'Missing dated ## [0.3.13-beta] - 2026-10-31 heading'
+        );
         $matched = preg_match(
-            '/(?ims)^##\s+\[Unreleased\]\s*\n(.*?)(?=^##\s+\[|\z)/',
+            '/(?ims)^##\s+\[0\.3\.13-beta\][^\n]*\n(.*?)(?=^##\s+\[|\z)/',
             $this->changelog,
             $m
         );
-        $this->assertSame(1, $matched, 'Missing ## [Unreleased] body');
+        $this->assertSame(1, $matched, 'Missing ## [0.3.13-beta] body');
         $body = $m[1];
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Package\s*$/', $body);
         $this->assertMatchesRegularExpression('/(?im)^###\s+Added\s*$/', $body);
         $this->assertMatchesRegularExpression('/(?im)^###\s+Changed\s*$/', $body);
+        $this->assertStringContainsString('0.3.13-beta', $body);
+        $this->assertStringContainsString('package-release.php', strtolower($body));
         $lower = strtolower($body);
         foreach (
             [
@@ -363,28 +371,28 @@ final class ChangelogTest extends TestCase
             $this->assertStringContainsString(
                 $phrase,
                 $lower,
-                "[Unreleased] should mention {$phrase}"
+                "[0.3.13-beta] should mention {$phrase}"
             );
         }
         $this->assertTrue(
             str_contains($body, '**14**') || str_contains($body, ' 14'),
-            '[Unreleased] should record schema 14'
+            '[0.3.13-beta] should record schema 14'
         );
     }
 
-    public function testUnreleasedDocumentsProfileReauthentication(): void
+    public function test0313BetaDocumentsProfileReauthentication(): void
     {
         $matched = preg_match(
-            '/(?ims)^##\s+\[Unreleased\]\s*\n(.*?)(?=^##\s+\[|\z)/',
+            '/(?ims)^##\s+\[0\.3\.13-beta\][^\n]*\n(.*?)(?=^##\s+\[|\z)/',
             $this->changelog,
             $m
         );
-        $this->assertSame(1, $matched, 'Missing ## [Unreleased] body');
+        $this->assertSame(1, $matched, 'Missing ## [0.3.13-beta] body');
         $body = $m[1];
         $this->assertMatchesRegularExpression(
             '/(?im)^###\s+Security\s*$/',
             $body,
-            '[Unreleased] should have a Security heading'
+            '[0.3.13-beta] should have a Security heading'
         );
         $sectionMatched = preg_match(
             '/(?ims)^###\s+Security\s*\n(.*?)(?=^###\s+|\z)/',
@@ -422,8 +430,38 @@ final class ChangelogTest extends TestCase
             $this->assertStringContainsString(
                 $phrase,
                 $lower,
-                "[Unreleased] Security should mention {$phrase}"
+                "[0.3.13-beta] Security should mention {$phrase}"
             );
+        }
+    }
+
+    public function test0313BetaDocumentsSecurityFixes(): void
+    {
+        $matched = preg_match(
+            '/(?ims)^##\s+\[0\.3\.13-beta\][^\n]*\n(.*?)(?=^##\s+\[|\z)/',
+            $this->changelog,
+            $m
+        );
+        $this->assertSame(1, $matched, 'Missing ## [0.3.13-beta] body');
+        $body = $m[1];
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Security\s*$/', $body);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Fixed\s*$/', $body);
+        foreach (['Security', 'Fixed'] as $heading) {
+            $sectionMatched = preg_match(
+                '/(?ims)^###\s+' . $heading . '\s*\n(.*?)(?=^###\s+|^##\s+\[|\z)/',
+                $body,
+                $section
+            );
+            $this->assertSame(1, $sectionMatched, 'Missing ### ' . $heading . ' body');
+            $lower = strtolower($section[1]);
+            $this->assertStringContainsString('ap-001', $lower);
+            $this->assertStringContainsString('ap-002', $lower);
+            $this->assertStringContainsString('ap-003', $lower);
+            $this->assertStringContainsString('javascript:', $lower);
+            $this->assertStringContainsString("script-src 'none'", $lower);
+            $this->assertStringContainsString('nosniff', $lower);
+            $this->assertStringContainsString('json-ld', $lower);
+            $this->assertStringContainsString('sitemap', $lower);
         }
     }
 

@@ -200,10 +200,18 @@ def test_unreleased_section_remains(changelog_text: str) -> None:
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
 
 
-def test_unreleased_documents_plugin_zip_installer(changelog_text: str) -> None:
-    body = _unreleased_body(changelog_text)
+def test_0313_beta_documents_plugin_zip_installer(changelog_text: str) -> None:
+    heading = re.search(
+        r"(?im)^##\s+\[0\.3\.13-beta\]\s+-\s+2026-10-31\s*$",
+        changelog_text,
+    )
+    assert heading, "Missing dated ## [0.3.13-beta] - 2026-10-31 heading"
+    body = _section_body(changelog_text, "0.3.13-beta")
+    assert re.search(r"(?im)^###\s+Package\s*$", body)
     assert re.search(r"(?im)^###\s+Added\s*$", body)
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
+    assert "0.3.13-beta" in body
+    assert "package-release.php" in body.lower()
     lower = body.lower()
     for phrase in (
         "ap_plugin_installer",
@@ -254,14 +262,14 @@ def test_unreleased_documents_plugin_zip_installer(changelog_text: str) -> None:
         "no telemetry",
         "php ap-cli plugin install",
     ):
-        assert phrase in lower, f"[Unreleased] should mention {phrase}"
+        assert phrase in lower, f"[0.3.13-beta] should mention {phrase}"
     assert "**14**" in body or " 14" in body
 
 
-def test_unreleased_documents_profile_reauthentication(changelog_text: str) -> None:
-    body = _unreleased_body(changelog_text)
+def test_0313_beta_documents_profile_reauthentication(changelog_text: str) -> None:
+    body = _section_body(changelog_text, "0.3.13-beta")
     assert re.search(r"(?im)^###\s+Security\s*$", body), (
-        "[Unreleased] should have a Security heading"
+        "[0.3.13-beta] should have a Security heading"
     )
     security = re.search(
         r"(?ims)^###\s+Security\s*\n(.*?)(?=^###\s+|\Z)",
@@ -294,7 +302,35 @@ def test_unreleased_documents_profile_reauthentication(changelog_text: str) -> N
         "docs/security.md",
         "profile-re-authentication",
     ):
-        assert phrase in lower, f"[Unreleased] Security should mention {phrase}"
+        assert phrase in lower, f"[0.3.13-beta] Security should mention {phrase}"
+
+
+def test_0313_beta_documents_security_fixes(changelog_text: str) -> None:
+    body = _section_body(changelog_text, "0.3.13-beta")
+    assert re.search(r"(?im)^###\s+Security\s*$", body)
+    assert re.search(r"(?im)^###\s+Fixed\s*$", body)
+    fixed = re.search(
+        r"(?ims)^###\s+Fixed\s*\n(.*?)(?=^###\s+|^##\s+\[|\Z)",
+        body,
+    )
+    assert fixed, "Missing ### Fixed body"
+    security = re.search(
+        r"(?ims)^###\s+Security\s*\n(.*?)(?=^###\s+|\Z)",
+        body,
+    )
+    assert security, "Missing ### Security body"
+    for section, label in ((fixed.group(1), "Fixed"), (security.group(1), "Security")):
+        lower = section.lower()
+        assert "ap-001" in lower, f"[0.3.13-beta] {label} should mention AP-001"
+        assert "ap-002" in lower, f"[0.3.13-beta] {label} should mention AP-002"
+        assert "ap-003" in lower, f"[0.3.13-beta] {label} should mention AP-003"
+        assert "login lockout" in lower or "login" in lower
+        assert "javascript:" in lower
+        assert "script-src 'none'" in lower
+        assert "nosniff" in lower
+        assert "password-protected" in lower or "password protected" in lower
+        assert "json-ld" in lower
+        assert "sitemap" in lower
 
 
 def _section_body(text: str, version: str) -> str:

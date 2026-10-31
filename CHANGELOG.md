@@ -9,7 +9,17 @@ Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+## [0.3.13-beta] - 2026-10-31
+
 Plugin zip install and upgrade (`AP_Plugin_Installer`). Own-account password and email changes require the current password. An administrator changing another user's password or email is recorded in `{prefix}activity_log`. Schema `AP_DB_VERSION` **14**; no telemetry by default.
+
+### Package
+
+- Beta package `0.3.13-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
 
 ### Added
 
@@ -43,6 +53,15 @@ Plugin zip install and upgrade (`AP_Plugin_Installer`). Own-account password and
 - A successful own password change destroys that user's other sessions and remember-me tokens, rotates this session id, and keeps this browser signed in. An administrator reset of another user's password destroys all of that user's sessions. An email change does not, by itself, destroy sessions
 - `AP_Account_Notice` emails the account on a password change. An email change notifies the old address and confirms the new one (`text/plain`; what changed, UTC time, and IP; no password and no reset key). Outbound mail that is disabled or not configured is skipped; the reason is logged and the account change stands
 - Actions `ap_password_changed` and `ap_email_changed` (account user id, actor user id, context `self` or `admin`). Depth: [docs/security.md](docs/security.md#profile-re-authentication)
+- REST HTTP Basic authentication uses the same login lockout as the sign-in form (`AP_Rate_Limit` action `login`, per IP and per identity). While the lockout holds, the password is not checked and the response is **429** (AP-001)
+- SVG uploads are parsed with DOM. The element and attribute allowlist is applied to entity-decoded values. `javascript:`, `data:`, and `vbscript:` URLs are rejected, and `animate` / `set` that set `href` are rejected. Uploaded SVG is served with `Content-Security-Policy: script-src 'none'; sandbox` and `X-Content-Type-Options: nosniff` (AP-002)
+- Password-protected posts do not put the body in feeds, Open Graph, Twitter, or the meta description, JSON-LD, search, or the sitemap (AP-003)
+
+### Fixed
+
+- REST HTTP Basic authentication now uses the login lockout. A locked client gets **429** and the password is not checked (AP-001)
+- SVG uploads are parsed with DOM against an entity-decoded allowlist. `javascript:`, `data:`, and `vbscript:` URLs are blocked, as are `animate` / `set` `href` values. Uploads are served with `Content-Security-Policy: script-src 'none'; sandbox` and `X-Content-Type-Options: nosniff` (AP-002)
+- Password-protected posts no longer leak the body in feeds, Open Graph, Twitter, or the meta description, JSON-LD, search, or the sitemap. Public text is `This post is password protected.` (AP-003)
 
 ## [0.3.11-beta] - 2026-09-15
 
