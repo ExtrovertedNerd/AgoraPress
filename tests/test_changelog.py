@@ -376,15 +376,45 @@ def test_038_beta_documents_absolute_mail_links(archive_text: str) -> None:
     assert "verification" in lower and "reset" in lower
 
 
-def test_current_ap_version_is_0313_beta() -> None:
+def test_0314_beta_documents_apache_htaccess(changelog_text: str) -> None:
+    heading = re.search(
+        r"(?im)^##\s+\[0\.3\.14-beta\]\s+-\s+2026-10-31\s*$",
+        changelog_text,
+    )
+    assert heading, "Missing dated ## [0.3.14-beta] - 2026-10-31 heading"
+    body = _section_body(changelog_text, "0.3.14-beta")
+    assert re.search(r"(?im)^###\s+Package\s*$", body)
+    assert re.search(r"(?im)^###\s+Fixed\s*$", body)
+    assert "0.3.14-beta" in body
+    assert "package-release.php" in body.lower()
+    lower = body.lower()
+    for phrase in (
+        "ap-033",
+        "<if>",
+        "m~...~i",
+        "cannot parse condition clause",
+        "http 500",
+        "ap-content/uploads/.htaccess",
+        "content-security-policy",
+        "nosniff",
+        ".htaccess.ap-new",
+        "rolled_back",
+        "ap_db_version",
+        "no telemetry",
+    ):
+        assert phrase in lower, f"[0.3.14-beta] should mention {phrase}"
+    assert "**14**" in body or " 14" in body
+
+
+def test_current_ap_version_is_0314_beta() -> None:
     version_php = VERSION_PHP.read_text(encoding="utf-8")
     match = re.search(
         r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
         version_php,
     )
     assert match, "ap-includes/version.php should define AP_VERSION"
-    assert match.group(1) == "0.3.13-beta", (
-        "AP_VERSION must be 0.3.13-beta for this release "
+    assert match.group(1) == "0.3.14-beta", (
+        "AP_VERSION must be 0.3.14-beta for this release "
         f"(found {match.group(1)})"
     )
 

@@ -3,20 +3,28 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.13-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.14-beta**).
 
 Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
 ## [Unreleased]
 
-### Fixed
-
-- Root `.htaccess` no longer uses an expression container or response-header directives. Those directives make some `AllowOverride` setups return HTTP 500 for every URL. Uploaded SVG `Content-Security-Policy` and `nosniff` live in `ap-content/uploads/.htaccess` inside `<IfModule mod_headers.c>` and `<FilesMatch "\.svg$">` (best effort). The same policy is in the SVG `location` of `docker/nginx.conf.example` (AP-033).
-- One-click update does not replace an existing root `.htaccess` or an existing `ap-content/uploads/.htaccess`. A differing package copy is written to `.htaccess.ap-new` in that directory and a notice is logged. After files and migrations, a short loopback GET of the home URL and `/ap-json/` runs. HTTP 5xx restores the pre-update files and `.htaccess`, reports `rolled_back`, and leaves maintenance off. If the loopback cannot be reached, the update stands and a warning is recorded (AP-033).
-
 ### Added
 
 ### Changed
+
+## [0.3.14-beta] - 2026-10-31
+
+Apache-safe root `.htaccess` and one-click update health probe. Schema `AP_DB_VERSION` **14** (unchanged); no telemetry by default.
+
+### Package
+
+- Beta package `0.3.14-beta` (zip + SHA-256 + `version.json` under `dist/` via `bin/package-release.php`).
+
+### Fixed
+
+- Shipped root `.htaccess` used an Apache `<If>` expression (`m~...~i`) that some Apache builds reject with `Cannot parse condition clause`, causing HTTP 500 on every path. Root `.htaccess` no longer contains `<If>`. SVG `Content-Security-Policy` and `nosniff` headers moved to `ap-content/uploads/.htaccess` inside `<IfModule mod_headers.c>` and `<FilesMatch "\.svg$">` (best effort). The same policy is in the SVG `location` of `docker/nginx.conf.example` (AP-033).
+- The updater keeps an existing root `.htaccess` and an existing `ap-content/uploads/.htaccess`. When the package copy differs, it writes `.htaccess.ap-new` in that directory and logs a notice. After files and migrations, it probes the site with a short loopback GET of the home URL and `/ap-json/`. A 5xx restores the pre-update files and `.htaccess`, reports `rolled_back`, and leaves maintenance off. If the loopback cannot be reached, the update stands and a warning is recorded (AP-033).
 
 ## [0.3.13-beta] - 2026-10-31
 

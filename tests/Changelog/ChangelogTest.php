@@ -552,7 +552,54 @@ final class ChangelogTest extends TestCase
         );
     }
 
-    public function testCurrentApVersionIs0313Beta(): void
+    public function test0314BetaDocumentsApacheHtaccess(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/(?im)^##\s+\[0\.3\.14-beta\]\s+-\s+2026-10-31\s*$/',
+            $this->changelog,
+            'Missing dated ## [0.3.14-beta] - 2026-10-31 heading'
+        );
+        $matched = preg_match(
+            '/(?ims)^##\s+\[0\.3\.14-beta\][^\n]*\n(.*?)(?=^##\s+\[|\z)/',
+            $this->changelog,
+            $m
+        );
+        $this->assertSame(1, $matched, 'Missing ## [0.3.14-beta] body');
+        $body = $m[1];
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Package\s*$/', $body);
+        $this->assertMatchesRegularExpression('/(?im)^###\s+Fixed\s*$/', $body);
+        $this->assertStringContainsString('0.3.14-beta', $body);
+        $this->assertStringContainsString('package-release.php', strtolower($body));
+        $lower = strtolower($body);
+        foreach (
+            [
+                'ap-033',
+                '<if>',
+                'm~...~i',
+                'cannot parse condition clause',
+                'http 500',
+                'ap-content/uploads/.htaccess',
+                'content-security-policy',
+                'nosniff',
+                '.htaccess.ap-new',
+                'rolled_back',
+                'ap_db_version',
+                'no telemetry',
+            ] as $phrase
+        ) {
+            $this->assertStringContainsString(
+                $phrase,
+                $lower,
+                "[0.3.14-beta] should mention {$phrase}"
+            );
+        }
+        $this->assertTrue(
+            str_contains($body, '**14**') || str_contains($body, ' 14'),
+            '[0.3.14-beta] should record schema 14'
+        );
+    }
+
+    public function testCurrentApVersionIs0314Beta(): void
     {
         $versionPath = $this->root . '/ap-includes/version.php';
         $this->assertFileIsReadable($versionPath);
@@ -565,9 +612,9 @@ final class ChangelogTest extends TestCase
         );
         $this->assertSame(1, $matched, 'ap-includes/version.php should define AP_VERSION');
         $this->assertSame(
-            '0.3.13-beta',
+            '0.3.14-beta',
             $m[1],
-            'AP_VERSION must be 0.3.13-beta for this release'
+            'AP_VERSION must be 0.3.14-beta for this release'
         );
     }
 }
