@@ -18,10 +18,12 @@
  * - Optional SHA-256 verification when version.json provides sha256
  * - Maintenance mode during apply
  * - Never overwrites ap-config.php, ap-config-sample.php, the install/
- *   directory, or user content under ap-content/ (uploads, plugins,
- *   mu-plugins, non-default themes)
- * - An existing root .htaccess is not replaced. A differing package copy
- *   is written to .htaccess.ap-new and a notice is logged.
+ *   directory, plugins, mu-plugins, non-default themes, or operator
+ *   files under ap-content/uploads/ (the uploads .htaccess guard is
+ *   installed only when that file is missing)
+ * - An existing root .htaccess or ap-content/uploads/.htaccess is not
+ *   replaced. A differing package copy is written to .htaccess.ap-new
+ *   in that directory and a notice is logged.
  * - After files and migrations, a short loopback GET of the home URL and
  *   /ap-json/ runs. HTTP 5xx restores the pre-update files and .htaccess.
  *   If the loopback cannot be reached, the update stands and a warning
@@ -54,6 +56,12 @@ class AP_Core_Updater
 
     /** Sidecar written when a package .htaccess differs from the live file. */
     public const HTACCESS_SIDECAR = '.htaccess.ap-new';
+
+    /**
+     * Uploads guard shipped in the package. Installed only when missing.
+     * An existing file is left in place (see placePreservedHtaccess()).
+     */
+    public const UPLOADS_HTACCESS_REL = 'ap-content/uploads/.htaccess';
 
     /**
      * Notice when the live root .htaccess is left in place.
@@ -638,7 +646,8 @@ HTML;
             return false;
         }
         if ($rel === 'ap-content/uploads' || str_starts_with($rel, 'ap-content/uploads/')) {
-            return false;
+            // Operator media stays. The guard file is installed only when missing.
+            return $rel === self::UPLOADS_HTACCESS_REL;
         }
         if ($rel === 'ap-content/plugins' || str_starts_with($rel, 'ap-content/plugins/')) {
             return false;
@@ -1255,8 +1264,8 @@ HTML;
         foreach ($rels as $rel) {
             $source = $packageRoot . '/' . $rel;
             $dest = $abspath . $rel;
-            if ($rel === '.htaccess') {
-                $placed = self::placeRootHtaccess($source, $dest, $warnings);
+            if (self::isPreservedHtaccess($rel)) {
+                $placed = self::placePreservedHtaccess($source, $dest, $rel, $warnings);
                 if ($placed['deferred']) {
                     $deferred = true;
                 }
@@ -1343,23 +1352,38 @@ HTML;
     }
 
     /**
-     * Copy the package .htaccess into place only when the site has none.
+     * Root and uploads guard files are never overwritten once they exist.
+     */
+    private static function isPreservedHtaccess(string $rel): bool
+    {
+        return $rel === '.htaccess' || $rel === self::UPLOADS_HTACCESS_REL;
+    }
+
+    /**
+     * Copy a package .htaccess into place only when the site has none.
      * A different live file is left alone and the package bytes go to
-     * .htaccess.ap-new.
+     * .htaccess.ap-new in the same directory.
      *
      * @param list<string> $warnings
      *
      * @return array{ok: bool, wrote: bool, deferred: bool, error: string}
      */
-    private static function placeRootHtaccess(string $source, string $dest, array &$warnings): array
+    private static function placePreservedHtaccess(string $source, string $dest, string $rel, array &$warnings): array
     {
+        $writeError = $rel === '.htaccess'
+            ? 'Could not write .htaccess.'
+            : 'Could not write ' . $rel . '.';
+        $readError = $rel === '.htaccess'
+            ? 'Could not read .htaccess while deciding whether to replace it.'
+            : 'Could not read ' . $rel . ' while deciding whether to replace it.';
+
         if (!is_file($dest)) {
             if (!self::copyOnto($source, $dest)) {
                 return [
                     'ok' => false,
                     'wrote' => false,
                     'deferred' => false,
-                    'error' => 'Could not write .htaccess.',
+                    'error' => $writeError,
                 ];
             }
 
@@ -1373,26 +1397,53 @@ HTML;
                 'ok' => false,
                 'wrote' => false,
                 'deferred' => false,
-                'error' => 'Could not read .htaccess while deciding whether to replace it.',
+                'error' => $readError,
             ];
         }
         if (!self::htaccessBodiesDiffer($current, $incoming)) {
             return ['ok' => true, 'wrote' => false, 'deferred' => false, 'error' => ''];
         }
 
+        $sidecarRel = self::htaccessSidecarRelative($rel);
         $sidecar = dirname($dest) . '/' . self::HTACCESS_SIDECAR;
         if (@file_put_contents($sidecar, $incoming) === false) {
-            $notice = 'Existing root .htaccess was left in place, but .htaccess.ap-new could not be written.';
+            $notice = $rel === '.htaccess'
+                ? 'Existing root .htaccess was left in place, but .htaccess.ap-new could not be written.'
+                : 'Existing ' . $rel . ' was left in place, but ' . $sidecarRel . ' could not be written.';
             $warnings[] = $notice;
             self::logNotice($notice);
 
             return ['ok' => true, 'wrote' => false, 'deferred' => true, 'error' => ''];
         }
 
-        $warnings[] = self::HTACCESS_DEFERRED_NOTICE;
-        self::logNotice(self::HTACCESS_DEFERRED_NOTICE);
+        $notice = self::deferredHtaccessNotice($rel);
+        $warnings[] = $notice;
+        self::logNotice($notice);
 
         return ['ok' => true, 'wrote' => true, 'deferred' => true, 'error' => ''];
+    }
+
+    /**
+     * Notice when a live guard file is left in place.
+     */
+    private static function deferredHtaccessNotice(string $rel): string
+    {
+        if ($rel === '.htaccess') {
+            return self::HTACCESS_DEFERRED_NOTICE;
+        }
+
+        return 'Existing ' . $rel . ' differs from the package and was not replaced. '
+            . 'The package copy is at ' . self::htaccessSidecarRelative($rel) . '.';
+    }
+
+    private static function htaccessSidecarRelative(string $rel): string
+    {
+        $dir = str_replace('\\', '/', dirname($rel));
+        if ($dir === '.' || $dir === '') {
+            return self::HTACCESS_SIDECAR;
+        }
+
+        return $dir . '/' . self::HTACCESS_SIDECAR;
     }
 
     private static function htaccessBodiesDiffer(string $current, string $incoming): bool
@@ -1408,7 +1459,7 @@ HTML;
     }
 
     /**
-     * Snapshot files this update may replace, including root .htaccess.
+     * Snapshot files this update may replace, including root and uploads .htaccess.
      *
      * @return array{ok: bool, files: list<array{rel: string, existed: bool}>, error: string}
      */
@@ -1425,8 +1476,10 @@ HTML;
         }
 
         $rels = self::listApplyRelative($packageRoot);
-        if (!in_array('.htaccess', $rels, true) && is_file($abspath . '.htaccess')) {
-            $rels[] = '.htaccess';
+        foreach (['.htaccess', self::UPLOADS_HTACCESS_REL] as $guard) {
+            if (!in_array($guard, $rels, true) && is_file($abspath . $guard)) {
+                $rels[] = $guard;
+            }
         }
 
         $files = [];

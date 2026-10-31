@@ -12,7 +12,7 @@ Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive
 ### Fixed
 
 - Root `.htaccess` no longer uses an expression container or response-header directives. Those directives make some `AllowOverride` setups return HTTP 500 for every URL. Uploaded SVG `Content-Security-Policy` and `nosniff` live in `ap-content/uploads/.htaccess` inside `<IfModule mod_headers.c>` and `<FilesMatch "\.svg$">` (best effort). The same policy is in the SVG `location` of `docker/nginx.conf.example` (AP-033).
-- One-click update does not replace an existing root `.htaccess`. A differing package copy is written to `.htaccess.ap-new` and a notice is logged. After files and migrations, a short loopback GET of the home URL and `/ap-json/` runs. HTTP 5xx restores the pre-update files and `.htaccess`, reports `rolled_back`, and leaves maintenance off. If the loopback cannot be reached, the update stands and a warning is recorded (AP-033).
+- One-click update does not replace an existing root `.htaccess` or an existing `ap-content/uploads/.htaccess`. A differing package copy is written to `.htaccess.ap-new` in that directory and a notice is logged. After files and migrations, a short loopback GET of the home URL and `/ap-json/` runs. HTTP 5xx restores the pre-update files and `.htaccess`, reports `rolled_back`, and leaves maintenance off. If the loopback cannot be reached, the update stands and a warning is recorded (AP-033).
 
 ### Added
 

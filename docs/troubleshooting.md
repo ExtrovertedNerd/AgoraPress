@@ -138,9 +138,10 @@ pretty permalinks are off. Query-string forms `?sitemap=index` and
 `?robots=1` still work.
 
 One-click **Tools → Update Core** does **not** replace an existing root
-`.htaccess`. If the package copy differs, it is written to
-`.htaccess.ap-new` and a notice is logged. Nginx config is never written
-by core. [updates.md](updates.md).
+`.htaccess` or an existing `ap-content/uploads/.htaccess`. If the package
+copy differs, it is written to `.htaccess.ap-new` in that directory and a
+notice is logged. Nginx config is never written by core.
+[updates.md](updates.md).
 
 There is **no** IIS `web.config`, Caddyfile, or Site Health check for
 `try_files` in core.
@@ -925,7 +926,7 @@ One-click apply is **Tools → Update Core** only. There is **no**
 |--------------|--------|
 | Site Health “pending migration(s)” | `php ap-cli db migrate`. Target is `AP_DB_VERSION` **13**. [schema.md](schema.md) |
 | `Files were updated but database migration failed: …` | Files already on the new tree; finish with `db migrate` (a failed migration does not roll files back). |
-| HTTP 500 on every URL after an update | Root `.htaccess` may contain a directive the vhost rejects. The updater leaves an existing root file in place and writes a package copy to `.htaccess.ap-new`. A loopback probe that returns HTTP 5xx rolls the other files back and leaves maintenance off. |
+| HTTP 500 on every URL after an update | Root `.htaccess` may contain a directive the vhost rejects. The updater leaves an existing root file and an existing `ap-content/uploads/.htaccess` in place and writes a package copy to `.htaccess.ap-new` beside that file. A loopback probe that returns HTTP 5xx rolls the other files back and leaves maintenance off. |
 | Front-end 503 “Site briefly unavailable” / “AgoraPress is installing an update.” | Live `.maintenance` lock. Older than **30 minutes** is ignored. |
 | Pre-flight greyed | `version_check_enabled` (default on), outbound HTTP GET of public `version.json` (**no site identity**), writable site root, PHP `ZipArchive`, cURL or `allow_url_fopen`, writable temp dir. |
 

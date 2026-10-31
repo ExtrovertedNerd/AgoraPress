@@ -113,6 +113,9 @@ final class CoreUpdaterTest extends TestCase
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('install/index.php'));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('install/cli.php'));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/uploads/2026/x.jpg'));
+        $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/uploads/index.php'));
+        $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/uploads/.htaccess.ap-new'));
+        $this->assertTrue(AP_Core_Updater::shouldApplyRelative(AP_Core_Updater::UPLOADS_HTACCESS_REL));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/plugins/my-plugin/plugin.php'));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/mu-plugins/must.php'));
         $this->assertFalse(AP_Core_Updater::shouldApplyRelative('ap-content/themes/custom/style.css'));
@@ -573,6 +576,88 @@ final class CoreUpdaterTest extends TestCase
         $this->assertFalse($result['htaccess_deferred']);
         $this->assertSame($packageHt, (string) file_get_contents($site . '/.htaccess'));
         $this->assertFileDoesNotExist($site . '/.htaccess.ap-new');
+    }
+
+    public function testExistingUploadsHtaccessIsNotReplaced(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $site = $this->workDir . '/uploads-ht-keep';
+        $this->seedFakeSite($site, '0.1.0-dev');
+        $custom = "# operator uploads rules\nOptions -Indexes\n";
+        $uploadsHt = $site . '/' . AP_Core_Updater::UPLOADS_HTACCESS_REL;
+        file_put_contents($uploadsHt, $custom);
+        file_put_contents($site . '/ap-content/uploads/keep.txt', 'user-upload');
+
+        $pkgDir = $this->buildMinimalPackageDir('4.2.0');
+        $packageHt = "# package uploads rules\nOptions -Indexes\n";
+        $pkgUploads = $pkgDir . '/ap-content/uploads';
+        mkdir($pkgUploads, 0700, true);
+        file_put_contents($pkgUploads . '/.htaccess', $packageHt);
+        file_put_contents($pkgUploads . '/evil.txt', 'do-not-copy');
+        file_put_contents($pkgDir . '/ap-includes/marker.php', "<?php\n// core update\n");
+
+        $zipPath = $this->workDir . '/uploads-ht-keep.zip';
+        $this->zipDirectory($pkgDir, $zipPath, 'AgoraPress-4.2.0');
+
+        $result = AP_Core_Updater::run($this->db, [
+            'abspath' => $site,
+            'package_path' => $zipPath,
+            'expected_version' => '4.2.0',
+            'skip_migrate' => true,
+        ]);
+
+        $sidecar = $site . '/ap-content/uploads/' . AP_Core_Updater::HTACCESS_SIDECAR;
+        $notice = 'Existing ' . AP_Core_Updater::UPLOADS_HTACCESS_REL
+            . ' differs from the package and was not replaced. '
+            . 'The package copy is at ap-content/uploads/.htaccess.ap-new.';
+
+        $this->assertTrue($result['ok'], implode(' ', $result['errors']));
+        $this->assertFalse($result['rolled_back']);
+        $this->assertTrue($result['htaccess_deferred']);
+        $this->assertContains($notice, $result['warnings']);
+        $this->assertSame($custom, (string) file_get_contents($uploadsHt));
+        $this->assertSame($packageHt, (string) file_get_contents($sidecar));
+        $this->assertSame('user-upload', (string) file_get_contents($site . '/ap-content/uploads/keep.txt'));
+        $this->assertFileDoesNotExist($site . '/ap-content/uploads/evil.txt');
+        $this->assertStringContainsString(
+            'core update',
+            (string) file_get_contents($site . '/ap-includes/marker.php')
+        );
+        $this->assertFalse(AP_Core_Updater::isMaintenanceMode($site));
+    }
+
+    public function testMissingUploadsHtaccessIsInstalledFromPackage(): void
+    {
+        if (!class_exists(ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive not available');
+        }
+
+        $site = $this->workDir . '/uploads-ht-new';
+        $this->seedFakeSite($site, '0.1.0-dev');
+        $uploadsHt = $site . '/' . AP_Core_Updater::UPLOADS_HTACCESS_REL;
+        $this->assertFileDoesNotExist($uploadsHt);
+
+        $pkgDir = $this->buildMinimalPackageDir('4.3.0');
+        $packageHt = "# fresh uploads rules\nOptions -Indexes\n";
+        mkdir($pkgDir . '/ap-content/uploads', 0700, true);
+        file_put_contents($pkgDir . '/ap-content/uploads/.htaccess', $packageHt);
+        $zipPath = $this->workDir . '/uploads-ht-new.zip';
+        $this->zipDirectory($pkgDir, $zipPath, 'AgoraPress-4.3.0');
+
+        $result = AP_Core_Updater::run($this->db, [
+            'abspath' => $site,
+            'package_path' => $zipPath,
+            'expected_version' => '4.3.0',
+            'skip_migrate' => true,
+        ]);
+
+        $this->assertTrue($result['ok'], implode(' ', $result['errors']));
+        $this->assertFalse($result['htaccess_deferred']);
+        $this->assertSame($packageHt, (string) file_get_contents($uploadsHt));
+        $this->assertFileDoesNotExist($site . '/ap-content/uploads/' . AP_Core_Updater::HTACCESS_SIDECAR);
     }
 
     public function testHealthProbe5xxRollsBackFilesAndHtaccess(): void

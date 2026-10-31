@@ -193,9 +193,10 @@ warning, not a hard error.
    If the process crashes, a `.maintenance` file older than **30 minutes**
    is ignored so the site is not stuck.
 8. Back up the files the package will replace, including root `.htaccess`
-   when it is present.
+   and `ap-content/uploads/.htaccess` when they are present.
 9. Copy allowed relative paths onto the site ([what is not overwritten](#what-an-update-does-not-overwrite)).
-   An existing root `.htaccess` is not replaced ([below](#what-an-update-does-not-overwrite)).
+   An existing root `.htaccess` or `ap-content/uploads/.htaccess` is not
+   replaced ([below](#what-an-update-does-not-overwrite)).
 10. Run `AP_Migrator::migrate()` for pending schema files (unless the
     internal `skip_migrate` test flag is set).
 11. Remove `.maintenance`, then loopback GET the stored home URL and
@@ -231,7 +232,7 @@ these paths even if they exist inside the zip:
 | `ap-config.php` | Credentials and salts; never shipped, never replaced |
 | `ap-config-sample.php` | Fresh-install template; safe to delete after production install |
 | `install/` (the whole tree) | Fresh-install only; safe to delete after production install |
-| `ap-content/uploads/` | Media library and other operator uploads |
+| `ap-content/uploads/` | Media library and other operator files. The uploads `.htaccess` guard is the exception in the next paragraph |
 | `ap-content/plugins/` | Installed plugins (including zip-installed) |
 | `ap-content/mu-plugins/` | Must-use plugins |
 | Custom themes under `ap-content/themes/` | Anything **other than** the default `agora` theme |
@@ -250,6 +251,13 @@ the package file is installed. Put extra Apache rules in the vhost or in
 the live `.htaccess`. Nginx `try_files` lives in the server block, not in
 `.htaccess` ([rewrites.md](rewrites.md)).
 
+**`ap-content/uploads/.htaccess` is not replaced** when the site already
+has one. A differing package copy is written to
+`ap-content/uploads/.htaccess.ap-new` and a notice is logged. Identical
+files are left alone and no sidecar is written. If the site has **no**
+uploads `.htaccess`, the package file is installed. Other files under
+`ap-content/uploads/` are never copied from the package.
+
 The ACP screen’s “What is preserved” blurb omits `install/` and
 `ap-config-sample.php`; the updater still skips them. Trust this table,
 not only the on-screen subset.
@@ -260,8 +268,9 @@ those onto a live site. `bin/` (the packager itself) is **not** in the
 release zip.
 
 Also applied when present in the package: `index.php`, `ap-cli`,
-`ap-admin/`, `ap-includes/`, root `.htaccess` (only when the site has
-none — see above), `LICENSE`, `CHANGELOG.md`,
+`ap-admin/`, `ap-includes/`, root `.htaccess` and
+`ap-content/uploads/.htaccess` (only when the site has none — see above),
+`LICENSE`, `CHANGELOG.md`,
 `CHANGELOG-archive.md`, `composer.json` (lockfile is **not** shipped), docs,
 Docker examples, `ap-content/themes/index.php`, and language placeholders.
 User SQLite files and `.env` are not in the zip.
@@ -441,8 +450,10 @@ you host a private mirror, change those fields before serving the JSON
    says so).
 5. If pretty permalinks 404, the front controller is a server issue, not
    the updater — see [rewrites.md](rewrites.md). An existing root
-   `.htaccess` is left in place. Review `.htaccess.ap-new` when the
-   success notice says the package copy was not installed.
+   `.htaccess` is left in place. The same is true for an existing
+   `ap-content/uploads/.htaccess` (`ap-content/uploads/.htaccess.ap-new`).
+   Review `.htaccess.ap-new` when the success notice says the package copy
+   was not installed.
 
 ---
 

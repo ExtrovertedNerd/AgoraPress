@@ -733,6 +733,11 @@ Media lives under `ap-content/uploads/` (optionally `YYYY/MM/`). `AP_Media`:
 - [`docker/nginx.conf.example`](../docker/nginx.conf.example) has the same
   policy in `location ~* ^/ap-content/uploads/.+\.svg$`. Nginx does not
   read `.htaccess`; copy that location into the live server block.
+- Shipped `.htaccess` files and the PHP that writes them do not use an
+  Apache `<If>` expression container or an `m~` delimiter. One-click
+  update does not replace an existing `ap-content/uploads/.htaccess`.
+  A differing package copy is written to
+  `ap-content/uploads/.htaccess.ap-new`.
 
 Password-protected posts keep their body and excerpt out of RSS/Atom
 (`This post is password protected.` and no `content:encoded`), Open Graph /
