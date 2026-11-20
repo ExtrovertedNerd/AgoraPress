@@ -432,13 +432,13 @@ def test_current_ap_version_is_0315_beta() -> None:
     )
 
 
-def test_0311_beta_documents_charter_surfaces(changelog_text: str) -> None:
+def test_0311_beta_documents_charter_surfaces(archive_text: str) -> None:
     heading = re.search(
         r"(?im)^##\s+\[0\.3\.11-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",
-        changelog_text,
+        archive_text,
     )
     assert heading, "Missing dated ## [0.3.11-beta] heading"
-    body = _section_body(changelog_text, "0.3.11-beta")
+    body = _section_body(archive_text, "0.3.11-beta")
     assert re.search(r"(?im)^###\s+Added\s*$", body)
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
     assert re.search(r"(?im)^###\s+Fixed\s*$", body)
@@ -467,13 +467,13 @@ def test_0311_beta_documents_charter_surfaces(changelog_text: str) -> None:
     assert "package-release.php" in lower
 
 
-def test_0310_beta_documents_charter_surfaces(changelog_text: str) -> None:
+def test_0310_beta_documents_charter_surfaces(archive_text: str) -> None:
     heading = re.search(
         r"(?im)^##\s+\[0\.3\.10-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",
-        changelog_text,
+        archive_text,
     )
     assert heading, "Missing dated ## [0.3.10-beta] heading"
-    body = _section_body(changelog_text, "0.3.10-beta")
+    body = _section_body(archive_text, "0.3.10-beta")
     assert re.search(r"(?im)^###\s+Added\s*$", body)
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
     assert re.search(r"(?im)^###\s+Fixed\s*$", body)
@@ -495,13 +495,13 @@ def test_0310_beta_documents_charter_surfaces(changelog_text: str) -> None:
     assert "0.3.10-beta" in body
 
 
-def test_039_beta_documents_charter_surfaces(changelog_text: str) -> None:
+def test_039_beta_documents_charter_surfaces(archive_text: str) -> None:
     heading = re.search(
         r"(?im)^##\s+\[0\.3\.9-beta\]\s+-\s+\d{4}-\d{2}-\d{2}\s*$",
-        changelog_text,
+        archive_text,
     )
     assert heading, "Missing dated ## [0.3.9-beta] heading"
-    body = _section_body(changelog_text, "0.3.9-beta")
+    body = _section_body(archive_text, "0.3.9-beta")
     assert re.search(r"(?im)^###\s+Added\s*$", body)
     assert re.search(r"(?im)^###\s+Changed\s*$", body)
     assert re.search(r"(?im)^###\s+Fixed\s*$", body)

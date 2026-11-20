@@ -3,7 +3,7 @@
 /**
  * Assert CHANGELOG.md follows Keep a Changelog + SemVer and stays readable.
  *
- * Historical notes (0.3.8-beta through 0.2.0-beta) live in CHANGELOG-archive.md.
+ * Historical notes (0.3.11-beta through 0.2.0-beta) live in CHANGELOG-archive.md.
  * The size cap applies only to the living CHANGELOG.md.
  *
  * @package AgoraPress
