@@ -93,24 +93,24 @@ final class MemberModerationTest extends TestCase
     {
         $sub = $this->user('newbie', 'subscriber');
         $first = $this->comment($sub, 'Hello, first comment.');
-        $this->assertSame(AP_Comment::STATUS_HOLD, $this->status($first));
+        $this->assertSame(AP_Comment::STATUS_HOLD, $this->commentStatus($first));
 
         AP_Comment::setStatus($first, AP_Comment::STATUS_APPROVED, $this->db);
         $second = $this->comment($sub, 'Second comment, now trusted.');
-        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->status($second));
+        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->commentStatus($second));
 
         // Spammy content is still held in first_comment mode.
         $spam = $this->comment($sub, 'http://a.example http://b.example http://c.example');
-        $this->assertSame(AP_Comment::STATUS_HOLD, $this->status($spam));
+        $this->assertSame(AP_Comment::STATUS_HOLD, $this->commentStatus($spam));
     }
 
     public function testTrustedAuthorPublishesImmediately(): void
     {
         $editor = $this->user('ed', 'editor');
-        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->status($this->comment($editor, 'Editor note.')));
+        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->commentStatus($this->comment($editor, 'Editor note.')));
         $admin = $this->user('boss', 'administrator');
         AP_Options::update('comment_moderation_members', 'all', $this->db);
-        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->status($this->comment($admin, 'Admin note.')));
+        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->commentStatus($this->comment($admin, 'Admin note.')));
     }
 
     public function testEachMode(): void
@@ -119,18 +119,18 @@ final class MemberModerationTest extends TestCase
         $twoLinks = 'x http://a.example http://b.example';
 
         AP_Options::update('comment_moderation_members', 'off', $this->db);
-        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->status($this->comment($sub, 'off mode')));
+        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->commentStatus($this->comment($sub, 'off mode')));
 
         AP_Options::update('comment_moderation_members', 'all', $this->db);
-        $this->assertSame(AP_Comment::STATUS_HOLD, $this->status($this->comment($sub, 'all mode')));
+        $this->assertSame(AP_Comment::STATUS_HOLD, $this->commentStatus($this->comment($sub, 'all mode')));
 
         AP_Options::update('comment_moderation_members', 'links_heuristic', $this->db);
-        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->status($this->comment($sub, 'no links here')));
-        $this->assertSame(AP_Comment::STATUS_HOLD, $this->status($this->comment($sub, $twoLinks)));
+        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->commentStatus($this->comment($sub, 'no links here')));
+        $this->assertSame(AP_Comment::STATUS_HOLD, $this->commentStatus($this->comment($sub, $twoLinks)));
         AP_Options::update('moderation_keys', 'casino', $this->db);
-        $this->assertSame(AP_Comment::STATUS_HOLD, $this->status($this->comment($sub, 'casino time')));
+        $this->assertSame(AP_Comment::STATUS_HOLD, $this->commentStatus($this->comment($sub, 'casino time')));
         AP_Options::update('comment_max_links', '5', $this->db);
-        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->status($this->comment($sub, $twoLinks)));
+        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->commentStatus($this->comment($sub, $twoLinks)));
     }
 
     public function testExplicitStatusAndGuestsUnchanged(): void
@@ -139,13 +139,13 @@ final class MemberModerationTest extends TestCase
             'comment_post_ID' => $this->postId, 'comment_author' => 'Guest', 'comment_author_email' => 'g@example.test',
             'comment_content' => 'guest says hi',
         ], $this->db, ['run_spam' => false]);
-        $this->assertSame(AP_Comment::STATUS_HOLD, $this->status($guest));
+        $this->assertSame(AP_Comment::STATUS_HOLD, $this->commentStatus($guest));
         $sub = $this->user('imp', 'subscriber');
         $forced = AP_Comment::insert([
             'comment_post_ID' => $this->postId, 'user_id' => $sub, 'comment_content' => 'import',
             'comment_approved' => '1',
         ], $this->db, ['run_spam' => false]);
-        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->status($forced));
+        $this->assertSame(AP_Comment::STATUS_APPROVED, $this->commentStatus($forced));
     }
 
     public function testDiscussionScreenHasSetting(): void
@@ -166,7 +166,7 @@ final class MemberModerationTest extends TestCase
         return $id;
     }
 
-    private function status(int $id): string
+    private function commentStatus(int $id): string
     {
         return (string) $this->db->getVar(
             'SELECT comment_approved FROM ' . $this->db->table('comments') . ' WHERE comment_ID = ?',
