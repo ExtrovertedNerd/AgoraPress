@@ -402,10 +402,11 @@ final class ForumAttachmentTest extends TestCase
 
     public function testFormInputOnlyForMembersWhenEnabled(): void
     {
+        $member = $this->member('formpat');
         [$forumId] = $this->seedForumPost('Form');
         $this->assertSame('', \AP_Forum_Attachment_Form::inputHtml(0, $forumId, $this->db));
 
-        $html = \AP_Forum_Attachment_Form::inputHtml(42, $forumId, $this->db);
+        $html = \AP_Forum_Attachment_Form::inputHtml($member, $forumId, $this->db);
         $this->assertStringContainsString('type="file"', $html);
         $this->assertStringContainsString('name="ap_forum_attachments[]"', $html);
         $this->assertStringContainsString('multiple', $html);
@@ -413,11 +414,12 @@ final class ForumAttachmentTest extends TestCase
         $this->assertStringContainsString('5', $html);
 
         AP_Options::update(AP_Forum_Attachment::OPTION_ENABLED, '0', $this->db);
-        $this->assertSame('', \AP_Forum_Attachment_Form::inputHtml(42, $forumId, $this->db));
+        $this->assertSame('', \AP_Forum_Attachment_Form::inputHtml($member, $forumId, $this->db));
     }
 
     public function testFormProcessesUploadsForAPost(): void
     {
+        $member = $this->member('procpat');
         [$forumId, $postId] = $this->seedForumPost('Process');
         $a = $this->makeUploadFile('one.txt', "one\n");
         $b = $this->makeUploadFile('evil.php', '<?php echo 1;');
@@ -428,7 +430,7 @@ final class ForumAttachmentTest extends TestCase
             'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_OK],
             'size' => [$a['size'], $b['size']],
         ];
-        $result = \AP_Forum_Attachment_Form::processForPost($files, 42, $postId, $forumId, $this->db, true);
+        $result = \AP_Forum_Attachment_Form::processForPost($files, $member, $postId, $forumId, $this->db, true);
         $this->assertSame(1, $result['saved']);
         $this->assertCount(1, $result['errors']);
         $this->assertStringContainsString('evil.php', $result['errors'][0]);
@@ -447,6 +449,28 @@ final class ForumAttachmentTest extends TestCase
             $this->assertStringContainsString('multipart/form-data', $src, $tpl);
             $this->assertStringContainsString('AP_Forum_Attachment_Form::inputHtml', $src, $tpl);
         }
+    }
+
+    /** A registered member (subscriber) who gets the default forum attach permission. */
+    private function member(string $login): int
+    {
+        require_once $this->root . '/ap-includes/class-ap-user.php';
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
+        $GLOBALS['apdb'] = $this->db;
+        \AP_Roles::flushCache();
+        \AP_Roles::ensureDefaults($this->db);
+        $this->db->insert('users', [
+            'user_login' => $login, 'user_pass' => \AP_User::hashPassword('x-' . $login), 'user_nicename' => $login,
+            'user_email' => $login . '@example.test', 'user_url' => '', 'user_registered' => gmdate('Y-m-d H:i:s'),
+            'user_activation_key' => '', 'user_status' => 0, 'display_name' => $login,
+        ]);
+        $id = (int) $this->db->lastInsertId();
+        \AP_Roles::setUserRole($id, 'subscriber', $this->db);
+        require_once $this->root . '/ap-includes/class-ap-group.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-permissions.php';
+        \AP_Forum_Permissions::ensureDefaults($this->db);
+
+        return $id;
     }
 
     /**
