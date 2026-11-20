@@ -778,7 +778,7 @@ endif; ?>
     <?php elseif ($canReply) : ?>
         <section class="ap-forum-form" id="reply" aria-labelledby="reply-heading">
             <h2 id="reply-heading" class="ap-comments__title">Reply</h2>
-            <form method="post" action="">
+            <form method="post" action="" enctype="multipart/form-data">
                 <input type="hidden" name="ap_forum_action" value="ap_forum_reply">
                 <input type="hidden" name="topic_id" value="<?php echo (int) $topicId; ?>">
                 <?php
@@ -819,6 +819,10 @@ endif; ?>
                         'topic_id' => $topicId,
                         'id' => 'agora-notify-replies-reply',
                     ]);
+                }
+                // AP-027: file input for members when forum attachments are on.
+                if (class_exists('AP_Forum_Attachment_Form', false)) {
+                    echo AP_Forum_Attachment_Form::inputHtml((int) ap_get_current_user_id(), (int) $forumIdForType);
                 }
                 ?>
                 <button type="submit" class="ap-btn">Post reply</button>

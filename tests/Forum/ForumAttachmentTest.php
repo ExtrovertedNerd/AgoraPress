@@ -13,6 +13,7 @@ namespace AgoraPress\Tests\Forum;
 use AP_DB;
 use AP_Forum;
 use AP_Forum_Attachment;
+use AP_Forum_Front;
 use AP_Media;
 use AP_Migrator;
 use AP_Options;
@@ -67,6 +68,7 @@ final class ForumAttachmentTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-media.php';
         require_once $this->root . '/ap-includes/class-ap-forum.php';
         require_once $this->root . '/ap-includes/class-ap-forum-attachment.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-attachment-form.php';
         require_once $this->root . '/ap-includes/functions.php';
 
         AP_Media::setBasedirOverride(self::$uploadsTmp);
@@ -375,6 +377,127 @@ final class ForumAttachmentTest extends TestCase
         $row = AP_Forum_Attachment::get($attachId, $this->db);
         $this->assertSame($mediaId, (int) $row?->media_id);
         $this->assertSame($postId, (int) $row?->post_id);
+    }
+
+    public function testFormNormalizesMultiUploadShape(): void
+    {
+        $files = [
+            'name' => ['a.txt', '', 'b.pdf'],
+            'type' => ['text/plain', '', 'application/pdf'],
+            'tmp_name' => ['/tmp/a', '', '/tmp/b'],
+            'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_NO_FILE, UPLOAD_ERR_OK],
+            'size' => [3, 0, 4],
+        ];
+        $list = \AP_Forum_Attachment_Form::normalizeFiles($files);
+        $this->assertCount(2, $list);
+        $this->assertSame('a.txt', $list[0]['name']);
+        $this->assertSame('b.pdf', $list[1]['name']);
+        $this->assertSame(4, $list[1]['size']);
+
+        $single = \AP_Forum_Attachment_Form::normalizeFiles([
+            'name' => 'c.txt', 'type' => 'text/plain', 'tmp_name' => '/tmp/c', 'error' => UPLOAD_ERR_OK, 'size' => 1,
+        ]);
+        $this->assertCount(1, $single);
+        $this->assertSame([], \AP_Forum_Attachment_Form::normalizeFiles([]));
+    }
+
+    public function testFormInputOnlyForMembersWhenEnabled(): void
+    {
+        $member = $this->member('formpat');
+        [$forumId] = $this->seedForumPost('Form');
+        $this->assertSame('', \AP_Forum_Attachment_Form::inputHtml(0, $forumId, $this->db));
+
+        $html = \AP_Forum_Attachment_Form::inputHtml($member, $forumId, $this->db);
+        $this->assertStringContainsString('type="file"', $html);
+        $this->assertStringContainsString('name="ap_forum_attachments[]"', $html);
+        $this->assertStringContainsString('multiple', $html);
+        $this->assertStringContainsString('.pdf', $html);
+        $this->assertStringContainsString('5', $html);
+
+        AP_Options::update(AP_Forum_Attachment::OPTION_ENABLED, '0', $this->db);
+        $this->assertSame('', \AP_Forum_Attachment_Form::inputHtml($member, $forumId, $this->db));
+    }
+
+    public function testFormProcessesUploadsForAPost(): void
+    {
+        $member = $this->member('procpat');
+        [$forumId, $postId] = $this->seedForumPost('Process');
+        $a = $this->makeUploadFile('one.txt', "one\n");
+        $b = $this->makeUploadFile('evil.php', '<?php echo 1;');
+        $files = [
+            'name' => [$a['name'], $b['name']],
+            'type' => [$a['type'], $b['type']],
+            'tmp_name' => [$a['tmp_name'], $b['tmp_name']],
+            'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_OK],
+            'size' => [$a['size'], $b['size']],
+        ];
+        $result = \AP_Forum_Attachment_Form::processForPost($files, $member, $postId, $forumId, $this->db, true);
+        $this->assertSame(1, $result['saved']);
+        $this->assertCount(1, $result['errors']);
+        $this->assertStringContainsString('evil.php', $result['errors'][0]);
+        $this->assertCount(1, AP_Forum_Attachment::getForPost($postId, $this->db));
+
+        $none = \AP_Forum_Attachment_Form::processForPost($files, 0, $postId, $forumId, $this->db, true);
+        $this->assertSame(0, $none['saved']);
+    }
+
+    public function testPendingPostWithFailedAttachmentsKeepsModerationNotice(): void
+    {
+        if (!class_exists('AP_Forum_Front', false)) {
+            require_once $this->root . '/ap-includes/class-ap-forum-front.php';
+        }
+        $this->assertSame('topic_created', AP_Forum_Front::noticeAfterAttachments('topic_created', false, true));
+        $this->assertSame('topic_pending', AP_Forum_Front::noticeAfterAttachments('topic_pending', true, true));
+        $this->assertSame('attach_partial', AP_Forum_Front::noticeAfterAttachments('reply_posted', false, false));
+        $this->assertSame(
+            'pending_attach_partial',
+            AP_Forum_Front::noticeAfterAttachments('reply_pending', true, false)
+        );
+
+        $saved = $_GET;
+        $_GET['ap_forum_notice'] = 'pending_attach_partial';
+        try {
+            $notice = AP_Forum_Front::getNotice();
+        } finally {
+            $_GET = $saved;
+        }
+        $this->assertNotNull($notice);
+        $this->assertSame('warning', $notice['type']);
+        $this->assertStringContainsString('awaiting moderation', $notice['message']);
+        $this->assertStringContainsString('attachments', $notice['message']);
+    }
+
+    public function testFormWiringInThemeAndFront(): void
+    {
+        $front = (string) file_get_contents($this->root . '/ap-includes/class-ap-forum-front.php');
+        $this->assertStringContainsString('AP_Forum_Attachment_Form::processForPost', $front);
+        foreach (['forum-view.php', 'topic.php'] as $tpl) {
+            $src = (string) file_get_contents($this->root . '/ap-content/themes/agora/' . $tpl);
+            $this->assertStringContainsString('multipart/form-data', $src, $tpl);
+            $this->assertStringContainsString('AP_Forum_Attachment_Form::inputHtml', $src, $tpl);
+        }
+    }
+
+    /** A registered member (subscriber) who gets the default forum attach permission. */
+    private function member(string $login): int
+    {
+        require_once $this->root . '/ap-includes/class-ap-user.php';
+        require_once $this->root . '/ap-includes/class-ap-roles.php';
+        $GLOBALS['apdb'] = $this->db;
+        \AP_Roles::flushCache();
+        \AP_Roles::ensureDefaults($this->db);
+        $this->db->insert('users', [
+            'user_login' => $login, 'user_pass' => \AP_User::hashPassword('x-' . $login), 'user_nicename' => $login,
+            'user_email' => $login . '@example.test', 'user_url' => '', 'user_registered' => gmdate('Y-m-d H:i:s'),
+            'user_activation_key' => '', 'user_status' => 0, 'display_name' => $login,
+        ]);
+        $id = (int) $this->db->lastInsertId();
+        \AP_Roles::setUserRole($id, 'subscriber', $this->db);
+        require_once $this->root . '/ap-includes/class-ap-group.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-permissions.php';
+        \AP_Forum_Permissions::ensureDefaults($this->db);
+
+        return $id;
     }
 
     /**

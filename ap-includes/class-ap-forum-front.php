@@ -591,6 +591,16 @@ class AP_Forum_Front
                     'message' => 'Your topic was submitted and is awaiting moderation.',
                 ],
                 'reply_posted' => ['type' => 'success', 'message' => 'Reply posted.'],
+                'attach_partial' => [
+                    'type' => 'warning',
+                    'message' => 'Posted, but some attachments were not saved. Check the file type, size and '
+                        . 'the per-post limit.',
+                ],
+                'pending_attach_partial' => [
+                    'type' => 'warning',
+                    'message' => 'Your post was submitted and is awaiting moderation, but some attachments '
+                        . 'were not saved. Check the file type, size and the per-post limit.',
+                ],
                 'reply_pending' => [
                     'type' => 'success',
                     'message' => 'Your reply was submitted and is awaiting moderation.',
@@ -766,6 +776,41 @@ class AP_Forum_Front
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    /**
+     * AP-027: save files from the compose form's ap_forum_attachments[] field.
+     * Returns false when any file was refused; the post itself is already saved.
+     */
+    private static function processAttachmentUploads(int $userId, int $postId, int $forumId, ?AP_DB $db): bool
+    {
+        if ($postId < 1 || !class_exists('AP_Forum_Attachment_Form', false)) {
+            return true;
+        }
+        $files = $_FILES[AP_Forum_Attachment_Form::FIELD] ?? null;
+        if (!is_array($files) || $files === []) {
+            return true;
+        }
+        try {
+            $result = AP_Forum_Attachment_Form::processForPost($files, $userId, $postId, $forumId, $db);
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $result['errors'] === [];
+    }
+
+    /**
+     * AP-027: notice code after attachment processing. A failed attachment
+     * never hides the fact that the post is awaiting moderation.
+     */
+    public static function noticeAfterAttachments(string $notice, bool $pending, bool $attachmentsOk): string
+    {
+        if ($attachmentsOk) {
+            return $notice;
+        }
+
+        return $pending ? 'pending_attach_partial' : 'attach_partial';
+    }
 
     /**
      * Generic denial for a direct forum/topic URL the viewer cannot `view_forum`.
@@ -1111,6 +1156,9 @@ class AP_Forum_Front
         $created = AP_Forum::getTopic($topicId, $db);
         $pending = $created !== null && (int) ($created->topic_approved ?? 1) !== 1;
         $notice = $pending ? 'topic_pending' : 'topic_created';
+        // AP-027: attach uploaded files to the topic's first post.
+        $attachOk = self::processAttachmentUploads($userId, (int) ($created->first_post_id ?? 0), $forumId, $db);
+        $notice = self::noticeAfterAttachments($notice, $pending, $attachOk);
 
         // Compose checkbox only — start never auto-watches.
         if (self::watchFromComposeAndMaybeFlipMaster($userId, $topicId, $forumId, $post, $db) && !$pending) {
@@ -1216,6 +1264,9 @@ class AP_Forum_Front
         $createdPost = AP_Forum::getPost($postId, $db);
         $pending = $createdPost !== null && (int) ($createdPost->post_approved ?? 1) !== 1;
         $notice = $pending ? 'reply_pending' : 'reply_posted';
+        // AP-027: attach uploaded files to the new reply.
+        $attachOk = self::processAttachmentUploads($userId, $postId, $forumId, $db);
+        $notice = self::noticeAfterAttachments($notice, $pending, $attachOk);
 
         // Compose checkbox only — reply never auto-watches.
         if (self::watchFromComposeAndMaybeFlipMaster($userId, $topicId, $forumId, $post, $db) && !$pending) {

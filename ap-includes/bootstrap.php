@@ -327,6 +327,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-media.php';
     // Forum attachments: media linked to forum posts with quotas.
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum-attachment.php';
+    // AP-027: forum compose form file input and upload handling.
+    require_once AP_ABSPATH . 'ap-includes/class-ap-forum-attachment-form.php';
     // User groups (forum ACL foundation).
     require_once AP_ABSPATH . 'ap-includes/class-ap-group.php';
     // Granular per-forum permissions (group × forum ACL).
