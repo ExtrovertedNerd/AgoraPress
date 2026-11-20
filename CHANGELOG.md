@@ -3,13 +3,23 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.15-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.16-beta**).
 
 Older releases (**0.3.11-beta** through **0.3.9-beta**, and **0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
 ## [Unreleased]
 
-Planned for **0.3.16-beta** (not yet packaged). Schema **14** (unchanged); no telemetry by default.
+### Added
+
+### Changed
+
+## [0.3.16-beta] - 2026-11-20
+
+Schema **14** (unchanged); no telemetry by default.
+
+### Package
+
+- Package `0.3.16-beta` via `bin/package-release.php`.
 
 ### Added
 
