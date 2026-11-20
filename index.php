@@ -173,6 +173,11 @@ if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
     }
 }
 
+// AP-009: clickjacking and MIME-sniffing headers (filter: ap_security_headers).
+if (class_exists('AP_Security_Guard', false)) {
+    AP_Security_Guard::sendHeaders();
+}
+
 // Front-end template loader + classic hierarchy.
 if (class_exists('AP_Theme', false)) {
     try {

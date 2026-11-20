@@ -121,7 +121,10 @@ final class SecurityGuardTest extends TestCase
 
     public function testHiddenForumOnlyListableToForumManagers(): void
     {
-        $hidden = AP_Forum::insertForum(['forum_name' => 'Secret', 'forum_desc' => 'Shh', 'forum_status' => 'hidden'], $this->db);
+        $hidden = AP_Forum::insertForum(
+            ['forum_name' => 'Secret', 'forum_desc' => 'Shh', 'forum_status' => 'hidden'],
+            $this->db
+        );
         $open = AP_Forum::insertForum(['forum_name' => 'Open', 'forum_status' => 'open'], $this->db);
         $admin = $this->user('boss', 'administrator');
         $member = $this->user('pat', 'subscriber');

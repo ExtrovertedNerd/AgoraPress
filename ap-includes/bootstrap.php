@@ -305,6 +305,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-list-prefetch.php';
     // Forums: hierarchy, topics, posts/replies (dedicated tables).
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum.php';
+    // Redirect, hidden-forum and response-header guards (AP-004/006/009).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-security-guard.php';
     // Content format: BBCode + Markdown + limited safe HTML (forum posts, etc.).
     require_once AP_ABSPATH . 'ap-includes/class-ap-content-format.php';
     // Lightweight classic editor toolbar (Markdown / BBCode / HTML insert helpers).

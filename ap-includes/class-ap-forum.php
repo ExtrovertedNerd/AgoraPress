@@ -1002,6 +1002,13 @@ class AP_Forum
         if ($forum === null) {
             return false;
         }
+        // AP-006: hidden boards are invisible (404) to everyone but forum managers.
+        if (
+            (string) ($forum->forum_status ?? '') === self::FORUM_STATUS_HIDDEN
+            && !(class_exists('AP_Security_Guard', false) && AP_Security_Guard::canSeeHiddenForum($userId, $db))
+        ) {
+            return false;
+        }
         if (
             class_exists('AP_Forum_Permissions', false)
             && !AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db)
