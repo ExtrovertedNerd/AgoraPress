@@ -164,6 +164,7 @@
 | `close_comments_days_old` | `14` | [admin.md](admin.md#settings) |
 | `thread_comments` | `1` | [admin.md](admin.md#settings) |
 | `thread_comments_depth` | `5` | [admin.md](admin.md#settings) |
+| `comments_per_page` | `50` (0 = all; theme pages with `?cpage=N`) | [admin.md](admin.md#settings) |
 
 | Media sizes (Settings → Media) | Default | Guide |
 |--------------------------------|---------|-------|
