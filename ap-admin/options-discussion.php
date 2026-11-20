@@ -43,6 +43,17 @@ $closeDays = (int) AP_Options::get('close_comments_days_old', 14, $db);
 $thread = (string) AP_Options::get('thread_comments', '1', $db) === '1';
 $depth = (int) AP_Options::get('thread_comments_depth', 5, $db);
 $commentsPerPage = (int) AP_Options::get('comments_per_page', 50, $db);
+$memberModeration = class_exists('AP_Comment_Member_Moderation', false)
+    ? AP_Comment_Member_Moderation::mode($db)
+    : (string) AP_Options::get('comment_moderation_members', 'first_comment', $db);
+$maxLinks = (int) AP_Options::get('comment_max_links', 2, $db);
+$moderationKeys = (string) AP_Options::get('moderation_keys', '', $db);
+$memberModes = [
+    'off' => 'Off: logged-in members publish immediately',
+    'first_comment' => 'Hold a member\'s first comment until one is approved (default)',
+    'all' => 'Hold every comment from members',
+    'links_heuristic' => 'Hold member comments with too many links or a moderation word',
+];
 $showAvatars = (string) AP_Options::get('show_avatars', '1', $db) === '1';
 $avatarDefault = (string) AP_Options::get('avatar_default', 'mystery', $db);
 $avatarRating = (string) AP_Options::get('avatar_rating', 'g', $db);
@@ -139,6 +150,36 @@ require __DIR__ . '/admin-header.php';
                     <?php echo $moderation ? 'checked' : ''; ?>>
                 Comment must be manually approved
             </label>
+        </p>
+    </fieldset>
+
+    <fieldset class="ap-fieldset">
+        <legend>Member comment moderation</legend>
+        <p>
+            <label for="comment_moderation_members">Logged-in members</label>
+            <select id="comment_moderation_members" name="comment_moderation_members">
+                <?php foreach ($memberModes as $modeKey => $modeLabel) : ?>
+                    <option value="<?php echo ap_esc_attr($modeKey); ?>"
+                        <?php echo $memberModeration === $modeKey ? 'selected' : ''; ?>>
+                        <?php echo ap_esc_html($modeLabel); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </p>
+        <p class="ap-help">
+            Editors, moderators and administrators always publish. Guests are always held.
+            In first_comment and links modes a comment is also held when it has the link count below
+            or a moderation word.
+        </p>
+        <p>
+            <label for="comment_max_links">Hold when a comment has at least</label>
+            <input type="number" id="comment_max_links" name="comment_max_links" min="1" max="50"
+                value="<?php echo (int) $maxLinks; ?>" class="small-text"> links
+        </p>
+        <p>
+            <label for="moderation_keys">Moderation words (one per line)</label><br>
+            <textarea id="moderation_keys" name="moderation_keys" rows="5" cols="50"
+                class="large-text code"><?php echo ap_esc_html($moderationKeys); ?></textarea>
         </p>
     </fieldset>
 

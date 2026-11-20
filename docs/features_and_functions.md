@@ -165,6 +165,9 @@
 | `thread_comments` | `1` | [admin.md](admin.md#settings) |
 | `thread_comments_depth` | `5` | [admin.md](admin.md#settings) |
 | `comments_per_page` | `50` (0 = all; theme pages with `?cpage=N`) | [admin.md](admin.md#settings) |
+| `comment_moderation_members` | `first_comment` (`off`, `first_comment`, `all`, `links_heuristic`; editors, moderators and admins always publish) | [admin.md](admin.md#settings) |
+| `comment_max_links` | `2` (member comments with this many links are held) | [admin.md](admin.md#settings) |
+| `moderation_keys` | empty (one word per line; a match holds a member comment) | [admin.md](admin.md#settings) |
 
 | Media sizes (Settings → Media) | Default | Guide |
 |--------------------------------|---------|-------|

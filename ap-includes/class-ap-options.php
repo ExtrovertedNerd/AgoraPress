@@ -693,7 +693,8 @@ class AP_Options
                 'default_comment_status', 'require_name_email', 'comment_moderation',
                 'comment_registration', 'close_comments_for_old_posts', 'close_comments_days_old',
                 'thread_comments', 'thread_comments_depth', 'show_avatars', 'avatar_default',
-                'avatar_rating', 'comments_per_page',
+                'avatar_rating', 'comments_per_page', 'comment_moderation_members', 'comment_max_links',
+                'moderation_keys',
             ];
             $input = [];
             foreach ($keys as $key) {
