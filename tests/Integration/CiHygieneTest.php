@@ -33,11 +33,18 @@ final class CiHygieneTest extends TestCase
         $this->assertFileIsReadable($path, 'Missing .github/workflows/ci.yml');
         $raw = (string) file_get_contents($path);
 
-        $this->assertDoesNotMatchRegularExpression(
-            '/continue-on-error/i',
-            $raw,
-            'CI must not soft-fail jobs without tracked debt'
-        );
+        // Only the pytest step may soft-fail, and only with its tracked-debt
+        // note (Ken, 2026-11-20: warn-only first, then a hard gate).
+        $soft = preg_match_all('/continue-on-error/i', $raw);
+        $this->assertLessThanOrEqual(1, $soft, 'CI must not soft-fail jobs without tracked debt');
+        if ($soft === 1) {
+            $this->assertMatchesRegularExpression(
+                '/# Warn-only first \\(Ken, 2026-11-20\\)[^\\n]*\\n\\s*- name: pytest \\(warn-only\\)\\n'
+                . '\\s*continue-on-error: true\\n/',
+                $raw,
+                'continue-on-error is only allowed on the tracked pytest step'
+            );
+        }
         $this->assertStringContainsString('composer test', $raw);
         $this->assertStringContainsString('composer cs:check', $raw);
         $this->assertStringContainsString('composer analyse', $raw);

@@ -37,7 +37,15 @@ def _paths_from_fixture(name: str) -> list[str]:
 def test_github_workflow_hard_fails_phpunit_phpcs_phpstan() -> None:
     assert CI_YML.is_file(), "Missing .github/workflows/ci.yml"
     text = CI_YML.read_text(encoding="utf-8")
-    assert re.search(r"continue-on-error", text, flags=re.I) is None
+    # Only the pytest step may soft-fail, and only with its tracked-debt note
+    # (Ken, 2026-11-20: warn-only first, flip to a hard gate after a green week).
+    soft = re.findall(r"continue-on-error", text, flags=re.I)
+    assert len(soft) <= 1
+    if soft:
+        assert re.search(
+            r"# Warn-only first \(Ken, 2026-11-20\)[^\n]*\n\s*- name: pytest \(warn-only\)\n\s*continue-on-error: true\n",
+            text,
+        ), "continue-on-error is only allowed on the tracked pytest step"
     assert "composer test" in text
     assert "composer cs:check" in text
     assert "composer analyse" in text
