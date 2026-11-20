@@ -20,7 +20,8 @@ final class AP_Site_Export
         'forum_attachments', 'forum_permissions', 'groups', 'group_members', 'ranks',
     ];
 
-    public const SECRET_PATTERN = '/(pass|secret|token|salt|nonce|api_?key|private_?key|_keys?$|^auth|session|2fa|totp|otp)/i';
+    /** Option and meta names that look secret are dropped from the export. */
+    public const SECRET_PATTERN = '/(pass|secret|token|salt|nonce|api_?key|private_?key|_keys?$|^auth_|session|2fa|totp|(^|_)otp)/i';
 
     /**
      * @return bool
@@ -36,7 +37,14 @@ final class AP_Site_Export
     }
 
     /**
-     * @return array{format: string, format_version: int, ap_version: string, generated_gmt: string, tables: array<string, array<int, array<string, mixed>>>, redacted: array<int, string>}
+     * @return array{
+     *   format: string,
+     *   format_version: int,
+     *   ap_version: string,
+     *   generated_gmt: string,
+     *   tables: array<string, array<int, array<string, mixed>>>,
+     *   redacted: array<int, string>
+     * }
      */
     public static function build(?AP_DB $db = null): array
     {
@@ -119,7 +127,8 @@ final class AP_Site_Export
     {
         return json_encode(
             $data,
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+                | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR
         );
     }
 
