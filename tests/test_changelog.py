@@ -406,15 +406,28 @@ def test_0314_beta_documents_apache_htaccess(changelog_text: str) -> None:
     assert "**14**" in body or " 14" in body
 
 
-def test_current_ap_version_is_0314_beta() -> None:
+def test_0315_beta_documents_post_status_and_uninstall(changelog_text: str) -> None:
+    heading = re.search(
+        r"(?im)^##\s+\[0\.3\.15-beta\]\s+-\s+2026-11-20\s*$",
+        changelog_text,
+    )
+    assert heading, "Missing dated ## [0.3.15-beta] - 2026-11-20 heading"
+    body = _section_body(changelog_text, "0.3.15-beta")
+    lower = body.lower()
+    for phrase in ("ap-010", "ap-011", "ap-012", "ap-013", "ap-015", "ap-028", "ap-029",
+                   "uninstall.php", "comments_per_page", "preview=true", "no telemetry"):
+        assert phrase in lower, f"[0.3.15-beta] should mention {phrase}"
+
+
+def test_current_ap_version_is_0315_beta() -> None:
     version_php = VERSION_PHP.read_text(encoding="utf-8")
     match = re.search(
         r"define\s*\(\s*['\"]AP_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)",
         version_php,
     )
     assert match, "ap-includes/version.php should define AP_VERSION"
-    assert match.group(1) == "0.3.14-beta", (
-        "AP_VERSION must be 0.3.14-beta for this release "
+    assert match.group(1) == "0.3.15-beta", (
+        "AP_VERSION must be 0.3.15-beta for this release "
         f"(found {match.group(1)})"
     )
 

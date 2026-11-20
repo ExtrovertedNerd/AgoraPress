@@ -599,7 +599,7 @@ final class ChangelogTest extends TestCase
         );
     }
 
-    public function testCurrentApVersionIs0314Beta(): void
+    public function testCurrentApVersionIs0315Beta(): void
     {
         $versionPath = $this->root . '/ap-includes/version.php';
         $this->assertFileIsReadable($versionPath);
@@ -612,9 +612,9 @@ final class ChangelogTest extends TestCase
         );
         $this->assertSame(1, $matched, 'ap-includes/version.php should define AP_VERSION');
         $this->assertSame(
-            '0.3.14-beta',
+            '0.3.15-beta',
             $m[1],
-            'AP_VERSION must be 0.3.14-beta for this release'
+            'AP_VERSION must be 0.3.15-beta for this release'
         );
     }
 }

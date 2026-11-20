@@ -3,7 +3,7 @@
 Notable changes to AgoraPress. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.14-beta**).
+Core version: `AP_VERSION` in `ap-includes/version.php` (currently **0.3.15-beta**).
 
 Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
@@ -12,6 +12,25 @@ Older releases (**0.3.8-beta** through **0.2.0-beta**) are in [CHANGELOG-archive
 ### Added
 
 ### Changed
+
+## [0.3.15-beta] - 2026-11-20
+
+Schema **14** (unchanged); no telemetry by default.
+
+### Package
+
+- Package `0.3.15-beta` via `bin/package-release.php`.
+
+### Added
+
+- Previews at `?p=ID&preview=true` for editors of the post; Preview button (AP-012).
+- `comments_per_page` (default 50, 0 = all); Agora paginates with `?cpage=N` (AP-013).
+- Plugin Delete runs `uninstall.php` with `AP_UNINSTALL_PLUGIN` defined, errors warn (AP-029).
+
+### Fixed
+
+- Scheduled posts publish when due (AP-010). Private posts show to their author and `read_private_posts` users (AP-011); never page-cached.
+- Stricter media unlink path check (AP-028). Batched admin list lookups (AP-015).
 
 ## [0.3.14-beta] - 2026-10-31
 
