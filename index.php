@@ -22,6 +22,12 @@ require AP_ABSPATH . 'ap-includes/bootstrap.php';
 
 ap_bootstrap();
 
+// AP-009: clickjacking and MIME-sniffing headers (filter: ap_security_headers).
+// Sent before any early exit (REST, feeds, sitemap, redirects, comment errors).
+if (class_exists('AP_Security_Guard', false)) {
+    AP_Security_Guard::sendHeaders();
+}
+
 // Installed and core loaded — resolve the public request into the main query.
 $apRewriteVars = [];
 if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {

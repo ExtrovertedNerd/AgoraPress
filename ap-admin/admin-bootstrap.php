@@ -21,6 +21,10 @@ if (!defined('AP_ADMIN')) {
 
 require_once AP_ABSPATH . 'ap-includes/bootstrap.php';
 ap_bootstrap();
+// AP-009: admin screens send the same security headers as the front end.
+if (class_exists('AP_Security_Guard', false)) {
+    AP_Security_Guard::sendHeaders();
+}
 
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin.php';
 require_once AP_ABSPATH . 'ap-admin/includes/class-ap-admin-dashboard.php';

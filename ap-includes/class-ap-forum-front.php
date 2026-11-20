@@ -829,6 +829,17 @@ class AP_Forum_Front
         if ($forumId < 1) {
             return false;
         }
+        // AP-006: topics in a hidden board 404 like the board itself.
+        if (class_exists('AP_Forum', false)) {
+            $forum = AP_Forum::getForum($forumId, $db);
+            if (
+                $forum !== null
+                && (string) ($forum->forum_status ?? '') === AP_Forum::FORUM_STATUS_HIDDEN
+                && !(class_exists('AP_Security_Guard', false) && AP_Security_Guard::canSeeHiddenForum($userId, $db))
+            ) {
+                return false;
+            }
+        }
         if (class_exists('AP_Forum_Permissions', false)) {
             return AP_Forum_Permissions::userCanViewForum($userId, $forumId, $db);
         }

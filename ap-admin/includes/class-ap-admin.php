@@ -1052,6 +1052,14 @@ class AP_Admin
 
         // Relative: must start with / or be an ap-admin path.
         if (str_starts_with($location, '/')) {
+            // AP-004: reject //host, /\host, encoded and control-char variants.
+            if (class_exists('AP_Security_Guard', false) && !AP_Security_Guard::isSafeLocalPath($location)) {
+                return self::url('index.php');
+            }
+            if (str_starts_with($location, '//') || str_contains($location, '\\')) {
+                return self::url('index.php');
+            }
+
             return $location;
         }
 

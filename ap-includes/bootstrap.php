@@ -237,6 +237,14 @@ function ap_graceful_exit(int $status, string $html): never
         http_response_code($status);
         header('Content-Type: text/html; charset=utf-8');
         header('X-Robots-Tag: noindex, nofollow');
+        // AP-009: the 503 pages exit before the security guard may be loaded.
+        if (class_exists('AP_Security_Guard', false)) {
+            AP_Security_Guard::sendHeaders();
+        } else {
+            header('X-Frame-Options: SAMEORIGIN');
+            header('X-Content-Type-Options: nosniff');
+            header("Content-Security-Policy: frame-ancestors 'self'");
+        }
     }
 
     echo $html;
@@ -305,6 +313,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-list-prefetch.php';
     // Forums: hierarchy, topics, posts/replies (dedicated tables).
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum.php';
+    // Redirect, hidden-forum and response-header guards (AP-004/006/009).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-security-guard.php';
     // Content format: BBCode + Markdown + limited safe HTML (forum posts, etc.).
     require_once AP_ABSPATH . 'ap-includes/class-ap-content-format.php';
     // Lightweight classic editor toolbar (Markdown / BBCode / HTML insert helpers).

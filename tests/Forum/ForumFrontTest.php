@@ -702,6 +702,37 @@ final class ForumFrontTest extends TestCase
         $this->assertStringContainsString('forum_id=' . $forumId, $plain);
     }
 
+    public function testHiddenForumTopicAndBoardAre404ForGuests(): void
+    {
+        require_once $this->root . '/ap-includes/class-ap-security-guard.php';
+        $forumId = AP_Forum::insertForum(
+            ['forum_name' => 'Secret Board', 'forum_desc' => 'Hidden desc'],
+            $this->db
+        );
+        $topicId = AP_Forum::createTopic([
+            'forum_id' => $forumId,
+            'topic_title' => 'Hidden Topic Title',
+            'content' => 'Hidden body.',
+            'poster_id' => $this->userId,
+        ], $this->db);
+        // Topic first, then hide the board (posting into a hidden board is refused).
+        AP_Forum::updateForum($forumId, ['forum_status' => 'hidden'], $this->db);
+        $topic = AP_Forum::getTopic($topicId, $this->db);
+        $this->assertNotNull($topic);
+        $forum = AP_Forum::getForum($forumId, $this->db);
+        $this->assertNotNull($forum);
+
+        foreach (['topic/' . $topic->topic_slug, 'forums/' . $forum->forum_slug] as $path) {
+            $vars = AP_Rewrite::parseRequest($path, [], $this->db);
+            $query = AP_Rewrite::queryFromVars($vars, $this->db, 0);
+            AP_Forum_Front::applyToQuery($query, $this->db);
+            $this->assertTrue($query->is_404, $path . ' is a 404');
+            $this->assertSame('', (string) $query->get('forum_name', ''), $path);
+            $this->assertSame('', (string) $query->get('forum_desc', ''), $path);
+            $this->assertSame('', (string) $query->get('topic_title', ''), $path);
+        }
+    }
+
     public function testMissingTopicIsNotFound(): void
     {
         $vars = AP_Rewrite::parseRequest('topic/does-not-exist', [], $this->db);
