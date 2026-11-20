@@ -42,6 +42,7 @@ $closeOld = (string) AP_Options::get('close_comments_for_old_posts', '0', $db) =
 $closeDays = (int) AP_Options::get('close_comments_days_old', 14, $db);
 $thread = (string) AP_Options::get('thread_comments', '1', $db) === '1';
 $depth = (int) AP_Options::get('thread_comments_depth', 5, $db);
+$commentsPerPage = (int) AP_Options::get('comments_per_page', 50, $db);
 $showAvatars = (string) AP_Options::get('show_avatars', '1', $db) === '1';
 $avatarDefault = (string) AP_Options::get('avatar_default', 'mystery', $db);
 $avatarRating = (string) AP_Options::get('avatar_rating', 'g', $db);
@@ -125,6 +126,12 @@ require __DIR__ . '/admin-header.php';
             depth
             <input type="number" name="thread_comments_depth" min="1" max="10"
                 value="<?php echo (int) $depth; ?>" class="small-text">
+        </p>
+        <p>
+            <label for="comments_per_page">Comments per page</label>
+            <input type="number" id="comments_per_page" name="comments_per_page" min="0" max="500"
+                value="<?php echo (int) $commentsPerPage; ?>" class="small-text">
+            (0 shows every comment on one page)
         </p>
         <p>
             <label>

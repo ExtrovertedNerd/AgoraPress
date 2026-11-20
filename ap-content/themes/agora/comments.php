@@ -16,8 +16,19 @@ if ($postId < 1 || !class_exists('AP_Comment', false)) {
     return;
 }
 
-$comments = AP_Comment::getByPost($postId);
-$count = count($comments);
+// Paginate long threads (AP-013): ?cpage=N, comments_per_page option (0 = all).
+$cpage = isset($_GET['cpage']) ? max(1, (int) $_GET['cpage']) : 1;
+if (class_exists('AP_Comment_Pager', false)) {
+    $commentPage = AP_Comment_Pager::page($postId, $cpage, AP_Comment_Pager::perPage());
+    $comments = $commentPage['comments'];
+    $count = $commentPage['total'];
+    $cpage = $commentPage['page'];
+    $cpages = $commentPage['pages'];
+} else {
+    $comments = AP_Comment::getByPost($postId);
+    $count = count($comments);
+    $cpages = 1;
+}
 $editCommentId = isset($_GET['comment_edit']) ? (int) $_GET['comment_edit'] : 0;
 $viewerId = function_exists('ap_get_current_user_id') ? (int) ap_get_current_user_id() : 0;
 ?>
@@ -145,6 +156,21 @@ $viewerId = function_exists('ap_get_current_user_id') ? (int) ap_get_current_use
                 </li>
             <?php endforeach; ?>
         </ol>
+        <?php if ($cpages > 1) : ?>
+            <?php
+            $cpageBase = function_exists('ap_get_permalink') ? ap_get_permalink($postId) : '';
+            $cpageSep = str_contains($cpageBase, '?') ? '&' : '?';
+            ?>
+            <nav class="ap-comments__pagination" aria-label="Comment pages">
+                <?php if ($cpage > 1) : ?>
+                    <a class="ap-comments__prev" href="<?php echo ap_esc_url($cpageBase . $cpageSep . 'cpage=' . ($cpage - 1)); ?>#comments">Older comments</a>
+                <?php endif; ?>
+                <span class="ap-comments__page">Page <?php echo (int) $cpage; ?> of <?php echo (int) $cpages; ?></span>
+                <?php if ($cpage < $cpages) : ?>
+                    <a class="ap-comments__next" href="<?php echo ap_esc_url($cpageBase . $cpageSep . 'cpage=' . ($cpage + 1)); ?>#comments">Newer comments</a>
+                <?php endif; ?>
+            </nav>
+        <?php endif; ?>
     <?php endif; ?>
 
     <?php

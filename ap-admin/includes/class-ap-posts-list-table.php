@@ -56,6 +56,16 @@ class AP_Posts_List_Table
     /** @var list<AP_User>|null */
     private ?array $authorCandidatesCache = null;
 
+    /**
+     * Batched per-page lookups (AP-015): author id => user, taxonomy => post id => names.
+     *
+     * @var array<int, AP_User>|null
+     */
+    private ?array $authorsCache = null;
+
+    /** @var array<string, array<int, list<string>>> */
+    private array $termNamesCache = [];
+
     private ?AP_DB $db;
 
     public function __construct(string $postType = 'post', ?AP_DB $db = null)
@@ -474,6 +484,7 @@ class AP_Posts_List_Table
             $colspan = count($columns);
             $html .= '<tr class="no-items"><td colspan="' . $colspan . '">No items found.</td></tr>';
         } else {
+            $this->primeRowCaches();
             foreach ($this->items as $post) {
                 $html .= $this->renderRow($post, $columns);
             }
@@ -793,7 +804,11 @@ class AP_Posts_List_Table
         if (!class_exists('AP_Taxonomy', false) || $postId < 1) {
             return '—';
         }
-        $names = AP_Taxonomy::getObjectTerms($postId, $taxonomy, ['fields' => 'names'], $this->resolveDb());
+        if (isset($this->termNamesCache[$taxonomy][$postId])) {
+            $names = $this->termNamesCache[$taxonomy][$postId];
+        } else {
+            $names = AP_Taxonomy::getObjectTerms($postId, $taxonomy, ['fields' => 'names'], $this->resolveDb());
+        }
         if ($names === []) {
             return '—';
         }
@@ -902,10 +917,36 @@ class AP_Posts_List_Table
         return 'all';
     }
 
+    /**
+     * Load authors and term names for the current page in a few queries (AP-015).
+     */
+    private function primeRowCaches(): void
+    {
+        if (!class_exists('AP_List_Prefetch', false) || $this->items === []) {
+            return;
+        }
+        $db = $this->resolveDb();
+        $postIds = [];
+        $authorIds = [];
+        foreach ($this->items as $post) {
+            $postIds[] = $post->ID;
+            $authorIds[] = (int) $post->post_author;
+        }
+        $this->authorsCache = AP_List_Prefetch::users($authorIds, $db);
+        foreach (['category', 'post_tag'] as $taxonomy) {
+            $this->termNamesCache[$taxonomy] = AP_List_Prefetch::termNames($postIds, $taxonomy, $db);
+        }
+    }
+
     private function authorLabel(int $authorId): string
     {
         if ($authorId < 1) {
             return '—';
+        }
+        if ($this->authorsCache !== null && isset($this->authorsCache[$authorId])) {
+            $user = $this->authorsCache[$authorId];
+
+            return $user->display_name !== '' ? $user->display_name : $user->user_login;
         }
         if (class_exists('AP_User', false)) {
             $user = AP_User::getBy('id', $authorId, $this->resolveDb());

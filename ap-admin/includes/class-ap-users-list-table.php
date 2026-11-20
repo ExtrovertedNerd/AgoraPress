@@ -15,6 +15,13 @@ declare(strict_types=1);
  */
 class AP_Users_List_Table
 {
+    /**
+     * Post counts for the current page, one query (AP-015).
+     *
+     * @var array<int, int>
+     */
+    private array $postCountsCache = [];
+
     /** @var list<AP_User> */
     public array $items = [];
 
@@ -427,6 +434,13 @@ class AP_Users_List_Table
         } else {
             $db = $this->resolveDb();
             $roleNames = class_exists('AP_Roles', false) ? AP_Roles::getRoleNames($db) : [];
+            if (class_exists('AP_List_Prefetch', false)) {
+                $ids = [];
+                foreach ($this->items as $listed) {
+                    $ids[] = $listed->ID;
+                }
+                $this->postCountsCache = AP_List_Prefetch::postCounts($ids, $db);
+            }
             foreach ($this->items as $user) {
                 $html .= $this->renderRow($user, $roleNames, $actorId, $db);
             }
@@ -526,7 +540,7 @@ class AP_Users_List_Table
         $email = $user->user_email;
         $roleSlug = class_exists('AP_Roles', false) ? AP_Roles::getUserRole($id, $db) : '';
         $roleLabel = $roleSlug !== '' ? ($roleNames[$roleSlug] ?? $roleSlug) : '—';
-        $posts = AP_User::countPosts($id, $db);
+        $posts = $this->postCountsCache[$id] ?? AP_User::countPosts($id, $db);
         $profile = AP_User::getProfileMeta($id, $db);
         $fullName = trim($profile['first_name'] . ' ' . $profile['last_name']);
         if ($fullName === '') {
