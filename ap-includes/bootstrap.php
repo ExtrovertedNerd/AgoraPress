@@ -311,6 +311,8 @@ function ap_bootstrap(): void
     // Comment pagination (AP-013) and batched admin list lookups (AP-015).
     require_once AP_ABSPATH . 'ap-includes/class-ap-comment-pager.php';
     require_once AP_ABSPATH . 'ap-includes/class-ap-list-prefetch.php';
+    // Full-site JSON export (Tools, Export).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-site-export.php';
     // Forums: hierarchy, topics, posts/replies (dedicated tables).
     require_once AP_ABSPATH . 'ap-includes/class-ap-forum.php';
     // Redirect, hidden-forum and response-header guards (AP-004/006/009).

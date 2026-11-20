@@ -521,6 +521,7 @@
 | `site-health.php` | Tools → Site Health (outbound-mail last error; does **not** send) | `view_site_health` (`manage_options` fallback) | [admin.md](admin.md#tools) · [troubleshooting.md](troubleshooting.md#mail-not-arriving) |
 | `update-core.php` | Tools → Update Core | `update_core` | [admin.md](admin.md#tools) · [updates.md](updates.md) |
 | `import.php` | Tools → Import (WXR + phpBB) | `import` | [admin.md](admin.md#tools) |
+| `export.php` | Tools → Export (full-site JSON; secrets redacted) | `export` + `manage_options` | [admin.md](admin.md#tools) |
 | `export-personal-data.php` | Privacy export | `export_others_personal_data` | [admin.md](admin.md#tools) · [security.md](security.md) |
 | `erase-personal-data.php` | Privacy erase | `erase_others_personal_data` | [admin.md](admin.md#tools) · [security.md](security.md) |
 | `admin.php` | Registered ACP pages (`?page={id}` via `AP_Admin_Menu` allowlist) | registry `capability` (default `manage_options`) | [plugins.md](plugins.md#admin-pages-settings-screens-in-the-acp) — `ap_register_admin_page` |
