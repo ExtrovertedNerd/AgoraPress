@@ -308,6 +308,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-taxonomy.php';
     // Comments: nested threads, moderation, pluggable spam hooks.
     require_once AP_ABSPATH . 'ap-includes/class-ap-comment.php';
+    // AP-J1: member comment moderation (comment_moderation_members).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-comment-member-moderation.php';
     // Comment pagination (AP-013) and batched admin list lookups (AP-015).
     require_once AP_ABSPATH . 'ap-includes/class-ap-comment-pager.php';
     require_once AP_ABSPATH . 'ap-includes/class-ap-list-prefetch.php';

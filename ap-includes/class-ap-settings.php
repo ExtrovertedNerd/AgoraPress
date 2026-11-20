@@ -785,6 +785,38 @@ class AP_Settings
                 return (string) max(1, min(10, (int) ($v ?? 5)));
             },
         ]);
+        self::registerSetting('discussion', 'comment_moderation_members', [
+            'type' => 'string',
+            'default' => 'first_comment',
+            'sanitize_callback' => static function (mixed $v): string {
+                $v = strtolower(trim((string) ($v ?? '')));
+
+                return in_array($v, ['off', 'first_comment', 'all', 'links_heuristic'], true) ? $v : 'first_comment';
+            },
+        ]);
+        self::registerSetting('discussion', 'comment_max_links', [
+            'type' => 'integer',
+            'default' => '2',
+            'sanitize_callback' => static function (mixed $v): string {
+                return (string) max(1, min(50, (int) ($v ?? 2)));
+            },
+        ]);
+        self::registerSetting('discussion', 'moderation_keys', [
+            'type' => 'string',
+            'default' => '',
+            'sanitize_callback' => static function (mixed $v): string {
+                $lines = preg_split('/\R/', (string) ($v ?? '')) ?: [];
+                $clean = [];
+                foreach ($lines as $line) {
+                    $line = trim(strip_tags($line));
+                    if ($line !== '') {
+                        $clean[] = mb_substr($line, 0, 100);
+                    }
+                }
+
+                return implode("\n", array_slice(array_values(array_unique($clean)), 0, 500));
+            },
+        ]);
         self::registerSetting('discussion', 'comments_per_page', [
             'type' => 'integer',
             'default' => '50',

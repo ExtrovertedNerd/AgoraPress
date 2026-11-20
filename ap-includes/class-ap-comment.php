@@ -344,6 +344,20 @@ class AP_Comment
                     $approved = self::STATUS_HOLD;
                 }
             }
+            // AP-J1: member moderation (comment_moderation_members, default first_comment).
+            if (
+                $approved === self::STATUS_APPROVED
+                && $userId > 0
+                && class_exists('AP_Comment_Member_Moderation', false)
+            ) {
+                try {
+                    if (AP_Comment_Member_Moderation::shouldHold($userId, $content, $db)) {
+                        $approved = self::STATUS_HOLD;
+                    }
+                } catch (Throwable) {
+                    // Fail open to the existing behaviour.
+                }
+            }
         }
 
         $now = self::nowLocal();
