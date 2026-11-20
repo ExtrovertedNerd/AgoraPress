@@ -2267,6 +2267,31 @@ class AP_Post
     }
 
     /**
+     * Publish every `future` post whose publish date has passed (AP-010).
+     *
+     * @return int Number of posts moved to `publish`.
+     */
+    public static function publishDueScheduled(?AP_DB $db = null, ?int $now = null): int
+    {
+        return AP_Post_Visibility::publishDueScheduled(self::resolveDb($db), $now ?? time());
+    }
+
+    /**
+     * Whether a user may view a single post on the front end (AP-011, AP-012).
+     *
+     * Published posts are public. Private posts need read_post. Drafts, pending
+     * and scheduled posts need edit_post and an explicit preview request.
+     */
+    public static function userCanViewSingular(
+        AP_Post $post,
+        int $userId,
+        bool $preview = false,
+        ?AP_DB $db = null
+    ): bool {
+        return AP_Post_Visibility::userCanViewSingular($post, $userId, $preview, self::resolveDb($db));
+    }
+
+    /**
      * Columns selected for post rows.
      */
     private static function selectColumns(AP_DB $db): string

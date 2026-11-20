@@ -854,6 +854,16 @@ class AP_Admin_Post_Edit
     }
 
     /**
+     * Front-end preview link for a draft, pending, scheduled or private post (AP-012).
+     */
+    public static function previewUrl(AP_Post $post, ?AP_DB $db = null): string
+    {
+        $home = rtrim(ap_home_url('/', $db), '/');
+
+        return $home . '/?p=' . (int) $post->ID . '&preview=true';
+    }
+
+    /**
      * Render the edit form HTML.
      */
     public static function renderForm(
@@ -1032,6 +1042,10 @@ class AP_Admin_Post_Edit
         if (!$isNew && AP_Post::typeSupports($postType, 'revisions')) {
             $html .= '<button type="submit" name="save_action" value="autosave" class="button">'
                 . 'Autosave</button> ';
+        }
+        if (!$isNew && $post !== null && !in_array($status, ['publish', 'trash'], true)) {
+            $html .= '<a class="button ap-preview-button" target="_blank" rel="noopener" href="'
+                . ap_esc_url(self::previewUrl($post, $db)) . '">Preview</a> ';
         }
         $primaryLabel = ($status === 'publish' && !$isNew) ? 'Update' : 'Publish';
         $html .= '<button type="submit" name="save_action" value="publish" '

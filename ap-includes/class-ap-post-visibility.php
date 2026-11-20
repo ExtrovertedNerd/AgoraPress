@@ -145,7 +145,9 @@ final class AP_Post_Visibility
             return $query;
         }
 
-        if (!self::userCanViewSingular($candidate, $userId, $preview, $db)) {
+        // Front-end callers pass a null DB; fall back to the site connection.
+        $checkDb = $db ?? (function_exists('ap_db') ? ap_db() : null);
+        if (!$checkDb instanceof AP_DB || !self::userCanViewSingular($candidate, $userId, $preview, $checkDb)) {
             return $query;
         }
 
