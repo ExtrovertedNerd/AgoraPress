@@ -1168,7 +1168,7 @@ class AP_Post
             if ($attached !== '' && is_file($attached)) {
                 $base = realpath(AP_Media::basedir());
                 $real = realpath($attached);
-                if ($base !== false && $real !== false && str_starts_with($real, $base)) {
+                if ($base !== false && $real !== false && str_starts_with($real, rtrim($base, '/') . '/')) {
                     @unlink($real);
                 }
             }

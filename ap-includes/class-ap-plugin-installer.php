@@ -3270,7 +3270,11 @@ HTACCESS;
     /**
      * Delete an installed plugin file or folder (not an active plugin).
      *
-     * @return array{ok: bool, plugin: string, errors: list<string>}
+     * A folder plugin's `uninstall.php` runs first (AP-029), with the
+     * `AP_UNINSTALL_PLUGIN` constant set. An uninstall error is reported as a
+     * warning and the files are still removed.
+     *
+     * @return array{ok: bool, plugin: string, errors: list<string>, warnings?: list<string>}
      */
     public static function deletePlugin(string $plugin, ?AP_DB $db = null): array
     {
@@ -3308,6 +3312,14 @@ HTACCESS;
             return ['ok' => false, 'plugin' => $plugin, 'errors' => ['Invalid plugin path.']];
         }
 
+        $warnings = [];
+        if (is_dir($realTarget) && class_exists('AP_Plugin_Uninstaller', false)) {
+            $uninstall = AP_Plugin_Uninstaller::run($realTarget, $plugin);
+            if ($uninstall['error'] !== '') {
+                $warnings[] = $uninstall['error'];
+            }
+        }
+
         $removed = is_dir($target) ? self::removeDir($target) : @unlink($target);
         if (!$removed) {
             return ['ok' => false, 'plugin' => $plugin, 'errors' => ['Could not remove the plugin.']];
@@ -3317,7 +3329,7 @@ HTACCESS;
             ap_do_action('ap_plugin_deleted', $plugin);
         }
 
-        return ['ok' => true, 'plugin' => $plugin, 'errors' => []];
+        return ['ok' => true, 'plugin' => $plugin, 'errors' => [], 'warnings' => $warnings];
     }
 
     /**
