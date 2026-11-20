@@ -718,7 +718,7 @@ HTACCESS
             // Only unlink files that still live under the uploads basedir.
             $base = realpath(self::basedir());
             $real = realpath($file);
-            if ($base !== false && $real !== false && str_starts_with($real, $base)) {
+            if ($base !== false && $real !== false && str_starts_with($real, rtrim($base, '/') . '/')) {
                 @unlink($real);
                 // Best-effort: remove empty year/month dirs.
                 self::maybePruneEmptyDirs(dirname($real), $base);
@@ -2743,7 +2743,7 @@ HTACCESS
                 continue;
             }
             $real = realpath($path);
-            if ($base !== false && $real !== false && str_starts_with($real, $base)) {
+            if ($base !== false && $real !== false && str_starts_with($real, rtrim($base, '/') . '/')) {
                 @unlink($real);
             }
         }
@@ -2777,7 +2777,7 @@ HTACCESS
                 continue;
             }
             $real = realpath($path);
-            if ($base !== false && $real !== false && str_starts_with($real, $base)) {
+            if ($base !== false && $real !== false && str_starts_with($real, rtrim($base, '/') . '/')) {
                 @unlink($real);
             }
         }

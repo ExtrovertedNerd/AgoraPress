@@ -297,6 +297,17 @@ final class MediaLibraryTest extends TestCase
         $this->assertNotNull(AP_Post::get($id2, $this->db));
     }
 
+    public function testForceDeleteViaPostApiRemovesFileFromDisk(): void
+    {
+        // AP-028: every permanent delete path must remove the file, not only the row.
+        $id = $this->seedAttachment('gone.txt', 'Gone', 'text/plain', "bye\n");
+        $filePath = AP_Media::getAttachedFile($id, $this->db);
+        $this->assertFileExists($filePath);
+        $this->assertTrue(AP_Post::delete($id, true, $this->db));
+        $this->assertFileDoesNotExist($filePath);
+        $this->assertNull(AP_Post::get($id, $this->db));
+    }
+
     public function testListTableBulkDeleteAndRender(): void
     {
         $id1 = $this->seedAttachment('one.txt', 'One', 'text/plain', "one\n");

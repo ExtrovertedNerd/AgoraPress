@@ -361,6 +361,8 @@ function ap_bootstrap(): void
     // Plugin discovery, headers, activation, MU + active-plugin loading.
     require_once AP_ABSPATH . 'ap-includes/class-ap-plugin.php';
     // Plugin zip installer (admin upload).
+    // Runs a plugin's uninstall.php on Delete (AP-029).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-plugin-uninstaller.php';
     require_once AP_ABSPATH . 'ap-includes/class-ap-plugin-installer.php';
     // Shortcode API ([tag] expansion in content).
     require_once AP_ABSPATH . 'ap-includes/class-ap-shortcode.php';
