@@ -67,6 +67,7 @@ final class ForumAttachmentTest extends TestCase
         require_once $this->root . '/ap-includes/class-ap-media.php';
         require_once $this->root . '/ap-includes/class-ap-forum.php';
         require_once $this->root . '/ap-includes/class-ap-forum-attachment.php';
+        require_once $this->root . '/ap-includes/class-ap-forum-attachment-form.php';
         require_once $this->root . '/ap-includes/functions.php';
 
         AP_Media::setBasedirOverride(self::$uploadsTmp);
@@ -375,6 +376,77 @@ final class ForumAttachmentTest extends TestCase
         $row = AP_Forum_Attachment::get($attachId, $this->db);
         $this->assertSame($mediaId, (int) $row?->media_id);
         $this->assertSame($postId, (int) $row?->post_id);
+    }
+
+    public function testFormNormalizesMultiUploadShape(): void
+    {
+        $files = [
+            'name' => ['a.txt', '', 'b.pdf'],
+            'type' => ['text/plain', '', 'application/pdf'],
+            'tmp_name' => ['/tmp/a', '', '/tmp/b'],
+            'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_NO_FILE, UPLOAD_ERR_OK],
+            'size' => [3, 0, 4],
+        ];
+        $list = \AP_Forum_Attachment_Form::normalizeFiles($files);
+        $this->assertCount(2, $list);
+        $this->assertSame('a.txt', $list[0]['name']);
+        $this->assertSame('b.pdf', $list[1]['name']);
+        $this->assertSame(4, $list[1]['size']);
+
+        $single = \AP_Forum_Attachment_Form::normalizeFiles([
+            'name' => 'c.txt', 'type' => 'text/plain', 'tmp_name' => '/tmp/c', 'error' => UPLOAD_ERR_OK, 'size' => 1,
+        ]);
+        $this->assertCount(1, $single);
+        $this->assertSame([], \AP_Forum_Attachment_Form::normalizeFiles([]));
+    }
+
+    public function testFormInputOnlyForMembersWhenEnabled(): void
+    {
+        [$forumId] = $this->seedForumPost('Form');
+        $this->assertSame('', \AP_Forum_Attachment_Form::inputHtml(0, $forumId, $this->db));
+
+        $html = \AP_Forum_Attachment_Form::inputHtml(42, $forumId, $this->db);
+        $this->assertStringContainsString('type="file"', $html);
+        $this->assertStringContainsString('name="ap_forum_attachments[]"', $html);
+        $this->assertStringContainsString('multiple', $html);
+        $this->assertStringContainsString('.pdf', $html);
+        $this->assertStringContainsString('5', $html);
+
+        AP_Options::update(AP_Forum_Attachment::OPTION_ENABLED, '0', $this->db);
+        $this->assertSame('', \AP_Forum_Attachment_Form::inputHtml(42, $forumId, $this->db));
+    }
+
+    public function testFormProcessesUploadsForAPost(): void
+    {
+        [$forumId, $postId] = $this->seedForumPost('Process');
+        $a = $this->makeUploadFile('one.txt', "one\n");
+        $b = $this->makeUploadFile('evil.php', '<?php echo 1;');
+        $files = [
+            'name' => [$a['name'], $b['name']],
+            'type' => [$a['type'], $b['type']],
+            'tmp_name' => [$a['tmp_name'], $b['tmp_name']],
+            'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_OK],
+            'size' => [$a['size'], $b['size']],
+        ];
+        $result = \AP_Forum_Attachment_Form::processForPost($files, 42, $postId, $forumId, $this->db, true);
+        $this->assertSame(1, $result['saved']);
+        $this->assertCount(1, $result['errors']);
+        $this->assertStringContainsString('evil.php', $result['errors'][0]);
+        $this->assertCount(1, AP_Forum_Attachment::getForPost($postId, $this->db));
+
+        $none = \AP_Forum_Attachment_Form::processForPost($files, 0, $postId, $forumId, $this->db, true);
+        $this->assertSame(0, $none['saved']);
+    }
+
+    public function testFormWiringInThemeAndFront(): void
+    {
+        $front = (string) file_get_contents($this->root . '/ap-includes/class-ap-forum-front.php');
+        $this->assertStringContainsString('AP_Forum_Attachment_Form::processForPost', $front);
+        foreach (['forum-view.php', 'topic.php'] as $tpl) {
+            $src = (string) file_get_contents($this->root . '/ap-content/themes/agora/' . $tpl);
+            $this->assertStringContainsString('multipart/form-data', $src, $tpl);
+            $this->assertStringContainsString('AP_Forum_Attachment_Form::inputHtml', $src, $tpl);
+        }
     }
 
     /**
