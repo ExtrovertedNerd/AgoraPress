@@ -152,6 +152,18 @@ if (function_exists('ap_parse_request') && class_exists('AP_Rewrite', false)) {
                 AP_Forum_Front::applyToQuery($apMainQuery);
             }
             ap_set_query($apMainQuery);
+            // Never page-cache a preview or a non-public post (AP-011, AP-012).
+            $apMainPost = $apMainQuery->post;
+            if (
+                class_exists('AP_Page_Cache', false)
+                && ($apMainQuery->is_preview || ($apMainPost instanceof AP_Post && $apMainPost->post_status !== 'publish'))
+            ) {
+                AP_Page_Cache::skipRequest();
+                if (function_exists('ap_nocache_headers')) {
+                    ap_nocache_headers();
+                }
+            }
+            unset($apMainPost);
         } catch (Throwable) {
             // DB may be unavailable in partial installs; empty main query (no SQL).
             if (!isset($GLOBALS['ap_query']) || !$GLOBALS['ap_query'] instanceof AP_Query) {

@@ -294,6 +294,8 @@ function ap_bootstrap(): void
     require_once AP_ABSPATH . 'ap-includes/class-ap-roles.php';
     // Posts: statuses, types, CRUD, hierarchical pages.
     require_once AP_ABSPATH . 'ap-includes/class-ap-post.php';
+    // Scheduled publish, private and preview visibility (AP-010, AP-011, AP-012).
+    require_once AP_ABSPATH . 'ap-includes/class-ap-post-visibility.php';
     // Taxonomies: categories, tags, custom taxonomies, term relationships.
     require_once AP_ABSPATH . 'ap-includes/class-ap-taxonomy.php';
     // Comments: nested threads, moderation, pluggable spam hooks.
@@ -561,6 +563,15 @@ function ap_bootstrap(): void
             AP_Analytics::registerCron();
         } catch (Throwable) {
             // Analytics cron must never break bootstrap.
+        }
+    }
+
+    // Publish due scheduled posts (AP-010). One indexed query; never breaks the request.
+    if (class_exists('AP_Post_Visibility', false) && !(defined('AP_CLI') && AP_CLI)) {
+        try {
+            AP_Post::publishDueScheduled();
+        } catch (Throwable) {
+            // Scheduled publish must never break the request.
         }
     }
 

@@ -573,15 +573,23 @@ class AP_Rewrite
      * Build an AP_Query from the last (or provided) rewrite query vars.
      *
      * Applies Reading settings (static front page / posts page / posts_per_page).
+     * A singular request that 404s is retried for private posts and previews
+     * the user may see; $userId null means the current user.
      *
      * @param array<string, mixed>|null $vars
      */
-    public static function queryFromVars(?array $vars = null, ?AP_DB $db = null): AP_Query
+    public static function queryFromVars(?array $vars = null, ?AP_DB $db = null, ?int $userId = null): AP_Query
     {
         $vars = $vars ?? self::$queryVars;
         $args = self::toQueryArgs($vars, $db);
+        $query = new AP_Query($args, $db);
 
-        return new AP_Query($args, $db);
+        // Private posts and previews for users allowed to see them (AP-011, AP-012).
+        if (class_exists('AP_Post_Visibility', false)) {
+            $query = AP_Post_Visibility::resolveSingular($query, $vars, $args, $db, $userId);
+        }
+
+        return $query;
     }
 
     /**
