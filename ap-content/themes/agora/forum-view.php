@@ -293,7 +293,7 @@ endif; ?>
     <?php elseif ($canPost && !$forumClosed) : ?>
         <section class="ap-forum-form" id="new-topic" aria-labelledby="new-topic-heading">
             <h2 id="new-topic-heading" class="ap-comments__title">Start a new topic</h2>
-            <form method="post" action="">
+            <form method="post" action="" enctype="multipart/form-data">
                 <input type="hidden" name="ap_forum_action" value="ap_forum_new_topic">
                 <input type="hidden" name="forum_id" value="<?php echo (int) $forumId; ?>">
                 <?php
@@ -348,6 +348,10 @@ endif; ?>
                         'forum_id' => $forumId,
                         'id' => 'agora-notify-replies-topic',
                     ]);
+                }
+                // AP-027: file input for members when forum attachments are on.
+                if (class_exists('AP_Forum_Attachment_Form', false)) {
+                    echo AP_Forum_Attachment_Form::inputHtml((int) ap_get_current_user_id(), $forumId);
                 }
                 ?>
                 <button type="submit" class="ap-btn">Post topic</button>
