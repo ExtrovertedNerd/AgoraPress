@@ -21,12 +21,28 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@04c7ca5cdf3849c2db2777e8d3d97c6932b57601
         with:
           php-version: ${{ matrix.php }}
           extensions: mbstring, json, curl, fileinfo, zip, pdo, pdo_sqlite, pdo_mysql, gd, intl
           coverage: none
           tools: composer:v2
+
+      - name: Show tool versions
+        run: |
+          php -v
+          php -r 'echo "libzip: " . phpversion("zip") . "\n";'
+          python --version
+          composer --version
+          pytest --version
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pytest
+        run: pip install pytest
 
       - name: Install dependencies
         run: composer update --prefer-dist --no-interaction --no-progress
@@ -39,3 +55,7 @@ jobs:
 
       - name: Static analysis (PHPStan)
         run: composer analyse
+
+      - name: pytest (warn-only)
+        run: pytest tests
+        continue-on-error: true
