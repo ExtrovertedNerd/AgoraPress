@@ -237,6 +237,14 @@ function ap_graceful_exit(int $status, string $html): never
         http_response_code($status);
         header('Content-Type: text/html; charset=utf-8');
         header('X-Robots-Tag: noindex, nofollow');
+        // AP-009: the 503 pages exit before the security guard may be loaded.
+        if (class_exists('AP_Security_Guard', false)) {
+            AP_Security_Guard::sendHeaders();
+        } else {
+            header('X-Frame-Options: SAMEORIGIN');
+            header('X-Content-Type-Options: nosniff');
+            header("Content-Security-Policy: frame-ancestors 'self'");
+        }
     }
 
     echo $html;
