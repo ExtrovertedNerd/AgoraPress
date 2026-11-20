@@ -24,6 +24,32 @@ final class AP_Site_Export
     public const SECRET_PATTERN = '/(pass|secret|token|salt|nonce|api_?key|private_?key|_keys?$|^auth_|session|2fa|totp|(^|_)otp)/i';
 
     /**
+     * Core options that SECRET_PATTERN matches but that hold no secret
+     * (word lists and numeric rate-limit settings). These stay in the export.
+     */
+    public const NON_SECRET_OPTIONS = [
+        'moderation_keys',
+        'forum_spam_blacklist',
+        'rate_limit_current_password_lockout',
+        'rate_limit_current_password_max',
+        'rate_limit_current_password_window',
+        'rate_limit_password_reset_lockout',
+        'rate_limit_password_reset_max',
+        'rate_limit_password_reset_window',
+    ];
+
+    /**
+     * Whether an option name should be left out of the export.
+     */
+    public static function isSecretOption(string $name): bool
+    {
+        if (in_array($name, self::NON_SECRET_OPTIONS, true)) {
+            return false;
+        }
+        return preg_match(self::SECRET_PATTERN, $name) === 1;
+    }
+
+    /**
      * @return bool
      */
     public static function canExport(int $userId, ?AP_DB $db = null): bool
@@ -88,7 +114,7 @@ final class AP_Site_Export
                     }
                     $filteredRows[] = $row;
                 } elseif ($tableName === 'options') {
-                    if (preg_match(self::SECRET_PATTERN, $row['option_name'] ?? '')) {
+                    if (self::isSecretOption((string) ($row['option_name'] ?? ''))) {
                         $redactions[] = 'options:' . ($row['option_name'] ?? 'unknown');
                         continue;
                     }

@@ -114,6 +114,24 @@ final class SiteExportTest extends TestCase
         }
     }
 
+    public function testNonSecretWordListOptionsSurviveExport(): void
+    {
+        AP_Options::update('moderation_keys', "viagra\ncasino-words", $this->db);
+        AP_Options::update('forum_spam_blacklist', 'spamword-list', $this->db);
+        AP_Options::update('rate_limit_password_reset_max', '5', $this->db);
+        AP_Options::update('smtp_pass', 'smtp-secret-9', $this->db);
+        AP_Options::update('hall_of_fame_token', 'hof-secret-7', $this->db);
+
+        $json = AP_Site_Export::toJson(AP_Site_Export::build($this->db));
+        $this->assertStringContainsString('casino-words', $json);
+        $this->assertStringContainsString('spamword-list', $json);
+        $this->assertStringContainsString('rate_limit_password_reset_max', $json);
+        $this->assertStringNotContainsString('smtp-secret-9', $json);
+        $this->assertStringNotContainsString('hof-secret-7', $json);
+        $this->assertFalse(AP_Site_Export::isSecretOption('moderation_keys'));
+        $this->assertTrue(AP_Site_Export::isSecretOption('agent_bridge_keys'));
+    }
+
     public function testFilenameIsSafe(): void
     {
         $name = AP_Site_Export::filename('Ken\'s "Site"/../x', 1795203324);
