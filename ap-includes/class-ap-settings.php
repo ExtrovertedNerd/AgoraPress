@@ -785,6 +785,13 @@ class AP_Settings
                 return (string) max(1, min(10, (int) ($v ?? 5)));
             },
         ]);
+        self::registerSetting('discussion', 'comments_per_page', [
+            'type' => 'integer',
+            'default' => '50',
+            'sanitize_callback' => static function (mixed $v): string {
+                return (string) max(0, min(500, (int) ($v ?? 50)));
+            },
+        ]);
         self::registerSetting('discussion', 'show_avatars', [
             'type' => 'boolean',
             'default' => '1',
