@@ -13,6 +13,7 @@ namespace AgoraPress\Tests\Forum;
 use AP_DB;
 use AP_Forum;
 use AP_Forum_Attachment;
+use AP_Forum_Front;
 use AP_Media;
 use AP_Migrator;
 use AP_Options;
@@ -438,6 +439,32 @@ final class ForumAttachmentTest extends TestCase
 
         $none = \AP_Forum_Attachment_Form::processForPost($files, 0, $postId, $forumId, $this->db, true);
         $this->assertSame(0, $none['saved']);
+    }
+
+    public function testPendingPostWithFailedAttachmentsKeepsModerationNotice(): void
+    {
+        if (!class_exists('AP_Forum_Front', false)) {
+            require_once $this->root . '/ap-includes/class-ap-forum-front.php';
+        }
+        $this->assertSame('topic_created', AP_Forum_Front::noticeAfterAttachments('topic_created', false, true));
+        $this->assertSame('topic_pending', AP_Forum_Front::noticeAfterAttachments('topic_pending', true, true));
+        $this->assertSame('attach_partial', AP_Forum_Front::noticeAfterAttachments('reply_posted', false, false));
+        $this->assertSame(
+            'pending_attach_partial',
+            AP_Forum_Front::noticeAfterAttachments('reply_pending', true, false)
+        );
+
+        $saved = $_GET;
+        $_GET['ap_forum_notice'] = 'pending_attach_partial';
+        try {
+            $notice = AP_Forum_Front::getNotice();
+        } finally {
+            $_GET = $saved;
+        }
+        $this->assertNotNull($notice);
+        $this->assertSame('warning', $notice['type']);
+        $this->assertStringContainsString('awaiting moderation', $notice['message']);
+        $this->assertStringContainsString('attachments', $notice['message']);
     }
 
     public function testFormWiringInThemeAndFront(): void

@@ -596,6 +596,11 @@ class AP_Forum_Front
                     'message' => 'Posted, but some attachments were not saved. Check the file type, size and '
                         . 'the per-post limit.',
                 ],
+                'pending_attach_partial' => [
+                    'type' => 'warning',
+                    'message' => 'Your post was submitted and is awaiting moderation, but some attachments '
+                        . 'were not saved. Check the file type, size and the per-post limit.',
+                ],
                 'reply_pending' => [
                     'type' => 'success',
                     'message' => 'Your reply was submitted and is awaiting moderation.',
@@ -773,15 +778,6 @@ class AP_Forum_Front
     // -------------------------------------------------------------------------
 
     /**
-     * Generic denial for a direct forum/topic URL the viewer cannot `view_forum`.
-     *
-     * Strips name/slug so templates and SEO do not advertise the board.
-     *
-     * @param array<string, mixed> $args
-     *
-     * @return array<string, mixed>
-     */
-    /**
      * AP-027: save files from the compose form's ap_forum_attachments[] field.
      * Returns false when any file was refused; the post itself is already saved.
      */
@@ -803,6 +799,28 @@ class AP_Forum_Front
         return $result['errors'] === [];
     }
 
+    /**
+     * AP-027: notice code after attachment processing. A failed attachment
+     * never hides the fact that the post is awaiting moderation.
+     */
+    public static function noticeAfterAttachments(string $notice, bool $pending, bool $attachmentsOk): string
+    {
+        if ($attachmentsOk) {
+            return $notice;
+        }
+
+        return $pending ? 'pending_attach_partial' : 'attach_partial';
+    }
+
+    /**
+     * Generic denial for a direct forum/topic URL the viewer cannot `view_forum`.
+     *
+     * Strips name/slug so templates and SEO do not advertise the board.
+     *
+     * @param array<string, mixed> $args
+     *
+     * @return array<string, mixed>
+     */
     private static function denyUnviewableForum(array $args): array
     {
         $args['ap_forum_cannot_view'] = true;
@@ -1139,9 +1157,8 @@ class AP_Forum_Front
         $pending = $created !== null && (int) ($created->topic_approved ?? 1) !== 1;
         $notice = $pending ? 'topic_pending' : 'topic_created';
         // AP-027: attach uploaded files to the topic's first post.
-        if (!self::processAttachmentUploads($userId, (int) ($created->first_post_id ?? 0), $forumId, $db)) {
-            $notice = 'attach_partial';
-        }
+        $attachOk = self::processAttachmentUploads($userId, (int) ($created->first_post_id ?? 0), $forumId, $db);
+        $notice = self::noticeAfterAttachments($notice, $pending, $attachOk);
 
         // Compose checkbox only — start never auto-watches.
         if (self::watchFromComposeAndMaybeFlipMaster($userId, $topicId, $forumId, $post, $db) && !$pending) {
@@ -1248,9 +1265,8 @@ class AP_Forum_Front
         $pending = $createdPost !== null && (int) ($createdPost->post_approved ?? 1) !== 1;
         $notice = $pending ? 'reply_pending' : 'reply_posted';
         // AP-027: attach uploaded files to the new reply.
-        if (!self::processAttachmentUploads($userId, $postId, $forumId, $db)) {
-            $notice = 'attach_partial';
-        }
+        $attachOk = self::processAttachmentUploads($userId, $postId, $forumId, $db);
+        $notice = self::noticeAfterAttachments($notice, $pending, $attachOk);
 
         // Compose checkbox only — reply never auto-watches.
         if (self::watchFromComposeAndMaybeFlipMaster($userId, $topicId, $forumId, $post, $db) && !$pending) {
